@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Creative Editor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- top-left menus -->
+<div id="menubar" class="floating">
+  <div class="menu" data-menu="file">File
+    <div class="dropdown">
+      <button data-cmd="new">New</button>
+      <button data-cmd="exportPng">Export PNG</button>
+    </div>
+  </div>
+  <div class="menu" data-menu="edit">Edit
+    <div class="dropdown">
+      <button data-cmd="undo">Undo <span>⌘Z</span></button>
+      <button data-cmd="redo">Redo <span>⇧⌘Z</span></button>
+      <button data-cmd="duplicate">Duplicate <span>⌘D</span></button>
+      <button data-cmd="delete">Delete <span>⌫</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- left: tools + pages/layers -->
+<div id="leftPanel" class="floating">
+  <div id="toolsRail">
+    <button class="tool active" data-tool="select" title="Select (V)">➤</button>
+    <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
+    <button class="tool" data-tool="ellipse" title="Ellipse (O)">◯</button>
+    <button class="tool" data-tool="text" title="Text (T)">T</button>
+  </div>
+  <div id="sidebar">
+    <div class="sideHead">Pages</div>
+    <div class="pageRow">Page 1</div>
+    <div class="sideHead">Layers</div>
+    <div id="layerList"></div>
+  </div>
+</div>
+
+<!-- canvas -->
+<div id="stage">
+  <canvas id="out"></canvas>
+  <div id="emptyHint">Nothing here yet.<br><span>Type a prompt below and Generate — or pick a shape tool.</span></div>
+</div>
+
+<!-- right: inspector -->
+<div id="rightPanel" class="floating">
+  <div class="rp-head">Position <span class="sep">|</span> size</div>
+  <div id="posSection" class="disabled">
+    <div class="grid4">
+      <label>X<input type="number" id="pX" step="1"></label>
+      <label>Y<input type="number" id="pY" step="1"></label>
+      <label>W<input type="number" id="pW" step="1"></label>
+      <label>H<input type="number" id="pH" step="1"></label>
+    </div>
+    <div id="alignRow">
+      <button data-align="left" title="Align left">⇤</button>
+      <button data-align="hcenter" title="Center horizontally">⇹</button>
+      <button data-align="right" title="Align right">⇥</button>
+      <button data-align="top" title="Align top">⤒</button>
+      <button data-align="vcenter" title="Center vertically">⇳</button>
+      <button data-align="bottom" title="Align bottom">⤓</button>
+    </div>
+    <label class="slider">Opacity <span id="pOpacityV">100%</span>
+      <input type="range" id="pOpacity" min="5" max="100" value="100">
+    </label>
+  </div>
+
+  <hr>
+
+  <div class="rp-head">Engines</div>
+  <div id="engineSection" class="disabled">
+    <div id="fxPager">
+      <button id="fxPrev">‹</button>
+      <div id="fxTitle">Fill</div>
+      <button id="fxNext">›</button>
+    </div>
+    <div id="fxBody"></div>
+  </div>
+  <div id="noSel" class="hint">Select an element to edit it.</div>
+</div>
+
+<!-- bottom: agentic bar -->
+<div id="agentBar" class="floating">
+  <button id="attachBtn" title="Attach one reference image (or Ctrl+V)">🖼</button>
+  <div id="attachChip" style="display:none"><img id="attachThumb" alt=""><button id="attachX">×</button></div>
+  <input id="prompt" type="text" placeholder="Describe the creative… e.g. Generate the creative with red purple yellow color shades">
+  <span id="agentStatus"></span>
+  <button id="generateBtn">Generate</button>
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
