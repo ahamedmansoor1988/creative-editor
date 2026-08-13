@@ -17,6 +17,20 @@ const DEFAULT_EFFECTS=()=>({
   shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
   grain:{amount:0},
 });
+const DEFAULT_ENGINE=()=>({
+  mode:'none', bands:4, gap:10, vary:0.6, window:0.7, empty:0.15,
+  seed:Math.floor(Math.random()*99999999),
+});
+
+function mulberry32(seed){
+  let a=seed>>>0;
+  return function(){
+    a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
 
 function normalizeDoc(d){
   const f=d.frame;
@@ -40,7 +54,29 @@ function normalizeDoc(d){
         c.fill.angle=+c.fill.angle||0;
       }
     }
-    c.effects=Object.assign(DEFAULT_EFFECTS(), c.effects||{});
+    {
+      // deep-merge per effect: the model may send partial objects like
+      // {"shadow":{"on":true}} and must not wipe the other fields
+      const de=DEFAULT_EFFECTS(), ce=c.effects||{};
+      const sh=Object.assign(de.shadow, ce.shadow||{});
+      sh.on=!!sh.on; sh.x=clamp(+sh.x||0,-100,100); sh.y=clamp(+sh.y||0,-100,100);
+      sh.blur=clamp(+sh.blur||0,0,150); sh.alpha=clamp(+sh.alpha||0,0,1);
+      if(!/^#[0-9a-fA-F]{6}$/.test(sh.color||'')) sh.color='#000000';
+      const gr=Object.assign(de.grain, ce.grain||{});
+      gr.amount=clamp(+gr.amount||0,0,1);
+      c.effects={shadow:sh, grain:gr};
+    }
+    if(c.type!=='text'){
+      const e=Object.assign(DEFAULT_ENGINE(), c.engine||{});
+      e.mode=['rows','columns','grid','mixed'].includes(e.mode)?e.mode:'none';
+      e.bands=clamp(Math.round(+e.bands||4),1,14);
+      e.gap=clamp(+e.gap||0,0,60);
+      e.vary=clamp(+e.vary||0,0,1);
+      e.window=clamp(e.window===undefined?0.7:+e.window,0,1);
+      e.empty=clamp(+e.empty||0,0,0.8);
+      e.seed=Math.floor(+e.seed)||DEFAULT_ENGINE().seed;
+      c.engine=e;
+    }
     return c;
   });
   return d;
@@ -106,6 +142,126 @@ function hexAlpha(hex,a){
   const n=parseInt(hex.slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
 }
+
+/* ---------- pattern engine (ported from the gradient tool) ---------- */
+function hexToRgbArr(h){const n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];}
+function rgbToHexStr(c){return '#'+c.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('');}
+// The object's own fill doubles as the engine palette.
+function enginePalette(obj){
+  if(obj.fill.kind!=='solid') return [...obj.fill.stops].sort((a,b)=>a.pos-b.pos);
+  const c=hexToRgbArr(obj.fill.color);
+  const dark=c.map(v=>v*0.25);
+  return [{pos:0,color:rgbToHexStr(dark)},{pos:1,color:obj.fill.color}];
+}
+function samplePalette(pal,t){
+  t=clamp(t,0,1);
+  if(t<=pal[0].pos) return pal[0].color;
+  if(t>=pal[pal.length-1].pos) return pal[pal.length-1].color;
+  for(let i=0;i<pal.length-1;i++){
+    const a=pal[i],b=pal[i+1];
+    if(t>=a.pos&&t<=b.pos){
+      const sp=b.pos-a.pos,k=sp<=0?0:(t-a.pos)/sp;
+      const ca=hexToRgbArr(a.color),cb=hexToRgbArr(b.color);
+      return rgbToHexStr([ca[0]+(cb[0]-ca[0])*k,ca[1]+(cb[1]-ca[1])*k,ca[2]+(cb[2]-ca[2])*k]);
+    }
+  }
+  return pal[pal.length-1].color;
+}
+// A sub-range of the palette as exact gradient stops (t1<t0 = reversed).
+function windowStops(pal,t0,t1){
+  const rev=t1<t0, lo=Math.min(t0,t1), hi=Math.max(t0,t1), span=hi-lo;
+  const out=[{pos:0,color:samplePalette(pal,lo)}];
+  if(span>1e-6) pal.forEach(p=>{
+    if(p.pos>lo+1e-6&&p.pos<hi-1e-6) out.push({pos:(p.pos-lo)/span,color:p.color});
+  });
+  out.push({pos:1,color:samplePalette(pal,hi)});
+  return rev?out.map(s=>({pos:1-s.pos,color:s.color})).reverse():out;
+}
+function pickWindow(rng,amt){
+  if(amt<=0.001) return rng()<0.5?[0,1]:[1,0];
+  const minW=1-(1-0.16)*amt;
+  const w=minW+rng()*(1-minW)*(1-0.45*amt);
+  const start=rng()*(1-w);
+  return rng()<0.5?[start,start+w]:[start+w,start];
+}
+/* Split the object's box into pattern segments. Coordinates are frame px. */
+function engineInstances(obj){
+  const E=obj.engine;
+  const pal=enginePalette(obj);
+  const rng=mulberry32(E.seed);
+  const baseAngle=obj.fill.kind==='solid'?0:(obj.fill.angle||0);
+  const out=[];
+  const seg=(x,y,w,h)=>{
+    const [t0,t1]=pickWindow(rng,E.window);
+    let angle=baseAngle;
+    const r=rng();
+    if(r<0.42) angle=(angle+180)%360;
+    out.push({x,y,w,h,angle,stops:windowStops(pal,t0,t1)});
+  };
+  const B=E.bands, g=E.gap;
+  const bx=obj.x, by=obj.y, bw=obj.w, bh=obj.h;
+  const varyOf=base=>base*(1-E.vary*0.5+rng()*E.vary);
+
+  if(E.mode==='rows'||E.mode==='mixed'){
+    const rowH=(bh-(B-1)*g)/B;
+    if(rowH<2) return out;
+    for(let i=0;i<B;i++){
+      const y=by+i*(rowH+g);
+      let x=bx+(E.mode==='mixed'&&rng()<0.5?rng()*bw*0.12:0);
+      let guard=0;
+      const baseW=bw/3;
+      while(x<bx+bw-4 && guard++<60){
+        const w=clamp(varyOf(baseW),8,bx+bw-x);
+        if(rng()>=E.empty) seg(x,y,w,rowH);
+        x+=w+g;
+      }
+    }
+  } else if(E.mode==='columns'){
+    const colW=(bw-(B-1)*g)/B;
+    if(colW<2) return out;
+    for(let i=0;i<B;i++){
+      const x=bx+i*(colW+g);
+      let y=by, guard=0;
+      const baseH=bh/3;
+      while(y<by+bh-4 && guard++<60){
+        const h=clamp(varyOf(baseH),8,by+bh-y);
+        if(rng()>=E.empty) seg(x,y,colW,h);
+        y+=h+g;
+      }
+    }
+  } else { // grid
+    const cols=Math.max(1,Math.round(bw/(bh/B)));
+    const cw=(bw-(cols-1)*g)/cols, chh=(bh-(B-1)*g)/B;
+    if(cw<2||chh<2) return out;
+    for(let r2=0;r2<B;r2++) for(let c2=0;c2<cols;c2++){
+      if(rng()<E.empty) continue;
+      const w=clamp(varyOf(cw),cw*0.2,cw), h=clamp(varyOf(chh),chh*0.2,chh);
+      seg(bx+c2*(cw+g)+(cw-w)/2, by+r2*(chh+g)+(chh-h)/2, w, h);
+    }
+  }
+  return out;
+}
+function drawEngine(c,obj){
+  const rad=Math.min(obj.radius||0, 24);
+  engineInstances(obj).forEach(s2=>{
+    const a=s2.angle*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
+    const cx=s2.x+s2.w/2, cy=s2.y+s2.h/2, ext=Math.abs(dx)*s2.w/2+Math.abs(dy)*s2.h/2;
+    const g=c.createLinearGradient(cx-dx*ext,cy-dy*ext,cx+dx*ext,cy+dy*ext);
+    s2.stops.forEach(st=>g.addColorStop(st.pos,st.color));
+    c.fillStyle=g;
+    const r=Math.min(rad,s2.w/2,s2.h/2);
+    c.beginPath();
+    if(r>0.5){
+      c.moveTo(s2.x+r,s2.y);
+      c.arcTo(s2.x+s2.w,s2.y,s2.x+s2.w,s2.y+s2.h,r);
+      c.arcTo(s2.x+s2.w,s2.y+s2.h,s2.x,s2.y+s2.h,r);
+      c.arcTo(s2.x,s2.y+s2.h,s2.x,s2.y,r);
+      c.arcTo(s2.x,s2.y,s2.x+s2.w,s2.y,r);
+      c.closePath();
+    } else c.rect(s2.x,s2.y,s2.w,s2.h);
+    c.fill();
+  });
+}
 function drawDoc(c,W,H){
   const f=doc.frame;
   c.fillStyle=f.bg; c.fillRect(0,0,W,H);
@@ -122,8 +278,14 @@ function drawDoc(c,W,H){
       c.restore(); return;
     }
     const b={x:obj.x,y:obj.y,w:obj.w,h:obj.h};
-    c.fillStyle=fillStyleFor(c,obj,b);
-    pathFor(c,obj); c.fill();
+    if(obj.engine && obj.engine.mode!=='none'){
+      // Pattern engine: the box becomes an area filled with varied
+      // gradient segments drawn from the object's own palette.
+      drawEngine(c,obj);
+    } else {
+      c.fillStyle=fillStyleFor(c,obj,b);
+      pathFor(c,obj); c.fill();
+    }
     c.shadowColor='transparent';
     const gr=obj.effects.grain;
     if(gr.amount>0){
@@ -192,7 +354,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Fill','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -215,10 +377,51 @@ function syncInspector(){
 function buildFx(obj){
   const pages=FX_PAGES(obj);
   fxPage=clamp(fxPage,0,pages.length-1);
-  $('fxTitle').textContent=`${pages[fxPage]}  ·  ${fxPage+1}/${pages.length}`;
+  $('fxTitle').textContent=pages[fxPage];
+  $('fxPager').style.display=pages.length>1?'':'none';
   const body=$('fxBody'); body.innerHTML='';
   const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
   const page=pages[fxPage];
+
+  if(page==='Pattern'){
+    const E=obj.engine;
+    add(`<label class="slider">Mode
+      <select id="enMode">
+        <option value="none">Off — plain fill</option>
+        <option value="rows">Rows</option>
+        <option value="mixed">Rows (loose)</option>
+        <option value="columns">Columns</option>
+        <option value="grid">Grid</option>
+      </select></label>`);
+    $('enMode').value=E.mode;
+    $('enMode').addEventListener('change',e=>{ E.mode=e.target.value; pushHistory(); refresh(); });
+    if(E.mode!=='none'){
+      const sl=(id,label,min,max,val,fmt)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
+      };
+      sl('enBands','Bands',1,14,E.bands,v=>v);
+      sl('enGap','Gap',0,40,E.gap,v=>v+'px');
+      sl('enVary','Size variation',0,100,Math.round(E.vary*100),v=>v+'%');
+      sl('enWin','Palette window',0,100,Math.round(E.window*100),v=>v+'%');
+      sl('enEmpty','Empty slots',0,80,Math.round(E.empty*100),v=>v+'%');
+      const wire=(id,f,fmt)=>{
+        $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      wire('enBands',v=>E.bands=v,v=>v);
+      wire('enGap',v=>E.gap=v,v=>v+'px');
+      wire('enVary',v=>E.vary=v/100,v=>v+'%');
+      wire('enWin',v=>E.window=v/100,v=>v+'%');
+      wire('enEmpty',v=>E.empty=v/100,v=>v+'%');
+      add(`<button class="rollBtn" id="enRoll">↻ Reroll pattern</button>`);
+      $('enRoll').addEventListener('click',()=>{
+        E.seed=Math.floor(Math.random()*99999999);
+        pushHistory(); render();
+      });
+      add(`<div class="fxHint">Colors come from this shape's Fill — edit the gradient on the Fill page.</div>`);
+    }
+  }
 
   if(page==='Fill'){
     add(`<label class="slider">Type
@@ -324,6 +527,38 @@ function firstColor(fill){
 $('fxPrev').addEventListener('click',()=>{ fxPage--; syncInspector(); });
 $('fxNext').addEventListener('click',()=>{ fxPage++; syncInspector(); });
 
+/* engine search: type to find an engine by name, click result to open it */
+$('engineSearch').addEventListener('input',()=>{
+  const obj=doc&&doc.frame.children[sel];
+  const box=$('engineResults');
+  box.innerHTML='';
+  const q=$('engineSearch').value.trim().toLowerCase();
+  if(!obj||!q) return;
+  FX_PAGES(obj).forEach((name,i)=>{
+    if(!name.toLowerCase().includes(q)) return;
+    const b=document.createElement('button');
+    b.type='button'; b.textContent=name;
+    b.addEventListener('click',()=>{
+      fxPage=i;
+      $('engineSearch').value=''; box.innerHTML='';
+      syncInspector();
+    });
+    box.appendChild(b);
+  });
+  if(!box.children.length){
+    const d=document.createElement('div');
+    d.className='noHit'; d.textContent='No engine matches';
+    box.appendChild(d);
+  }
+});
+$('engineSearch').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const first=$('engineResults').querySelector('button');
+    if(first) first.click();
+  }
+  e.stopPropagation();
+});
+
 /* ---- position inputs ---- */
 [['pX','x'],['pY','y'],['pW','w'],['pH','h']].forEach(([id,k])=>{
   $(id).addEventListener('input',e=>{
@@ -417,6 +652,7 @@ function addShapeAt(kind,p){
     x:p.x-80,y:p.y-60,w:160,h:120,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
+  if(obj.type!=='text') obj.engine=DEFAULT_ENGINE();
   f.children.push(obj);
   sel=f.children.length-1; fxPage=0;
   pushHistory(); refresh();
@@ -508,31 +744,54 @@ document.addEventListener('paste',e=>{
 function status(msg,isErr){
   const el=$('agentStatus');
   el.textContent=msg||'';
+  el.title=msg||'';
   el.className=isErr?'err':'';
 }
+async function callGenerate(){
+  const r=await fetch('/api/generate',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      prompt:$('prompt').value.trim(),
+      imageDataUrl:attachedImage||undefined,
+      currentDoc: doc&&doc.frame.children.length ? doc : undefined,
+    })
+  });
+  const data=await r.json();
+  if(!r.ok){
+    const e=new Error(data.error||('HTTP '+r.status));
+    e.status=r.status; e.retryAfter=data.retryAfter;
+    throw e;
+  }
+  return data;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function generate(){
   const prompt=$('prompt').value.trim();
   if(!prompt&&!attachedImage) return;
   $('generateBtn').disabled=true;
   status('Generating…');
   try{
-    const r=await fetch('/api/generate',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        prompt,
-        imageDataUrl:attachedImage||undefined,
-        currentDoc: doc&&doc.frame.children.length ? doc : undefined,
-      })
-    });
-    const data=await r.json();
-    if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
+    let data;
+    try{
+      data=await callGenerate();
+    }catch(e){
+      // Free-tier rate limit: Groq tells us when the window resets, so
+      // wait it out visibly and retry once instead of just failing.
+      if(e.status!==429 || !e.retryAfter || e.retryAfter>120) throw e;
+      for(let t=e.retryAfter;t>0;t--){
+        status(`Rate limit (free tier) — retrying in ${t}s…`,true);
+        await sleep(1000);
+      }
+      status('Generating…');
+      data=await callGenerate();
+    }
     doc=normalizeDoc(data.doc);
     sel=-1; fxPage=0;
     pushHistory(); refresh();
     const u=data.usage;
     status(u?`done · ${u.total_tokens} tokens (${data.model.split('/').pop()})`:'done');
   }catch(e){
-    status(e.message,true);
+    status(e.status===429?'Rate limit (free tier) — give it a minute, then Generate again':e.message,true);
   }finally{
     $('generateBtn').disabled=false;
   }

@@ -97,14 +97,29 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 .disabled{opacity:.35; pointer-events:none;}
 .hint{color:var(--muted); font-size:12px; text-align:center; padding:8px 0;}
 
-/* engines pager */
-#fxPager{display:flex; align-items:center; gap:6px; margin-bottom:10px;}
+/* engines: search on top, name, sliders, pager arrows at the bottom */
+#engineSearchWrap{position:relative; margin-bottom:10px;}
+#engineSearch{
+  width:100%; border:1px solid var(--line); border-radius:8px;
+  padding:7px 9px; font:inherit; background:#fafafa;
+}
+#engineSearch:focus{outline:0; border-color:var(--accent); background:#fff;}
+#engineResults{position:absolute; left:0; right:0; top:100%; margin-top:4px; z-index:5;
+  background:var(--panel); border-radius:8px; box-shadow:var(--shadow); overflow:hidden;}
+#engineResults:empty{display:none;}
+#engineResults button{
+  display:block; width:100%; border:0; background:none; text-align:left;
+  padding:7px 10px; font:inherit; cursor:pointer;
+}
+#engineResults button:hover{background:#e8f0fe;}
+#engineResults .noHit{padding:7px 10px; color:var(--muted); font-size:12px;}
+#fxTitle{text-align:center; font-weight:600; margin-bottom:8px;}
+#fxPager{display:flex; justify-content:center; gap:10px; margin-top:14px;}
 #fxPager button{
-  width:26px; height:26px; border:1px solid var(--line); background:none;
+  width:28px; height:28px; border:1px solid var(--line); background:none;
   border-radius:50%; cursor:pointer; font-size:14px;
 }
 #fxPager button:hover{background:#f3f4f6;}
-#fxTitle{flex:1; text-align:center; font-weight:600;}
 #fxBody .row2{display:grid; grid-template-columns:1fr 1fr; gap:7px;}
 #fxBody select, #fxBody input[type=text]{
   width:100%; border:1px solid var(--line); border-radius:6px; padding:5px 6px; font:inherit;
@@ -115,6 +130,13 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #fxBody .stopRow{display:flex; gap:6px; align-items:center; margin:6px 0;}
 #fxBody .stopRow input[type=color]{flex:0 0 40px;}
 #fxBody .stopRow input[type=range]{flex:1; accent-color:var(--accent);}
+
+.rollBtn{
+  width:100%; border:1px solid var(--line); background:none; border-radius:7px;
+  padding:6px 0; font:inherit; cursor:pointer; margin-top:4px;
+}
+.rollBtn:hover{border-color:var(--accent); color:var(--accent);}
+.fxHint{color:var(--muted); font-size:11px; line-height:1.5; margin-top:8px;}
 
 /* ---------- agent bar ---------- */
 #agentBar{
@@ -133,7 +155,10 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   border:0; background:#1b1c1f; color:#fff; font-size:10px; line-height:1; cursor:pointer;
 }
 #prompt{flex:1; border:0; outline:0; font:inherit; font-size:14px; background:none;}
-#agentStatus{color:var(--muted); font-size:11.5px; white-space:nowrap;}
+#agentStatus{
+  color:var(--muted); font-size:11.5px; white-space:nowrap;
+  max-width:280px; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto;
+}
 #agentStatus.err{color:#d33;}
 #generateBtn{
   border:1px solid var(--line); background:none; border-radius:999px;

@@ -25,7 +25,7 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const TEXT_MODEL = ENV.TEXT_MODEL || "llama-3.3-70b-versatile";
 const VISION_MODEL = ENV.VISION_MODEL || "qwen/qwen3.6-27b";
 
-const SYSTEM = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:
+const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:
 {"frame":{"name":string,"w":900,"h":600,"bg":"#hex","children":[...]}}
 Each child is one of:
 {"type":"rect","name":string,"x":n,"y":n,"w":n,"h":n,"radius":n,"opacity":0..1,"fill":FILL}
@@ -33,6 +33,39 @@ Each child is one of:
 {"type":"text","name":string,"x":n,"y":n,"text":string,"size":n,"weight":400|600|800,"color":"#hex","align":"left"|"center"}
 FILL is {"kind":"solid","color":"#hex"} or {"kind":"linear","angle":deg,"stops":[{"pos":0,"color":"#hex"},{"pos":1,"color":"#hex"}]} (2-4 stops) or {"kind":"radial","stops":[...]}.
 Rules: coordinates are absolute px inside the frame; 3-10 children; x,y,w,h within bounds; design deliberately - strong palette, clear hierarchy, generous negative space; text must fit its area (size*0.6*chars <= available width).`;
+
+/* Engine/effect registry. Only entries RELEVANT to a request are injected
+ * into the system prompt: matched by prompt keywords, or already in use in
+ * the current document (a modify must never break a capability it cannot
+ * see). This is the piece that scales — with a large catalog the matcher
+ * becomes retrieval, but the prompt cost stays flat. */
+const CAPABILITIES = [
+  {
+    id: "pattern-engine",
+    match: /pattern|stripe|band|rhythm|grid|texture|repeat|rows|columns|mosaic/i,
+    inDoc: d => /"mode":"(rows|columns|grid|mixed)"/.test(d),
+    doc: `A rect/ellipse may add "engine":{"mode":"rows"|"columns"|"grid","bands":2-10,"gap":px,"vary":0..1,"window":0..1,"empty":0..0.5} which fills its box with a rhythmic pattern of gradient segments drawn from its FILL - use for patterns, stripes, bands, rhythm, texture. "engine":{"mode":"none"} disables it.`,
+  },
+  {
+    id: "shadow",
+    match: /shadow|depth|elevat|float|lift|glow/i,
+    inDoc: d => /"shadow":\{"on":true/.test(d),
+    doc: `Any child may add "effects":{"shadow":{"on":true,"x":n,"y":n,"blur":n,"color":"#hex","alpha":0..1}} for a drop shadow (typical: x 0, y 6-16, blur 18-40, alpha 0.2-0.45).`,
+  },
+  {
+    id: "grain",
+    match: /grain|noise|film|gritt|analog/i,
+    inDoc: d => /"grain":\{"amount":0\.\d*[1-9]/.test(d),
+    doc: `A rect/ellipse may add "effects":{"grain":{"amount":0..1}} for film-grain texture on its fill.`,
+  },
+];
+function buildSystem(prompt, currentDoc) {
+  const docStr = currentDoc ? JSON.stringify(currentDoc) : "";
+  const docs = CAPABILITIES
+    .filter(c => c.match.test(prompt || "") || (docStr && c.inDoc(docStr)))
+    .map(c => c.doc);
+  return docs.length ? BASE_SCHEMA + "\nCapabilities available for this request:\n" + docs.join("\n") : BASE_SCHEMA;
+}
 
 function extractJSON(s) {
   s = s.replace(/```json|```/g, "").trim();
@@ -83,7 +116,7 @@ async function generate(body) {
   const payload = {
     model: hasImage ? VISION_MODEL : TEXT_MODEL,
     messages: [
-      { role: "system", content: SYSTEM },
+      { role: "system", content: buildSystem(prompt, currentDoc) },
       { role: "user", content: hasImage ? userContent : instruction },
     ],
     temperature: 0.7,
@@ -103,9 +136,16 @@ async function generate(body) {
   });
   const data = await r.json();
   if (!r.ok) {
-    const msg = (data.error && data.error.message) || `Groq HTTP ${r.status}`;
-    const err = new Error(msg);
+    const raw = (data.error && data.error.message) || `Groq HTTP ${r.status}`;
+    const err = new Error(raw);
     err.status = r.status;
+    if (r.status === 429) {
+      // Groq's message embeds the reset time ("Please try again in 12.3s")
+      const m = raw.match(/try again in ([\d.]+)\s*s/i);
+      err.retryAfter = m ? Math.ceil(parseFloat(m[1]))
+        : (parseInt(r.headers.get("retry-after"), 10) || 20);
+      err.message = `Rate limit (free tier)`;
+    }
     throw err;
   }
   const text = data.choices?.[0]?.message?.content || "";
@@ -128,7 +168,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(out));
       } catch (e) {
         res.writeHead(e.status === 429 ? 429 : 500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(JSON.stringify({ error: e.message, retryAfter: e.retryAfter }));
       }
     });
     return;
