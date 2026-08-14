@@ -7,10 +7,23 @@ const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 
 /* ================= document ================= */
-let doc=null;            // {frame:{name,w,h,bg,children:[]}}
+let pages=[];            // array of {frame:{name,w,h,bg,children:[]}}
+let pageIdx=-1;          // active page
+let doc=null;            // ALIAS of pages[pageIdx] (null when no pages)
+function setActivePage(i){
+  pageIdx=(i>=0&&i<pages.length)?i:-1;
+  doc=pageIdx>=0?pages[pageIdx]:null;
+}
+/** Replace the ACTIVE page's document (or append as a new page when none). */
+function setActiveDoc(d){
+  if(pageIdx<0){ pages.push(d); pageIdx=pages.length-1; }
+  else pages[pageIdx]=d;
+  doc=d;
+}
 let sel=-1;              // index into children
 let selInstance=null;    // derived instance under inspection (never editable)
 let tool='select';
+let viewMode='fit';      // 'fit' | 'actual'
 let fxPage=0;            // engines pager
 
 const DEFAULT_EFFECTS=()=>({
@@ -168,12 +181,17 @@ function newDoc(){
 const hist={stack:[],i:-1};
 function pushHistory(){
   hist.stack=hist.stack.slice(0,hist.i+1);
-  hist.stack.push(JSON.stringify(doc));
+  hist.stack.push(JSON.stringify({pages,pageIdx}));
   if(hist.stack.length>60) hist.stack.shift();
   hist.i=hist.stack.length-1;
 }
-function undo(){ if(hist.i>0){ hist.i--; doc=JSON.parse(hist.stack[hist.i]); sel=-1; selInstance=null; refresh(); } }
-function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; doc=JSON.parse(hist.stack[hist.i]); sel=-1; selInstance=null; refresh(); } }
+function restoreSnapshot(json){
+  const s=JSON.parse(json);
+  pages=s.pages||[]; setActivePage(s.pageIdx);
+  sel=-1; selInstance=null; refresh();
+}
+function undo(){ if(hist.i>0){ hist.i--; restoreSnapshot(hist.stack[hist.i]); } }
+function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; restoreSnapshot(hist.stack[hist.i]); } }
 
 /* ================= render ================= */
 const canvas=$('out'), ctx=canvas.getContext('2d');
@@ -412,8 +430,9 @@ function render(){
   if(!has){ canvas.width=1; canvas.height=1; return; }
   const f=doc.frame;
   const stage=$('stage'), pad=40;
+  stage.classList.toggle('actual', viewMode==='actual');
   const availW=stage.clientWidth-pad, availH=stage.clientHeight-pad;
-  const scale=Math.min(1.5, availW/f.w, availH/f.h);
+  const scale=viewMode==='actual' ? 1 : Math.min(1.5, availW/f.w, availH/f.h);
   canvas.width=Math.round(f.w*scale); canvas.height=Math.round(f.h*scale);
   ctx.setTransform(scale,0,0,scale,0,0);
   drawDoc(ctx,f.w,f.h);
@@ -912,17 +931,22 @@ function deleteSel(){
 }
 /* ---------------- New Page flow ---------------- */
 function openPageModal(){
-  if(doc && doc.frame.children.length &&
-     !confirm('Replace the current page? (Undo brings it back)')) return;
+  $('npName').value='Page '+(pages.length+1);
   $('pageModal').style.display='flex';
 }
 function closePageModal(){ $('pageModal').style.display='none'; }
 function syncPageRow(){
-  const row=$('pageRow');
-  if(doc){
-    row.style.display='';
-    row.textContent=`${doc.frame.name} · ${doc.frame.w}×${doc.frame.h}`;
-  } else row.style.display='none';
+  const list=$('pageList'); list.innerHTML='';
+  pages.forEach((pg,i)=>{
+    const row=document.createElement('div');
+    row.className='pageRow'+(i===pageIdx?' sel':'');
+    row.textContent=pg.frame.name;
+    row.title=`${pg.frame.w}×${pg.frame.h}`;
+    row.addEventListener('click',()=>{
+      setActivePage(i); sel=-1; selInstance=null; refresh();
+    });
+    list.appendChild(row);
+  });
 }
 function createPage(){
   const w=clamp(Math.round(+$('npW').value)||900,100,4000);
@@ -937,7 +961,9 @@ function createPage(){
       fill:{kind:'linear',angle:+$('npAng').value,
             stops:[{pos:0,color:$('npG1').value},{pos:1,color:$('npG2').value}]}});
   }
-  doc=normalizeDoc({frame:{name:'Page 1',w,h,bg:gradient?$('npG1').value:bg,children}});
+  const name=($('npName').value||'').trim()||('Page '+(pages.length+1));
+  pages.push(normalizeDoc({frame:{name,w,h,bg:gradient?$('npG1').value:bg,children}}));
+  setActivePage(pages.length-1);
   sel=-1; selInstance=null;
   closePageModal();
   pushHistory(); refresh();
@@ -972,7 +998,20 @@ $('btnEmptyNew').addEventListener('click',openPageModal);
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
+  zoomFit(){ viewMode='fit'; render(); },
+  zoomActual(){ viewMode='actual'; render(); },
 };
+/* Effects menu: jump the inspector to that engine for the selected object. */
+document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
+  b.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
+    const obj=doc&&doc.frame.children[sel];
+    if(!obj) return;
+    const i=FX_PAGES(obj).indexOf(b.dataset.fx);
+    if(i>=0){ fxPage=i; syncInspector(); }
+  });
+});
 document.querySelectorAll('.dropdown button').forEach(b=>{
   b.addEventListener('click',e=>{ e.stopPropagation();
     document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
@@ -1064,7 +1103,7 @@ async function generate(){
       status('Generating…');
       data=await callGenerate();
     }
-    doc=normalizeDoc(data.doc);
+    setActiveDoc(normalizeDoc(data.doc));
     sel=-1; fxPage=0;
     pushHistory(); refresh();
     const u=data.usage;
@@ -1105,10 +1144,11 @@ probeProvider();
 
 /* ================= init ================= */
 window.addEventListener('resize',render);
-doc=null; pushHistory(); refresh();      // start with NO page — user creates one
+setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
 
 /* test hook */
-window.__editor={ get doc(){return doc;}, set doc(d){doc=normalizeDoc(d); sel=-1; selInstance=null; pushHistory(); refresh();},
+window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); sel=-1; selInstance=null; pushHistory(); refresh();},
+  get pages(){return pages;}, get pageIdx(){return pageIdx;}, setActivePage,
   get sel(){return sel;}, set sel(i){sel=i; fxPage=0; refresh();},
   get selInstance(){return selInstance;},
   render, refresh, normalizeDoc,

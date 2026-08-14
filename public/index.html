@@ -24,6 +24,20 @@
       <button data-cmd="delete">Delete <span>⌫</span></button>
     </div>
   </div>
+  <div class="menu" data-menu="view">View
+    <div class="dropdown">
+      <button data-cmd="zoomFit">Fit page</button>
+      <button data-cmd="zoomActual">Actual size <span>100%</span></button>
+    </div>
+  </div>
+  <div class="menu" data-menu="effects">Effects
+    <div class="dropdown">
+      <button data-fx="Pattern">Pattern</button>
+      <button data-fx="Fill">Fill</button>
+      <button data-fx="Shadow">Shadow</button>
+      <button data-fx="Grain">Grain</button>
+    </div>
+  </div>
 </div>
 
 <!-- left: tools + pages/layers -->
@@ -35,10 +49,9 @@
     <button class="tool" data-tool="text" title="Text (T)">T</button>
   </div>
   <div id="sidebar">
-    <div class="sideHead">Pages</div>
-    <div class="pageRow" id="pageRow" style="display:none"></div>
-    <button class="btn" id="btnNewPage" style="width:100%; margin-bottom:10px">＋ New page</button>
-    <div class="sideHead">Layers</div>
+    <div class="sideHead"><span>Pages</span><button id="btnNewPage" title="New page">＋</button></div>
+    <div id="pageList"></div>
+    <div class="sideHead"><span>Layers</span></div>
     <div id="layerList"></div>
   </div>
 </div>
@@ -57,6 +70,8 @@
 <div id="pageModal" style="display:none">
   <div class="modal">
     <h3>New page</h3>
+    <div class="mSec">Name</div>
+    <input type="text" id="npName" value="Page 1">
     <div class="mSec">Size</div>
     <div id="sizeChips">
       <button data-w="900"  data-h="600"  class="on">Landscape<br><em>900×600</em></button>
