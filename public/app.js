@@ -426,7 +426,7 @@ function boxOf(obj){ return obj.type==='text'?textBox(obj):{x:obj.x,y:obj.y,w:ob
 
 function render(){
   const has=!!doc && doc.frame.children!==undefined;
-  $('emptyHint').style.display = doc&&doc.frame.children.length ? 'none':'';
+  canvas.style.display=has?'':'none';   // nothing on the stage until a page exists
   if(!has){ canvas.width=1; canvas.height=1; return; }
   const f=doc.frame;
   const stage=$('stage'), pad=40;
@@ -993,7 +993,6 @@ $('npCreate').addEventListener('click',createPage);
 $('npCancel').addEventListener('click',closePageModal);
 $('pageModal').addEventListener('click',e=>{ if(e.target.id==='pageModal') closePageModal(); });
 $('btnNewPage').addEventListener('click',openPageModal);
-$('btnEmptyNew').addEventListener('click',openPageModal);
 
 const CMDS={
   new:openPageModal,

@@ -242,7 +242,11 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(PUB)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); res.end("not found"); return; }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[path.extname(file)] || "application/octet-stream",
+      // dev server: always revalidate so UI changes are never masked by cache
+      "Cache-Control": "no-cache",
+    });
     res.end(buf);
   });
 });
