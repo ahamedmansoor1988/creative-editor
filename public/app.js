@@ -848,11 +848,65 @@ function syncInspector(){
   buildFx(obj);
 }
 
+/* Is this engine doing anything on this object? Drives the dot in the engine
+ * menu, so "which effects are on this shape" is answerable at a glance rather
+ * than by paging through all ten. */
+function fxActive(obj,name){
+  const e=obj.effects||{};
+  switch(name){
+    case 'Pattern':  return !!obj.pattern;
+    case 'Fill':     return obj.fill&&obj.fill.kind!=='solid';
+    case 'Gradient': return !!(e.gradient&&e.gradient.on);
+    case 'Light':    return !!(e.light&&e.light.on);
+    case 'Prism':    return !!(e.prism&&e.prism.on);
+    case 'Blob':     return !!(e.blob&&e.blob.on);
+    case 'Glass':    return !!(e.glass&&e.glass.on);
+    case 'Glass 2':  return !!(e.glass2&&e.glass2.on);
+    case 'Shadow':   return !!(e.shadow&&e.shadow.on);
+    case 'Grain':    return !!(e.grain&&e.grain.amount>0);
+    default:         return false;
+  }
+}
+/* The engine name doubles as the picker. The ‹ › pager still works, but it is
+ * the only affordance that scrolls off the bottom of a long panel, so it
+ * cannot be the only way to reach an engine. */
+function buildFxMenu(obj,pages){
+  const menu=$('fxMenu');
+  menu.innerHTML='';
+  pages.forEach((name,i)=>{
+    const b=document.createElement('button');
+    b.type='button'; b.setAttribute('role','menuitem');
+    if(i===fxPage) b.classList.add('cur');
+    if(fxActive(obj,name)) b.classList.add('on');
+    const dot=document.createElement('span'); dot.className='dot';
+    b.appendChild(dot);
+    b.appendChild(document.createTextNode(name));
+    b.addEventListener('click',ev=>{
+      ev.stopPropagation();
+      fxPage=i; closeFxMenu(); syncInspector();
+    });
+    menu.appendChild(b);
+  });
+}
+function closeFxMenu(){
+  $('fxTitleWrap').classList.remove('open');
+  $('fxTitle').setAttribute('aria-expanded','false');
+}
+$('fxTitle').addEventListener('click',e=>{
+  e.stopPropagation();
+  const w=$('fxTitleWrap'), open=!w.classList.contains('open');
+  w.classList.toggle('open',open);
+  $('fxTitle').setAttribute('aria-expanded',String(open));
+});
+document.addEventListener('click',closeFxMenu);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFxMenu(); });
+
 /* ---- engines panel ---- */
 function buildFx(obj){
   const pages=FX_PAGES(obj);
   fxPage=clamp(fxPage,0,pages.length-1);
   $('fxTitle').textContent=pages[fxPage];
+  buildFxMenu(obj,pages);
   $('fxPager').style.display=pages.length>1?'':'none';
   const body=$('fxBody'); body.innerHTML='';
   const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
@@ -1190,6 +1244,22 @@ function buildFx(obj){
       add(`<label class="slider"><input type="checkbox" id="prOn" ${R.on?'checked':''}> Enable prism</label>`);
       $('prOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
       if(R.on){
+        // The prism ADDS light. On a white page it adds white to white and the
+        // result is an apparently empty canvas, which reads as a broken effect
+        // rather than a wrong background — so say so, and offer the fix.
+        const bg=(doc&&doc.frame.bg)||'#ffffff';
+        const m=/^#([0-9a-f]{6})$/i.exec(bg);
+        const lum=m?(()=>{const n=parseInt(m[1],16);
+          return (0.2126*((n>>16)&255)+0.7152*((n>>8)&255)+0.0722*(n&255))/255;})():1;
+        if(lum>0.45){
+          add(`<div class="fxWarn">This page background is light. The prism adds
+            light, so on a pale page there is nothing to see — the fan is there
+            but it is white on white.
+            <button class="rollBtn" id="prDark">Make the page dark</button></div>`);
+          $('prDark').addEventListener('click',()=>{
+            doc.frame.bg='#0b0c0e'; pushHistory(); refresh();
+          });
+        }
         // Slider drags render a draft; the change event that ends the drag
         // renders at full quality. Without this a single pointer move would
         // trigger a full multi-sample accumulation.
