@@ -923,6 +923,9 @@ function render(){ renderDoc(); paint(); }
 
 /* ================= UI sync ================= */
 function refresh(){ render(); syncLayers(); syncInspector(); syncPageRow(); }
+// Text measured before the webfont finishes loading renders with fallback
+// metrics; re-render once fonts settle so text is never left stale.
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ if(doc) render(); });
 
 function syncLayers(){
   const list=$('layerList'); list.innerHTML='';
