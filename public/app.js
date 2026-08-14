@@ -247,17 +247,32 @@ function patternInstances(parent){
   // Pass 1 — intrinsic size + rotation + the AXIS-ALIGNED BOUNDS those imply.
   // Spacing is driven by these actual bounds, never by the parent's size: that
   // substitution was the Stage 1.1 gap bug (see contract §1.2).
+  // Ellipses use their EXACT rotated bounding box — the rectangle formula
+  // (w|cos|+h|sin|) overestimates it, which padded rotated ellipses apart
+  // even at gap 0.
+  const aabb=(w,h,a)=>{
+    const ca=Math.cos(a), sa=Math.sin(a);
+    if(parent.type==='ellipse'){
+      return [Math.sqrt(w*w*ca*ca+h*h*sa*sa), Math.sqrt(w*w*sa*sa+h*h*ca*ca)];
+    }
+    return [w*Math.abs(ca)+h*Math.abs(sa), w*Math.abs(sa)+h*Math.abs(ca)];
+  };
+  // Cell (0,0) is the PARENT itself: the grid grows right of and below it,
+  // so the slot directly under the parent is a real instance, not a void.
   const cell=new Array(total);
+  const [paw,pah]=aabb(pw,ph,0);
+  cell[0]={w:pw,h:ph,rot:0,aw:paw,ah:pah,isParent:true};
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
     const i=r*cols+c;
+    if(i===0) continue;
     const rw=rand01(P.seed,i,R_W);
     const rh=P.lockProportions?rw:rand01(P.seed,i,R_H);
     const w=baseW*(1-(1-MIN_SIZE_FACTOR)*P.widthVariation*rw);
     const h=baseH*(1-(1-MIN_SIZE_FACTOR)*P.heightVariation*rh);
     const rot=P.baseRotation+P.rotationStep*i+
       (P.rotationVariation?(rand01(P.seed,i,R_ROT)*2-1)*P.rotationVariation:0);
-    const a=rot*RAD, ca=Math.abs(Math.cos(a)), sa=Math.abs(Math.sin(a));
-    cell[i]={w,h,rot,aw:w*ca+h*sa,ah:w*sa+h*ca};
+    const [aw,ah]=aabb(w,h,rot*RAD);
+    cell[i]={w,h,rot,aw,ah};
   }
 
   // Pass 2 — row heights are the tallest actual bounds in each row, so rows
@@ -267,14 +282,17 @@ function patternInstances(parent){
 
   // Pass 3 — centres. Horizontal advance is sequential over ACTUAL bounds, so
   // hGap is the exact clear space for every adjacent pair, including at 0.
-  const originX=parent.x+pw+P.hGap, originY=parent.y;
-  let rowCy=originY;
+  // Row 0 chains off the parent (cell 0); later rows left-align to the
+  // parent's left edge so the column beneath it is populated.
+  const pCx=parent.x+pw/2, pCy=parent.y+ph/2;
+  let rowCy=0;
   for(let r=0;r<rows;r++){
-    rowCy = r===0 ? originY+rowH[0]/2 : rowCy+rowH[r-1]/2+P.vGap+rowH[r]/2;
+    rowCy = r===0 ? pCy : rowCy+rowH[r-1]/2+P.vGap+rowH[r]/2;
     let cx=0;
     for(let c=0;c<cols;c++){
       const i=r*cols+c, k=cell[i];
-      cx = c===0 ? originX+k.aw/2 : cx+cell[i-1].aw/2+P.hGap+k.aw/2;
+      if(i===0){ k.cx=pCx; k.cy=pCy; cx=pCx; continue; }
+      cx = c===0 ? parent.x+k.aw/2 : cx+cell[i-1].aw/2+P.hGap+k.aw/2;
       k.cx=cx+r*P.rowOffsetX;
       k.cy=rowCy+c*P.colOffsetY;
       if(P.jitterX) k.cx+=(rand01(P.seed,i,R_JX)*2-1)*P.jitterX;
@@ -283,9 +301,11 @@ function patternInstances(parent){
   }
 
   // Pass 4 — emit. Holes are applied LAST so omitting an instance never moves
-  // the survivors; the slot grid above is already fixed.
+  // the survivors; the slot grid above is already fixed. Cell 0 is the parent
+  // and is never emitted as an instance.
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
     const i=r*cols+c, k=cell[i];
+    if(i===0) continue;
     if(P.holes>0 && rand01(P.seed,i,R_HOLE)<P.holes) continue;
     const x=k.cx-k.w/2, y=k.cy-k.h/2;
     if(!isFinite(x)||!isFinite(y)||!(k.w>0)||!(k.h>0)) continue;
@@ -304,8 +324,17 @@ function patternInstances(parent){
 }
 /** Axis-aligned visual bounds of an instance's rotated geometry. */
 function instanceBounds(o){
-  const a=(o.rot||0)*Math.PI/180, ca=Math.abs(Math.cos(a)), sa=Math.abs(Math.sin(a));
-  const aw=o.w*ca+o.h*sa, ah=o.w*sa+o.h*ca;
+  // Must mirror the layout's aabb(): ellipses get their exact tangent box,
+  // rectangles the rectangle AABB.
+  const a=(o.rot||0)*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+  let aw,ah;
+  if(o.type==='ellipse'){
+    aw=Math.sqrt(o.w*o.w*ca*ca+o.h*o.h*sa*sa);
+    ah=Math.sqrt(o.w*o.w*sa*sa+o.h*o.h*ca*ca);
+  }else{
+    aw=o.w*Math.abs(ca)+o.h*Math.abs(sa);
+    ah=o.w*Math.abs(sa)+o.h*Math.abs(ca);
+  }
   const cx=o.x+o.w/2, cy=o.y+o.h/2;
   return {x:cx-aw/2,y:cy-ah/2,w:aw,h:ah};
 }

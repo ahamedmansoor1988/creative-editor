@@ -38,29 +38,29 @@ beforeAll(() => {
 /* ------------------------------------------------------- 1-4 counts */
 
 describe("1-4 — columns × rows, parent excluded", () => {
-  it("1 — Columns 7, Rows 1 creates seven horizontal instances", () => {
+  it("1 — Columns 7, Rows 1 creates six instances beside the parent", () => {
     const p = withParent({}, { columns: 7, rows: 1, hGap: 5 });
     const inst = editor.patternInstances(p);
-    expect(inst).toHaveLength(7);
+    expect(inst).toHaveLength(6); // parent occupies cell (0,0)
     expect(new Set(inst.map((i) => Math.round(i.y))).size).toBe(1);
   });
 
-  it("2 — Columns 1, Rows 5 creates five vertical instances", () => {
+  it("2 — Columns 1, Rows 5 creates four instances under the parent", () => {
     const p = withParent({}, { columns: 1, rows: 5, vGap: 5 });
     const inst = editor.patternInstances(p);
-    expect(inst).toHaveLength(5);
+    expect(inst).toHaveLength(4); // parent occupies cell (0,0)
     expect(new Set(inst.map((i) => Math.round(i.x))).size).toBe(1);
   });
 
-  it("3 — Columns 4, Rows 3 creates twelve grid instances", () => {
+  it("3 — Columns 4, Rows 3 creates eleven grid instances (12 cells − parent)", () => {
     const p = withParent({}, { columns: 4, rows: 3, hGap: 4, vGap: 4 });
-    expect(editor.patternInstances(p)).toHaveLength(12);
+    expect(editor.patternInstances(p)).toHaveLength(11); // 12 cells − parent
   });
 
   it("4 — the parent is not counted among the instances", () => {
     const p = withParent({}, { columns: 3, rows: 2 });
     const inst = editor.patternInstances(p);
-    expect(inst).toHaveLength(6);
+    expect(inst).toHaveLength(5); // 6 cells − parent
     expect(inst.some((i) => i.id === p.id)).toBe(false);
     expect(editor.doc.frame.children).toHaveLength(1); // parent still standalone
   });
@@ -102,6 +102,7 @@ describe("5-8 — gap is exact clear space between ACTUAL bounds", () => {
     // Row band = min top .. max bottom of that row's instances.
     const band = (r) => {
       const its = inst.filter((i) => Math.floor(i.instanceIndex / 3) === r).map(B);
+      if (r === 0) its.push(B(p)); // parent occupies cell (0,0) of row 0
       return { top: Math.min(...its.map((b) => b.y)), bot: Math.max(...its.map((b) => b.y + b.h)) };
     };
     for (let r = 1; r < 4; r++) expect(band(r).top - band(r - 1).bot).toBeCloseTo(0, 6);
@@ -251,7 +252,9 @@ describe("16-19 — transform", () => {
   });
 
   it("25 — rotated bounds drive spacing: gap 0 still touches when rotated", () => {
-    const p = withParent({}, { columns: 5, rows: 1, hGap: 0, baseRotation: 37 });
+    // rect parent: a rotated rect's AABB exceeds its width, which the pitch
+    // assertion below relies on (an ellipse's exact box does not).
+    const p = withParent({ type: "rect" }, { columns: 5, rows: 1, hGap: 0, baseRotation: 37 });
     const inst = editor.patternInstances(p);
     for (let i = 1; i < inst.length; i++) {
       const prev = B(inst[i - 1]);
@@ -336,7 +339,7 @@ describe("26-28 — limits and malformed input", () => {
     expect(p.pattern.columns).toBe(32);
     expect(p.pattern.columns * p.pattern.rows).toBeLessThanOrEqual(MAX_PATTERN_INSTANCES);
     const inst = editor.patternInstances(p);
-    expect(inst.length).toBe(p.pattern.columns * p.pattern.rows); // a whole grid
+    expect(inst.length).toBe(p.pattern.columns * p.pattern.rows - 1); // whole grid − parent cell
     expect(inst.length).toBeLessThanOrEqual(MAX_PATTERN_INSTANCES);
   });
 
@@ -559,7 +562,7 @@ describe("30/34 — rendering and retired controls", () => {
     };
     ctx.calls.length = 0;
     window.__editor.render();
-    expect(ctx.calls.filter((c) => c.name === "ellipse").length).toBe(4); // parent + 3
+    expect(ctx.calls.filter((c) => c.name === "ellipse").length).toBe(3); // parent + 2 (3 cells − parent)
     expect(ctx.calls.filter((c) => c.name === "rect").length).toBe(0); // no rectangular slices
   });
 

@@ -69,8 +69,12 @@ the UI states the applied limit. Nothing is silently truncated mid-grid.
 
 ## 4. Layout
 
-Block origin is outside the parent: `originX = parent.x + parent.w + hGap`,
-`originY = parent.y`.
+**The parent occupies grid cell (0,0).** Cell 0 is never emitted as an
+instance; every other cell is. Row 0 chains rightward off the parent's own
+bounds; rows ≥ 1 left-align to `parent.x`, so the column directly beneath the
+parent is populated (this was the Stage 1.2 "missing shape under parent" bug).
+A `columns × rows` grid therefore shows `columns × rows` shapes total:
+1 parent + (columns × rows − 1) instances.
 
 Per instance `i = r*columns + c`, all draws seeded and index-addressed (see §6):
 
@@ -85,25 +89,30 @@ Variation is **shrink-only**: at 0 every instance is exactly the base-scaled
 size; at 1 sizes range over `[0.1, 1] × base`, never zero or negative.
 
 **Rotated bounds.** Spacing uses each instance's axis-aligned visual bounding box
-of its _rotated geometry_:
+of its _rotated geometry_. Rectangles use the rectangle AABB; **ellipses use
+their exact tangent box** — the rectangle formula overestimates a rotated
+ellipse's bounds, which padded ellipses apart even at `gap = 0`:
 
 ```
-aabbW = |w·cos θ| + |h·sin θ|
-aabbH = |w·sin θ| + |h·cos θ|
+rect:    aabbW = |w·cos θ| + |h·sin θ|        aabbH = |w·sin θ| + |h·cos θ|
+ellipse: aabbW = √((w·cos θ)² + (h·sin θ)²)   aabbH = √((w·sin θ)² + (h·cos θ)²)
 ```
 
 **Column pitch (exact).** Within a row, centres advance by actual bounds — this
-is the rule that makes `gap = 0` touch:
+is the rule that makes `gap = 0` touch. Cell (0,0) in the chain is the parent
+itself (unrotated bounds):
 
 ```
-cx[r][0] = originX + aabbW[r][0]/2
+cx[0][0] = parent centre                       (the parent, not an instance)
+cx[r][0] = parent.x + aabbW[r][0]/2            (r ≥ 1: left-aligned under parent)
 cx[r][c] = cx[r][c−1] + aabbW[r][c−1]/2 + hGap + aabbW[r][c]/2
 ```
 
-**Row pitch.** `rowH[r] = max over c of aabbH[r][c]`, then
+**Row pitch.** `rowH[r] = max over c of aabbH[r][c]` (row 0 includes the
+parent's bounds), then
 
 ```
-cy[0] = originY + rowH[0]/2
+cy[0] = parent centre y
 cy[r] = cy[r−1] + rowH[r−1]/2 + vGap + rowH[r]/2
 ```
 

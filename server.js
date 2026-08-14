@@ -53,7 +53,7 @@ const CAPABILITIES = [
     inDoc: d => /"pattern":\{/.test(d),
     // Bounded and precise: the client clamps every field again on load, and
     // rows*cols is capped, so a bad value cannot produce runaway instances.
-    doc: `A rect/ellipse may add "pattern":{"columns":1-32,"rows":1-32,"hGap":px,"vGap":px,"baseScale":0.1-2,"widthVariation":0..1,"heightVariation":0..1,"baseRotation":deg,"rotationStep":deg,"mirror":"none"|"horizontal"|"vertical","holes":0..0.9} which REPEATS THAT WHOLE SHAPE as linked duplicate copies laid out beside it in a columns x rows grid. Every copy keeps the shape's exact type, radius, fill and effects - it does NOT slice or subdivide the shape. columns*rows must be <= 400. Use for repetition, patterns, rhythm, grids, rows of items.`,
+    doc: `A rect/ellipse may add "pattern":{"columns":1-32,"rows":1-32,"hGap":px,"vGap":px,"baseScale":0.1-2,"widthVariation":0..1,"heightVariation":0..1,"baseRotation":deg,"rotationStep":deg,"mirror":"none"|"horizontal"|"vertical","holes":0..0.9} which REPEATS THAT WHOLE SHAPE as linked duplicate copies in a columns x rows grid; the shape itself occupies the grid's first cell. Every copy keeps the shape's exact type, radius, fill and effects - it does NOT slice or subdivide the shape. columns*rows must be <= 400. Use for repetition, patterns, rhythm, grids, rows of items.`,
   },
   {
     id: "shadow",
