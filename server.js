@@ -86,6 +86,18 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"prism":{"on":true,"shape":0-8,"thickness":0.01-3,"ior":1-2.4,"dispersion":0-0.6,"body":0-1,"azimuth":-180-180,"elevation":-89-89,"intensity":0-8,"width":0.005-2,"bend":-180-180,"fan":0-60,"bands":0-24,"spectrum":0|1,"colorA":"#hex","colorB":"#hex","glassScatter":0-8,"airScatter":0-1,"blend":"add"|"normal"}} which makes the shape a glass PRISM: a collimated beam enters it, refracts, and a spectrum fans out ACROSS THE PAGE past the shape's edges. shape: 0 rounded box, 1 triangular prism, 2 sphere, 3 cylinder, 4 hex prism, 5 octahedron, 6 torus, 7 capsule, 8 cone. "body" is the solid's opacity (1 = opaque object with a spectrum shooting out, 0 = invisible glass, only the light shows) and it takes the shape's own fill colour. "dispersion" is what splits the colours by geometry; "fan" spreads the exit artificially and "bend" swings it off-axis, which is how you get a spectrum out of a flat slab. "bands" > 0 gives discrete ribbons instead of a continuous smear. spectrum 1 uses colorA/colorB instead of a real rainbow. REQUIRES A DARK PAGE BACKGROUND - it is a light effect that adds. Use shape 1 with dispersion 0.13 and fan 0 for a real Newton prism.`,
   },
   {
+    id: "capsule",
+    match: /capsule|pill|lozenge|inner lens|magnif|blister|vitamin|tablet/i,
+    inDoc: d => /"capsule":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"capsule":{"on":true,"lensSize":0.1-1.2,"lensSquash":0.5-1.6,"lensShift":-0.5-0.5,"roughness":0-0.6,"ior":1-2,"dispersion":0-0.06,"absorb":0-3,"tint":"#hex","lensIor":1-2.2,"lensAbsorb":0-8,"lensTint":"#hex","reflection":0-100,"depth":1.1-8}} which renders the shape as a path-traced glass PILL with a lens floating inside it. The pill refracts the page behind it and the inner lens INVERTS and magnifies that content - place it over colourful layers or a gradient background so there is something to bend. "depth" is how far behind the page reads as (higher = stronger inversion), lensTint gives the classic deep-blue lens core. Replaces the fill.`,
+  },
+  {
+    id: "strip",
+    match: /flute|fluted|reeded|ribbed|corrugat|banded glass|privacy glass|shower glass|strip(?!e)/i,
+    inDoc: d => /"strip":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"strip":{"on":true,"bulge":0-1,"ribWidth":0.02-0.5,"angle":-90-90,"thickness":0.01-0.4,"ior":1-2.2,"dispersion":0-0.15,"slopeLimit":0.2-20,"smear":0.1-6}} which renders the shape as FLUTED/REEDED GLASS: vertical half-cylinder ribs that smear whatever is behind the shape into bands with colour-split edges. ribWidth is the rib pitch as a fraction of the shape's short side; "smear" is how far behind the page reads as (more = stronger banding); "angle" tilts the ribs. Needs colourful content or text layered BEHIND the shape. Replaces the fill.`,
+  },
+  {
     id: "gradient",
     match: /gradient|stripe|band|ramp|spectrum|risograph|retro|swatch|colou?r ?field|sunset|aurora/i,
     inDoc: d => /"gradient":\{[^}]*"on":true/.test(d),

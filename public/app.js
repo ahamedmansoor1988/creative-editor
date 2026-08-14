@@ -25,10 +25,10 @@ let selInstance=null;    // derived instance under inspection (never editable)
 let tool='select';
 let viewMode='fit';      // 'fit' | 'actual'
 let fxPage=0;            // engines pager
-/* Prism accumulates samples synchronously, so a full-quality pass is far too
- * slow to run on every pointer move. Slider `input` renders a draft; the
- * `change` that ends the drag renders properly. */
-let prismDraft=false;
+/* Prism and Capsule accumulate samples synchronously, so a full-quality pass
+ * is far too slow to run on every pointer move. Slider `input` renders a
+ * draft; the `change` that ends the drag renders properly. */
+let fxDraft=false;
 
 const DEFAULT_EFFECTS=()=>({
   shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
@@ -57,6 +57,14 @@ const DEFAULT_EFFECTS=()=>({
          // measured on this machine: ~90ms for a 1020x680 page at these
          // settings, and the draft path is ~10ms, so a drag stays responsive
          steps:56,quality:96,scale:0.6},
+  // path-traced glass pill with an inner lens, from the Glass Capsule app
+  capsule:{on:false,lensSize:0.67,lensSquash:1.15,lensShift:0.02,roughness:0.13,
+           ior:1.47,dispersion:0.013,absorb:0.45,tint:'#dce8f5',
+           lensIor:1.58,lensAbsorb:3.2,lensTint:'#6f9dcd',
+           reflection:60,depth:12,quality:32,scale:0.6},
+  // fluted/reeded glass panel: ribs smear the page behind into bands
+  strip:{on:false,bulge:0.34,ribWidth:0.12,angle:0,thickness:0.08,
+         ior:1.55,dispersion:0.048,slopeLimit:6,smear:1.6},
   // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -251,6 +259,25 @@ function normalizeDoc(d){
           if(!/^#[0-9a-fA-F]{6}$/.test(pr[k]||'')) pr[k]=de.prism[k];
         });
       }
+      const cap=Object.assign(de.capsule, ce.capsule||{});
+      cap.on=!!cap.on && c.type!=='text';
+      {
+        const n=(k,lo,hi)=>{ const v=+cap[k]; cap[k]=Number.isFinite(v)?clamp(v,lo,hi):de.capsule[k]; };
+        n('lensSize',0.1,1.2); n('lensSquash',0.5,1.6); n('lensShift',-0.5,0.5);
+        n('roughness',0,0.6); n('ior',1,2); n('dispersion',0,0.06); n('absorb',0,3);
+        n('lensIor',1,2.2); n('lensAbsorb',0,8); n('reflection',0,100);
+        n('depth',1.1,30); n('quality',1,128); n('scale',0.15,1);
+        ['tint','lensTint'].forEach(k=>{
+          if(!/^#[0-9a-fA-F]{6}$/.test(cap[k]||'')) cap[k]=de.capsule[k];
+        });
+      }
+      const st=Object.assign(de.strip, ce.strip||{});
+      st.on=!!st.on && c.type!=='text';
+      {
+        const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):de.strip[k]; };
+        n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.01,0.4);
+        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
+      }
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && c.type!=='text';
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -263,7 +290,7 @@ function normalizeDoc(d){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
-      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr};
+      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -631,12 +658,34 @@ function drawDoc(c,W,H){
       // Pattern copies are skipped — each would need its own beam and its own
       // accumulation pass.
       const img=window.PrismEngine.render(W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},
-        Object.assign({},pr,{fill:firstColor(obj.fill)}),prismDraft);
+        Object.assign({},pr,{fill:firstColor(obj.fill)}),fxDraft);
       if(img){
         c.save();
         c.globalAlpha=obj.opacity;
         if(pr.blend==='add') c.globalCompositeOperation='lighter';
         c.drawImage(img,0,0,W,H);
+        c.restore();
+        return;
+      }
+    }
+    const cap=fx.capsule;
+    if(cap&&cap.on&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
+      // Like Glass: the capsule IS the material, refracting everything painted
+      // so far, so the object's own fill is deliberately not painted first.
+      // Pattern copies are skipped — each would need its own trace.
+      window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
+      return;
+    }
+    const st=fx.strip;
+    if(st&&st.on&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
+      // Reeded panel: reads the page behind the box, smears it into ribs,
+      // clipped to the shape's outline. Replaces the fill.
+      const img=window.CapsuleEngine.strip(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},st);
+      if(img){
+        c.save();
+        c.globalAlpha=obj.opacity;
+        pathFor(c,obj); c.clip();
+        c.drawImage(img,obj.x,obj.y,obj.w,obj.h);
         c.restore();
         return;
       }
@@ -804,7 +853,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Prism','Blob','Glass','Glass 2','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -860,6 +909,8 @@ function fxActive(obj,name){
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
+    case 'Capsule':  return !!(e.capsule&&e.capsule.on);
+    case 'Strip':    return !!(e.strip&&e.strip.on);
     case 'Blob':     return !!(e.blob&&e.blob.on);
     case 'Glass':    return !!(e.glass&&e.glass.on);
     case 'Glass 2':  return !!(e.glass2&&e.glass2.on);
@@ -1278,13 +1329,13 @@ function buildFx(obj){
             <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${R[key]}"></label>`);
           $(id).addEventListener('input',e=>{
             R[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value);
-            prismDraft=true; render(); prismDraft=false;
+            fxDraft=true; render(); fxDraft=false;
           });
           $(id).addEventListener('change',()=>{ pushHistory(); render(); });
         };
         const col=(id,label,key)=>{
           add(`<label class="slider">${label} <input type="color" id="${id}" value="${R[key]}"></label>`);
-          $(id).addEventListener('input',e=>{ R[key]=e.target.value; prismDraft=true; render(); prismDraft=false; });
+          $(id).addEventListener('input',e=>{ R[key]=e.target.value; fxDraft=true; render(); fxDraft=false; });
           $(id).addEventListener('change',()=>{ pushHistory(); render(); });
         };
         const f2=v=>(+v).toFixed(2), f3=v=>(+v).toFixed(3);
@@ -1359,6 +1410,67 @@ function buildFx(obj){
         sl('prSteps','March steps',8,192,4,'steps',int);
         sl('prScale','Render scale',0.15,1,0.05,'scale',pct);
         add(`<div class="fxHint">A collimated beam traced forward through the solid — entry refraction, the walk inside, exit refraction — with the exit fan dispersed per wavelength. Ported from the Glass Prism app.<br><br>Unlike the other engines this one accumulates samples, so Quality costs real time; dragging a slider shows a draft. It renders across the whole page rather than clipped to the shape, because the fan has to leave the solid, and it ignores Pattern copies. Designed for a dark background.</div>`);
+      }
+    }
+  }
+
+  if(page==='Capsule'||page==='Strip'){
+    const isCap=page==='Capsule';
+    const E=isCap?obj.effects.capsule:obj.effects.strip;
+    if(!(window.CapsuleEngine&&window.CapsuleEngine.available())){
+      add(`<div class="fxHint">Needs WebGL2 with float render targets, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="cpOn" ${E.on?'checked':''}> Enable ${isCap?'capsule glass':'fluted glass'}</label>`);
+      $('cpOn').addEventListener('change',e=>{ E.on=e.target.checked; pushHistory(); refresh(); });
+      if(E.on){
+        const sl=(id,label,min,max,step,key,fmt)=>{
+          add(`<label class="slider">${label} <span id="${id}V">${fmt(E[key])}</span>
+            <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${E[key]}"></label>`);
+          $(id).addEventListener('input',e=>{
+            E[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value);
+            fxDraft=true; render(); fxDraft=false;
+          });
+          $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+        };
+        const col=(id,label,key)=>{
+          add(`<label class="slider">${label} <input type="color" id="${id}" value="${E[key]}"></label>`);
+          $(id).addEventListener('input',e=>{ E[key]=e.target.value; fxDraft=true; render(); fxDraft=false; });
+          $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+        };
+        const f2=v=>(+v).toFixed(2), f3=v=>(+v).toFixed(3);
+        const deg=v=>Math.round(v)+'°', int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%';
+        if(isCap){
+          add(`<div class="pSect">Inner lens</div>`);
+          sl('cpLens','Lens size',0.1,1.2,0.005,'lensSize',f2);
+          sl('cpSquash','Lens squash',0.5,1.6,0.005,'lensSquash',f2);
+          sl('cpShift','Lens position',-0.5,0.5,0.005,'lensShift',f2);
+          sl('cpRough','Roughness',0,0.6,0.005,'roughness',f2);
+          sl('cpIIor','Lens IOR',1,2.2,0.005,'lensIor',f3);
+          sl('cpIAbs','Lens absorb',0,8,0.05,'lensAbsorb',f2);
+          col('cpITint','Lens tint','lensTint');
+          add(`<div class="pSect">Outer glass</div>`);
+          sl('cpIor','IOR',1,2,0.005,'ior',f3);
+          sl('cpDisp','Dispersion',0,0.06,0.0005,'dispersion',f3);
+          sl('cpAbs','Absorb',0,3,0.01,'absorb',f2);
+          col('cpTint','Absorb tint','tint');
+          sl('cpRefl','Reflection',0,100,1,'reflection',pct);
+          add(`<div class="pSect">Scene</div>`);
+          sl('cpDepth','Page depth',1.1,30,0.1,'depth',f2);
+          add(`<div class="pSect">Output</div>`);
+          sl('cpQual','Quality (samples)',1,128,1,'quality',int);
+          sl('cpScale','Render scale',0.15,1,0.05,'scale',v=>Math.round(v*100)+'%');
+          add(`<div class="fxHint">A path-traced glass pill with a lens floating inside it, refracting the page behind — the lens inverts and magnifies what it sees. Page depth sets how far behind the page reads as, which drives the inversion. Works best over colourful content, ignores Pattern copies, and (like Prism) dragging a slider shows a draft.</div>`);
+        } else {
+          sl('stBulge','Rib bulge',0,1,0.005,'bulge',f2);
+          sl('stW','Rib width',0.02,0.5,0.005,'ribWidth',f2);
+          sl('stAng','Rib angle',-90,90,1,'angle',deg);
+          sl('stThick','Panel thickness',0.01,0.4,0.005,'thickness',f2);
+          sl('stIor','IOR',1,2.2,0.005,'ior',f3);
+          sl('stDisp','Dispersion',0,0.15,0.001,'dispersion',f3);
+          sl('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',f2);
+          sl('stSmear','Smear distance',0.1,6,0.05,'smear',f2);
+          add(`<div class="fxHint">Fluted/reeded glass: half-cylinder ribs smear whatever is behind the shape into vertical bands and split edges into colour. Smear distance is how far behind the page reads as — more distance, stronger banding. Put it over colourful layers.</div>`);
+        }
       }
     }
   }
