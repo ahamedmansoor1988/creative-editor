@@ -23,8 +23,15 @@ function setActiveDoc(d){
 let sel=-1;              // index into children
 let selInstance=null;    // derived instance under inspection (never editable)
 let tool='select';
-let viewMode='fit';      // 'fit' | 'actual'
+/* Viewport: page->screen is s = p*z + (x,y). 'fit' auto-frames the page until
+ * the user pans or zooms, which flips it to 'free'. */
+let view={z:1,x:0,y:0,mode:'fit'};
 let fxPage=0;            // engines pager
+/* Multi-select: selIds is the source of truth; `sel` stays the PRIMARY
+ * selected index so every single-object code path (inspector, engines,
+ * duplicate) keeps working unchanged. Invariant: sel>=0 implies
+ * children[sel].id is in selIds. */
+let selIds=new Set();
 /* Prism and Capsule accumulate samples synchronously, so a full-quality pass
  * is far too slow to run on every pointer move. Slider `input` renders a
  * draft; the `change` that ends the drag renders properly. */
@@ -294,6 +301,9 @@ function normalizeDoc(d){
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
+    // §1.1: lock suppresses canvas selectability, hide suppresses render too.
+    // Document state, so they round-trip through save/load and history.
+    c.locked=!!c.locked; c.hidden=!!c.hidden;
     if(c.type!=='text'){
       // Migrate the legacy bounding-box `engine` field. Deliberate semantic
       // change: same knobs, but they now place linked duplicates outside the
@@ -332,8 +342,38 @@ function pushHistory(){
 function restoreSnapshot(json){
   const s=JSON.parse(json);
   pages=s.pages||[]; setActivePage(s.pageIdx);
-  sel=-1; selInstance=null; refresh();
+  setSel(-1); selInstance=null; refresh();
 }
+
+/* ================= selection model ================= */
+/** Single-select: collapses the id-set to one object (or none). */
+function setSel(i){
+  sel=i;
+  selIds.clear();
+  const o=i>=0&&doc&&doc.frame.children[i];
+  if(o) selIds.add(o.id);
+}
+/** Multi-select from ids. `primaryId` (default: last id) becomes `sel`. */
+function setSelIds(ids,primaryId){
+  selIds=new Set(ids);
+  if(!doc||!selIds.size){ sel=-1; return; }
+  const ch=doc.frame.children;
+  // drop ids that no longer exist
+  selIds.forEach(id=>{ if(!ch.some(c=>c.id===id)) selIds.delete(id); });
+  const pid=primaryId&&selIds.has(primaryId)?primaryId:[...selIds][selIds.size-1];
+  sel=ch.findIndex(c=>c.id===pid);
+}
+function selObjs(){ return doc?doc.frame.children.filter(c=>selIds.has(c.id)):[]; }
+/** Union bounds of the selection, or null. */
+function selBounds(){
+  const os=selObjs(); if(!os.length) return null;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  os.forEach(o=>{ const b=boxOf(o);
+    x0=Math.min(x0,b.x); y0=Math.min(y0,b.y);
+    x1=Math.max(x1,b.x+b.w); y1=Math.max(y1,b.y+b.h); });
+  return {x:x0,y:y0,w:x1-x0,h:y1-y0};
+}
+function selectable(o){ return !o.locked&&!o.hidden; }
 function undo(){ if(hist.i>0){ hist.i--; restoreSnapshot(hist.stack[hist.i]); } }
 function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; restoreSnapshot(hist.stack[hist.i]); } }
 
@@ -518,7 +558,7 @@ function allInstances(){
  * "either effect is on"; the material is glass when ANY member asks for it. */
 function inBlobGroup(o){
   const e=o&&o.effects;
-  return o&&o.type!=='text'&&e&&((e.blob&&e.blob.on)||(e.glass2&&e.glass2.on));
+  return o&&!o.hidden&&o.type!=='text'&&e&&((e.blob&&e.blob.on)||(e.glass2&&e.glass2.on));
 }
 function blobGroup(){
   if(!doc) return [];
@@ -570,6 +610,7 @@ function drawDoc(c,W,H){
   // Parent first, then its complete linked instances, through the SAME draw
   // path — which is what guarantees an ellipse parent yields ellipses.
   f.children.forEach(obj=>{
+    if(obj.hidden) return;            // §1.1: hidden suppresses render entirely
     const fx=obj.effects||{};
     const blobReady=obj.type!=='text'&&window.BlobEngine&&window.BlobEngine.available();
     // Blob / Glass 2 merge the parent WITH its pattern copies into one field,
@@ -783,47 +824,102 @@ function textBox(obj){
 }
 function boxOf(obj){ return obj.type==='text'?textBox(obj):{x:obj.x,y:obj.y,w:obj.w,h:obj.h}; }
 
-function render(){
-  const has=!!doc && doc.frame.children!==undefined;
-  canvas.style.display=has?'':'none';   // nothing on the stage until a page exists
-  if(!has){ canvas.width=1; canvas.height=1; return; }
+/* Render is split in two so navigation is cheap:
+ *   renderDoc() — the expensive pass. Draws the document (engines included)
+ *                 into frameBuf at page resolution. Only runs when the DOC
+ *                 changes.
+ *   paint()     — blits frameBuf through the view transform and draws all
+ *                 screen-space chrome. Runs on every pan/zoom/marquee frame,
+ *                 never re-running the shader engines.
+ * render() = both, and is what every doc-mutating path already calls. */
+let marquee=null;   // {x0,y0,x1,y1} in page coords while dragging
+function fitView(){
+  if(!doc) return;
+  const f=doc.frame, stage=$('stage');
+  // keep the page clear of the floating panels in fit mode
+  const inL=250,inR=250,inT=80,inB=100;
+  const availW=Math.max(50,stage.clientWidth-inL-inR);
+  const availH=Math.max(50,stage.clientHeight-inT-inB);
+  view.z=Math.min(1.5, availW/f.w, availH/f.h);
+  view.x=inL+(availW-f.w*view.z)/2;
+  view.y=inT+(availH-f.h*view.z)/2;
+}
+function renderDoc(){
+  if(!doc||doc.frame.children===undefined) return;
   const f=doc.frame;
-  const stage=$('stage'), pad=40;
-  stage.classList.toggle('actual', viewMode==='actual');
-  const availW=stage.clientWidth-pad, availH=stage.clientHeight-pad;
-  const scale=viewMode==='actual' ? 1 : Math.min(1.5, availW/f.w, availH/f.h);
-  canvas.width=Math.round(f.w*scale); canvas.height=Math.round(f.h*scale);
-  // Paint at full frame resolution into an offscreen buffer first: the glass
-  // engine samples real pixels, so it must never see a scaled transform.
   frameBuf.width=f.w; frameBuf.height=f.h;
+  // Full frame resolution, no transform: the glass engines sample real pixels.
   drawDoc(frameBuf.getContext('2d'),f.w,f.h);
-  ctx.setTransform(scale,0,0,scale,0,0);
+}
+function paint(){
+  const has=!!doc && doc.frame.children!==undefined;
+  canvas.style.display=has?'':'none';
+  $('zoomChip').style.display=has?'':'none';
+  if(!has){ canvas.width=1; canvas.height=1; return; }
+  const stage=$('stage'), dpr=Math.min(devicePixelRatio||1,2);
+  const W=stage.clientWidth, H=stage.clientHeight;
+  if(canvas.width!==Math.round(W*dpr)||canvas.height!==Math.round(H*dpr)){
+    canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
+  }
+  if(view.mode==='fit') fitView();
+  const z=view.z;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.setTransform(z*dpr,0,0,z*dpr,view.x*dpr,view.y*dpr);
+  const f=doc.frame;
+  // page shadow + white surface behind transparent content
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,.13)'; ctx.shadowBlur=18/z; ctx.shadowOffsetY=3/z;
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,f.w,f.h);
+  ctx.restore();
+  // §1.13 pixel preview: at high magnification show the actual pixels
+  ctx.imageSmoothingEnabled=z<4;
   ctx.drawImage(frameBuf,0,0);
-  // selection overlay (screen-only)
+  ctx.imageSmoothingEnabled=true;
+  // ---- screen-space chrome (line widths divided by z stay constant) ----
   if(selInstance){
-    // Instances get a dashed outline matching their own complete bounds, so a
-    // derived object never looks like an editable source.
+    // Instances: dashed, so a derived object never looks editable.
     const b=boxOf(selInstance);
     ctx.save();
-    ctx.strokeStyle='#8b5cf6'; ctx.lineWidth=1.6/scale;
-    ctx.setLineDash([6/scale,4/scale]);
+    ctx.strokeStyle='#8b5cf6'; ctx.lineWidth=1.6/z;
+    ctx.setLineDash([6/z,4/z]);
     ctx.strokeRect(b.x,b.y,b.w,b.h);
     ctx.restore();
   }
-  const obj=doc.frame.children[sel];
-  if(obj){
-    const b=boxOf(obj);
-    ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/scale;
+  const os=selObjs();
+  os.forEach(o=>{
+    const b=boxOf(o);
+    ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
     ctx.strokeRect(b.x,b.y,b.w,b.h);
-    if(obj.type!=='text'){
-      const hs=7/scale;
-      ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6';
-      ctx.fillRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
-      ctx.strokeRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
-    }
+  });
+  // primary object carries the resize handle
+  const obj=doc.frame.children[sel];
+  if(obj&&obj.type!=='text'&&!obj.locked){
+    const b=boxOf(obj), hs=7/z;
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
+    ctx.fillRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
+    ctx.strokeRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
+  }
+  // union bounds when more than one object is selected
+  if(os.length>1){
+    const b=selBounds();
+    ctx.save();
+    ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1/z; ctx.setLineDash([4/z,3/z]);
+    ctx.strokeRect(b.x,b.y,b.w,b.h);
+    ctx.restore();
+  }
+  if(marquee){
+    const x=Math.min(marquee.x0,marquee.x1), y=Math.min(marquee.y0,marquee.y1);
+    const w=Math.abs(marquee.x1-marquee.x0), h=Math.abs(marquee.y1-marquee.y0);
+    ctx.fillStyle='rgba(59,130,246,.08)';
+    ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1/z;
+    ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
   }
   ctx.setTransform(1,0,0,1,0,0);
+  const zi=$('zoomInput');
+  if(document.activeElement!==zi) zi.value=Math.round(z*100)+'%';
 }
+function render(){ renderDoc(); paint(); }
 
 /* ================= UI sync ================= */
 function refresh(){ render(); syncLayers(); syncInspector(); syncPageRow(); }
@@ -835,7 +931,9 @@ function syncLayers(){
   [...doc.frame.children].reverse().forEach((c,ri)=>{
     const i=doc.frame.children.length-1-ri;
     const row=document.createElement('div');
-    row.className=(i===sel?'sel':'')+(c.pattern&&c.pattern.mode!=='none'?' isParent':'');
+    row.className=(selIds.has(c.id)?'sel':'')
+      +(c.pattern&&c.pattern.mode!=='none'?' isParent':'')
+      +(c.hidden?' isHidden':'');
     row.innerHTML=`<span class="glyph">${glyph[c.type]||'▭'}</span>`;
     row.appendChild(document.createTextNode(c.type==='text'?c.text.slice(0,18):c.name));
     // Parents are labelled with their linked-instance count so the layer panel
@@ -848,7 +946,31 @@ function syncLayers(){
       badge.title=`${n} linked instance${n===1?'':'s'}`;
       row.appendChild(badge);
     }
-    row.addEventListener('click',()=>{ sel=i; selInstance=null; fxPage=0; refresh(); });
+    // §1.1: hide suppresses render + selection, lock suppresses selection.
+    // Both live in the document, so they undo and round-trip.
+    const tgl=(cls,on,title,fn)=>{
+      const b=document.createElement('button');
+      b.type='button'; b.className='layerTgl'+(on?' on':'');
+      b.textContent=cls==='eye'?(on?'◡':'👁'):(on?'🔒':'🔓');
+      b.title=title;
+      b.addEventListener('click',ev=>{ ev.stopPropagation(); fn(); pushHistory(); refresh(); });
+      row.appendChild(b);
+    };
+    tgl('lock',c.locked,c.locked?'Unlock':'Lock',()=>{ c.locked=!c.locked; });
+    tgl('eye',c.hidden,c.hidden?'Show':'Hide',()=>{
+      c.hidden=!c.hidden;
+      if(c.hidden&&selIds.has(c.id)){ selIds.delete(c.id); setSelIds(selIds); }
+    });
+    row.addEventListener('click',ev=>{
+      selInstance=null; fxPage=0;
+      if(ev.shiftKey){
+        // §1.1 via the panel: shift-click toggles membership
+        if(selIds.has(c.id)&&selIds.size>1) selIds.delete(c.id);
+        else selIds.add(c.id);
+        setSelIds(selIds,c.id);
+      }else setSel(i);
+      refresh();
+    });
     list.appendChild(row);
   });
 }
@@ -875,7 +997,7 @@ function syncInspector(){
     if(parent){
       const b=document.createElement('button');
       b.type='button'; b.textContent='Select parent';
-      b.addEventListener('click',()=>{ sel=pi; selInstance=null; fxPage=0; refresh(); });
+      b.addEventListener('click',()=>{ setSel(pi); selInstance=null; fxPage=0; refresh(); });
       box.appendChild(document.createElement('br'));
       box.appendChild(b);
     }
@@ -1652,7 +1774,12 @@ $('engineSearch').addEventListener('keydown',e=>{
     const obj=doc&&doc.frame.children[sel]; if(!obj)return;
     const v=parseFloat(e.target.value); if(isNaN(v))return;
     if(obj.type==='text'&&(k==='w'||k==='h'))return;
-    obj[k]=v; render();
+    if((k==='x'||k==='y')&&selIds.size>1){
+      // multi-select: X/Y edits move the whole selection by the delta
+      const dv=v-obj[k];
+      selObjs().forEach(o=>{ if(!o.locked) o[k]+=dv; });
+    }else obj[k]=v;
+    render();
   });
   $(id).addEventListener('change',()=>pushHistory());
 });
@@ -1663,89 +1790,305 @@ $('pOpacity').addEventListener('input',e=>{
 $('pOpacity').addEventListener('change',()=>pushHistory());
 document.querySelectorAll('#alignRow button').forEach(btn=>{
   btn.addEventListener('click',()=>{
-    const obj=doc&&doc.frame.children[sel]; if(!obj)return;
-    const f=doc.frame, b=boxOf(obj);
-    switch(btn.dataset.align){
-      case 'left': obj.x=0+(obj.x-b.x); break;
-      case 'hcenter': obj.x=(f.w-b.w)/2+(obj.x-b.x); break;
-      case 'right': obj.x=f.w-b.w+(obj.x-b.x); break;
-      case 'top': obj.y=0; break;
-      case 'vcenter': obj.y=(f.h-b.h)/2; break;
-      case 'bottom': obj.y=f.h-b.h; break;
-    }
+    const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+    const f=doc.frame;
+    os.forEach(obj=>{
+      const b=boxOf(obj);
+      switch(btn.dataset.align){
+        case 'left': obj.x=0+(obj.x-b.x); break;
+        case 'hcenter': obj.x=(f.w-b.w)/2+(obj.x-b.x); break;
+        case 'right': obj.x=f.w-b.w+(obj.x-b.x); break;
+        case 'top': obj.y=0; break;
+        case 'vcenter': obj.y=(f.h-b.h)/2; break;
+        case 'bottom': obj.y=f.h-b.h; break;
+      }
+    });
     pushHistory(); refresh();
   });
 });
 
 /* ================= canvas interaction ================= */
-function evtFrame(e){
+function evtScreen(e){
   const r=canvas.getBoundingClientRect();
-  const f=doc.frame;
-  return {x:(e.clientX-r.left)/r.width*f.w, y:(e.clientY-r.top)/r.height*f.h};
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+function evtPage(e){
+  const s=evtScreen(e);
+  return {x:(s.x-view.x)/view.z, y:(s.y-view.y)/view.z};
 }
 function hit(px,py){
   const ch=doc.frame.children;
   for(let i=ch.length-1;i>=0;i--){
+    if(!selectable(ch[i])) continue;   // §1.1: lock/hide suppress selectability
     const b=boxOf(ch[i]);
     if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return i;
   }
   return -1;
+}
+/** Every selectable object under the point, topmost first — the alt-click
+ *  depth cycle walks this stack. */
+function hitAll(px,py){
+  const out=[], ch=doc.frame.children;
+  for(let i=ch.length-1;i>=0;i--){
+    if(!selectable(ch[i])) continue;
+    const b=boxOf(ch[i]);
+    if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) out.push(i);
+  }
+  return out;
 }
 /** Topmost derived instance under the point, or null. Parents win over
  *  instances, so clicking the source never selects a copy. */
 function hitInstance(px,py){
   const list=allInstances();
   for(let i=list.length-1;i>=0;i--){
-    const o=list[i], b=boxOf(o);
+    const o=list[i];
+    const par=doc.frame.children.find(c=>c.id===o.parentId);
+    if(par&&!selectable(par)) continue;   // instances follow the parent's lock/hide
+    const b=boxOf(o);
     if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return o;
   }
   return null;
 }
+/** Objects inside the current marquee. Touch mode by default; `contain`
+ *  requires the whole object inside. */
+function marqueeIds(contain){
+  const x0=Math.min(marquee.x0,marquee.x1), y0=Math.min(marquee.y0,marquee.y1);
+  const x1=Math.max(marquee.x0,marquee.x1), y1=Math.max(marquee.y0,marquee.y1);
+  const ids=new Set();
+  doc.frame.children.forEach(o=>{
+    if(!selectable(o)) return;
+    const b=boxOf(o);
+    const ok=contain
+      ? (b.x>=x0&&b.y>=y0&&b.x+b.w<=x1&&b.y+b.h<=y1)
+      : (b.x<x1&&b.x+b.w>x0&&b.y<y1&&b.y+b.h>y0);
+    if(ok) ids.add(o.id);
+  });
+  return ids;
+}
+
+/* ---- viewport ops (§1.12–1.13) ---- */
+let spaceDown=false;
+function zoomAt(sx,sy,factor){          // zoom anchored at a screen point
+  const z=clamp(view.z*factor,0.02,64);
+  view.x=sx-(sx-view.x)*(z/view.z);
+  view.y=sy-(sy-view.y)*(z/view.z);
+  view.z=z; view.mode='free';
+  paint();
+}
+function zoomTo(z){                      // absolute zoom about the stage centre
+  const stage=$('stage');
+  zoomAt(stage.clientWidth/2, stage.clientHeight/2, z/view.z);
+}
+function zoomToSelection(){
+  const b=selBounds();
+  if(!b){ view.mode='fit'; paint(); return; }
+  const stage=$('stage'), pad=60;
+  const z=clamp(Math.min((stage.clientWidth-2*pad)/b.w,(stage.clientHeight-2*pad)/b.h),0.02,8);
+  view.z=z; view.mode='free';
+  view.x=stage.clientWidth/2-(b.x+b.w/2)*z;
+  view.y=stage.clientHeight/2-(b.y+b.h/2)*z;
+  paint();
+}
+canvas.addEventListener('wheel',e=>{
+  if(!doc) return;
+  e.preventDefault();
+  const s=evtScreen(e);
+  if(e.ctrlKey||e.metaKey){
+    // macOS pinch arrives as ctrl+wheel; cmd+scroll zooms deliberately too
+    zoomAt(s.x,s.y,Math.exp(-e.deltaY*0.01));
+  }else{
+    // plain two-finger scroll pans; momentum comes from the native events
+    view.x-=e.deltaX; view.y-=e.deltaY; view.mode='free';
+    paint();
+  }
+},{passive:false});
+$('zoomInput').addEventListener('change',e=>{
+  const pct=parseFloat(e.target.value);
+  if(Number.isFinite(pct)&&pct>0) zoomTo(clamp(pct,2,6400)/100);
+  e.target.blur();
+});
+$('zoomInput').addEventListener('keydown',e=>{ if(e.key==='Enter') e.target.blur(); });
+// re-fit (or just re-blit) when the window changes size — never re-render the doc
+new ResizeObserver(()=>paint()).observe($('stage'));
+
+/* ---- pointer state machine ---- */
 let drag=null;
 canvas.addEventListener('pointerdown',e=>{
   if(!doc){
     // no page yet: a shape tool means the user wants to start — open the
     // New Page flow rather than silently inventing a canvas
-    if(tool!=='select') openPageModal();
+    if(tool!=='select'&&tool!=='zoom') openPageModal();
     return;
   }
-  const p=evtFrame(e);
+  const s=evtScreen(e), p=evtPage(e);
+  const cap=()=>{ try{canvas.setPointerCapture(e.pointerId);}catch(_){} };
+  // §1.12: space-hold or middle-mouse pans regardless of the active tool
+  if(spaceDown||e.button===1){
+    drag={mode:'pan',sx:s.x,sy:s.y,vx:view.x,vy:view.y};
+    canvas.style.cursor='grabbing'; cap(); return;
+  }
+  if(e.button!==0) return;
+  if(tool==='zoom'){
+    drag={mode:'zoomRect',x0:p.x,y0:p.y,x1:p.x,y1:p.y,sx:s.x,sy:s.y,moved:false};
+    cap(); return;
+  }
   if(tool!=='select'){ addShapeAt(tool,p); setTool('select'); return; }
   const i=hit(p.x,p.y);
-  // Instances are inspectable but never draggable: they are derived, and
-  // layout is owned by the parent's pattern settings.
   selInstance = i>=0 ? null : hitInstance(p.x,p.y);
-  sel=i; fxPage=0;
-  if(i>=0){
-    const obj=doc.frame.children[i], b=boxOf(obj);
-    const nearHandle=obj.type!=='text' &&
-      Math.abs(p.x-(b.x+b.w))<12 && Math.abs(p.y-(b.y+b.h))<12;
-    drag=nearHandle?{mode:'resize'}:{mode:'move',dx:obj.x-p.x,dy:obj.y-p.y};
-    try{canvas.setPointerCapture(e.pointerId);}catch(_){}
+  if(i<0){
+    // empty space: marquee. Plain drag replaces the selection, shift adds.
+    if(!selInstance){
+      marquee={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
+      drag={mode:'marquee',additive:e.shiftKey,prev:new Set(selIds)};
+      if(!e.shiftKey) setSel(-1);
+      cap();
+    }else{
+      setSel(-1);
+    }
+    fxPage=0; refresh(); return;
   }
-  refresh();
+  const id=doc.frame.children[i].id;
+  if(e.altKey){
+    // §1.1 click-through: alt-click cycles depth through overlapping objects
+    const stack=hitAll(p.x,p.y);
+    const cur=stack.indexOf(sel);
+    setSel(stack[(cur+1)%stack.length]);
+    fxPage=0; refresh(); return;
+  }
+  if(e.shiftKey){
+    // §1.1: shift-click toggles membership; no drag starts from a shift-click
+    if(selIds.has(id)&&selIds.size>1) selIds.delete(id);
+    else selIds.add(id);
+    setSelIds(selIds,id);
+    fxPage=0; refresh(); return;
+  }
+  if(!selIds.has(id)){ setSel(i); fxPage=0; }
+  else { sel=i; }   // member of a multi-selection: promote to primary, keep the set
+  const obj=doc.frame.children[i], b=boxOf(obj);
+  const nearHandle=obj.type!=='text'&&selIds.size===1&&
+    Math.abs(p.x-(b.x+b.w))<12/view.z && Math.abs(p.y-(b.y+b.h))<12/view.z;
+  drag=nearHandle?{mode:'resize'}:{
+    mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
+    offs:selObjs().map(o=>({o,ox:o.x,oy:o.y})),
+  };
+  cap(); refresh();
 });
 canvas.addEventListener('pointermove',e=>{
-  const obj=doc&&doc.frame.children[sel];
-  if(!drag||!obj) return;
-  const p=evtFrame(e);
-  if(drag.mode==='move'){ obj.x=Math.round(p.x+drag.dx); obj.y=Math.round(p.y+drag.dy); }
-  else{ obj.w=Math.max(8,Math.round(p.x-obj.x)); obj.h=Math.max(8,Math.round(p.y-obj.y)); }
+  if(!drag) return;
+  const s=evtScreen(e);
+  if(drag.mode==='pan'){
+    view.x=drag.vx+(s.x-drag.sx); view.y=drag.vy+(s.y-drag.sy); view.mode='free';
+    paint(); return;
+  }
+  if(!doc) return;
+  const p=evtPage(e);
+  if(drag.mode==='zoomRect'){
+    drag.x1=p.x; drag.y1=p.y;
+    if(Math.abs(s.x-drag.sx)>4||Math.abs(s.y-drag.sy)>4) drag.moved=true;
+    marquee=drag.moved?{x0:drag.x0,y0:drag.y0,x1:p.x,y1:p.y}:null;
+    paint(); return;
+  }
+  if(drag.mode==='marquee'){
+    marquee.x1=p.x; marquee.y1=p.y;
+    const ids=marqueeIds(e.altKey);          // alt during marquee = contain mode
+    if(drag.additive) drag.prev.forEach(x=>ids.add(x));
+    setSelIds(ids);
+    paint(); syncLayers(); return;
+  }
+  if(drag.mode==='move'){
+    drag.moved=true;
+    // Round the DELTA once, not each object: relative spacing inside a
+    // multi-selection survives the move exactly.
+    const ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
+    drag.offs.forEach(({o,ox,oy})=>{
+      if(!o.locked){ o.x=ox+ddx; o.y=oy+ddy; }
+    });
+    render(); syncInspector(); return;
+  }
+  const obj=doc.frame.children[sel]; if(!obj) return;
+  obj.w=Math.max(8,Math.round(p.x-obj.x)); obj.h=Math.max(8,Math.round(p.y-obj.y));
   render(); syncInspector();
 });
 const endDrag=e=>{
   if(!drag) return;
-  drag=null; pushHistory();
+  const d=drag; drag=null;
   try{canvas.releasePointerCapture(e.pointerId);}catch(_){}
+  if(d.mode==='pan'){ canvas.style.cursor=spaceDown?'grab':cursorForTool(); return; }
+  if(d.mode==='zoomRect'){
+    marquee=null;
+    if(d.moved){
+      // §1.13 marquee zoom: frame the dragged region
+      const stage=$('stage');
+      const w=Math.abs(d.x1-d.x0), h=Math.abs(d.y1-d.y0);
+      if(w>2&&h>2){
+        const z=clamp(Math.min(stage.clientWidth/w,stage.clientHeight/h)*0.9,0.02,64);
+        view.z=z; view.mode='free';
+        view.x=stage.clientWidth/2-(Math.min(d.x0,d.x1)+w/2)*z;
+        view.y=stage.clientHeight/2-(Math.min(d.y0,d.y1)+h/2)*z;
+      }
+      paint();
+    }else{
+      const s=evtScreen(e);
+      zoomAt(s.x,s.y,e.altKey?0.5:2);       // click in, alt-click out
+    }
+    return;
+  }
+  if(d.mode==='marquee'){ marquee=null; paint(); syncLayers(); syncInspector(); return; }
+  if(d.mode==='move'&&!d.moved){
+    // a plain click on a member of a multi-selection collapses to it
+    if(selIds.size>1){ setSel(d.clickI); refresh(); }
+    return;                                  // nothing changed: no history entry
+  }
+  pushHistory();
 };
 canvas.addEventListener('pointerup',endDrag);
 canvas.addEventListener('pointercancel',endDrag);
 
+/* ---- selection commands (§1.1) ---- */
+function selectAllCmd(){
+  if(!doc) return;
+  setSelIds(new Set(doc.frame.children.filter(selectable).map(c=>c.id)));
+  refresh();
+}
+function deselectCmd(){ setSel(-1); selInstance=null; refresh(); }
+function invertSelCmd(){
+  if(!doc) return;
+  setSelIds(new Set(doc.frame.children.filter(c=>selectable(c)&&!selIds.has(c.id)).map(c=>c.id)));
+  refresh();
+}
+function selectSame(kind){
+  const ref=doc&&doc.frame.children[sel]; if(!ref) return;
+  const key=o=>{
+    if(kind==='fill') return o.type==='text' ? 'text:'+o.color : JSON.stringify(o.fill);
+    if(kind==='size'){ const b=boxOf(o); return Math.round(b.w)+'x'+Math.round(b.h); }
+    const fx=o.effects||{};
+    return ['gradient','light','prism','capsule','strip','blob','glass','glass2','shadow']
+      .filter(k=>fx[k]&&fx[k].on).join(',')
+      +(fx.grain&&fx.grain.amount>0?'+grain':'')
+      +(o.pattern?'+pattern':'');
+  };
+  const rk=key(ref);
+  setSelIds(new Set(doc.frame.children.filter(c=>selectable(c)&&key(c)===rk).map(c=>c.id)),ref.id);
+  refresh();
+}
+/* §2.1 arrow nudge, shift ×10; a burst coalesces into one undo step */
+let nudgeTimer=null;
+function nudgeSel(dx,dy){
+  const os=selObjs().filter(o=>!o.locked); if(!os.length) return;
+  os.forEach(o=>{ o.x+=dx; o.y+=dy; });
+  render(); syncInspector();
+  clearTimeout(nudgeTimer);
+  nudgeTimer=setTimeout(pushHistory,400);
+}
+
 /* ================= tools ================= */
+function cursorForTool(){
+  return tool==='select'?'default':tool==='zoom'?'zoom-in':'crosshair';
+}
 function setTool(t){
   tool=t;
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
-  canvas.style.cursor=t==='select'?'default':'crosshair';
+  canvas.style.cursor=cursorForTool();
 }
 document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
 function addShapeAt(kind,p){
@@ -1760,7 +2103,7 @@ function addShapeAt(kind,p){
   if(obj.type!=='text') obj.pattern=DEFAULT_PATTERN();
   obj.id=newId();
   f.children.push(obj);
-  sel=f.children.length-1; fxPage=0;
+  setSel(f.children.length-1); fxPage=0;
   pushHistory(); refresh();
 }
 
@@ -1786,19 +2129,23 @@ function exportPNG(){
   },'image/png');
 }
 function duplicateSel(){
-  const obj=doc&&doc.frame.children[sel]; if(!obj)return;
-  const c=JSON.parse(JSON.stringify(obj));
-  // A fresh id makes the copy an INDEPENDENT parent: its instances derive from
-  // it, not from the original, so the two compositions never stay linked.
-  c.id=newId();
-  c.x+=16; c.y+=16; c.name=obj.name+' copy';
-  doc.frame.children.push(c);
-  sel=doc.frame.children.length-1;
+  const os=selObjs(); if(!os.length)return;
+  const copies=os.map(o=>{
+    const c=JSON.parse(JSON.stringify(o));
+    // A fresh id makes the copy an INDEPENDENT parent: its instances derive
+    // from it, not from the original, so the compositions never stay linked.
+    c.id=newId();
+    c.x+=16; c.y+=16; c.name=o.name+' copy';
+    return c;
+  });
+  doc.frame.children.push(...copies);
+  setSelIds(new Set(copies.map(c=>c.id)));
   pushHistory(); refresh();
 }
 function deleteSel(){
-  if(!doc||sel<0)return;
-  doc.frame.children.splice(sel,1); sel=-1;
+  if(!doc||!selIds.size)return;
+  doc.frame.children=doc.frame.children.filter(c=>!selIds.has(c.id));
+  setSel(-1);
   pushHistory(); refresh();
 }
 /* ---------------- New Page flow ---------------- */
@@ -1815,7 +2162,7 @@ function syncPageRow(){
     row.textContent=pg.frame.name;
     row.title=`${pg.frame.w}×${pg.frame.h}`;
     row.addEventListener('click',()=>{
-      setActivePage(i); sel=-1; selInstance=null; refresh();
+      setActivePage(i); setSel(-1); selInstance=null; refresh();
     });
     list.appendChild(row);
   });
@@ -1836,7 +2183,7 @@ function createPage(){
   const name=($('npName').value||'').trim()||('Page '+(pages.length+1));
   pages.push(normalizeDoc({frame:{name,w,h,bg:gradient?$('npG1').value:bg,children}}));
   setActivePage(pages.length-1);
-  sel=-1; selInstance=null;
+  setSel(-1); selInstance=null;
   closePageModal();
   pushHistory(); refresh();
 }
@@ -1869,8 +2216,14 @@ $('btnNewPage').addEventListener('click',openPageModal);
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
-  zoomFit(){ viewMode='fit'; render(); },
-  zoomActual(){ viewMode='actual'; render(); },
+  zoomFit(){ view.mode='fit'; paint(); },
+  zoomActual(){ zoomTo(1); },
+  zoom200(){ zoomTo(2); },
+  zoomSel:zoomToSelection,
+  selectAll:selectAllCmd, deselect:deselectCmd, invertSel:invertSelCmd,
+  sameFill(){ selectSame('fill'); },
+  sameEffects(){ selectSame('effects'); },
+  sameSize(){ selectSame('size'); },
 };
 /* Effects menu: jump the inspector to that engine for the selected object. */
 document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
@@ -1895,12 +2248,28 @@ document.addEventListener('keydown',e=>{
   if(meta&&e.key==='z'&&!e.shiftKey){ e.preventDefault(); undo(); }
   else if(meta&&((e.key==='z'&&e.shiftKey)||e.key==='y')){ e.preventDefault(); redo(); }
   else if(meta&&e.key==='d'){ e.preventDefault(); duplicateSel(); }
+  else if(meta&&e.key.toLowerCase()==='a'){ e.preventDefault(); selectAllCmd(); }
+  else if(meta&&e.shiftKey&&e.key.toLowerCase()==='i'){ e.preventDefault(); invertSelCmd(); }
+  else if(meta&&e.key==='0'){ e.preventDefault(); view.mode='fit'; paint(); }
+  else if(meta&&e.key==='1'){ e.preventDefault(); zoomTo(1); }
+  else if(meta&&e.key==='2'){ e.preventDefault(); zoomTo(2); }
+  else if(!meta&&e.shiftKey&&e.code==='Digit2'){ e.preventDefault(); zoomToSelection(); }
   else if(e.key==='Escape'&&$('pageModal').style.display!=='none'){ closePageModal(); }
+  else if(e.key==='Escape'){ deselectCmd(); }
   else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
+  else if(e.key==='ArrowLeft'){ e.preventDefault(); nudgeSel(e.shiftKey?-10:-1,0); }
+  else if(e.key==='ArrowRight'){ e.preventDefault(); nudgeSel(e.shiftKey?10:1,0); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); nudgeSel(0,e.shiftKey?-10:-1); }
+  else if(e.key==='ArrowDown'){ e.preventDefault(); nudgeSel(0,e.shiftKey?10:1); }
+  else if(e.key===' '){ e.preventDefault(); if(!e.repeat){ spaceDown=true; if(!drag) canvas.style.cursor='grab'; } }
   else if(e.key==='v'||e.key==='V') setTool('select');
   else if(e.key==='r'||e.key==='R') setTool('rect');
   else if(e.key==='o'||e.key==='O') setTool('ellipse');
   else if(e.key==='t'||e.key==='T') setTool('text');
+  else if(e.key==='z'||e.key==='Z') setTool('zoom');
+});
+document.addEventListener('keyup',e=>{
+  if(e.key===' '){ spaceDown=false; if(!drag) canvas.style.cursor=cursorForTool(); }
 });
 
 /* ================= agent bar ================= */
@@ -1975,7 +2344,7 @@ async function generate(){
       data=await callGenerate();
     }
     setActiveDoc(normalizeDoc(data.doc));
-    sel=-1; fxPage=0;
+    setSel(-1); fxPage=0;
     pushHistory(); refresh();
     const u=data.usage;
     status(u?`done · ${u.total_tokens} tokens (${data.model.split('/').pop()})`:'done');
@@ -2018,9 +2387,9 @@ window.addEventListener('resize',render);
 setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
 
 /* test hook */
-window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); sel=-1; selInstance=null; pushHistory(); refresh();},
+window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; pushHistory(); refresh();},
   get pages(){return pages;}, get pageIdx(){return pageIdx;}, setActivePage,
-  get sel(){return sel;}, set sel(i){sel=i; fxPage=0; refresh();},
+  get sel(){return sel;}, set sel(i){setSel(i); fxPage=0; refresh();},
   get selInstance(){return selInstance;},
   render, refresh, normalizeDoc,
   patternInstances, allInstances, instanceBounds, normalizePattern,

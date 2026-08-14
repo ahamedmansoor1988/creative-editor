@@ -22,12 +22,20 @@
       <button data-cmd="redo">Redo <span>⇧⌘Z</span></button>
       <button data-cmd="duplicate">Duplicate <span>⌘D</span></button>
       <button data-cmd="delete">Delete <span>⌫</span></button>
+      <button data-cmd="selectAll">Select All <span>⌘A</span></button>
+      <button data-cmd="deselect">Deselect <span>Esc</span></button>
+      <button data-cmd="invertSel">Invert Selection <span>⇧⌘I</span></button>
+      <button data-cmd="sameFill">Select Same Fill</button>
+      <button data-cmd="sameEffects">Select Same Effects</button>
+      <button data-cmd="sameSize">Select Same Size</button>
     </div>
   </div>
   <div class="menu" data-menu="view">View
     <div class="dropdown">
-      <button data-cmd="zoomFit">Fit page</button>
-      <button data-cmd="zoomActual">Actual size <span>100%</span></button>
+      <button data-cmd="zoomFit">Fit page <span>⌘0</span></button>
+      <button data-cmd="zoomActual">100% <span>⌘1</span></button>
+      <button data-cmd="zoom200">200% <span>⌘2</span></button>
+      <button data-cmd="zoomSel">Fit selection <span>⇧2</span></button>
     </div>
   </div>
   <div class="menu" data-menu="effects">Effects
@@ -55,6 +63,7 @@
     <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
     <button class="tool" data-tool="ellipse" title="Ellipse (O)">◯</button>
     <button class="tool" data-tool="text" title="Text (T)">T</button>
+    <button class="tool" data-tool="zoom" title="Zoom (Z) — click in, alt-click out, drag a region">⌕</button>
   </div>
   <div id="sidebar">
     <div class="sideHead"><span>Pages</span><button id="btnNewPage" title="New page">＋</button></div>
@@ -68,6 +77,7 @@
 <div id="stage">
   <canvas id="out"></canvas>
 </div>
+<div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" title="Zoom — type a percentage"></div>
 
 <!-- New Page modal -->
 <div id="pageModal" style="display:none">
