@@ -29,6 +29,7 @@ uniform int  uShapeCount;
 uniform float uSmooth;            // blend width in px
 uniform float uCombine;           // 0 union, 1 intersection, 2 difference
 uniform float uRefPx;             // interior depth that maps to field 0
+uniform int   uWeightIdx;         // >=0: output ONE shape's share of the blend
 
 // iq's cheap ellipse approximation — exact for circles, close enough for the
 // gradient work the optics do.
@@ -82,10 +83,27 @@ float roundedBoxSdf(vec2 p, vec2 halfSize, float radius){
   return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;
 }
 ${SDF_CHUNK}
+/* Each shape's share of the colour at this pixel. A softmax over the signed
+ * distances using the SAME width as the blend, so colour crosses the neck on
+ * exactly the geometry smoothUnion builds — that is what makes the join read
+ * as one fluid body instead of two stamped shapes. */
+float shapeWeight(vec2 p,int idx){
+  float k=max(uSmooth,1.0);
+  float wsum=0.0, wi=0.0;
+  for(int i=0;i<BLOB_MAX;i++){
+    if(i>=uShapeCount) break;
+    float w=exp(clamp(-blobShapeSdf(i,p)/k,-30.0,30.0));
+    wsum+=w;
+    if(i==idx) wi=w;
+  }
+  return wsum>0.0 ? wi/wsum : 0.0;
+}
 void main(){
   vec2 frag=uv*resolution;
-  float sd=combinedSdf(frag);
-  fragColor=vec4(1.0,1.0,1.0,smoothstep(1.0,-1.0,sd));
+  float a=smoothstep(1.0,-1.0,combinedSdf(frag));
+  fragColor=(uWeightIdx<0)
+    ? vec4(1.0,1.0,1.0,a)
+    : vec4(1.0,1.0,1.0,a*shapeWeight(frag,uWeightIdx));
 }
 `;
 
@@ -125,7 +143,7 @@ const GLASS_UNIFORMS=['backdrop','resolution','objectCenter','objectSize','objec
   'edgeMode','edgeGlow','edgeBlur','edgeBlurOffset','flutes','fluteWidth','fluteAngle',
   'fluteMode','fluteCount','fluteRandom','lightAngle','lightElevation','dispersion','tint',
   'opacity','debugView'];
-const BLOB_UNIFORMS=['uShapeCount','uSmooth','uCombine','uRefPx'];
+const BLOB_UNIFORMS=['uShapeCount','uSmooth','uCombine','uRefPx','uWeightIdx'];
 
 function init(){
   if(gl||failed) return !failed;
@@ -199,7 +217,7 @@ const hex01=h=>{
 const COMBINE={union:0,intersect:1,difference:2};
 
 /** Alpha mask of the merged shapes. Returns a canvas, or null if unavailable. */
-function mask(W,H,shapes,P){
+function mask(W,H,shapes,P,weightIdx){
   if(!init()||!shapes.length) return null;
   cv.width=W; cv.height=H;
   gl.viewport(0,0,W,H);
@@ -211,6 +229,7 @@ function mask(W,H,shapes,P){
   gl.uniform1f(maskLoc.uSmooth,P.smoothness||0);
   gl.uniform1f(maskLoc.uCombine,COMBINE[P.mode]||0);
   gl.uniform1f(maskLoc.uRefPx,refPx);
+  gl.uniform1i(maskLoc.uWeightIdx, weightIdx===undefined?-1:weightIdx);
   gl.drawArrays(gl.TRIANGLES,0,3);
   return cv;
 }
@@ -239,6 +258,7 @@ function liquid(frameCanvas,W,H,shapes,G,P){
   gl.uniform1f(liquidLoc.uSmooth,P.smoothness||0);
   gl.uniform1f(liquidLoc.uCombine,COMBINE[P.mode]||0);
   gl.uniform1f(liquidLoc.uRefPx,refPx);
+  gl.uniform1i(liquidLoc.uWeightIdx,-1);
 
   // objectCenter/Size still drive bevelPx() and the fill ramp: use the union's
   // bounding box so edge scale tracks the whole blob, not one member shape.

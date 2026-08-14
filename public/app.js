@@ -412,6 +412,17 @@ function blobGroup(key){
   });
   return out;
 }
+/* Group members are one body, so they must agree on the group's settings.
+ * Writing an edit to every member means it does not matter which member
+ * happens to render the group — previously the first member's values won and
+ * edits made on any other member were silently ignored. */
+function applyToGroup(key,fn){
+  if(!doc) return;
+  doc.frame.children.forEach(o=>{
+    const e=o.effects&&o.effects[key];
+    if(e&&e.on) fn(e);
+  });
+}
 function groupShapes(list){
   return list.slice(0,window.BlobEngine?window.BlobEngine.MAX:64).map(o=>({
     cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
@@ -439,22 +450,40 @@ function drawDoc(c,W,H){
       // The whole group is drawn once, by its bottom-most member; the others
       // skip so the field is never rendered twice.
       if(!isFirstOfGroup(obj,key)) return;
-      const members=groupShapes(blobGroup(key));
+      const objs=blobGroup(key).slice(0,window.BlobEngine.MAX);
+      const members=groupShapes(objs);
       if(key==='glass2'){
         window.BlobEngine.liquid(c.canvas,W,H,members,fx.glass2,fx.glass2);
       }else{
         // Mask the object's REAL fill, so every fill type works unchanged.
-        const m=window.BlobEngine.mask(W,H,members,fx.blob);
-        if(m){
-          const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
-          const t2=tmp.getContext('2d');
-          let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-          members.forEach(o=>{ x0=Math.min(x0,o.cx-o.w/2); x1=Math.max(x1,o.cx+o.w/2);
-                               y0=Math.min(y0,o.cy-o.h/2); y1=Math.max(y1,o.cy+o.h/2); });
-          t2.fillStyle=fillStyleFor(t2,obj,{x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)});
-          t2.fillRect(0,0,W,H);
-          t2.globalCompositeOperation='destination-in';
-          t2.drawImage(m,0,0,W,H);
+        // Each member is painted through its OWN share of the blend, and the
+        // shares sum to 1, so additive compositing reproduces the weighted
+        // colour mix exactly. Colour therefore crosses the neck as a smooth
+        // gradient — the defining look of a metaball merge — while every fill
+        // type (gradients included) is preserved, because each layer is just
+        // that shape's normal fill behind a soft mask.
+        const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
+        const t2=tmp.getContext('2d');
+        const layer=document.createElement('canvas'); layer.width=W; layer.height=H;
+        const l2=layer.getContext('2d');
+        t2.globalCompositeOperation='lighter';
+        let painted=false;
+        objs.forEach((o,i)=>{
+          const wm=window.BlobEngine.mask(W,H,members,fx.blob,i);
+          if(!wm) return;
+          l2.setTransform(1,0,0,1,0,0);
+          l2.globalCompositeOperation='source-over';
+          l2.clearRect(0,0,W,H);
+          drawObject(l2,o,'flood');       // full fill, gradients intact
+          // destination-in: keep the FILL's colour, take the mask's alpha.
+          // source-in would keep the mask's own white pixels instead, which
+          // paints the entire blob white.
+          l2.globalCompositeOperation='destination-in';
+          l2.drawImage(wm,0,0,W,H);       // keep only this shape's share
+          t2.drawImage(layer,0,0);
+          painted=true;
+        });
+        if(painted){
           c.save(); c.setTransform(1,0,0,1,0,0);
           c.globalAlpha=obj.opacity;
           const sh2=fx.shadow;
@@ -488,7 +517,7 @@ function drawDoc(c,W,H){
     patternInstances(obj).forEach(inst=>drawObject(c,inst));
   });
 }
-function drawObject(c,obj){
+function drawObject(c,obj,plain){
   {
     c.save();
     // Rotation/mirror are applied about the instance centre BEFORE anything is
@@ -500,9 +529,9 @@ function drawObject(c,obj){
       if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1, obj.mirrorY?-1:1);
       c.translate(-cx,-cy);
     }
-    c.globalAlpha=obj.opacity;
+    c.globalAlpha=plain?1:obj.opacity;
     const sh=obj.effects.shadow;
-    if(sh.on){ c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur; c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y; }
+    if(sh.on&&!plain){ c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur; c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y; }
     if(obj.type==='text'){
       c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
       c.fillStyle=obj.color; c.textBaseline='top';
@@ -514,7 +543,13 @@ function drawObject(c,obj){
     // A patterned parent still draws its OWN complete fill. Instances are
     // separate complete objects drawn by the caller; nothing is segmented.
     c.fillStyle=fillStyleFor(c,obj,b);
-    pathFor(c,obj); c.fill();
+    if(plain==='flood'){
+      // Blob layer: this shape's colour has to exist wherever the blend gives
+      // it weight, including the neck outside its own outline.
+      c.fillRect(0,0,c.canvas.width,c.canvas.height);
+    } else {
+      pathFor(c,obj); c.fill();
+    }
     c.shadowColor='transparent';
     const gr=obj.effects.grain;
     if(gr.amount>0){
@@ -839,7 +874,10 @@ function buildFx(obj){
           : `<div class="fxHint">Merging <b>${n}</b> shapes — every shape on this page with ${isG2?'Glass 2':'Blob'} on, plus their pattern copies.</div>`);
         add(`<label class="slider">Smoothness <span id="bbSmV">${B.smoothness}px</span>
           <input type="range" id="bbSm" min="0" max="300" value="${B.smoothness}"></label>`);
-        $('bbSm').addEventListener('input',e=>{ B.smoothness=+e.target.value; $('bbSmV').textContent=e.target.value+'px'; render(); });
+        $('bbSm').addEventListener('input',e=>{
+          applyToGroup(key,p=>p.smoothness=+e.target.value);
+          $('bbSmV').textContent=e.target.value+'px'; render();
+        });
         $('bbSm').addEventListener('change',()=>pushHistory());
         add(`<label class="slider">Combine
           <select id="bbMode">
@@ -848,7 +886,9 @@ function buildFx(obj){
             <option value="difference">Difference — subtract</option>
           </select></label>`);
         $('bbMode').value=B.mode;
-        $('bbMode').addEventListener('change',e=>{ B.mode=e.target.value; pushHistory(); refresh(); });
+        $('bbMode').addEventListener('change',e=>{
+          applyToGroup(key,p=>p.mode=e.target.value); pushHistory(); refresh();
+        });
         if(isG2){
           const sl=(id,label,min,max,val,fmt)=>{
             add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
@@ -865,12 +905,13 @@ function buildFx(obj){
             $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
             $(id).addEventListener('change',()=>pushHistory());
           };
-          wire('g2Depth',v=>B.depth=v,v=>v); wire('g2Refr',v=>B.refraction=v,v=>v);
-          wire('g2Frost',v=>B.frost=v,v=>v); wire('g2Refl',v=>B.reflection=v,v=>v);
-          wire('g2Light',v=>B.light=v,v=>v); wire('g2Disp',v=>B.dispersion=v,v=>v);
-          wire('g2Op',v=>B.opacity=v,v=>v+'%');
+          const G=(f)=>(v)=>applyToGroup('glass2',p=>f(p,v));
+          wire('g2Depth',G((p,v)=>p.depth=v),v=>v); wire('g2Refr',G((p,v)=>p.refraction=v),v=>v);
+          wire('g2Frost',G((p,v)=>p.frost=v),v=>v); wire('g2Refl',G((p,v)=>p.reflection=v),v=>v);
+          wire('g2Light',G((p,v)=>p.light=v),v=>v); wire('g2Disp',G((p,v)=>p.dispersion=v),v=>v);
+          wire('g2Op',G((p,v)=>p.opacity=v),v=>v+'%');
           add(`<label class="slider">Tint <input type="color" id="g2Tint" value="${B.tint}"></label>`);
-          $('g2Tint').addEventListener('input',e=>{ B.tint=e.target.value; render(); });
+          $('g2Tint').addEventListener('input',e=>{ applyToGroup('glass2',p=>p.tint=e.target.value); render(); });
           $('g2Tint').addEventListener('change',()=>pushHistory());
           add(`<div class="fxHint">The merged blob field driven through the glass optics — the shapes fuse, then refract as one body.</div>`);
         } else {
