@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+
+  /* Stage 1 scope: the server and the test suite.
+   *
+   * public/app.js is deliberately NOT type-checked yet. Turning checkJs on it
+   * today produces ~40 errors that are all one of two shapes — getElementById()
+   * returning HTMLElement rather than HTMLInputElement, and event.target being
+   * EventTarget — i.e. missing DOM narrowing, not defects. Fixing them would
+   * mean scattering JSDoc casts through a 800-line file that Stage 2 is about
+   * to split into modules, and suppressing them wholesale would make the gate
+   * meaningless. The client joins this program in Stage 2, once it has module
+   * boundaries worth typing. */
+  "include": ["server.js", "tests/**/*.js", "tests/**/*.d.ts"],
+  "exclude": ["node_modules", "coverage"]
+}

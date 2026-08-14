@@ -1,0 +1,303 @@
+// @vitest-environment node
+/**
+ * Integration tests for the HTTP surface of server.js.
+ *
+ * Groq is replaced by a LOCAL mock HTTP server; the real provider is never
+ * contacted and no API key is required. The server under test is pointed at
+ * the mock via GROQ_URL, and given a dummy GROQ_API_KEY, both set before
+ * server.js is required (it reads config at module load).
+ */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createRequire } from "node:module";
+import http from "node:http";
+
+const require = createRequire(import.meta.url);
+
+/** Controls what the mock provider returns for the next call. */
+const mock = {
+  status: 200,
+  body: null,
+  headers: {},
+  /** Records what the server sent us, so we can assert on the request. */
+  lastRequest: null,
+  calls: 0,
+};
+
+let mockServer;
+let mockUrl;
+let appServer;
+let baseUrl;
+
+/** Minimal well-formed Groq chat-completions response wrapping `content`. */
+function groqReply(content) {
+  return {
+    choices: [{ message: { content } }],
+    usage: { total_tokens: 123 },
+  };
+}
+
+const VALID_DOC = {
+  frame: {
+    name: "Test",
+    w: 900,
+    h: 600,
+    bg: "#ffffff",
+    children: [
+      {
+        type: "rect",
+        name: "r",
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 10,
+        fill: { kind: "solid", color: "#ff0000" },
+      },
+    ],
+  },
+};
+
+async function post(path, payload) {
+  const res = await fetch(baseUrl + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: typeof payload === "string" ? payload : JSON.stringify(payload),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* leave null; some assertions want the raw text */
+  }
+  return { res, text, json };
+}
+
+beforeAll(async () => {
+  // --- stand up the mock provider ---------------------------------------
+  mockServer = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      mock.calls += 1;
+      try {
+        mock.lastRequest = JSON.parse(raw);
+      } catch {
+        mock.lastRequest = raw;
+      }
+      res.writeHead(mock.status, { "Content-Type": "application/json", ...mock.headers });
+      res.end(JSON.stringify(mock.body));
+    });
+  });
+  await new Promise((r) => mockServer.listen(0, "127.0.0.1", r));
+  mockUrl = `http://127.0.0.1:${mockServer.address().port}/v1/chat/completions`;
+
+  // --- point the app at it, with a dummy key ----------------------------
+  process.env.GROQ_URL = mockUrl;
+  process.env.GROQ_API_KEY = "test-key-not-real";
+  process.env.PORT = "0";
+
+  const { server } = require("../server.js");
+  appServer = server;
+  await new Promise((r) => appServer.listen(0, "127.0.0.1", r));
+  baseUrl = `http://127.0.0.1:${appServer.address().port}`;
+});
+
+afterAll(async () => {
+  await new Promise((r) => appServer.close(r));
+  await new Promise((r) => mockServer.close(r));
+});
+
+describe("static file serving", () => {
+  it("serves index.html at /", async () => {
+    const res = await fetch(baseUrl + "/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html");
+    expect(await res.text()).toContain("<title>Creative Editor</title>");
+  });
+
+  it("serves app.js with a JS content type", async () => {
+    const res = await fetch(baseUrl + "/app.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/javascript");
+  });
+
+  it("serves style.css with a CSS content type", async () => {
+    const res = await fetch(baseUrl + "/style.css");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/css");
+  });
+
+  it("404s an unknown path", async () => {
+    const res = await fetch(baseUrl + "/nope.js");
+    expect(res.status).toBe(404);
+  });
+
+  it("does not serve files outside public/ via traversal", async () => {
+    // Encoded so the client does not normalize the path away before sending.
+    const res = await fetch(baseUrl + "/%2e%2e/server.js");
+    expect(res.status).not.toBe(200);
+    expect(await res.text()).not.toContain("GROQ_API_KEY");
+  });
+
+  it("never exposes the API key through any served asset", async () => {
+    for (const p of ["/", "/app.js", "/style.css"]) {
+      const body = await (await fetch(baseUrl + p)).text();
+      expect(body).not.toContain("test-key-not-real");
+      expect(body).not.toMatch(/gsk_[A-Za-z0-9]/);
+    }
+  });
+});
+
+describe("POST /api/generate — success paths", () => {
+  it("returns the parsed doc, model and usage", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    const { res, json } = await post("/api/generate", { prompt: "a poster" });
+    expect(res.status).toBe(200);
+    expect(json.doc).toEqual(VALID_DOC);
+    expect(json.usage.total_tokens).toBe(123);
+    expect(typeof json.model).toBe("string");
+  });
+
+  it("uses the text model and JSON mode when there is no image", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    await post("/api/generate", { prompt: "a poster" });
+    expect(mock.lastRequest.model).toBe("llama-3.3-70b-versatile");
+    expect(mock.lastRequest.response_format).toEqual({ type: "json_object" });
+    expect(mock.lastRequest.reasoning_effort).toBeUndefined();
+  });
+
+  it("switches to the vision model and disables reasoning when an image is attached", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    await post("/api/generate", {
+      prompt: "recreate this",
+      imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+    expect(mock.lastRequest.reasoning_effort).toBe("none");
+    expect(mock.lastRequest.response_format).toBeUndefined();
+    // The image is sent as structured content, not inlined into the prompt.
+    const content = mock.lastRequest.messages[1].content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0].type).toBe("image_url");
+  });
+
+  it("sends the current document for a modify request", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    await post("/api/generate", { prompt: "make it warmer", currentDoc: VALID_DOC });
+    const userMsg = mock.lastRequest.messages[1].content;
+    expect(userMsg).toContain("CURRENT DESIGN");
+    expect(userMsg).toContain("make it warmer");
+  });
+
+  it("recovers a fenced / prose-wrapped model reply", async () => {
+    mock.status = 200;
+    mock.body = groqReply("Here you go:\n```json\n" + JSON.stringify(VALID_DOC) + "\n```");
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(200);
+    expect(json.doc).toEqual(VALID_DOC);
+  });
+});
+
+describe("POST /api/generate — failure paths", () => {
+  it("maps a provider 429 to 429 with a retryAfter hint", async () => {
+    mock.status = 429;
+    mock.body = { error: { message: "Rate limit reached. Please try again in 12.3s" } };
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(429);
+    expect(json.retryAfter).toBe(13); // ceil(12.3)
+    expect(json.error).toMatch(/rate limit/i);
+  });
+
+  it("maps other provider errors to 502 with a sanitized message", async () => {
+    mock.status = 500;
+    mock.body = { error: { message: "upstream exploded" } };
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(502);
+    expect(json.error).not.toContain("upstream exploded");
+  });
+
+  it("rejects a model reply that is not JSON at all", async () => {
+    mock.status = 200;
+    mock.body = groqReply("I'm afraid I can't do that.");
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(502);
+    expect(json.error).toMatch(/unusable design/i);
+  });
+
+  it("rejects JSON that lacks frame.children", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify({ frame: { name: "no kids" } }));
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(502);
+    expect(json.error).toMatch(/unusable design/i);
+  });
+
+  it("rejects a malformed request body as 400 (client error, not provider)", async () => {
+    const { res, json } = await post("/api/generate", "{not json");
+    expect(res.status).toBe(400);
+    expect(json.error).toMatch(/valid JSON/i);
+  });
+
+  it("21 — provider error detail is SANITIZED, never forwarded verbatim", async () => {
+    // Was a Stage 1 QUIRK (raw text leaked); Stage 1.1 fixes it.
+    mock.status = 500;
+    mock.body = { error: { message: "internal detail: db host pg-prod-7 refused" } };
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(502);
+    expect(json.error).not.toContain("pg-prod-7");
+    expect(json.error).toMatch(/provider is unavailable/i);
+  });
+
+  it("QUIRK: there is no auth, rate limiting, or origin check on /api/generate", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    const before = mock.calls;
+    await Promise.all([
+      post("/api/generate", { prompt: "1" }),
+      post("/api/generate", { prompt: "2" }),
+      post("/api/generate", { prompt: "3" }),
+    ]);
+    expect(mock.calls).toBe(before + 3); // every request reached the provider
+  });
+});
+
+describe("19/20 — provider capability endpoint", () => {
+  it("GET /api/config reports availability without exposing the key", async () => {
+    const res = await fetch(baseUrl + "/api/config");
+    expect(res.status).toBe(200);
+    const cfg = await res.json();
+    expect(cfg.aiAvailable).toBe(true); // this suite injects a dummy key
+    expect(cfg.mode).toBe("mock"); // GROQ_URL points at the local mock
+    expect(JSON.stringify(cfg)).not.toContain("test-key-not-real");
+  });
+
+  it("20 — generation succeeds against the mock with no real API key", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(200);
+    expect(json.doc.frame.children.length).toBeGreaterThan(0);
+  });
+
+  it("a pattern in the model reply survives the server unchanged", async () => {
+    const doc = JSON.parse(JSON.stringify(VALID_DOC));
+    doc.frame.children[0].pattern = { mode: "rows", count: 3, gap: 8 };
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(doc));
+    const { json } = await post("/api/generate", { prompt: "repeat it" });
+    expect(json.doc.frame.children[0].pattern.mode).toBe("rows");
+  });
+
+  it("the pattern capability is advertised for repetition prompts", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    await post("/api/generate", { prompt: "a row of repeated circles" });
+    const sys = mock.lastRequest.messages[0].content;
+    expect(sys).toContain('"pattern"');
+    expect(sys).toMatch(/linked duplicate copies/i);
+  });
+});

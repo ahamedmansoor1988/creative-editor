@@ -1,0 +1,13 @@
+node_modules
+coverage
+package-lock.json
+# Standalone reference prototypes — preserved byte-for-byte, not app source.
+dither-effects.html
+gradient-patterns.html
+# Existing app sources are excluded from the formatter in Stage 1 so that
+# "preserve existing behavior" is verifiable by diff. Reformatting them is a
+# deliberate, reviewable step scheduled for Stage 2.
+public/app.js
+public/style.css
+public/index.html
+server.js
