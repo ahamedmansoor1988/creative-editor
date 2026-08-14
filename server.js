@@ -17,13 +17,20 @@ try {
     if (m) ENV[m[1]] = m[2].trim();
   });
 } catch (_) {}
-const GROQ_KEY = ENV.GROQ_API_KEY || "";
+// process.env wins over .env so tests (and container/orchestrator deploys) can
+// inject configuration without writing a file. Reading .env at all stays a
+// convenience for local development only.
+const GROQ_KEY = process.env.GROQ_API_KEY || ENV.GROQ_API_KEY || "";
 
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+// Overridable ONLY so automated tests can point at a local mock provider and
+// never need a real key. Defaults to the real endpoint, so runtime behaviour is
+// unchanged when nothing sets it.
+const GROQ_URL =
+  process.env.GROQ_URL || ENV.GROQ_URL || "https://api.groq.com/openai/v1/chat/completions";
 // Text-only prompts get the stronger text model; prompts with a reference
 // image need the one vision model Groq exposes on the free tier.
-const TEXT_MODEL = ENV.TEXT_MODEL || "llama-3.3-70b-versatile";
-const VISION_MODEL = ENV.VISION_MODEL || "qwen/qwen3.6-27b";
+const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "llama-3.3-70b-versatile";
+const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.6-27b";
 
 const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:
 {"frame":{"name":string,"w":900,"h":600,"bg":"#hex","children":[...]}}
@@ -43,8 +50,10 @@ const CAPABILITIES = [
   {
     id: "pattern-engine",
     match: /pattern|stripe|band|rhythm|grid|texture|repeat|rows|columns|mosaic/i,
-    inDoc: d => /"mode":"(rows|columns|grid|mixed)"/.test(d),
-    doc: `A rect/ellipse may add "engine":{"mode":"rows"|"columns"|"grid","bands":2-10,"gap":px,"vary":0..1,"window":0..1,"empty":0..0.5} which fills its box with a rhythmic pattern of gradient segments drawn from its FILL - use for patterns, stripes, bands, rhythm, texture. "engine":{"mode":"none"} disables it.`,
+    inDoc: d => /"pattern":\{/.test(d),
+    // Bounded and precise: the client clamps every field again on load, and
+    // rows*cols is capped, so a bad value cannot produce runaway instances.
+    doc: `A rect/ellipse may add "pattern":{"columns":1-32,"rows":1-32,"hGap":px,"vGap":px,"baseScale":0.1-2,"widthVariation":0..1,"heightVariation":0..1,"baseRotation":deg,"rotationStep":deg,"mirror":"none"|"horizontal"|"vertical","holes":0..0.9} which REPEATS THAT WHOLE SHAPE as linked duplicate copies laid out beside it in a columns x rows grid. Every copy keeps the shape's exact type, radius, fill and effects - it does NOT slice or subdivide the shape. columns*rows must be <= 400. Use for repetition, patterns, rhythm, grids, rows of items.`,
   },
   {
     id: "shadow",
@@ -93,7 +102,11 @@ function extractJSON(s) {
 }
 
 async function generate(body) {
-  if (!GROQ_KEY) throw new Error("GROQ_API_KEY missing from .env");
+  if (!GROQ_KEY) {
+    const e = new Error("GROQ_API_KEY missing from .env");
+    /** @type {any} */ (e).code = "NO_KEY";
+    throw e;
+  }
   const { prompt, imageDataUrl, currentDoc } = body;
   const hasImage = !!imageDataUrl;
 
@@ -137,6 +150,7 @@ async function generate(body) {
   const data = await r.json();
   if (!r.ok) {
     const raw = (data.error && data.error.message) || `Groq HTTP ${r.status}`;
+    /** @type {Error & { status?: number, retryAfter?: number }} */
     const err = new Error(raw);
     err.status = r.status;
     if (r.status === 429) {
@@ -157,18 +171,66 @@ async function generate(body) {
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
   ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json" };
 
+/* Map an internal error to something safe to show a user. Provider text can
+ * embed upstream infrastructure detail, so it is never forwarded verbatim; the
+ * full error stays in the server log. */
+function safeError(e) {
+  if (e && e.status === 429) return { status: 429, message: "Rate limit reached — try again shortly.", retryAfter: e.retryAfter };
+  if (e && e.code === "NO_KEY") return { status: 503, message: "AI is not configured on this server.", code: "NO_KEY" };
+  if (e && e.status && e.status >= 400 && e.status < 500)
+    return { status: 502, message: "The AI provider rejected the request." };
+  if (e && e.status) return { status: 502, message: "The AI provider is unavailable. Try again shortly." };
+  if (e && /JSON|frame\.children/i.test(String(e.message)))
+    return { status: 502, message: "The AI returned an unusable design. Try again." };
+  if (e && /fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|abort/i.test(String(e.message)))
+    return { status: 502, message: "Could not reach the AI provider." };
+  return { status: 500, message: "Generation failed. Try again." };
+}
+
 const server = http.createServer((req, res) => {
+  /* Capability probe. Lets the UI disable Generate BEFORE the user submits.
+   * Reports only whether AI is usable — never the key or any part of it. */
+  if (req.method === "GET" && req.url === "/api/config") {
+    const usingMock = GROQ_URL !== "https://api.groq.com/openai/v1/chat/completions";
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(
+      JSON.stringify({
+        aiAvailable: !!GROQ_KEY,
+        mode: !GROQ_KEY ? "unconfigured" : usingMock ? "mock" : "live",
+        reason: GROQ_KEY ? null : "GROQ_API_KEY is not set. Copy .env.example to .env and add a key, or run `npm run dev:mock`.",
+      }),
+    );
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/generate") {
     let raw = "";
     req.on("data", c => { raw += c; if (raw.length > 15e6) req.destroy(); });
     req.on("end", async () => {
       try {
-        const out = await generate(JSON.parse(raw || "{}"));
+        // Client-body parsing is a separate, untrusted boundary from the
+        // provider call: a malformed request is 400, not a provider failure.
+        let body;
+        try {
+          body = JSON.parse(raw || "{}");
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Request body must be valid JSON." }));
+          return;
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Request body must be a JSON object." }));
+          return;
+        }
+        const out = await generate(body);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(out));
       } catch (e) {
-        res.writeHead(e.status === 429 ? 429 : 500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: e.message, retryAfter: e.retryAfter }));
+        // Full detail to the server log; only a sanitized message to the client.
+        console.error("[generate]", e && e.stack ? e.stack : e);
+        const safe = safeError(e);
+        res.writeHead(safe.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: safe.message, code: safe.code, retryAfter: safe.retryAfter }));
       }
     });
     return;
@@ -184,4 +246,17 @@ const server = http.createServer((req, res) => {
     res.end(buf);
   });
 });
-server.listen(PORT, () => console.log(`creative-editor on http://localhost:${PORT} (key: ${GROQ_KEY ? "loaded" : "MISSING"})`));
+/* Only listen when run directly (`node server.js`). When imported by a test the
+ * module hands back the server so the test can bind an ephemeral port and close
+ * it again — running `node server.js` behaves exactly as before. */
+if (require.main === module) {
+  server.listen(PORT, () =>
+    console.log(
+      `creative-editor on http://localhost:${PORT} (key: ${GROQ_KEY ? "loaded" : "MISSING"})`,
+    ),
+  );
+}
+
+/* Exported for characterization tests. These are the existing internals,
+ * unchanged — exporting them does not alter runtime behaviour. */
+module.exports = { server, generate, extractJSON, buildSystem, CAPABILITIES, PORT };
