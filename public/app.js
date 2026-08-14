@@ -231,6 +231,7 @@ function normalizeDoc(d){
       pr.on=!!pr.on && c.type!=='text';
       pr.shape=clamp(Math.round(+pr.shape)||0,0,8);
       pr.blend=pr.blend==='normal'?'normal':'add';
+      pr.seeded=!!pr.seeded;
       pr.spectrum=(+pr.spectrum)?1:0;
       {
         const n=(k,lo,hi)=>{ const v=+pr[k], d=de.prism[k];
@@ -1242,7 +1243,16 @@ function buildFx(obj){
       add(`<div class="fxHint">Needs WebGL2 with float render targets, which this browser doesn't provide.</div>`);
     } else {
       add(`<label class="slider"><input type="checkbox" id="prOn" ${R.on?'checked':''}> Enable prism</label>`);
-      $('prOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      $('prOn').addEventListener('change',e=>{
+        R.on=e.target.checked;
+        // First enable adopts a solid that matches what was drawn: an ellipse
+        // becomes a sphere (or a pill if it is elongated), a rect stays a box.
+        if(R.on&&!R.seeded){
+          if(obj.type==='ellipse') R.shape=Math.abs(obj.w-obj.h)<Math.min(obj.w,obj.h)*0.25?2:7;
+          R.seeded=true;
+        }
+        pushHistory(); refresh();
+      });
       if(R.on){
         // The prism ADDS light. On a white page it adds white to white and the
         // result is an apparently empty canvas, which reads as a broken effect

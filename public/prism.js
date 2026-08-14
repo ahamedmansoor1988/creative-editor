@@ -68,48 +68,70 @@ uniform float uFov;
 `;
 
 const GEOM = `
+/* The standalone app sized every solid with its own per-axis sliders, so each
+ * one was tuned by hand. Here the box the user drew IS the size, so every
+ * shape is fitted to that box: nothing may spill outside the selection
+ * rectangle, and the bevel is inset rather than added on top (an SDF rounded
+ * with "- uCorner" grows by uCorner in every direction unless you shrink the
+ * base shape by it first). */
 float sdShape(vec3 r){
+  float mn = min(uSize.x, uSize.y);        // the box's short half-axis
+  float k  = min(uCorner, mn * 0.98);
   if (uShape == 1){                        // equilateral triangular prism
     vec3 q = abs(r);
+    // An equilateral triangle's width is fixed by its height (w = 1.1547h), so
+    // on a tall narrow box a height-driven triangle bursts out of the sides.
+    // Take whichever of the two constraints binds.
+    float th = min(uSize.y, uSize.x * 1.1547);
     return max(q.z - uSize.z,
-               max(q.x * 0.866025 + r.y * 0.5, -r.y) - uSize.y * 0.5) - uCorner;
+               max(q.x * 0.866025 + r.y * 0.5, -r.y) - (th * 0.5 - k)) - k;
   }
-  if (uShape == 2) return length(r) - uSize.x;              // sphere
+  if (uShape == 2) return length(r) - mn;                    // sphere
   if (uShape == 3){                                          // cylinder
-    vec2 d = vec2(length(r.xz) - uSize.x, abs(r.y) - uSize.y);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - uCorner;
+    vec2 d = vec2(length(r.xz) - (mn - k), abs(r.y) - (uSize.y - k));
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - k;
   }
   if (uShape == 4){                                          // hex prism
-    const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
+    const vec3 c = vec3(-0.8660254, 0.5, 0.57735);
+    // apothem, so the hexagon's WIDTH (its long axis) lands on the box edge
+    float a = (mn - k) * 0.8660254;
     vec3 p = abs(r);
-    p.xy -= 2.0 * min(dot(k.xy, p.xy), 0.0) * k.xy;
-    vec2 d = vec2(length(p.xy - vec2(clamp(p.x, -k.z * uSize.x, k.z * uSize.x),
-                                     uSize.x)) * sign(p.y - uSize.x),
+    p.xy -= 2.0 * min(dot(c.xy, p.xy), 0.0) * c.xy;
+    vec2 d = vec2(length(p.xy - vec2(clamp(p.x, -c.z * a, c.z * a), a))
+                  * sign(p.y - a),
                   p.z - uSize.z);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - uCorner;
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - k;
   }
   if (uShape == 5){                                          // octahedron
     vec3 p = abs(r);
-    return (p.x + p.y + p.z - uSize.x) * 0.57735027 - uCorner;
+    return (p.x + p.y + p.z - (mn - k)) * 0.57735027 - k;
   }
   if (uShape == 6){                                          // torus
-    vec2 q = vec2(length(r.xz) - uSize.x, r.y);
-    return length(q) - uSize.z;
+    // The ring lies in XY, not XZ. The camera looks down -Z, so the original
+    // orientation presented the torus edge-on as a bar and the hole was never
+    // visible at all.
+    float tube = clamp(uSize.z, 0.02 * mn, mn * 0.9);
+    vec2 q = vec2(length(r.xy) - (mn - tube), r.z);
+    return length(q) - tube;
   }
-  if (uShape == 7){                                          // capsule
+  if (uShape == 7){                                          // capsule / pill
+    // Runs along the box's LONGER axis, and the hemispherical caps are counted
+    // INSIDE the box instead of added to it — the original added a full radius
+    // at each end, which made a pill twice the height of the box it sat in.
     vec3 q = r;
-    q.y -= clamp(q.y, -uSize.y, uSize.y);
-    return length(q) - uSize.x;
+    if (uSize.y >= uSize.x) q.y -= clamp(q.y, -(uSize.y - mn), uSize.y - mn);
+    else                    q.x -= clamp(q.x, -(uSize.x - mn), uSize.x - mn);
+    return length(q) - mn;
   }
   if (uShape == 8){                                          // cone
     vec2 q = vec2(length(r.xz), r.y);
-    float h = uSize.y, r1 = uSize.x, r2 = uSize.z;
+    float h = uSize.y - k, r1 = mn - k, r2 = min(uSize.z, r1);
     vec2 k1 = vec2(r2, h);
     vec2 k2 = vec2(r2 - r1, 2.0 * h);
     vec2 ca = vec2(q.x - min(q.x, q.y < 0.0 ? r1 : r2), abs(q.y) - h);
     vec2 cb = q - k1 + k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0.0, 1.0);
     float sg = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
-    return sg * sqrt(min(dot(ca, ca), dot(cb, cb))) - uCorner;
+    return sg * sqrt(min(dot(ca, ca), dot(cb, cb))) - k;
   }
   vec3 q = abs(r) - uSize + uCorner;                         // rounded box
   return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - uCorner;
