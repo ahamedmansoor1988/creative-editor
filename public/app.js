@@ -36,6 +36,11 @@ const DEFAULT_EFFECTS=()=>({
          bloom:0,innerGlow:2.5,falloff:2.33,leftFade:0.45,meshMix:1.62,bandFlow:0,
          beamLength:1.17,beamGlow:0.65,transparent:true,
          deep:'#000000',core:'#00aaff',inner:'#eaeaea',mesh:'#7744ff',bg:'#000000'},
+  // banded two-gradient stripe fill, ported from the Gradient Stripe plugin
+  gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
+            phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
+            g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
+            g2:[{color:'#ffaa00',pos:0},{color:'#0000ff',pos:0.5},{color:'#999999',pos:1}]},
   // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -158,6 +163,28 @@ function normalizeDoc(d){
       if(!/^#[0-9a-fA-F]{6}$/.test(sh.color||'')) sh.color='#000000';
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
+      const grd=Object.assign(de.gradient, ce.gradient||{});
+      grd.on=!!grd.on && c.type!=='text';
+      grd.bandHeight=clamp(Math.round(+grd.bandHeight)||60,2,400);
+      grd.split=clamp(+grd.split||0,5,95);
+      grd.drift=clamp(+grd.drift||0,-20,20);
+      grd.g1shift=clamp(+grd.g1shift||0,-50,50);
+      grd.g2shift=clamp(+grd.g2shift||0,-50,50);
+      grd.phase=clamp(Number.isFinite(+grd.phase)?+grd.phase:0.1,-0.5,0.5);
+      grd.angle=clamp(+grd.angle||0,0,359);
+      grd.bounce=!!grd.bounce; grd.mirrorX=!!grd.mirrorX; grd.mirrorY=!!grd.mirrorY;
+      grd.seeded=!!grd.seeded;
+      // Stops arrive from the model as well as the panel, so both ramps are
+      // repaired here rather than trusted: at least two, at most MAX_STOPS.
+      const maxSt=(window.GradientEngine&&window.GradientEngine.MAX_STOPS)||6;
+      ['g1','g2'].forEach(k=>{
+        let a=Array.isArray(grd[k])?grd[k]:[];
+        a=a.slice(0,maxSt).map(s=>({
+          pos:clamp(+(s&&s.pos)||0,0,1),
+          color:/^#[0-9a-fA-F]{6}$/.test((s&&s.color)||'')?s.color:'#888888'}));
+        while(a.length<2) a.push({pos:1,color:'#333333'});
+        grd[k]=a;
+      });
       const gla=Object.assign(de.glass, ce.glass||{});
       gla.on=!!gla.on && c.type!=='text';
       gla.depth=clamp(+gla.depth||0,-200,200);
@@ -196,7 +223,7 @@ function normalizeDoc(d){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
-      c.effects={shadow:sh, grain:gr, glass:gla, blob:blo, glass2:gl2, light:li};
+      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -611,6 +638,21 @@ function drawObject(c,obj,plain){
       pathFor(c,obj); c.fill();
     }
     c.shadowColor='transparent';
+    // Stripe fill paints OVER the flat fill rather than replacing it: the flat
+    // fill above is what casts the drop shadow, and a clipped drawImage cannot.
+    const grd=obj.effects.gradient;
+    if(grd&&grd.on&&window.GradientEngine&&b.w>=1&&b.h>=1){
+      const tile=window.GradientEngine.get(b.w,b.h,grd);
+      if(tile){
+        if(plain==='flood'){
+          c.drawImage(tile,0,0,c.canvas.width,c.canvas.height);
+        }else{
+          c.save(); pathFor(c,obj); c.clip();
+          c.drawImage(tile,b.x,b.y,b.w,b.h);
+          c.restore();
+        }
+      }
+    }
     const gr=obj.effects.grain;
     if(gr.amount>0){
       if(!grainTile) grainTile=makeGrain();
@@ -703,7 +745,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Light','Blob','Glass','Glass 2','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Blob','Glass','Glass 2','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -916,6 +958,112 @@ function buildFx(obj){
     $('tWeight').addEventListener('change',e=>{ obj.weight=+e.target.value; pushHistory(); render(); });
     $('tColor').addEventListener('input',e=>{ obj.color=e.target.value; render(); });
     $('tColor').addEventListener('change',()=>pushHistory());
+  }
+
+  if(page==='Gradient'){
+    const G=obj.effects.gradient;
+    const GE=window.GradientEngine;
+    add(`<label class="slider"><input type="checkbox" id="gsOn" ${G.on?'checked':''}> Enable gradient stripe</label>`);
+    $('gsOn').addEventListener('change',e=>{
+      G.on=e.target.checked;
+      // First enable adopts the object's own fill, so "add object, pick a
+      // colour, apply the effect" lands on that colour rather than on the
+      // plugin's stock blue/orange. Later toggles leave the user's edits alone.
+      if(G.on&&!G.seeded&&GE){ const s=GE.seedFromFill(obj.fill); G.g1=s.g1; G.g2=s.g2; G.seeded=true; }
+      pushHistory(); refresh();
+    });
+    if(G.on&&GE){
+      const sl=(id,label,min,max,step,key,fmt)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${fmt(G[key])}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${G[key]}"></label>`);
+        $(id).addEventListener('input',e=>{ G[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      const chk=(id,label,key)=>{
+        add(`<label class="chk"><input type="checkbox" id="${id}" ${G[key]?'checked':''}> ${label}</label>`);
+        $(id).addEventListener('change',e=>{ G[key]=e.target.checked; pushHistory(); render(); });
+      };
+      const int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%', f2=v=>(+v).toFixed(2);
+
+      add(`<label class="slider">Preset<select id="gsPre">
+        <option value="">Custom…</option>`+
+        GE.PRESETS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('')+
+        `</select></label>`);
+      $('gsPre').addEventListener('change',e=>{
+        const p=GE.PRESETS[+e.target.value];
+        if(!p) return;
+        G.g1=p.g1.map(s=>({...s})); G.g2=p.g2.map(s=>({...s})); G.seeded=true;
+        pushHistory(); refresh();
+      });
+      add(`<div class="gsBtns">
+        <button class="rollBtn" id="gsRand">⚄ Randomize</button>
+        <button class="rollBtn" id="gsSeed">Use fill colours</button></div>`);
+      $('gsRand').addEventListener('click',()=>{
+        G.g1=GE.randomStops(G.g1.length); G.g2=GE.randomStops(G.g2.length);
+        G.bandHeight=20+Math.floor(Math.random()*80);
+        G.split=20+Math.floor(Math.random()*60);
+        G.drift=-8+Math.floor(Math.random()*16);
+        G.g1shift=-30+Math.floor(Math.random()*60);
+        G.g2shift=-30+Math.floor(Math.random()*60);
+        G.seeded=true; pushHistory(); refresh();
+      });
+      $('gsSeed').addEventListener('click',()=>{
+        const s=GE.seedFromFill(obj.fill); G.g1=s.g1; G.g2=s.g2; G.seeded=true;
+        pushHistory(); refresh();
+      });
+
+      add(`<div class="pSect">Stripe</div>`);
+      sl('gsBand','Band height',2,200,1,'bandHeight',int);
+      sl('gsSplit','Split',5,95,1,'split',pct);
+      sl('gsDrift','Drift',-20,20,0.5,'drift',f2);
+      sl('gsAng','Angle',0,359,1,'angle',v=>Math.round(v)+'°');
+
+      add(`<div class="pSect">Phase</div>`);
+      sl('gsPhase','Per-band phase',-0.5,0.5,0.01,'phase',f2);
+      chk('gsBounce','Bounce phase (keep cycling on tall shapes)','bounce');
+      sl('gsS1','Gradient 1 shift',-50,50,1,'g1shift',int);
+      sl('gsS2','Gradient 2 shift',-50,50,1,'g2shift',int);
+
+      add(`<div class="pSect">Mirror</div>`);
+      chk('gsMX','Mirror horizontally','mirrorX');
+      chk('gsMY','Mirror vertically','mirrorY');
+
+      [1,2].forEach(n=>{
+        const key='g'+n, stops=G[key];
+        add(`<div class="pSect">Gradient ${n}</div>`);
+        stops.forEach((s,i)=>{
+          add(`<div class="stopRow">
+            <input type="color" class="gsC${n}" data-si="${i}" value="${s.color}">
+            <input type="range" class="gsP${n}" data-si="${i}" min="0" max="100" value="${Math.round(s.pos*100)}">
+            <button class="stopDel" data-si="${i}" data-g="${n}" title="Remove stop" ${stops.length<=2?'disabled':''}>×</button>
+          </div>`);
+        });
+        body.querySelectorAll('.gsC'+n).forEach(el=>{
+          el.addEventListener('input',e=>{ G[key][+e.target.dataset.si].color=e.target.value; render(); });
+          el.addEventListener('change',()=>pushHistory());
+        });
+        body.querySelectorAll('.gsP'+n).forEach(el=>{
+          el.addEventListener('input',e=>{ G[key][+e.target.dataset.si].pos=+e.target.value/100; render(); });
+          el.addEventListener('change',()=>pushHistory());
+        });
+        if(stops.length<GE.MAX_STOPS){
+          add(`<button class="rollBtn" id="gsAdd${n}">+ Add stop to gradient ${n}</button>`);
+          $('gsAdd'+n).addEventListener('click',()=>{
+            G[key]=G[key].concat({color:GE.randomColor(),pos:Math.random()}).sort((a,b)=>a.pos-b.pos);
+            pushHistory(); refresh();
+          });
+        }
+      });
+      body.querySelectorAll('.stopDel').forEach(el=>{
+        el.addEventListener('click',e=>{
+          const k='g'+e.target.dataset.g;
+          if(G[k].length<=2) return;
+          G[k]=G[k].filter((_,i)=>i!==+e.target.dataset.si);
+          pushHistory(); refresh();
+        });
+      });
+      add(`<div class="fxHint">Horizontal bands, split left/right at a drifting point, each side ramping through its own gradient. Ported from the Gradient Stripe plugin.</div>`);
+    }
   }
 
   if(page==='Light'){

@@ -80,6 +80,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"light":{"on":true,"mode":0|1|2|7|8|14|18|22|33|34,"intensity":0-2.8,"throat":-0.2-0.55,"mouth":0.35-1.4,"curve":1-3.2,"density":2-36,"innerGlow":0-2.5,"bloom":0-2.5,"meshMix":0-2.5,"beamLength":0.1-2,"transparent":true,"core":"#hex","inner":"#hex","deep":"#hex","mesh":"#hex"}} which fills the shape with a volumetric light cone. mode: 0 single beam, 1 mirrored, 2 vertical, 7/8 rotated, 14 diamond, 18 chevron, 22 bowtie, 33 star-8 burst, 34 star-12 burst. Works best over a dark background.`,
   },
   {
+    id: "gradient",
+    match: /gradient|stripe|band|ramp|spectrum|risograph|retro|swatch|colou?r ?field|sunset|aurora/i,
+    inDoc: d => /"gradient":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"gradient":{"on":true,"bandHeight":2-400,"split":5-95,"drift":-20-20,"g1shift":-50-50,"g2shift":-50-50,"phase":-0.5-0.5,"bounce":false,"angle":0-359,"mirrorX":false,"mirrorY":false,"g1":[{"color":"#hex","pos":0..1},...],"g2":[...]}} which fills the shape with horizontal bands. Each band is split left/right at "split" percent (the split walks across by "drift" per band); the left side ramps through the g1 stops and the right through g2, and each band offsets the stop positions by "phase". Each ramp takes 2-6 stops. Typical: bandHeight 40-80, split 30, drift 2, phase 0.1. Set "angle" for diagonal or vertical bands, "bounce":true to stop tall shapes running flat at the end of the ramp. This REPLACES the flat fill, so pick the palette here rather than in "fill".`,
+  },
+  {
     id: "grain",
     match: /grain|noise|film|gritt|analog/i,
     inDoc: d => /"grain":\{"amount":0\.\d*[1-9]/.test(d),

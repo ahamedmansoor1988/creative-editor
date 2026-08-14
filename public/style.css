@@ -146,6 +146,28 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #fxBody .stopRow input[type=color]{flex:0 0 40px;}
 #fxBody .stopRow input[type=range]{flex:1; accent-color:var(--accent);}
 
+#fxBody .stopRow .stopDel{
+  flex:0 0 22px; height:22px; padding:0; line-height:1;
+  border:1px solid var(--line); border-radius:5px; background:none;
+  color:var(--muted); cursor:pointer; font-size:14px;
+}
+#fxBody .stopRow .stopDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}
+#fxBody .stopRow .stopDel:disabled{opacity:.3; cursor:default;}
+
+/* label.slider stretches its input to 100% for range/colour rows, which turns
+   an enable checkbox into a full-width bar floating above its own text. */
+label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:middle;}
+
+/* checkbox rows read as one clickable line, not a floating box + stray label */
+#fxBody label.chk{
+  display:flex; align-items:center; gap:7px; margin:8px 0;
+  font-size:12px; color:var(--muted); cursor:pointer;
+}
+#fxBody label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);}
+
+.gsBtns{display:flex; gap:6px;}
+.gsBtns .rollBtn{margin-top:6px;}
+
 .rollBtn{
   width:100%; border:1px solid var(--line); background:none; border-radius:7px;
   padding:6px 0; font:inherit; cursor:pointer; margin-top:4px;
