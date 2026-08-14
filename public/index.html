@@ -12,7 +12,7 @@
 <div id="menubar" class="floating">
   <div class="menu" data-menu="file">File
     <div class="dropdown">
-      <button data-cmd="new">New</button>
+      <button data-cmd="new">New Page…</button>
       <button data-cmd="exportPng">Export PNG</button>
     </div>
   </div>
@@ -36,7 +36,8 @@
   </div>
   <div id="sidebar">
     <div class="sideHead">Pages</div>
-    <div class="pageRow">Page 1</div>
+    <div class="pageRow" id="pageRow" style="display:none"></div>
+    <button class="btn" id="btnNewPage" style="width:100%; margin-bottom:10px">＋ New page</button>
     <div class="sideHead">Layers</div>
     <div id="layerList"></div>
   </div>
@@ -45,7 +46,60 @@
 <!-- canvas -->
 <div id="stage">
   <canvas id="out"></canvas>
-  <div id="emptyHint">Nothing here yet.<br><span>Type a prompt below and Generate — or pick a shape tool.</span></div>
+  <div id="emptyHint">
+    <div>No page yet.</div>
+    <button class="btn primary" id="btnEmptyNew">＋ New page</button>
+    <span>or type a prompt below and Generate</span>
+  </div>
+</div>
+
+<!-- New Page modal -->
+<div id="pageModal" style="display:none">
+  <div class="modal">
+    <h3>New page</h3>
+    <div class="mSec">Size</div>
+    <div id="sizeChips">
+      <button data-w="900"  data-h="600"  class="on">Landscape<br><em>900×600</em></button>
+      <button data-w="1080" data-h="1080">Square<br><em>1080×1080</em></button>
+      <button data-w="1600" data-h="900">Wide<br><em>1600×900</em></button>
+      <button data-w="1080" data-h="1350">Portrait<br><em>1080×1350</em></button>
+      <button data-w="1080" data-h="1920">Story<br><em>1080×1920</em></button>
+    </div>
+    <div class="row2">
+      <label class="num"><span>W px</span><input type="number" id="npW" value="900" min="100" max="4000"></label>
+      <label class="num"><span>H px</span><input type="number" id="npH" value="600" min="100" max="4000"></label>
+    </div>
+    <div class="mSec">Background</div>
+    <div id="bgModeRow">
+      <label><input type="radio" name="bgMode" value="solid" checked> Solid</label>
+      <label><input type="radio" name="bgMode" value="gradient"> Gradient</label>
+    </div>
+    <div id="bgSolid">
+      <input type="color" id="npBg" value="#ffffff">
+      <div id="swatches">
+        <button data-c="#ffffff" style="background:#ffffff"></button>
+        <button data-c="#f7f3ec" style="background:#f7f3ec"></button>
+        <button data-c="#0b0c0e" style="background:#0b0c0e"></button>
+        <button data-c="#0a1a3a" style="background:#0a1a3a"></button>
+        <button data-c="#e8472a" style="background:#e8472a"></button>
+        <button data-c="#f2dc18" style="background:#f2dc18"></button>
+      </div>
+    </div>
+    <div id="bgGrad" style="display:none">
+      <div class="row2">
+        <label class="num"><span>From</span><input type="color" id="npG1" value="#0a1a3a"></label>
+        <label class="num"><span>To</span><input type="color" id="npG2" value="#e8472a"></label>
+      </div>
+      <label class="slider">Angle <span id="npAngV">90°</span>
+        <input type="range" id="npAng" min="0" max="359" value="90">
+      </label>
+      <div class="hint">Creates an editable Background layer — refine it any time with the Fill engine.</div>
+    </div>
+    <div class="row2" style="margin-top:14px">
+      <button class="btn" id="npCancel">Cancel</button>
+      <button class="btn primary" id="npCreate">Create page</button>
+    </div>
+  </div>
 </div>
 
 <!-- right: inspector -->

@@ -444,7 +444,7 @@ function render(){
 }
 
 /* ================= UI sync ================= */
-function refresh(){ render(); syncLayers(); syncInspector(); }
+function refresh(){ render(); syncLayers(); syncInspector(); syncPageRow(); }
 
 function syncLayers(){
   const list=$('layerList'); list.innerHTML='';
@@ -812,7 +812,12 @@ function hitInstance(px,py){
 }
 let drag=null;
 canvas.addEventListener('pointerdown',e=>{
-  if(!doc) return;
+  if(!doc){
+    // no page yet: a shape tool means the user wants to start — open the
+    // New Page flow rather than silently inventing a canvas
+    if(tool!=='select') openPageModal();
+    return;
+  }
   const p=evtFrame(e);
   if(tool!=='select'){ addShapeAt(tool,p); setTool('select'); return; }
   const i=hit(p.x,p.y);
@@ -853,7 +858,7 @@ function setTool(t){
 }
 document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
 function addShapeAt(kind,p){
-  if(!doc) doc=newDoc();
+  if(!doc){ openPageModal(); return; }   // no silent premade page
   const f=doc.frame;
   let obj;
   if(kind==='text') obj={type:'text',name:'Text',x:p.x,y:p.y,text:'Text',size:36,weight:600,color:'#111111',align:'left',opacity:1};
@@ -905,8 +910,67 @@ function deleteSel(){
   doc.frame.children.splice(sel,1); sel=-1;
   pushHistory(); refresh();
 }
+/* ---------------- New Page flow ---------------- */
+function openPageModal(){
+  if(doc && doc.frame.children.length &&
+     !confirm('Replace the current page? (Undo brings it back)')) return;
+  $('pageModal').style.display='flex';
+}
+function closePageModal(){ $('pageModal').style.display='none'; }
+function syncPageRow(){
+  const row=$('pageRow');
+  if(doc){
+    row.style.display='';
+    row.textContent=`${doc.frame.name} · ${doc.frame.w}×${doc.frame.h}`;
+  } else row.style.display='none';
+}
+function createPage(){
+  const w=clamp(Math.round(+$('npW').value)||900,100,4000);
+  const h=clamp(Math.round(+$('npH').value)||600,100,4000);
+  const gradient=document.querySelector('input[name="bgMode"]:checked').value==='gradient';
+  const bg=$('npBg').value;
+  const children=[];
+  if(gradient){
+    // Background as a real layer so the full Fill engine can refine it later
+    // ("color engine"): it is an ordinary rect with a linear-gradient fill.
+    children.push({type:'rect',name:'Background',x:0,y:0,w,h,radius:0,opacity:1,
+      fill:{kind:'linear',angle:+$('npAng').value,
+            stops:[{pos:0,color:$('npG1').value},{pos:1,color:$('npG2').value}]}});
+  }
+  doc=normalizeDoc({frame:{name:'Page 1',w,h,bg:gradient?$('npG1').value:bg,children}});
+  sel=-1; selInstance=null;
+  closePageModal();
+  pushHistory(); refresh();
+}
+document.querySelectorAll('#sizeChips button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#sizeChips button').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    $('npW').value=b.dataset.w; $('npH').value=b.dataset.h;
+  });
+});
+['npW','npH'].forEach(id=>$(id).addEventListener('input',()=>{
+  document.querySelectorAll('#sizeChips button').forEach(o=>o.classList.remove('on'));
+}));
+document.querySelectorAll('input[name="bgMode"]').forEach(r=>{
+  r.addEventListener('change',()=>{
+    const grad=document.querySelector('input[name="bgMode"]:checked').value==='gradient';
+    $('bgSolid').style.display=grad?'none':'';
+    $('bgGrad').style.display=grad?'':'none';
+  });
+});
+document.querySelectorAll('#swatches button').forEach(b=>{
+  b.addEventListener('click',()=>{ $('npBg').value=b.dataset.c; });
+});
+$('npAng').addEventListener('input',e=>{ $('npAngV').textContent=e.target.value+'°'; });
+$('npCreate').addEventListener('click',createPage);
+$('npCancel').addEventListener('click',closePageModal);
+$('pageModal').addEventListener('click',e=>{ if(e.target.id==='pageModal') closePageModal(); });
+$('btnNewPage').addEventListener('click',openPageModal);
+$('btnEmptyNew').addEventListener('click',openPageModal);
+
 const CMDS={
-  new(){ doc=newDoc(); sel=-1; pushHistory(); refresh(); },
+  new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
 };
 document.querySelectorAll('.dropdown button').forEach(b=>{
@@ -921,6 +985,7 @@ document.addEventListener('keydown',e=>{
   if(meta&&e.key==='z'&&!e.shiftKey){ e.preventDefault(); undo(); }
   else if(meta&&((e.key==='z'&&e.shiftKey)||e.key==='y')){ e.preventDefault(); redo(); }
   else if(meta&&e.key==='d'){ e.preventDefault(); duplicateSel(); }
+  else if(e.key==='Escape'&&$('pageModal').style.display!=='none'){ closePageModal(); }
   else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
   else if(e.key==='v'||e.key==='V') setTool('select');
   else if(e.key==='r'||e.key==='R') setTool('rect');
@@ -1040,7 +1105,7 @@ probeProvider();
 
 /* ================= init ================= */
 window.addEventListener('resize',render);
-doc=newDoc(); pushHistory(); refresh();
+doc=null; pushHistory(); refresh();      // start with NO page — user creates one
 
 /* test hook */
 window.__editor={ get doc(){return doc;}, set doc(d){doc=normalizeDoc(d); sel=-1; selInstance=null; pushHistory(); refresh();},
