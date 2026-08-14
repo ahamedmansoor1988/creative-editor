@@ -166,3 +166,109 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 }
 #generateBtn:hover{border-color:var(--accent); color:var(--accent);}
 #generateBtn:disabled{opacity:.5; cursor:default;}
+
+/* --- linked pattern: distinguish a pattern parent in the layer list --- */
+#layerList .isParent { font-weight: 600; }
+#layerList .linkBadge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: #ede9fe;
+  color: #6d28d9;
+}
+#layerList > div { display: flex; align-items: center; gap: 6px; }
+.instHint {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.instHint button {
+  margin-top: 6px;
+  font: inherit;
+  color: #6d28d9;
+  background: #ede9fe;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+/* --- pattern inspector (Stage 1.2) --- */
+.pSect {
+  margin: 12px 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 9px;
+}
+.pSect:first-child { border-top: 0; margin-top: 2px; }
+.pRow { margin-bottom: 7px; }
+.pRow > label {
+  display: block;
+  font-size: 11px;
+  color: #374151;
+  margin-bottom: 3px;
+}
+.pCtl { display: flex; align-items: center; gap: 6px; }
+.pCtl input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.pCtl input[type="number"] {
+  width: 56px;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+}
+.pCtl select { flex: 1 1 auto; font-size: 11px; }
+.pUnit { font-size: 10px; color: #9ca3af; width: 14px; flex: 0 0 auto; }
+.pQ {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  line-height: 13px;
+  text-align: center;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #6b7280;
+  font-size: 9px;
+  cursor: help;
+}
+.pCheck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #374151;
+  margin: 6px 0 8px;
+}
+.pAdv { margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+.pAdv > summary {
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+  list-style: revert;
+}
+.pAdv[open] > summary { margin-bottom: 8px; }
+.rollBtn.danger { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+/* Keyboard focus must stay obvious on every new control. */
+.pCtl input:focus-visible,
+.pCtl select:focus-visible,
+.pCheck input:focus-visible,
+.pAdv > summary:focus-visible,
+.rollBtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}

@@ -5,11 +5,11 @@
 /* ================= helpers ================= */
 const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
-const rr=v=>Math.round(v*100)/100;
 
 /* ================= document ================= */
 let doc=null;            // {frame:{name,w,h,bg,children:[]}}
 let sel=-1;              // index into children
+let selInstance=null;    // derived instance under inspection (never editable)
 let tool='select';
 let fxPage=0;            // engines pager
 
@@ -17,19 +17,88 @@ const DEFAULT_EFFECTS=()=>({
   shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
   grain:{amount:0},
 });
-const DEFAULT_ENGINE=()=>({
-  mode:'none', bands:4, gap:10, vary:0.6, window:0.7, empty:0.15,
+/* ---- linked pattern (see docs/pattern-contract.md) ----
+ * A parent owns a pattern definition. Instances are DERIVED at layout time,
+ * never stored, so inherited appearance cannot drift and parent-reference
+ * cycles are unrepresentable. */
+const MAX_PATTERN_INSTANCES=400;
+const MAX_GRID_AXIS=32, MAX_GAP=400, MAX_OFFSET=500, MAX_JITTER=500;
+const MAX_HOLES=0.9, MIN_SIZE_FACTOR=0.1;
+const MIRRORS=['none','horizontal','vertical','alt-horizontal','alt-vertical'];
+const DEFAULT_PATTERN=()=>({
+  columns:4, rows:1,
+  hGap:16, vGap:16, rowOffsetX:0, colOffsetY:0,
+  baseScale:1, lockProportions:true, widthVariation:0, heightVariation:0,
+  baseRotation:0, rotationStep:0, rotationVariation:0, mirror:'none',
+  jitterX:0, jitterY:0, holes:0,
   seed:Math.floor(Math.random()*99999999),
 });
 
-function mulberry32(seed){
-  let a=seed>>>0;
-  return function(){
-    a|=0; a=(a+0x6D2B79F5)|0;
-    let t=Math.imul(a^(a>>>15),1|a);
-    t=(t+Math.imul(t^(t>>>7),61|t))^t;
-    return ((t^(t>>>14))>>>0)/4294967296;
-  };
+/* Deterministic value in [0,1) addressed by (seed, instance index, channel).
+ * Deliberately a HASH, not a sequential stream: changing `holes` or adding a
+ * row must not reshuffle the instances that were already there. */
+function rand01(seed,i,salt){
+  let a=(Math.imul(seed>>>0,0x9E3779B1) ^ Math.imul(i+1,0x85EBCA77) ^ Math.imul(salt+1,0xC2B2AE3D))>>>0;
+  a=Math.imul(a^(a>>>16),0x7FEB352D)>>>0;
+  a=Math.imul(a^(a>>>15),0x846CA68B)>>>0;
+  return ((a^(a>>>16))>>>0)/4294967296;
+}
+const R_W=1,R_H=2,R_ROT=3,R_JX=4,R_JY=5,R_HOLE=6;
+let uidN=0;
+function newId(){ uidN+=1; return 'o'+Date.now().toString(36)+'-'+uidN.toString(36); }
+
+
+/* Migrate + validate a pattern. Returns null when the object has no pattern.
+ * Idempotent: the Stage 1.1 branch is keyed on the retired `mode` field, which
+ * this function never writes back, so re-running is a no-op. */
+function normalizePattern(raw){
+  if(!raw||typeof raw!=='object') return null;
+  let p=raw;
+  if('mode' in p){
+    // ---- Stage 1.1 -> 1.2 migration ----
+    if(p.mode==='none') return null;                 // "Off" is now "no pattern"
+    const count=clamp(Math.round(+p.count||4),1,MAX_GRID_AXIS);
+    const vary=clamp(+p.vary||0,0,1);
+    const mapped={
+      columns: p.mode==='columns' ? 1 : (p.mode==='grid' ? clamp(Math.round(+p.cols||count),1,MAX_GRID_AXIS) : count),
+      rows:    p.mode==='rows'    ? 1 : (p.mode==='grid' ? clamp(Math.round(+p.rows||count),1,MAX_GRID_AXIS) : count),
+      hGap:+p.gap||0, vGap:+p.gap||0,
+      widthVariation:vary, heightVariation:vary, lockProportions:true,
+      holes:clamp(+p.empty||0,0,MAX_HOLES),
+      seed:Math.floor(+p.seed)||DEFAULT_PATTERN().seed,
+    };
+    // `window` (Coverage) is intentionally dropped — see docs/pattern-contract.md §8.
+    p=Object.assign(DEFAULT_PATTERN(),mapped);
+  }
+  const d=DEFAULT_PATTERN();
+  const out=Object.assign(d,p);
+  const num=(v,def,lo,hi)=>{ const n=+v; return Number.isFinite(n)?clamp(n,lo,hi):def; };
+  out.columns=clamp(Math.round(num(out.columns,4,1,MAX_GRID_AXIS)),1,MAX_GRID_AXIS);
+  out.rows=clamp(Math.round(num(out.rows,1,1,MAX_GRID_AXIS)),1,MAX_GRID_AXIS);
+  // Predictable cap: shed ROWS until the grid fits, never a partial row.
+  if(out.columns*out.rows>MAX_PATTERN_INSTANCES){
+    out.rows=Math.max(1,Math.floor(MAX_PATTERN_INSTANCES/out.columns));
+  }
+  out.hGap=num(out.hGap,0,0,MAX_GAP);
+  out.vGap=num(out.vGap,0,0,MAX_GAP);
+  out.rowOffsetX=num(out.rowOffsetX,0,-MAX_OFFSET,MAX_OFFSET);
+  out.colOffsetY=num(out.colOffsetY,0,-MAX_OFFSET,MAX_OFFSET);
+  out.baseScale=num(out.baseScale,1,0.1,2);
+  out.lockProportions=!!out.lockProportions;
+  out.widthVariation=num(out.widthVariation,0,0,1);
+  out.heightVariation=num(out.heightVariation,0,0,1);
+  out.baseRotation=num(out.baseRotation,0,-180,180);
+  out.rotationStep=num(out.rotationStep,0,-180,180);
+  out.rotationVariation=num(out.rotationVariation,0,0,180);
+  out.mirror=MIRRORS.includes(out.mirror)?out.mirror:'none';
+  out.jitterX=num(out.jitterX,0,0,MAX_JITTER);
+  out.jitterY=num(out.jitterY,0,0,MAX_JITTER);
+  out.holes=num(out.holes,0,0,MAX_HOLES);
+  const s=Math.floor(+out.seed);
+  out.seed=Number.isFinite(s)&&s!==0?s:DEFAULT_PATTERN().seed;
+  delete out.mode; delete out.count; delete out.cols; delete out.gap;
+  delete out.vary; delete out.window; delete out.empty;
+  return out;
 }
 
 function normalizeDoc(d){
@@ -66,16 +135,26 @@ function normalizeDoc(d){
       gr.amount=clamp(+gr.amount||0,0,1);
       c.effects={shadow:sh, grain:gr};
     }
+    // Stable identity. Required so instances can carry an explicit parentId.
+    if(typeof c.id!=='string'||!c.id) c.id=newId();
     if(c.type!=='text'){
-      const e=Object.assign(DEFAULT_ENGINE(), c.engine||{});
-      e.mode=['rows','columns','grid','mixed'].includes(e.mode)?e.mode:'none';
-      e.bands=clamp(Math.round(+e.bands||4),1,14);
-      e.gap=clamp(+e.gap||0,0,60);
-      e.vary=clamp(+e.vary||0,0,1);
-      e.window=clamp(e.window===undefined?0.7:+e.window,0,1);
-      e.empty=clamp(+e.empty||0,0,0.8);
-      e.seed=Math.floor(+e.seed)||DEFAULT_ENGINE().seed;
-      c.engine=e;
+      // Migrate the legacy bounding-box `engine` field. Deliberate semantic
+      // change: same knobs, but they now place linked duplicates outside the
+      // parent instead of gradient segments inside it. See the contract doc.
+      const legacy=c.engine;
+      if(legacy&&!c.pattern){
+        c.pattern={
+          mode:legacy.mode==='mixed'?'rows':legacy.mode,
+          count:legacy.bands, rows:legacy.bands, cols:legacy.bands,
+          gap:legacy.gap, vary:legacy.vary, window:legacy.window,
+          empty:legacy.empty, seed:legacy.seed,
+        };
+      }
+      delete c.engine;
+      c.pattern=normalizePattern(c.pattern);
+      if(!c.pattern) delete c.pattern;
+    } else {
+      delete c.engine; delete c.pattern;
     }
     return c;
   });
@@ -93,8 +172,8 @@ function pushHistory(){
   if(hist.stack.length>60) hist.stack.shift();
   hist.i=hist.stack.length-1;
 }
-function undo(){ if(hist.i>0){ hist.i--; doc=JSON.parse(hist.stack[hist.i]); sel=-1; refresh(); } }
-function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; doc=JSON.parse(hist.stack[hist.i]); sel=-1; refresh(); } }
+function undo(){ if(hist.i>0){ hist.i--; doc=JSON.parse(hist.stack[hist.i]); sel=-1; selInstance=null; refresh(); } }
+function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; doc=JSON.parse(hist.stack[hist.i]); sel=-1; selInstance=null; refresh(); } }
 
 /* ================= render ================= */
 const canvas=$('out'), ctx=canvas.getContext('2d');
@@ -143,130 +222,123 @@ function hexAlpha(hex,a){
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
 }
 
-/* ---------- pattern engine (ported from the gradient tool) ---------- */
-function hexToRgbArr(h){const n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];}
-function rgbToHexStr(c){return '#'+c.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('');}
-// The object's own fill doubles as the engine palette.
-function enginePalette(obj){
-  if(obj.fill.kind!=='solid') return [...obj.fill.stops].sort((a,b)=>a.pos-b.pos);
-  const c=hexToRgbArr(obj.fill.color);
-  const dark=c.map(v=>v*0.25);
-  return [{pos:0,color:rgbToHexStr(dark)},{pos:1,color:obj.fill.color}];
-}
-function samplePalette(pal,t){
-  t=clamp(t,0,1);
-  if(t<=pal[0].pos) return pal[0].color;
-  if(t>=pal[pal.length-1].pos) return pal[pal.length-1].color;
-  for(let i=0;i<pal.length-1;i++){
-    const a=pal[i],b=pal[i+1];
-    if(t>=a.pos&&t<=b.pos){
-      const sp=b.pos-a.pos,k=sp<=0?0:(t-a.pos)/sp;
-      const ca=hexToRgbArr(a.color),cb=hexToRgbArr(b.color);
-      return rgbToHexStr([ca[0]+(cb[0]-ca[0])*k,ca[1]+(cb[1]-ca[1])*k,ca[2]+(cb[2]-ca[2])*k]);
+/* ---- linked pattern layout ----
+ * Pure function of (parent, parent.pattern). Returns COMPLETE derived
+ * instances positioned OUTSIDE the parent. Each instance is a shallow view of
+ * the parent with only geometry substituted, so every appearance property
+ * (type, radius, fill, opacity, shadow, grain) is inherited live — there is no
+ * copied state that could drift. Deterministic: seeded, never Math.random. */
+function patternInstances(parent){
+  const P=parent&&parent.pattern;
+  const out=[];
+  if(!P) return out;
+  if(parent.type==='text') return out;          // text parents unsupported
+  if(parent.parentId) return out;               // instances never recurse
+  const pw=parent.w, ph=parent.h;
+  if(!isFinite(pw)||!isFinite(ph)||pw<=0||ph<=0) return out;
+  if(!isFinite(parent.x)||!isFinite(parent.y)) return out;
+
+  const cols=P.columns, rows=P.rows;
+  const total=cols*rows;
+  if(total>MAX_PATTERN_INSTANCES) return out;   // normalizePattern prevents this
+  const baseW=pw*P.baseScale, baseH=ph*P.baseScale;
+  const RAD=Math.PI/180;
+
+  // Pass 1 — intrinsic size + rotation + the AXIS-ALIGNED BOUNDS those imply.
+  // Spacing is driven by these actual bounds, never by the parent's size: that
+  // substitution was the Stage 1.1 gap bug (see contract §1.2).
+  const cell=new Array(total);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const i=r*cols+c;
+    const rw=rand01(P.seed,i,R_W);
+    const rh=P.lockProportions?rw:rand01(P.seed,i,R_H);
+    const w=baseW*(1-(1-MIN_SIZE_FACTOR)*P.widthVariation*rw);
+    const h=baseH*(1-(1-MIN_SIZE_FACTOR)*P.heightVariation*rh);
+    const rot=P.baseRotation+P.rotationStep*i+
+      (P.rotationVariation?(rand01(P.seed,i,R_ROT)*2-1)*P.rotationVariation:0);
+    const a=rot*RAD, ca=Math.abs(Math.cos(a)), sa=Math.abs(Math.sin(a));
+    cell[i]={w,h,rot,aw:w*ca+h*sa,ah:w*sa+h*ca};
+  }
+
+  // Pass 2 — row heights are the tallest actual bounds in each row, so rows
+  // cannot overlap when heights vary.
+  const rowH=new Array(rows).fill(0);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) rowH[r]=Math.max(rowH[r],cell[r*cols+c].ah);
+
+  // Pass 3 — centres. Horizontal advance is sequential over ACTUAL bounds, so
+  // hGap is the exact clear space for every adjacent pair, including at 0.
+  const originX=parent.x+pw+P.hGap, originY=parent.y;
+  let rowCy=originY;
+  for(let r=0;r<rows;r++){
+    rowCy = r===0 ? originY+rowH[0]/2 : rowCy+rowH[r-1]/2+P.vGap+rowH[r]/2;
+    let cx=0;
+    for(let c=0;c<cols;c++){
+      const i=r*cols+c, k=cell[i];
+      cx = c===0 ? originX+k.aw/2 : cx+cell[i-1].aw/2+P.hGap+k.aw/2;
+      k.cx=cx+r*P.rowOffsetX;
+      k.cy=rowCy+c*P.colOffsetY;
+      if(P.jitterX) k.cx+=(rand01(P.seed,i,R_JX)*2-1)*P.jitterX;
+      if(P.jitterY) k.cy+=(rand01(P.seed,i,R_JY)*2-1)*P.jitterY;
     }
   }
-  return pal[pal.length-1].color;
-}
-// A sub-range of the palette as exact gradient stops (t1<t0 = reversed).
-function windowStops(pal,t0,t1){
-  const rev=t1<t0, lo=Math.min(t0,t1), hi=Math.max(t0,t1), span=hi-lo;
-  const out=[{pos:0,color:samplePalette(pal,lo)}];
-  if(span>1e-6) pal.forEach(p=>{
-    if(p.pos>lo+1e-6&&p.pos<hi-1e-6) out.push({pos:(p.pos-lo)/span,color:p.color});
-  });
-  out.push({pos:1,color:samplePalette(pal,hi)});
-  return rev?out.map(s=>({pos:1-s.pos,color:s.color})).reverse():out;
-}
-function pickWindow(rng,amt){
-  if(amt<=0.001) return rng()<0.5?[0,1]:[1,0];
-  const minW=1-(1-0.16)*amt;
-  const w=minW+rng()*(1-minW)*(1-0.45*amt);
-  const start=rng()*(1-w);
-  return rng()<0.5?[start,start+w]:[start+w,start];
-}
-/* Split the object's box into pattern segments. Coordinates are frame px. */
-function engineInstances(obj){
-  const E=obj.engine;
-  const pal=enginePalette(obj);
-  const rng=mulberry32(E.seed);
-  const baseAngle=obj.fill.kind==='solid'?0:(obj.fill.angle||0);
-  const out=[];
-  const seg=(x,y,w,h)=>{
-    const [t0,t1]=pickWindow(rng,E.window);
-    let angle=baseAngle;
-    const r=rng();
-    if(r<0.42) angle=(angle+180)%360;
-    out.push({x,y,w,h,angle,stops:windowStops(pal,t0,t1)});
-  };
-  const B=E.bands, g=E.gap;
-  const bx=obj.x, by=obj.y, bw=obj.w, bh=obj.h;
-  const varyOf=base=>base*(1-E.vary*0.5+rng()*E.vary);
 
-  if(E.mode==='rows'||E.mode==='mixed'){
-    const rowH=(bh-(B-1)*g)/B;
-    if(rowH<2) return out;
-    for(let i=0;i<B;i++){
-      const y=by+i*(rowH+g);
-      let x=bx+(E.mode==='mixed'&&rng()<0.5?rng()*bw*0.12:0);
-      let guard=0;
-      const baseW=bw/3;
-      while(x<bx+bw-4 && guard++<60){
-        const w=clamp(varyOf(baseW),8,bx+bw-x);
-        if(rng()>=E.empty) seg(x,y,w,rowH);
-        x+=w+g;
-      }
-    }
-  } else if(E.mode==='columns'){
-    const colW=(bw-(B-1)*g)/B;
-    if(colW<2) return out;
-    for(let i=0;i<B;i++){
-      const x=bx+i*(colW+g);
-      let y=by, guard=0;
-      const baseH=bh/3;
-      while(y<by+bh-4 && guard++<60){
-        const h=clamp(varyOf(baseH),8,by+bh-y);
-        if(rng()>=E.empty) seg(x,y,colW,h);
-        y+=h+g;
-      }
-    }
-  } else { // grid
-    const cols=Math.max(1,Math.round(bw/(bh/B)));
-    const cw=(bw-(cols-1)*g)/cols, chh=(bh-(B-1)*g)/B;
-    if(cw<2||chh<2) return out;
-    for(let r2=0;r2<B;r2++) for(let c2=0;c2<cols;c2++){
-      if(rng()<E.empty) continue;
-      const w=clamp(varyOf(cw),cw*0.2,cw), h=clamp(varyOf(chh),chh*0.2,chh);
-      seg(bx+c2*(cw+g)+(cw-w)/2, by+r2*(chh+g)+(chh-h)/2, w, h);
-    }
+  // Pass 4 — emit. Holes are applied LAST so omitting an instance never moves
+  // the survivors; the slot grid above is already fixed.
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const i=r*cols+c, k=cell[i];
+    if(P.holes>0 && rand01(P.seed,i,R_HOLE)<P.holes) continue;
+    const x=k.cx-k.w/2, y=k.cy-k.h/2;
+    if(!isFinite(x)||!isFinite(y)||!(k.w>0)||!(k.h>0)) continue;
+    const m=P.mirror;
+    out.push({
+      ...parent,
+      id:parent.id+'#'+i, parentId:parent.id, instanceIndex:i,
+      x, y, w:k.w, h:k.h,
+      rot:k.rot,
+      mirrorX: m==='horizontal' || (m==='alt-horizontal' && c%2===1),
+      mirrorY: m==='vertical'   || (m==='alt-vertical'   && r%2===1),
+      pattern:undefined,                        // never recurse
+    });
   }
   return out;
 }
-function drawEngine(c,obj){
-  const rad=Math.min(obj.radius||0, 24);
-  engineInstances(obj).forEach(s2=>{
-    const a=s2.angle*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
-    const cx=s2.x+s2.w/2, cy=s2.y+s2.h/2, ext=Math.abs(dx)*s2.w/2+Math.abs(dy)*s2.h/2;
-    const g=c.createLinearGradient(cx-dx*ext,cy-dy*ext,cx+dx*ext,cy+dy*ext);
-    s2.stops.forEach(st=>g.addColorStop(st.pos,st.color));
-    c.fillStyle=g;
-    const r=Math.min(rad,s2.w/2,s2.h/2);
-    c.beginPath();
-    if(r>0.5){
-      c.moveTo(s2.x+r,s2.y);
-      c.arcTo(s2.x+s2.w,s2.y,s2.x+s2.w,s2.y+s2.h,r);
-      c.arcTo(s2.x+s2.w,s2.y+s2.h,s2.x,s2.y+s2.h,r);
-      c.arcTo(s2.x,s2.y+s2.h,s2.x,s2.y,r);
-      c.arcTo(s2.x,s2.y,s2.x+s2.w,s2.y,r);
-      c.closePath();
-    } else c.rect(s2.x,s2.y,s2.w,s2.h);
-    c.fill();
-  });
+/** Axis-aligned visual bounds of an instance's rotated geometry. */
+function instanceBounds(o){
+  const a=(o.rot||0)*Math.PI/180, ca=Math.abs(Math.cos(a)), sa=Math.abs(Math.sin(a));
+  const aw=o.w*ca+o.h*sa, ah=o.w*sa+o.h*ca;
+  const cx=o.x+o.w/2, cy=o.y+o.h/2;
+  return {x:cx-aw/2,y:cy-ah/2,w:aw,h:ah};
 }
+/** Every derived instance in the document, in paint order. */
+function allInstances(){
+  if(!doc) return [];
+  const out=[];
+  doc.frame.children.forEach(c=>{ patternInstances(c).forEach(i=>out.push(i)); });
+  return out;
+}
+
 function drawDoc(c,W,H){
   const f=doc.frame;
   c.fillStyle=f.bg; c.fillRect(0,0,W,H);
+  // Parent first, then its complete linked instances, through the SAME draw
+  // path — which is what guarantees an ellipse parent yields ellipses.
   f.children.forEach(obj=>{
+    drawObject(c,obj);
+    patternInstances(obj).forEach(inst=>drawObject(c,inst));
+  });
+}
+function drawObject(c,obj){
+  {
     c.save();
+    // Rotation/mirror are applied about the instance centre BEFORE anything is
+    // drawn, so geometry, gradient and effects all transform together.
+    if(obj.rot||obj.mirrorX||obj.mirrorY){
+      const cx=obj.x+obj.w/2, cy=obj.y+obj.h/2;
+      c.translate(cx,cy);
+      if(obj.rot) c.rotate(obj.rot*Math.PI/180);
+      if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1, obj.mirrorY?-1:1);
+      c.translate(-cx,-cy);
+    }
     c.globalAlpha=obj.opacity;
     const sh=obj.effects.shadow;
     if(sh.on){ c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur; c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y; }
@@ -278,14 +350,10 @@ function drawDoc(c,W,H){
       c.restore(); return;
     }
     const b={x:obj.x,y:obj.y,w:obj.w,h:obj.h};
-    if(obj.engine && obj.engine.mode!=='none'){
-      // Pattern engine: the box becomes an area filled with varied
-      // gradient segments drawn from the object's own palette.
-      drawEngine(c,obj);
-    } else {
-      c.fillStyle=fillStyleFor(c,obj,b);
-      pathFor(c,obj); c.fill();
-    }
+    // A patterned parent still draws its OWN complete fill. Instances are
+    // separate complete objects drawn by the caller; nothing is segmented.
+    c.fillStyle=fillStyleFor(c,obj,b);
+    pathFor(c,obj); c.fill();
     c.shadowColor='transparent';
     const gr=obj.effects.grain;
     if(gr.amount>0){
@@ -299,7 +367,7 @@ function drawDoc(c,W,H){
       c.restore();
     }
     c.restore();
-  });
+  }
 }
 function textBox(obj){
   ctx.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
@@ -321,6 +389,16 @@ function render(){
   ctx.setTransform(scale,0,0,scale,0,0);
   drawDoc(ctx,f.w,f.h);
   // selection overlay (screen-only)
+  if(selInstance){
+    // Instances get a dashed outline matching their own complete bounds, so a
+    // derived object never looks like an editable source.
+    const b=boxOf(selInstance);
+    ctx.save();
+    ctx.strokeStyle='#8b5cf6'; ctx.lineWidth=1.6/scale;
+    ctx.setLineDash([6/scale,4/scale]);
+    ctx.strokeRect(b.x,b.y,b.w,b.h);
+    ctx.restore();
+  }
   const obj=doc.frame.children[sel];
   if(obj){
     const b=boxOf(obj);
@@ -346,10 +424,20 @@ function syncLayers(){
   [...doc.frame.children].reverse().forEach((c,ri)=>{
     const i=doc.frame.children.length-1-ri;
     const row=document.createElement('div');
-    if(i===sel) row.className='sel';
+    row.className=(i===sel?'sel':'')+(c.pattern&&c.pattern.mode!=='none'?' isParent':'');
     row.innerHTML=`<span class="glyph">${glyph[c.type]||'▭'}</span>`;
     row.appendChild(document.createTextNode(c.type==='text'?c.text.slice(0,18):c.name));
-    row.addEventListener('click',()=>{ sel=i; fxPage=0; refresh(); });
+    // Parents are labelled with their linked-instance count so the layer panel
+    // distinguishes a pattern source from an ordinary object.
+    const n=patternInstances(c).length;
+    if(n){
+      const badge=document.createElement('span');
+      badge.className='linkBadge';
+      badge.textContent=`⇢ ${n}`;
+      badge.title=`${n} linked instance${n===1?'':'s'}`;
+      row.appendChild(badge);
+    }
+    row.addEventListener('click',()=>{ sel=i; selInstance=null; fxPage=0; refresh(); });
     list.appendChild(row);
   });
 }
@@ -358,6 +446,32 @@ const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','S
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
+  // A derived instance is inspectable but never editable: showing the parent's
+  // controls here would let a user change fields that are immediately
+  // overwritten on the next layout.
+  if(!obj && selInstance){
+    const pi=doc.frame.children.findIndex(c=>c.id===selInstance.parentId);
+    const parent=pi>=0?doc.frame.children[pi]:null;
+    $('posSection').classList.add('disabled');
+    $('engineSection').classList.add('disabled');
+    $('engineSection').style.display='none';
+    const hint=$('noSel');
+    hint.style.display='';
+    hint.innerHTML='';
+    const box=document.createElement('div');
+    box.className='instHint';
+    box.textContent=`Linked instance #${selInstance.instanceIndex} of “${parent?parent.name:'unknown'}”. Its appearance and position are controlled by its parent.`;
+    if(parent){
+      const b=document.createElement('button');
+      b.type='button'; b.textContent='Select parent';
+      b.addEventListener('click',()=>{ sel=pi; selInstance=null; fxPage=0; refresh(); });
+      box.appendChild(document.createElement('br'));
+      box.appendChild(b);
+    }
+    hint.appendChild(box);
+    return;
+  }
+  if($('noSel').firstChild&&$('noSel').querySelector('.instHint')) $('noSel').textContent='Select an element to edit it.';
   $('posSection').classList.toggle('disabled',!obj);
   $('engineSection').classList.toggle('disabled',!obj);
   $('engineSection').style.display=obj?'':'none';
@@ -384,43 +498,96 @@ function buildFx(obj){
   const page=pages[fxPage];
 
   if(page==='Pattern'){
-    const E=obj.engine;
-    add(`<label class="slider">Mode
-      <select id="enMode">
-        <option value="none">Off — plain fill</option>
-        <option value="rows">Rows</option>
-        <option value="mixed">Rows (loose)</option>
-        <option value="columns">Columns</option>
-        <option value="grid">Grid</option>
-      </select></label>`);
-    $('enMode').value=E.mode;
-    $('enMode').addEventListener('change',e=>{ E.mode=e.target.value; pushHistory(); refresh(); });
-    if(E.mode!=='none'){
-      const sl=(id,label,min,max,val,fmt)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
-      };
-      sl('enBands','Bands',1,14,E.bands,v=>v);
-      sl('enGap','Gap',0,40,E.gap,v=>v+'px');
-      sl('enVary','Size variation',0,100,Math.round(E.vary*100),v=>v+'%');
-      sl('enWin','Palette window',0,100,Math.round(E.window*100),v=>v+'%');
-      sl('enEmpty','Empty slots',0,80,Math.round(E.empty*100),v=>v+'%');
-      const wire=(id,f,fmt)=>{
-        $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
-        $(id).addEventListener('change',()=>pushHistory());
-      };
-      wire('enBands',v=>E.bands=v,v=>v);
-      wire('enGap',v=>E.gap=v,v=>v+'px');
-      wire('enVary',v=>E.vary=v/100,v=>v+'%');
-      wire('enWin',v=>E.window=v/100,v=>v+'%');
-      wire('enEmpty',v=>E.empty=v/100,v=>v+'%');
-      add(`<button class="rollBtn" id="enRoll">↻ Reroll pattern</button>`);
-      $('enRoll').addEventListener('click',()=>{
-        E.seed=Math.floor(Math.random()*99999999);
-        pushHistory(); render();
-      });
-      add(`<div class="fxHint">Colors come from this shape's Fill — edit the gradient on the Fill page.</div>`);
+    const E=obj.pattern;
+    if(!E){
+      add(`<div class="fxHint">No pattern on this object.</div>`);
+      add(`<button class="rollBtn" id="pAdd">+ Add pattern</button>`);
+      $('pAdd').addEventListener('click',()=>{ obj.pattern=normalizePattern({}); pushHistory(); refresh(); });
+      return;
     }
+    // Paired slider + number box. The number input is the keyboard path; both
+    // stay in sync, and every control carries an explicit <label for>.
+    const row=(id,label,min,max,step,val,unit,hint)=>{
+      add(`<div class="pRow">
+        <label for="${id}n">${label}${hint?` <span class="pQ" title="${hint}">?</span>`:''}</label>
+        <div class="pCtl">
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}" aria-labelledby="${id}n" tabindex="-1">
+          <input type="number" id="${id}n" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}${unit?' in '+unit:''}">
+          <span class="pUnit">${unit||''}</span>
+        </div></div>`);
+    };
+    const wire=(id,set)=>{
+      const r=$(id), n=$(id+'n');
+      const apply=(v,commit)=>{ r.value=v; n.value=v; set(+v); commit?(pushHistory(),refresh()):render(); };
+      r.addEventListener('input',e=>apply(e.target.value,false));
+      r.addEventListener('change',e=>apply(e.target.value,true));
+      n.addEventListener('input',e=>{ if(e.target.value!=='') apply(e.target.value,false); });
+      n.addEventListener('change',e=>apply(e.target.value===''?r.value:e.target.value,true));
+    };
+    const sect=t=>add(`<div class="pSect">${t}</div>`);
+
+    sect('Layout');
+    row('pCols','Columns',1,MAX_GRID_AXIS,1,E.columns,'','Generated instances across. The parent is not counted.');
+    row('pRows','Rows',1,MAX_GRID_AXIS,1,E.rows,'','Generated instances down. The parent is not counted.');
+    wire('pCols',v=>{ E.columns=v; });
+    wire('pRows',v=>{ E.rows=v; });
+    const totalNow=E.columns*E.rows;
+    add(`<div class="fxHint">${totalNow} instance${totalNow===1?'':'s'} · max ${MAX_PATTERN_INSTANCES}. Rows are reduced if the grid would exceed it.</div>`);
+
+    sect('Spacing');
+    row('pHG','Horizontal gap',0,MAX_GAP,1,E.hGap,'px','Exact clear space between adjacent instance bounds. 0 = touching.');
+    row('pVG','Vertical gap',0,MAX_GAP,1,E.vGap,'px','Exact clear space between rows. 0 = touching.');
+    row('pROX','Row offset X',-MAX_OFFSET,MAX_OFFSET,1,E.rowOffsetX,'px','Shifts each successive row sideways (brick/stagger).');
+    row('pCOY','Column offset Y',-MAX_OFFSET,MAX_OFFSET,1,E.colOffsetY,'px','Shifts each successive column down.');
+    wire('pHG',v=>E.hGap=v); wire('pVG',v=>E.vGap=v);
+    wire('pROX',v=>E.rowOffsetX=v); wire('pCOY',v=>E.colOffsetY=v);
+
+    sect('Size');
+    row('pBS','Base scale',10,200,1,Math.round(E.baseScale*100),'%','Instance size relative to the parent. Does not resize the parent.');
+    $('pBS').addEventListener('input',e=>{ E.baseScale=+e.target.value/100; $('pBSn').value=e.target.value; render(); });
+    $('pBS').addEventListener('change',()=>{ pushHistory(); refresh(); });
+    $('pBSn').addEventListener('change',e=>{ const v=clamp(+e.target.value||100,10,200); E.baseScale=v/100; $('pBS').value=v; e.target.value=v; pushHistory(); refresh(); });
+    add(`<label class="pCheck"><input type="checkbox" id="pLock" ${E.lockProportions?'checked':''}> Lock proportions</label>`);
+    $('pLock').addEventListener('change',e=>{ E.lockProportions=e.target.checked; if(e.target.checked) E.heightVariation=E.widthVariation; pushHistory(); refresh(); });
+    row('pWV','Width variation',0,100,1,Math.round(E.widthVariation*100),'%','Shrinks instances by up to this much. 0% = all identical.');
+    row('pHV','Height variation',0,100,1,Math.round(E.heightVariation*100),'%','Shrinks instance height. Driven by width when proportions are locked.');
+    wire('pWV',v=>{ E.widthVariation=v/100; if(E.lockProportions){ E.heightVariation=v/100; const hv=$('pHV'),hn=$('pHVn'); if(hv){hv.value=v;hn.value=v;} } });
+    wire('pHV',v=>{ E.heightVariation=v/100; if(E.lockProportions){ E.widthVariation=v/100; const wv=$('pWV'),wn=$('pWVn'); if(wv){wv.value=v;wn.value=v;} } });
+    if(E.lockProportions) add(`<div class="fxHint">Proportions locked — width and height vary together.</div>`);
+
+    sect('Transform');
+    row('pBR','Base rotation',-180,180,1,E.baseRotation,'°','Applied to every instance.');
+    row('pRS','Rotation progression',-180,180,1,E.rotationStep,'°','Added per instance in sequence order.');
+    row('pRV','Rotation variation',0,180,1,E.rotationVariation,'°','Deterministic random rotation, ± this amount.');
+    wire('pBR',v=>E.baseRotation=v); wire('pRS',v=>E.rotationStep=v); wire('pRV',v=>E.rotationVariation=v);
+    add(`<div class="pRow"><label for="pMir">Mirror</label><div class="pCtl">
+      <select id="pMir" aria-label="Mirror mode">${MIRRORS.map(m=>`<option value="${m}"${m===E.mirror?' selected':''}>${m}</option>`).join('')}</select>
+      </div></div>`);
+    $('pMir').addEventListener('change',e=>{ E.mirror=e.target.value; pushHistory(); refresh(); });
+
+    add(`<details class="pAdv"><summary>Advanced</summary><div id="pAdvBody"></div></details>`);
+    const advBody=$('pAdvBody');
+    const addA=h=>advBody.insertAdjacentHTML('beforeend',h);
+    const rowA=(id,label,min,max,step,val,unit,hint)=>{
+      addA(`<div class="pRow">
+        <label for="${id}n">${label}${hint?` <span class="pQ" title="${hint}">?</span>`:''}</label>
+        <div class="pCtl">
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}" aria-labelledby="${id}n" tabindex="-1">
+          <input type="number" id="${id}n" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}${unit?' in '+unit:''}">
+          <span class="pUnit">${unit||''}</span>
+        </div></div>`);
+    };
+    rowA('pJX','Position jitter X',0,MAX_JITTER,1,E.jitterX,'px','Deterministic random horizontal displacement.');
+    rowA('pJY','Position jitter Y',0,MAX_JITTER,1,E.jitterY,'px','Deterministic random vertical displacement.');
+    rowA('pHoles','Pattern holes',0,90,1,Math.round(E.holes*100),'%','Omits whole instances. Slots stay put; the parent is never removed.');
+    wire('pJX',v=>E.jitterX=v); wire('pJY',v=>E.jitterY=v);
+    wire('pHoles',v=>E.holes=v/100);
+    addA(`<button class="rollBtn" id="pRoll">↻ Reroll pattern</button>`);
+    // Math.random is confined to this user action; layout stays pure.
+    $('pRoll').addEventListener('click',()=>{ E.seed=Math.floor(Math.random()*99999999)||1; pushHistory(); refresh(); });
+
+    add(`<button class="rollBtn danger" id="pRemove">Remove pattern</button>`);
+    $('pRemove').addEventListener('click',()=>{ delete obj.pattern; pushHistory(); refresh(); });
   }
 
   if(page==='Fill'){
@@ -604,12 +771,25 @@ function hit(px,py){
   }
   return -1;
 }
+/** Topmost derived instance under the point, or null. Parents win over
+ *  instances, so clicking the source never selects a copy. */
+function hitInstance(px,py){
+  const list=allInstances();
+  for(let i=list.length-1;i>=0;i--){
+    const o=list[i], b=boxOf(o);
+    if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return o;
+  }
+  return null;
+}
 let drag=null;
 canvas.addEventListener('pointerdown',e=>{
   if(!doc) return;
   const p=evtFrame(e);
   if(tool!=='select'){ addShapeAt(tool,p); setTool('select'); return; }
   const i=hit(p.x,p.y);
+  // Instances are inspectable but never draggable: they are derived, and
+  // layout is owned by the parent's pattern settings.
+  selInstance = i>=0 ? null : hitInstance(p.x,p.y);
   sel=i; fxPage=0;
   if(i>=0){
     const obj=doc.frame.children[i], b=boxOf(obj);
@@ -652,7 +832,8 @@ function addShapeAt(kind,p){
     x:p.x-80,y:p.y-60,w:160,h:120,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
-  if(obj.type!=='text') obj.engine=DEFAULT_ENGINE();
+  if(obj.type!=='text') obj.pattern=DEFAULT_PATTERN();
+  obj.id=newId();
   f.children.push(obj);
   sel=f.children.length-1; fxPage=0;
   pushHistory(); refresh();
@@ -682,6 +863,9 @@ function exportPNG(){
 function duplicateSel(){
   const obj=doc&&doc.frame.children[sel]; if(!obj)return;
   const c=JSON.parse(JSON.stringify(obj));
+  // A fresh id makes the copy an INDEPENDENT parent: its instances derive from
+  // it, not from the original, so the two compositions never stay linked.
+  c.id=newId();
   c.x+=16; c.y+=16; c.name=obj.name+' copy';
   doc.frame.children.push(c);
   sel=doc.frame.children.length-1;
@@ -766,6 +950,7 @@ async function callGenerate(){
 }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function generate(){
+  if(!aiAvailable){ status('AI not configured — see README setup',true); return; }
   const prompt=$('prompt').value.trim();
   if(!prompt&&!attachedImage) return;
   $('generateBtn').disabled=true;
@@ -799,11 +984,41 @@ async function generate(){
 $('generateBtn').addEventListener('click',generate);
 $('prompt').addEventListener('keydown',e=>{ if(e.key==='Enter') generate(); });
 
+/* Provider capability probe. The UI must know AI is unavailable BEFORE the
+ * user submits, so Generate is disabled up front with a setup hint rather than
+ * failing after a round trip. The endpoint never returns the key itself. */
+let aiAvailable=true;
+async function probeProvider(){
+  try{
+    const r=await fetch('/api/config');
+    if(!r.ok) return;
+    const cfg=await r.json();
+    aiAvailable=!!cfg.aiAvailable;
+    const btn=$('generateBtn'), box=$('prompt');
+    btn.disabled=!aiAvailable;
+    btn.setAttribute('aria-disabled',String(!aiAvailable));
+    if(!aiAvailable){
+      btn.title=cfg.reason||'AI is not configured on this server.';
+      box.placeholder='AI unavailable — set GROQ_API_KEY in .env, or run npm run dev:mock';
+      box.disabled=true;
+      status('AI not configured — see README setup',true);
+    } else if(cfg.mode==='mock'){
+      status('mock provider');
+    }
+  }catch(_){ /* leave enabled; generate() still reports failures safely */ }
+}
+probeProvider();
+
 /* ================= init ================= */
 window.addEventListener('resize',render);
 doc=newDoc(); pushHistory(); refresh();
 
 /* test hook */
-window.__editor={ get doc(){return doc;}, set doc(d){doc=normalizeDoc(d); sel=-1; pushHistory(); refresh();},
-  get sel(){return sel;}, set sel(i){sel=i; fxPage=0; refresh();}, render, refresh };
+window.__editor={ get doc(){return doc;}, set doc(d){doc=normalizeDoc(d); sel=-1; selInstance=null; pushHistory(); refresh();},
+  get sel(){return sel;}, set sel(i){sel=i; fxPage=0; refresh();},
+  get selInstance(){return selInstance;},
+  render, refresh, normalizeDoc,
+  patternInstances, allInstances, instanceBounds, normalizePattern,
+  duplicateSel, deleteSel,
+  limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR} };
 })();
