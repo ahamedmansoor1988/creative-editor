@@ -31,7 +31,12 @@ const DEFAULT_EFFECTS=()=>({
   grain:{amount:0},
   // Clear Glass defaults from the locked standalone glass app
   glass:{on:false,depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
+  // SDF metaball merge of the shape with its own pattern copies
+  blob:{on:false,smoothness:40,mode:'union'},
+  // the blob field driven through the glass optics
+  glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
 });
+const BLOB_MODES=['union','intersect','difference'];
 /* ---- linked pattern (see docs/pattern-contract.md) ----
  * A parent owns a pattern definition. Instances are DERIVED at layout time,
  * never stored, so inherited appearance cannot drift and parent-reference
@@ -158,7 +163,23 @@ function normalizeDoc(d){
       gla.dispersion=clamp(+gla.dispersion||0,0,200);
       gla.opacity=clamp(gla.opacity===undefined?100:+gla.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
-      c.effects={shadow:sh, grain:gr, glass:gla};
+      const nb=(o,d)=>{
+        o.on=!!o.on && c.type!=='text';
+        o.smoothness=clamp(+o.smoothness||0,0,300);
+        o.mode=BLOB_MODES.includes(o.mode)?o.mode:'union';
+        return o;
+      };
+      const blo=nb(Object.assign(de.blob, ce.blob||{}));
+      const gl2=nb(Object.assign(de.glass2, ce.glass2||{}));
+      gl2.depth=clamp(+gl2.depth||0,-200,200);
+      gl2.refraction=clamp(+gl2.refraction||0,-200,200);
+      gl2.frost=clamp(+gl2.frost||0,0,100);
+      gl2.reflection=clamp(+gl2.reflection||0,0,100);
+      gl2.light=clamp(+gl2.light||0,0,100);
+      gl2.dispersion=clamp(+gl2.dispersion||0,0,200);
+      gl2.opacity=clamp(gl2.opacity===undefined?100:+gl2.opacity,0,100);
+      if(!/^#[0-9a-fA-F]{6}$/.test(gl2.tint||'')) gl2.tint='#ffffff';
+      c.effects={shadow:sh, grain:gr, glass:gla, blob:blo, glass2:gl2};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -383,7 +404,43 @@ function drawDoc(c,W,H){
   // Parent first, then its complete linked instances, through the SAME draw
   // path — which is what guarantees an ellipse parent yields ellipses.
   f.children.forEach(obj=>{
-    const gla=obj.effects&&obj.effects.glass;
+    const fx=obj.effects||{};
+    const blobReady=obj.type!=='text'&&window.BlobEngine&&window.BlobEngine.available();
+    // Blob / Glass 2 merge the parent WITH its pattern copies into one field,
+    // so they must replace the whole parent+instances draw, not sit beside it.
+    if(blobReady&&(fx.glass2&&fx.glass2.on||fx.blob&&fx.blob.on)){
+      const members=[obj,...patternInstances(obj)].slice(0,window.BlobEngine.MAX).map(o=>({
+        cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
+        ellipse:o.type==='ellipse',
+        radius:o.type==='ellipse'?0:clamp(o.radius||0,0,Math.min(o.w,o.h)/2),
+      }));
+      if(fx.glass2&&fx.glass2.on){
+        window.BlobEngine.liquid(c.canvas,W,H,members,fx.glass2,fx.glass2);
+      }else{
+        // Mask the object's REAL fill, so every fill type works unchanged.
+        const m=window.BlobEngine.mask(W,H,members,fx.blob);
+        if(m){
+          const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
+          const t2=tmp.getContext('2d');
+          let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+          members.forEach(o=>{ x0=Math.min(x0,o.cx-o.w/2); x1=Math.max(x1,o.cx+o.w/2);
+                               y0=Math.min(y0,o.cy-o.h/2); y1=Math.max(y1,o.cy+o.h/2); });
+          t2.fillStyle=fillStyleFor(t2,obj,{x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)});
+          t2.fillRect(0,0,W,H);
+          t2.globalCompositeOperation='destination-in';
+          t2.drawImage(m,0,0,W,H);
+          c.save(); c.setTransform(1,0,0,1,0,0);
+          c.globalAlpha=obj.opacity;
+          const sh2=fx.shadow;
+          if(sh2&&sh2.on){ c.shadowColor=hexAlpha(sh2.color,sh2.alpha); c.shadowBlur=sh2.blur;
+                           c.shadowOffsetX=sh2.x; c.shadowOffsetY=sh2.y; }
+          c.drawImage(tmp,0,0);
+          c.restore();
+        }
+      }
+      return;
+    }
+    const gla=fx.glass;
     if(gla&&gla.on&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
       // Glass replaces the fill entirely: the shader refracts everything
       // painted so far (page bg + layers below), so the object's own
@@ -525,7 +582,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Glass','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Blob','Glass','Glass 2','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -738,6 +795,60 @@ function buildFx(obj){
     $('tWeight').addEventListener('change',e=>{ obj.weight=+e.target.value; pushHistory(); render(); });
     $('tColor').addEventListener('input',e=>{ obj.color=e.target.value; render(); });
     $('tColor').addEventListener('change',()=>pushHistory());
+  }
+
+  if(page==='Blob'||page==='Glass 2'){
+    const isG2=page==='Glass 2';
+    const B=isG2?obj.effects.glass2:obj.effects.blob;
+    if(!(window.BlobEngine&&window.BlobEngine.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="bbOn" ${B.on?'checked':''}> Enable ${isG2?'liquid glass':'blob'}</label>`);
+      $('bbOn').addEventListener('change',e=>{ B.on=e.target.checked; pushHistory(); refresh(); });
+      if(B.on){
+        const nInst=patternInstances(obj).length+1;
+        add(`<div class="fxHint">Merging <b>${nInst}</b> shape${nInst>1?'s':''} (this shape + its pattern copies). Add a Pattern to get more.</div>`);
+        add(`<label class="slider">Smoothness <span id="bbSmV">${B.smoothness}px</span>
+          <input type="range" id="bbSm" min="0" max="300" value="${B.smoothness}"></label>`);
+        $('bbSm').addEventListener('input',e=>{ B.smoothness=+e.target.value; $('bbSmV').textContent=e.target.value+'px'; render(); });
+        $('bbSm').addEventListener('change',()=>pushHistory());
+        add(`<label class="slider">Combine
+          <select id="bbMode">
+            <option value="union">Union — merge</option>
+            <option value="intersect">Intersection — overlap only</option>
+            <option value="difference">Difference — subtract</option>
+          </select></label>`);
+        $('bbMode').value=B.mode;
+        $('bbMode').addEventListener('change',e=>{ B.mode=e.target.value; pushHistory(); refresh(); });
+        if(isG2){
+          const sl=(id,label,min,max,val,fmt)=>{
+            add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
+              <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
+          };
+          sl('g2Depth','Depth',-200,200,B.depth,v=>v);
+          sl('g2Refr','Refraction',-200,200,B.refraction,v=>v);
+          sl('g2Frost','Frost',0,100,B.frost,v=>v);
+          sl('g2Refl','Reflection',0,100,B.reflection,v=>v);
+          sl('g2Light','Light',0,100,B.light,v=>v);
+          sl('g2Disp','Dispersion',0,200,B.dispersion,v=>v);
+          sl('g2Op','Opacity',0,100,B.opacity,v=>v+'%');
+          const wire=(id,f,fmt)=>{
+            $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
+            $(id).addEventListener('change',()=>pushHistory());
+          };
+          wire('g2Depth',v=>B.depth=v,v=>v); wire('g2Refr',v=>B.refraction=v,v=>v);
+          wire('g2Frost',v=>B.frost=v,v=>v); wire('g2Refl',v=>B.reflection=v,v=>v);
+          wire('g2Light',v=>B.light=v,v=>v); wire('g2Disp',v=>B.dispersion=v,v=>v);
+          wire('g2Op',v=>B.opacity=v,v=>v+'%');
+          add(`<label class="slider">Tint <input type="color" id="g2Tint" value="${B.tint}"></label>`);
+          $('g2Tint').addEventListener('input',e=>{ B.tint=e.target.value; render(); });
+          $('g2Tint').addEventListener('change',()=>pushHistory());
+          add(`<div class="fxHint">The merged blob field driven through the glass optics — the shapes fuse, then refract as one body.</div>`);
+        } else {
+          add(`<div class="fxHint">Shapes fuse organically as they approach (SDF smooth-union). Uses this shape's Fill.</div>`);
+        }
+      }
+    }
   }
 
   if(page==='Glass'){

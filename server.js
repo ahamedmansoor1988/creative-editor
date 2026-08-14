@@ -68,6 +68,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"glass":{"on":true,"depth":-200..200,"refraction":-200..200,"frost":0..100,"reflection":0..100,"dispersion":0..200,"tint":"#hex","opacity":0..100}} which renders it as physically-based glass refracting the layers behind it (defaults: depth 40, refraction 35, frost 0, reflection 25, opacity 100, tint #ffffff). Place glass ABOVE colourful content so there is something to refract.`,
   },
   {
+    id: "blob",
+    match: /blob|goo|liquid|metaball|merge|fuse|organic|melt/i,
+    inDoc: d => /"(blob|glass2)":\{"on":true/.test(d),
+    doc: `A rect/ellipse that has a "pattern" may add "effects":{"blob":{"on":true,"smoothness":0-300,"mode":"union"|"intersect"|"difference"}} to MERGE the shape with its own pattern copies into one organic mass (SDF smooth-union - they fuse as they approach). Use a NEGATIVE pattern hGap/vGap so the copies overlap. For the same merge rendered as refractive liquid glass use "glass2" instead, which takes the blob fields plus the glass fields (depth, refraction, frost, reflection, dispersion, tint, opacity).`,
+  },
+  {
     id: "grain",
     match: /grain|noise|film|gritt|analog/i,
     inDoc: d => /"grain":\{"amount":0\.\d*[1-9]/.test(d),

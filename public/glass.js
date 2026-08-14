@@ -691,5 +691,8 @@ function render(frameCanvas, W, H, geoms, P){
   return true;
 }
 
-window.GlassEngine={render, available:()=>init()};
+window.GlassEngine={render, available:()=>init(),
+  // Exposed so the liquid variant is built by swapping the DISTANCE FIELD in
+  // this exact source — the optics can never drift from the locked material.
+  __vertex:VERTEX, __frag:FRAG};
 })();
