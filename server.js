@@ -62,6 +62,12 @@ const CAPABILITIES = [
     doc: `Any child may add "effects":{"shadow":{"on":true,"x":n,"y":n,"blur":n,"color":"#hex","alpha":0..1}} for a drop shadow (typical: x 0, y 6-16, blur 18-40, alpha 0.2-0.45).`,
   },
   {
+    id: "glass",
+    match: /glass|frosted|refract|transluc|crystal/i,
+    inDoc: d => /"glass":\{"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"glass":{"on":true,"depth":-200..200,"refraction":-200..200,"frost":0..100,"reflection":0..100,"dispersion":0..200,"tint":"#hex","opacity":0..100}} which renders it as physically-based glass refracting the layers behind it (defaults: depth 40, refraction 35, frost 0, reflection 25, opacity 100, tint #ffffff). Place glass ABOVE colourful content so there is something to refract.`,
+  },
+  {
     id: "grain",
     match: /grain|noise|film|gritt|analog/i,
     inDoc: d => /"grain":\{"amount":0\.\d*[1-9]/.test(d),

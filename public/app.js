@@ -29,6 +29,8 @@ let fxPage=0;            // engines pager
 const DEFAULT_EFFECTS=()=>({
   shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
   grain:{amount:0},
+  // Clear Glass defaults from the locked standalone glass app
+  glass:{on:false,depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
 });
 /* ---- linked pattern (see docs/pattern-contract.md) ----
  * A parent owns a pattern definition. Instances are DERIVED at layout time,
@@ -146,7 +148,17 @@ function normalizeDoc(d){
       if(!/^#[0-9a-fA-F]{6}$/.test(sh.color||'')) sh.color='#000000';
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
-      c.effects={shadow:sh, grain:gr};
+      const gla=Object.assign(de.glass, ce.glass||{});
+      gla.on=!!gla.on && c.type!=='text';
+      gla.depth=clamp(+gla.depth||0,-200,200);
+      gla.refraction=clamp(+gla.refraction||0,-200,200);
+      gla.frost=clamp(+gla.frost||0,0,100);
+      gla.reflection=clamp(+gla.reflection||0,0,100);
+      gla.light=clamp(+gla.light||0,0,100);
+      gla.dispersion=clamp(+gla.dispersion||0,0,200);
+      gla.opacity=clamp(gla.opacity===undefined?100:+gla.opacity,0,100);
+      if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
+      c.effects={shadow:sh, grain:gr, glass:gla};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -195,6 +207,7 @@ function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; restoreSnapshot(hist.
 
 /* ================= render ================= */
 const canvas=$('out'), ctx=canvas.getContext('2d');
+const frameBuf=document.createElement('canvas');
 let grainTile=null;
 function makeGrain(){
   const c=document.createElement('canvas'); c.width=96; c.height=96;
@@ -370,6 +383,24 @@ function drawDoc(c,W,H){
   // Parent first, then its complete linked instances, through the SAME draw
   // path — which is what guarantees an ellipse parent yields ellipses.
   f.children.forEach(obj=>{
+    const gla=obj.effects&&obj.effects.glass;
+    if(gla&&gla.on&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
+      // Glass replaces the fill entirely: the shader refracts everything
+      // painted so far (page bg + layers below), so the object's own
+      // fill/shadow/grain are deliberately NOT painted first.
+      // NOTE: requires c to be an untransformed frame-resolution canvas —
+      // render() and exportPNG both satisfy this.
+      const geoms=[obj,...patternInstances(obj)].map(o=>({
+        cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
+        // shader shapes: 0 rect, 1 circle, 2 pill. An elongated ellipse maps
+        // to the pill (closest smooth footprint); rotation is not supported
+        // by the shader and is ignored for the glass pass.
+        shape: o.type==='ellipse' ? (Math.abs(o.w-o.h)<2?1:2) : 0,
+        radius01: o.type==='ellipse'?0.5:clamp((o.radius||0)/Math.max(1,Math.min(o.w,o.h)),0,0.5),
+      }));
+      window.GlassEngine.render(c.canvas,W,H,geoms,gla);
+      return;
+    }
     drawObject(c,obj);
     patternInstances(obj).forEach(inst=>drawObject(c,inst));
   });
@@ -434,8 +465,12 @@ function render(){
   const availW=stage.clientWidth-pad, availH=stage.clientHeight-pad;
   const scale=viewMode==='actual' ? 1 : Math.min(1.5, availW/f.w, availH/f.h);
   canvas.width=Math.round(f.w*scale); canvas.height=Math.round(f.h*scale);
+  // Paint at full frame resolution into an offscreen buffer first: the glass
+  // engine samples real pixels, so it must never see a scaled transform.
+  frameBuf.width=f.w; frameBuf.height=f.h;
+  drawDoc(frameBuf.getContext('2d'),f.w,f.h);
   ctx.setTransform(scale,0,0,scale,0,0);
-  drawDoc(ctx,f.w,f.h);
+  ctx.drawImage(frameBuf,0,0);
   // selection overlay (screen-only)
   if(selInstance){
     // Instances get a dashed outline matching their own complete bounds, so a
@@ -490,7 +525,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Glass','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -703,6 +738,44 @@ function buildFx(obj){
     $('tWeight').addEventListener('change',e=>{ obj.weight=+e.target.value; pushHistory(); render(); });
     $('tColor').addEventListener('input',e=>{ obj.color=e.target.value; render(); });
     $('tColor').addEventListener('change',()=>pushHistory());
+  }
+
+  if(page==='Glass'){
+    const G=obj.effects.glass;
+    if(!(window.GlassEngine&&window.GlassEngine.available())){
+      add(`<div class="fxHint">Glass needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="glOn" ${G.on?'checked':''}> Enable glass</label>`);
+      $('glOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
+      if(G.on){
+        const sl=(id,label,min,max,val,fmt)=>{
+          add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
+            <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
+        };
+        sl('glDepth','Depth',-200,200,G.depth,v=>v);
+        sl('glRefr','Refraction',-200,200,G.refraction,v=>v);
+        sl('glFrost','Frost',0,100,G.frost,v=>v);
+        sl('glRefl','Reflection',0,100,G.reflection,v=>v);
+        sl('glLight','Light',0,100,G.light,v=>v);
+        sl('glDisp','Dispersion',0,200,G.dispersion,v=>v);
+        sl('glOp','Opacity',0,100,G.opacity,v=>v+'%');
+        const wire=(id,f,fmt)=>{
+          $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
+          $(id).addEventListener('change',()=>pushHistory());
+        };
+        wire('glDepth',v=>G.depth=v,v=>v);
+        wire('glRefr',v=>G.refraction=v,v=>v);
+        wire('glFrost',v=>G.frost=v,v=>v);
+        wire('glRefl',v=>G.reflection=v,v=>v);
+        wire('glLight',v=>G.light=v,v=>v);
+        wire('glDisp',v=>G.dispersion=v,v=>v);
+        wire('glOp',v=>G.opacity=v,v=>v+'%');
+        add(`<label class="slider">Tint <input type="color" id="glTint" value="${G.tint}"></label>`);
+        $('glTint').addEventListener('input',e=>{ G.tint=e.target.value; render(); });
+        $('glTint').addEventListener('change',()=>pushHistory());
+        add(`<div class="fxHint">Physically-based glass: refracts the layers behind this shape (IOR 1.52). Replaces the Fill while enabled; pattern copies become glass too.</div>`);
+      }
+    }
   }
 
   if(page==='Shadow'){
