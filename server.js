@@ -74,6 +74,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse that has a "pattern" may add "effects":{"blob":{"on":true,"smoothness":0-300,"mode":"union"|"intersect"|"difference"}} to MERGE the shape with its own pattern copies into one organic mass (SDF smooth-union - they fuse as they approach). Use a NEGATIVE pattern hGap/vGap so the copies overlap. For the same merge rendered as refractive liquid glass use "glass2" instead, which takes the blob fields plus the glass fields (depth, refraction, frost, reflection, dispersion, tint, opacity).`,
   },
   {
+    id: "light",
+    match: /light|beam|ray|cone|glow|funnel|star|burst|volumetric|god ?ray/i,
+    inDoc: d => /"light":\{"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"light":{"on":true,"mode":0|1|2|7|8|14|18|22|33|34,"intensity":0-2.8,"throat":-0.2-0.55,"mouth":0.35-1.4,"curve":1-3.2,"density":2-36,"innerGlow":0-2.5,"bloom":0-2.5,"meshMix":0-2.5,"beamLength":0.1-2,"transparent":true,"core":"#hex","inner":"#hex","deep":"#hex","mesh":"#hex"}} which fills the shape with a volumetric light cone. mode: 0 single beam, 1 mirrored, 2 vertical, 7/8 rotated, 14 diamond, 18 chevron, 22 bowtie, 33 star-8 burst, 34 star-12 burst. Works best over a dark background.`,
+  },
+  {
     id: "grain",
     match: /grain|noise|film|gritt|analog/i,
     inDoc: d => /"grain":\{"amount":0\.\d*[1-9]/.test(d),

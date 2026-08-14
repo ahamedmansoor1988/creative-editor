@@ -31,6 +31,11 @@ const DEFAULT_EFFECTS=()=>({
   grain:{amount:0},
   // Clear Glass defaults from the locked standalone glass app
   glass:{on:false,depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
+  // Funnel light cone, ported from the Funnel Light Figma plugin
+  light:{on:false,mode:0,throat:0.39,mouth:0.95,curve:2.07,intensity:0.62,density:2.0,
+         bloom:0,innerGlow:2.5,falloff:2.33,leftFade:0.45,meshMix:1.62,bandFlow:0,
+         beamLength:1.17,beamGlow:0.65,transparent:true,
+         deep:'#000000',core:'#00aaff',inner:'#eaeaea',mesh:'#7744ff',bg:'#000000'},
   // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -179,7 +184,19 @@ function normalizeDoc(d){
       gl2.dispersion=clamp(+gl2.dispersion||0,0,200);
       gl2.opacity=clamp(gl2.opacity===undefined?100:+gl2.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gl2.tint||'')) gl2.tint='#ffffff';
-      c.effects={shadow:sh, grain:gr, glass:gla, blob:blo, glass2:gl2};
+      const li=Object.assign(de.light, ce.light||{});
+      li.on=!!li.on && c.type!=='text';
+      const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
+      num('mode',0,34,0); num('throat',-0.2,0.55,0.39); num('mouth',0.35,1.4,0.95);
+      num('curve',1,3.2,2.07); num('intensity',0,2.8,0.62); num('density',2,36,2);
+      num('bloom',0,2.5,0); num('innerGlow',0,2.5,2.5); num('falloff',0,2.5,2.33);
+      num('leftFade',0,1,0.45); num('meshMix',0,2.5,1.62); num('bandFlow',0,2,0);
+      num('beamLength',0.1,2,1.17); num('beamGlow',0,2.5,0.65);
+      li.transparent=li.transparent!==false;
+      ['deep','core','inner','mesh','bg'].forEach(k=>{
+        if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
+      });
+      c.effects={shadow:sh, grain:gr, glass:gla, blob:blo, glass2:gl2, light:li};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -401,16 +418,31 @@ function allInstances(){
 /* Members of a blob/glass2 group: every shape on the page with that effect
  * enabled, plus each one's linked pattern copies. A lone shape still merges
  * with its own copies, so the original behaviour is a strict subset. */
-function blobGroup(key){
+/* Blob and Glass 2 are ONE merged body with two possible materials, not two
+ * separate groups. Splitting them meant a Blob shape and a Glass 2 shape could
+ * never merge — each sat alone in its own group. Membership is therefore
+ * "either effect is on"; the material is glass when ANY member asks for it. */
+function inBlobGroup(o){
+  const e=o&&o.effects;
+  return o&&o.type!=='text'&&e&&((e.blob&&e.blob.on)||(e.glass2&&e.glass2.on));
+}
+function blobGroup(){
   if(!doc) return [];
   const out=[];
-  doc.frame.children.forEach(o=>{
-    if(o.type==='text') return;
-    const e=o.effects&&o.effects[key];
-    if(!e||!e.on) return;
-    out.push(o,...patternInstances(o));
-  });
+  doc.frame.children.forEach(o=>{ if(inBlobGroup(o)) out.push(o,...patternInstances(o)); });
   return out;
+}
+function groupGlassParams(){
+  if(!doc) return null;
+  const o=doc.frame.children.find(x=>x.type!=='text'&&x.effects&&x.effects.glass2&&x.effects.glass2.on);
+  return o?o.effects.glass2:null;
+}
+function groupBlobParams(){
+  if(!doc) return null;
+  const o=doc.frame.children.find(inBlobGroup);
+  if(!o) return null;
+  const e=o.effects;
+  return (e.glass2&&e.glass2.on)?e.glass2:e.blob;
 }
 /* Group members are one body, so they must agree on the group's settings.
  * Writing an edit to every member means it does not matter which member
@@ -419,6 +451,10 @@ function blobGroup(key){
 function applyToGroup(key,fn){
   if(!doc) return;
   doc.frame.children.forEach(o=>{
+    if(!inBlobGroup(o)) return;
+    // Shared geometry settings are written to BOTH effect records so the body
+    // keeps one shape whichever material it ends up rendering with.
+    if(key==='shared'){ fn(o.effects.blob); fn(o.effects.glass2); return; }
     const e=o.effects&&o.effects[key];
     if(e&&e.on) fn(e);
   });
@@ -430,9 +466,8 @@ function groupShapes(list){
     radius:o.type==='ellipse'?0:clamp(o.radius||0,0,Math.min(o.w,o.h)/2),
   }));
 }
-function isFirstOfGroup(obj,key){
-  const first=doc.frame.children.find(o=>o.type!=='text'&&o.effects&&o.effects[key]&&o.effects[key].on);
-  return first===obj;
+function isFirstOfGroup(obj){
+  return doc.frame.children.find(inBlobGroup)===obj;
 }
 
 function drawDoc(c,W,H){
@@ -445,15 +480,16 @@ function drawDoc(c,W,H){
     const blobReady=obj.type!=='text'&&window.BlobEngine&&window.BlobEngine.available();
     // Blob / Glass 2 merge the parent WITH its pattern copies into one field,
     // so they must replace the whole parent+instances draw, not sit beside it.
-    if(blobReady&&(fx.glass2&&fx.glass2.on||fx.blob&&fx.blob.on)){
-      const key=(fx.glass2&&fx.glass2.on)?'glass2':'blob';
+    if(blobReady&&inBlobGroup(obj)){
       // The whole group is drawn once, by its bottom-most member; the others
       // skip so the field is never rendered twice.
-      if(!isFirstOfGroup(obj,key)) return;
-      const objs=blobGroup(key).slice(0,window.BlobEngine.MAX);
+      if(!isFirstOfGroup(obj)) return;
+      const objs=blobGroup().slice(0,window.BlobEngine.MAX);
       const members=groupShapes(objs);
-      if(key==='glass2'){
-        window.BlobEngine.liquid(c.canvas,W,H,members,fx.glass2,fx.glass2);
+      const geom=groupBlobParams()||fx.blob;
+      const glassP=groupGlassParams();
+      if(glassP){
+        window.BlobEngine.liquid(c.canvas,W,H,members,glassP,geom);
       }else{
         // Mask the object's REAL fill, so every fill type works unchanged.
         // Each member is painted through its OWN share of the blend, and the
@@ -469,7 +505,7 @@ function drawDoc(c,W,H){
         t2.globalCompositeOperation='lighter';
         let painted=false;
         objs.forEach((o,i)=>{
-          const wm=window.BlobEngine.mask(W,H,members,fx.blob,i);
+          const wm=window.BlobEngine.mask(W,H,members,geom,i);
           if(!wm) return;
           l2.setTransform(1,0,0,1,0,0);
           l2.globalCompositeOperation='source-over';
@@ -493,6 +529,30 @@ function drawDoc(c,W,H){
           c.restore();
         }
       }
+      return;
+    }
+    const li=fx.light;
+    if(li&&li.on&&obj.type!=='text'&&window.LightEngine&&window.LightEngine.available()){
+      // Generative graphic: rendered at the shape's box size, then clipped to
+      // the shape so a cone can live inside a rounded rect or ellipse.
+      const draw=(o)=>{
+        const img=window.LightEngine.render(o.w,o.h,li);
+        if(!img) return;
+        c.save();
+        if(o.rot||o.mirrorX||o.mirrorY){
+          const cx=o.x+o.w/2, cy=o.y+o.h/2;
+          c.translate(cx,cy);
+          if(o.rot) c.rotate(o.rot*Math.PI/180);
+          if(o.mirrorX||o.mirrorY) c.scale(o.mirrorX?-1:1,o.mirrorY?-1:1);
+          c.translate(-cx,-cy);
+        }
+        c.globalAlpha=o.opacity;
+        pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      draw(obj);
+      patternInstances(obj).forEach(draw);
       return;
     }
     const gla=fx.glass;
@@ -643,7 +703,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Blob','Glass','Glass 2','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Light','Blob','Glass','Glass 2','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -858,6 +918,64 @@ function buildFx(obj){
     $('tColor').addEventListener('change',()=>pushHistory());
   }
 
+  if(page==='Light'){
+    const L=obj.effects.light;
+    if(!(window.LightEngine&&window.LightEngine.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="ltOn" ${L.on?'checked':''}> Enable light</label>`);
+      $('ltOn').addEventListener('change',e=>{ L.on=e.target.checked; pushHistory(); refresh(); });
+      if(L.on){
+        add(`<label class="slider">Shape<select id="ltMode">`+
+          window.LightEngine.MODES.map(m=>`<option value="${m.id}">${m.label}</option>`).join('')+
+          `</select></label>`);
+        $('ltMode').value=String(L.mode);
+        $('ltMode').addEventListener('change',e=>{ L.mode=+e.target.value; pushHistory(); render(); });
+        const sl=(id,label,min,max,step,key,fmt)=>{
+          const v=L[key];
+          add(`<label class="slider">${label} <span id="${id}V">${fmt(v)}</span>
+            <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}"></label>`);
+          $(id).addEventListener('input',e=>{ L[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+          $(id).addEventListener('change',()=>pushHistory());
+        };
+        const f2=v=>(+v).toFixed(2);
+        sl('ltInt','Intensity',0,2.8,0.01,'intensity',f2);
+        sl('ltThroat','Throat',-0.2,0.55,0.01,'throat',f2);
+        sl('ltMouth','Mouth',0.35,1.4,0.01,'mouth',f2);
+        sl('ltCurve','Curve',1,3.2,0.01,'curve',f2);
+        sl('ltDens','Density',2,36,0.1,'density',v=>(+v).toFixed(1));
+        sl('ltGlow','Inner glow',0,2.5,0.01,'innerGlow',f2);
+        sl('ltBloom','Bloom',0,2.5,0.01,'bloom',f2);
+        sl('ltFall','Falloff',0,2.5,0.01,'falloff',f2);
+        sl('ltFade','Left fade',0,1,0.01,'leftFade',f2);
+        sl('ltMesh','Mesh amount',0,2.5,0.01,'meshMix',f2);
+        sl('ltBand','Band shift',0,2,0.01,'bandFlow',f2);
+        sl('ltBeamL','Beam length',0.1,2,0.01,'beamLength',f2);
+        sl('ltBeamG','Beam glow',0,2.5,0.01,'beamGlow',f2);
+        add(`<label class="chk" style="margin-top:6px"><input type="checkbox" id="ltAlpha" ${L.transparent?'checked':''}> Transparent background</label>`);
+        $('ltAlpha').addEventListener('change',e=>{ L.transparent=e.target.checked; pushHistory(); render(); });
+        add(`<div class="row2" style="margin-top:8px">
+          <label class="slider">Core <input type="color" id="ltCore" value="${L.core}"></label>
+          <label class="slider">Inner <input type="color" id="ltInner" value="${L.inner}"></label>
+        </div>
+        <div class="row2">
+          <label class="slider">Deep <input type="color" id="ltDeep" value="${L.deep}"></label>
+          <label class="slider">Mesh <input type="color" id="ltMeshC" value="${L.mesh}"></label>
+        </div>`);
+        if(!L.transparent){
+          add(`<label class="slider">Background <input type="color" id="ltBg" value="${L.bg}"></label>`);
+          $('ltBg').addEventListener('input',e=>{ L.bg=e.target.value; render(); });
+          $('ltBg').addEventListener('change',()=>pushHistory());
+        }
+        [['ltCore','core'],['ltInner','inner'],['ltDeep','deep'],['ltMeshC','mesh']].forEach(([id,key])=>{
+          $(id).addEventListener('input',e=>{ L[key]=e.target.value; render(); });
+          $(id).addEventListener('change',()=>pushHistory());
+        });
+        add(`<div class="fxHint">Volumetric light cone, clipped to this shape. Ported from the Funnel Light plugin.</div>`);
+      }
+    }
+  }
+
   if(page==='Blob'||page==='Glass 2'){
     const isG2=page==='Glass 2';
     const B=isG2?obj.effects.glass2:obj.effects.blob;
@@ -868,14 +986,15 @@ function buildFx(obj){
       $('bbOn').addEventListener('change',e=>{ B.on=e.target.checked; pushHistory(); refresh(); });
       if(B.on){
         const key=isG2?'glass2':'blob';
-        const n=blobGroup(key).length;
+        const n=blobGroup().length;
+        const asGlass=!!groupGlassParams();
         add(n<2
           ? `<div class="fxHint" style="color:#b45309">Merging <b>1</b> shape — nothing to blend with yet, so Smoothness has no effect. Give this shape a <b>Pattern</b> with a negative gap, or enable ${isG2?'Glass 2':'Blob'} on another shape so the two merge.</div>`
-          : `<div class="fxHint">Merging <b>${n}</b> shapes — every shape on this page with ${isG2?'Glass 2':'Blob'} on, plus their pattern copies.</div>`);
+          : `<div class="fxHint">Merging <b>${n}</b> shapes — every shape with Blob or Glass 2 on, plus their pattern copies. Rendering as <b>${asGlass?'liquid glass':'fill'}</b>${asGlass&&!isG2?' (a member has Glass 2 on)':''}.</div>`);
         add(`<label class="slider">Smoothness <span id="bbSmV">${B.smoothness}px</span>
           <input type="range" id="bbSm" min="0" max="300" value="${B.smoothness}"></label>`);
         $('bbSm').addEventListener('input',e=>{
-          applyToGroup(key,p=>p.smoothness=+e.target.value);
+          applyToGroup('shared',p=>p.smoothness=+e.target.value);
           $('bbSmV').textContent=e.target.value+'px'; render();
         });
         $('bbSm').addEventListener('change',()=>pushHistory());
@@ -887,7 +1006,7 @@ function buildFx(obj){
           </select></label>`);
         $('bbMode').value=B.mode;
         $('bbMode').addEventListener('change',e=>{
-          applyToGroup(key,p=>p.mode=e.target.value); pushHistory(); refresh();
+          applyToGroup('shared',p=>p.mode=e.target.value); pushHistory(); refresh();
         });
         if(isG2){
           const sl=(id,label,min,max,val,fmt)=>{
