@@ -80,6 +80,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"light":{"on":true,"mode":0|1|2|7|8|14|18|22|33|34,"intensity":0-2.8,"throat":-0.2-0.55,"mouth":0.35-1.4,"curve":1-3.2,"density":2-36,"innerGlow":0-2.5,"bloom":0-2.5,"meshMix":0-2.5,"beamLength":0.1-2,"transparent":true,"core":"#hex","inner":"#hex","deep":"#hex","mesh":"#hex"}} which fills the shape with a volumetric light cone. mode: 0 single beam, 1 mirrored, 2 vertical, 7/8 rotated, 14 diamond, 18 chevron, 22 bowtie, 33 star-8 burst, 34 star-12 burst. Works best over a dark background.`,
   },
   {
+    id: "prism",
+    match: /prism|spectrum|rainbow|dispers|refract|spectral|dark side|pink floyd|caustic|beam split/i,
+    inDoc: d => /"prism":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"prism":{"on":true,"shape":0-8,"thickness":0.01-3,"ior":1-2.4,"dispersion":0-0.6,"body":0-1,"azimuth":-180-180,"elevation":-89-89,"intensity":0-8,"width":0.005-2,"bend":-180-180,"fan":0-60,"bands":0-24,"spectrum":0|1,"colorA":"#hex","colorB":"#hex","glassScatter":0-8,"airScatter":0-1,"blend":"add"|"normal"}} which makes the shape a glass PRISM: a collimated beam enters it, refracts, and a spectrum fans out ACROSS THE PAGE past the shape's edges. shape: 0 rounded box, 1 triangular prism, 2 sphere, 3 cylinder, 4 hex prism, 5 octahedron, 6 torus, 7 capsule, 8 cone. "body" is the solid's opacity (1 = opaque object with a spectrum shooting out, 0 = invisible glass, only the light shows) and it takes the shape's own fill colour. "dispersion" is what splits the colours by geometry; "fan" spreads the exit artificially and "bend" swings it off-axis, which is how you get a spectrum out of a flat slab. "bands" > 0 gives discrete ribbons instead of a continuous smear. spectrum 1 uses colorA/colorB instead of a real rainbow. REQUIRES A DARK PAGE BACKGROUND - it is a light effect that adds. Use shape 1 with dispersion 0.13 and fan 0 for a real Newton prism.`,
+  },
+  {
     id: "gradient",
     match: /gradient|stripe|band|ramp|spectrum|risograph|retro|swatch|colou?r ?field|sunset|aurora/i,
     inDoc: d => /"gradient":\{[^}]*"on":true/.test(d),

@@ -25,6 +25,10 @@ let selInstance=null;    // derived instance under inspection (never editable)
 let tool='select';
 let viewMode='fit';      // 'fit' | 'actual'
 let fxPage=0;            // engines pager
+/* Prism accumulates samples synchronously, so a full-quality pass is far too
+ * slow to run on every pointer move. Slider `input` renders a draft; the
+ * `change` that ends the drag renders properly. */
+let prismDraft=false;
 
 const DEFAULT_EFFECTS=()=>({
   shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
@@ -41,6 +45,18 @@ const DEFAULT_EFFECTS=()=>({
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
             g2:[{color:'#ffaa00',pos:0},{color:'#0000ff',pos:0.5},{color:'#999999',pos:1}]},
+  // beam traced forward through a glass solid, dispersed per wavelength
+  prism:{on:false,shape:0,thickness:0.25,corner:0.12,wedge:0,yaw:0,pitch:0,roll:0,
+         ior:1.52,dispersion:0.145,body:1,blend:'add',
+         azimuth:126,elevation:30,intensity:1.9,width:0.15,softness:2,distance:14,
+         aimX:0,aimY:0,falloff:0.03,inGain:1,outGain:2.9,
+         bend:0,fan:26,bands:0,fanRoll:0,spectrum:0,
+         colorA:'#ff9a2e',colorB:'#e040c0',beamColor:'#ffffff',
+         airScatter:0.085,glassScatter:2.4,saturation:1.3,rim:0.42,
+         camZ:4.6,fov:30,reach:1.5,exposure:1.3,shoulder:0.24,grain:0.018,
+         // measured on this machine: ~90ms for a 1020x680 page at these
+         // settings, and the draft path is ~10ms, so a drag stays responsive
+         steps:56,quality:96,scale:0.6},
   // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -211,6 +227,29 @@ function normalizeDoc(d){
       gl2.dispersion=clamp(+gl2.dispersion||0,0,200);
       gl2.opacity=clamp(gl2.opacity===undefined?100:+gl2.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gl2.tint||'')) gl2.tint='#ffffff';
+      const pr=Object.assign(de.prism, ce.prism||{});
+      pr.on=!!pr.on && c.type!=='text';
+      pr.shape=clamp(Math.round(+pr.shape)||0,0,8);
+      pr.blend=pr.blend==='normal'?'normal':'add';
+      pr.spectrum=(+pr.spectrum)?1:0;
+      {
+        const n=(k,lo,hi)=>{ const v=+pr[k], d=de.prism[k];
+          pr[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
+        n('thickness',0.01,3); n('corner',0,0.5); n('wedge',0,60);
+        n('yaw',-180,180); n('pitch',-180,180); n('roll',-180,180);
+        n('ior',1,2.4); n('dispersion',0,0.6); n('body',0,1);
+        n('azimuth',-180,180); n('elevation',-89,89); n('intensity',0,8);
+        n('width',0.005,2); n('softness',0.5,6); n('distance',1,60);
+        n('aimX',-4,4); n('aimY',-4,4); n('falloff',0,1); n('inGain',0,3); n('outGain',0,4);
+        n('bend',-180,180); n('fan',0,60); n('bands',0,24); n('fanRoll',-180,180);
+        n('airScatter',0,1); n('glassScatter',0,8); n('saturation',0,1.6); n('rim',0,2);
+        n('camZ',1.5,20); n('fov',5,70); n('reach',0.3,4);
+        n('exposure',0.1,4); n('shoulder',0,1); n('grain',0,0.1);
+        n('steps',8,192); n('quality',1,256); n('scale',0.15,1);
+        ['colorA','colorB','beamColor'].forEach(k=>{
+          if(!/^#[0-9a-fA-F]{6}$/.test(pr[k]||'')) pr[k]=de.prism[k];
+        });
+      }
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && c.type!=='text';
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -223,7 +262,7 @@ function normalizeDoc(d){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
-      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li};
+      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr};
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
@@ -582,6 +621,25 @@ function drawDoc(c,W,H){
       patternInstances(obj).forEach(draw);
       return;
     }
+    const pr=fx.prism;
+    if(pr&&pr.on&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
+      // FULL CANVAS, deliberately not clipped to the shape: a prism's whole
+      // point is that the light leaves it, and clipping to the outline would
+      // delete the exit fan and leave a lit rectangle. The shape supplies the
+      // solid's position and size; the beam and fan cross the page freely.
+      // Pattern copies are skipped — each would need its own beam and its own
+      // accumulation pass.
+      const img=window.PrismEngine.render(W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},
+        Object.assign({},pr,{fill:firstColor(obj.fill)}),prismDraft);
+      if(img){
+        c.save();
+        c.globalAlpha=obj.opacity;
+        if(pr.blend==='add') c.globalCompositeOperation='lighter';
+        c.drawImage(img,0,0,W,H);
+        c.restore();
+        return;
+      }
+    }
     const gla=fx.glass;
     if(gla&&gla.on&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
       // Glass replaces the fill entirely: the shader refracts everything
@@ -745,7 +803,7 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Blob','Glass','Glass 2','Shadow','Grain'];
+const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Prism','Blob','Glass','Glass 2','Shadow','Grain'];
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -1120,6 +1178,107 @@ function buildFx(obj){
           $(id).addEventListener('change',()=>pushHistory());
         });
         add(`<div class="fxHint">Volumetric light cone, clipped to this shape. Ported from the Funnel Light plugin.</div>`);
+      }
+    }
+  }
+
+  if(page==='Prism'){
+    const R=obj.effects.prism, PE=window.PrismEngine;
+    if(!(PE&&PE.available())){
+      add(`<div class="fxHint">Needs WebGL2 with float render targets, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="prOn" ${R.on?'checked':''}> Enable prism</label>`);
+      $('prOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      if(R.on){
+        // Slider drags render a draft; the change event that ends the drag
+        // renders at full quality. Without this a single pointer move would
+        // trigger a full multi-sample accumulation.
+        const sl=(id,label,min,max,step,key,fmt)=>{
+          add(`<label class="slider">${label} <span id="${id}V">${fmt(R[key])}</span>
+            <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${R[key]}"></label>`);
+          $(id).addEventListener('input',e=>{
+            R[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value);
+            prismDraft=true; render(); prismDraft=false;
+          });
+          $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+        };
+        const col=(id,label,key)=>{
+          add(`<label class="slider">${label} <input type="color" id="${id}" value="${R[key]}"></label>`);
+          $(id).addEventListener('input',e=>{ R[key]=e.target.value; prismDraft=true; render(); prismDraft=false; });
+          $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+        };
+        const f2=v=>(+v).toFixed(2), f3=v=>(+v).toFixed(3);
+        const deg=v=>Math.round(v)+'°', int=v=>String(Math.round(v)), pct=v=>Math.round(v*100)+'%';
+
+        add(`<div class="gsBtns">`+
+          PE.PRESETS.map((p,i)=>`<button class="rollBtn" data-pp="${i}">${p.name}</button>`).join('')+
+          `</div>`);
+        body.querySelectorAll('[data-pp]').forEach(b=>b.addEventListener('click',()=>{
+          Object.assign(R, PE.PRESETS[+b.dataset.pp].v);
+          pushHistory(); refresh();
+        }));
+
+        add(`<div class="pSect">Solid</div>`);
+        add(`<label class="slider">Shape<select id="prShape">`+
+          PE.SHAPES.map(s=>`<option value="${s.id}">${s.label}</option>`).join('')+`</select></label>`);
+        $('prShape').value=String(R.shape);
+        $('prShape').addEventListener('change',e=>{ R.shape=+e.target.value; pushHistory(); render(); });
+        sl('prThick','Thickness',0.01,3,0.005,'thickness',f2);
+        sl('prCorner','Bevel',0,0.5,0.005,'corner',f2);
+        sl('prWedge','Wedge',0,60,0.5,'wedge',deg);
+        sl('prYaw','Yaw',-180,180,1,'yaw',deg);
+        sl('prPitch','Pitch',-180,180,1,'pitch',deg);
+        sl('prRoll','Roll',-180,180,1,'roll',deg);
+        sl('prIor','Index of refraction',1,2.4,0.001,'ior',f3);
+        sl('prDisp','Dispersion',0,0.6,0.001,'dispersion',f3);
+        sl('prBody','Body opacity',0,1,0.005,'body',pct);
+
+        add(`<div class="pSect">Beam</div>`);
+        sl('prAz','Azimuth',-180,180,0.5,'azimuth',deg);
+        sl('prEl','Elevation',-89,89,0.5,'elevation',deg);
+        sl('prInt','Intensity',0,8,0.01,'intensity',f2);
+        sl('prW','Width',0.005,2,0.005,'width',f3);
+        sl('prSoft','Edge softness',0.5,6,0.05,'softness',f2);
+        sl('prDist','Start distance',1,60,0.5,'distance',f2);
+        sl('prAimX','Aim X',-4,4,0.01,'aimX',f2);
+        sl('prAimY','Aim Y',-4,4,0.01,'aimY',f2);
+        sl('prFall','Falloff',0,1,0.001,'falloff',f3);
+        sl('prIn','Incoming gain',0,3,0.01,'inGain',f2);
+        sl('prOut','Exit gain',0,4,0.01,'outGain',f2);
+
+        add(`<div class="pSect">Spectrum</div>`);
+        sl('prBend','Exit bend',-180,180,0.5,'bend',deg);
+        sl('prFan','Fan spread',0,60,0.25,'fan',deg);
+        sl('prBands','Bands',0,24,1,'bands',v=>+v===0?'continuous':int(v));
+        sl('prFanRoll','Fan roll',-180,180,1,'fanRoll',deg);
+        add(`<label class="slider">Spectrum<select id="prSpec">
+          <option value="0">Physical</option><option value="1">Two colour</option></select></label>`);
+        $('prSpec').value=String(R.spectrum);
+        $('prSpec').addEventListener('change',e=>{ R.spectrum=+e.target.value; pushHistory(); refresh(); });
+        if(R.spectrum===1){ col('prCA','Colour A','colorA'); col('prCB','Colour B','colorB'); }
+        col('prBeam','Beam colour','beamColor');
+
+        add(`<div class="pSect">Medium</div>`);
+        sl('prAir','Air scatter',0,1,0.002,'airScatter',f3);
+        sl('prFrost','Glass scatter',0,8,0.01,'glassScatter',f2);
+        sl('prSat','Saturation',0,1.6,0.01,'saturation',f2);
+        sl('prRim','Edge rim',0,2,0.01,'rim',f2);
+        sl('prReach','Reach',0.3,4,0.05,'reach',f2);
+
+        add(`<div class="pSect">Output</div>`);
+        add(`<label class="slider">Blend<select id="prBlend">
+          <option value="add">Add (glows over the page)</option>
+          <option value="normal">Normal (carries its own alpha)</option></select></label>`);
+        $('prBlend').value=R.blend;
+        $('prBlend').addEventListener('change',e=>{ R.blend=e.target.value; pushHistory(); render(); });
+        sl('prExpo','Exposure',0.1,4,0.005,'exposure',f2);
+        sl('prShoulder','Shoulder',0,1,0.005,'shoulder',f2);
+        sl('prGrain','Grain',0,0.1,0.001,'grain',f3);
+        sl('prLens','Lens (FOV)',5,70,0.5,'fov',deg);
+        sl('prQual','Quality (samples)',1,256,1,'quality',int);
+        sl('prSteps','March steps',8,192,4,'steps',int);
+        sl('prScale','Render scale',0.15,1,0.05,'scale',pct);
+        add(`<div class="fxHint">A collimated beam traced forward through the solid — entry refraction, the walk inside, exit refraction — with the exit fan dispersed per wavelength. Ported from the Glass Prism app.<br><br>Unlike the other engines this one accumulates samples, so Quality costs real time; dragging a slider shows a draft. It renders across the whole page rather than clipped to the shape, because the fan has to leave the solid, and it ignores Pattern copies. Designed for a dark background.</div>`);
       }
     }
   }
