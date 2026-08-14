@@ -398,6 +398,32 @@ function allInstances(){
   return out;
 }
 
+/* Members of a blob/glass2 group: every shape on the page with that effect
+ * enabled, plus each one's linked pattern copies. A lone shape still merges
+ * with its own copies, so the original behaviour is a strict subset. */
+function blobGroup(key){
+  if(!doc) return [];
+  const out=[];
+  doc.frame.children.forEach(o=>{
+    if(o.type==='text') return;
+    const e=o.effects&&o.effects[key];
+    if(!e||!e.on) return;
+    out.push(o,...patternInstances(o));
+  });
+  return out;
+}
+function groupShapes(list){
+  return list.slice(0,window.BlobEngine?window.BlobEngine.MAX:64).map(o=>({
+    cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
+    ellipse:o.type==='ellipse',
+    radius:o.type==='ellipse'?0:clamp(o.radius||0,0,Math.min(o.w,o.h)/2),
+  }));
+}
+function isFirstOfGroup(obj,key){
+  const first=doc.frame.children.find(o=>o.type!=='text'&&o.effects&&o.effects[key]&&o.effects[key].on);
+  return first===obj;
+}
+
 function drawDoc(c,W,H){
   const f=doc.frame;
   c.fillStyle=f.bg; c.fillRect(0,0,W,H);
@@ -409,12 +435,12 @@ function drawDoc(c,W,H){
     // Blob / Glass 2 merge the parent WITH its pattern copies into one field,
     // so they must replace the whole parent+instances draw, not sit beside it.
     if(blobReady&&(fx.glass2&&fx.glass2.on||fx.blob&&fx.blob.on)){
-      const members=[obj,...patternInstances(obj)].slice(0,window.BlobEngine.MAX).map(o=>({
-        cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
-        ellipse:o.type==='ellipse',
-        radius:o.type==='ellipse'?0:clamp(o.radius||0,0,Math.min(o.w,o.h)/2),
-      }));
-      if(fx.glass2&&fx.glass2.on){
+      const key=(fx.glass2&&fx.glass2.on)?'glass2':'blob';
+      // The whole group is drawn once, by its bottom-most member; the others
+      // skip so the field is never rendered twice.
+      if(!isFirstOfGroup(obj,key)) return;
+      const members=groupShapes(blobGroup(key));
+      if(key==='glass2'){
         window.BlobEngine.liquid(c.canvas,W,H,members,fx.glass2,fx.glass2);
       }else{
         // Mask the object's REAL fill, so every fill type works unchanged.
@@ -806,8 +832,11 @@ function buildFx(obj){
       add(`<label class="slider"><input type="checkbox" id="bbOn" ${B.on?'checked':''}> Enable ${isG2?'liquid glass':'blob'}</label>`);
       $('bbOn').addEventListener('change',e=>{ B.on=e.target.checked; pushHistory(); refresh(); });
       if(B.on){
-        const nInst=patternInstances(obj).length+1;
-        add(`<div class="fxHint">Merging <b>${nInst}</b> shape${nInst>1?'s':''} (this shape + its pattern copies). Add a Pattern to get more.</div>`);
+        const key=isG2?'glass2':'blob';
+        const n=blobGroup(key).length;
+        add(n<2
+          ? `<div class="fxHint" style="color:#b45309">Merging <b>1</b> shape — nothing to blend with yet, so Smoothness has no effect. Give this shape a <b>Pattern</b> with a negative gap, or enable ${isG2?'Glass 2':'Blob'} on another shape so the two merge.</div>`
+          : `<div class="fxHint">Merging <b>${n}</b> shapes — every shape on this page with ${isG2?'Glass 2':'Blob'} on, plus their pattern copies.</div>`);
         add(`<label class="slider">Smoothness <span id="bbSmV">${B.smoothness}px</span>
           <input type="range" id="bbSm" min="0" max="300" value="${B.smoothness}"></label>`);
         $('bbSm').addEventListener('input',e=>{ B.smoothness=+e.target.value; $('bbSmV').textContent=e.target.value+'px'; render(); });
