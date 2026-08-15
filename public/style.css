@@ -412,3 +412,17 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #fxBody .apRow button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
 #fxBody .apRow button:disabled{opacity:.3; cursor:default;}
 #fxBody .apRow .apDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}
+
+/* layer tree: isolation bar, twisties, entered container */
+#layerList .isoBar{
+  background:#eef2ff; color:#3730a3; font-size:11px; font-weight:600;
+  border-radius:7px; padding:6px 9px; margin-bottom:4px; cursor:pointer;
+}
+#layerList .isoBar:hover{background:#e0e7ff;}
+#layerList .twisty{
+  flex:0 0 10px; color:var(--muted); font-size:9px; transition:transform .12s;
+  transform:rotate(0deg); cursor:pointer;
+}
+#layerList .twisty.open{transform:rotate(90deg);}
+#layerList div.isEntered{outline:1px solid var(--accent); outline-offset:-1px;}
+#layerList div.isHidden{opacity:.45;}

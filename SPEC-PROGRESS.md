@@ -177,6 +177,44 @@ future session can pick up without re-reading the whole app.
   `destination-out` between objects, so every outside stroke after the first
   composited into an empty layer and vanished.
 
+### Session 6 — structure: §6.9, §6.10, §3.8, §3.9, §2.9
+- MODEL: the document is now a TREE. Groups and frames carry their own
+  `children`; child coordinates stay ABSOLUTE (page space) rather than
+  parent-relative, which keeps every existing geometry path — hit tests,
+  handles, engines, transforms — working unchanged. walkAll/findById/listOf/
+  activeList are the accessors; selection is still id-based so it addresses
+  any depth. normalizeDoc recurses with a depth cap of 8.
+- §6.9 Groups: DONE. ⌘G / ⇧⌘G, group-level transform, opacity, blend and
+  effects; derived union bounds; isolation mode (double-click to enter, Esc to
+  leave, one level per press) with the entered container shown in the layer
+  tree. Ungroup bakes the container's rotation/mirror/opacity into the
+  children it releases.
+- §6.10 Frames: DONE except frame-level layout rules (that is §6.12 stack
+  layout). ⌥⌘F wraps a selection; frames clip their children (toggleable),
+  take their own fills, strokes and corner radius, and convert to/from groups
+  by toggling clip.
+- §3.8 Masks: DONE. Alpha and luminance masks, invert, enable/disable without
+  discarding the mask, nesting. The container's TOP child is the mask; content
+  and mask each render to their own layer so masking never reaches outside.
+  Luminance uses Rec.709 weights.
+- §3.9 Clipping masks: DONE except editing the clip path in place (the mask
+  object is selectable and editable inside the container, which covers the
+  workflow). Release = set the mask type back to None; both objects survive.
+- §2.9 Distribution: DONE. By centres, by equal edge gaps, and by exact
+  spacing, on both axes.
+- §1.1 deep select and §6.1 layer hierarchy are now satisfied — both were
+  deferred in session 1 pending groups. The layers panel is a real tree with
+  twisties, indentation, mask badges and an isolation bar.
+- TWO bugs caught by the battery: (1) group opacity was applied per child, so
+  overlapping children showed through each other — §4.3 requires it on the
+  COMPOSITED group, which needs its own layer; (2) `hit()` returns an index
+  into the ACTIVE list, but the pointer handler still read the id from the
+  page's top level, so clicking inside a group resolved to the wrong object
+  and left stale selections.
+- STILL OPEN in this area: §6.5 artboards (multiple per page), §6.7 components,
+  §6.8 symbols, §6.11 constraints, §6.12 stack layout, and drag-to-reorder in
+  the layer tree.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4
