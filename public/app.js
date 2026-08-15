@@ -5,6 +5,10 @@
 /* ================= helpers ================= */
 const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+/* Layer, component and text names are user-supplied and some panels build
+ * their rows with innerHTML, so anything interpolated has to go through this. */
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,ch=>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
 /* ================= document ================= */
 let pages=[];            // array of {frame:{name,w,h,bg,children:[]}}
@@ -298,6 +302,16 @@ function normalizeDoc(d){
   }));
   if(!f.artboards.length)
     f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,clip:false,show:true}];
+  /* §6.7/§6.8 definitions live with the page. An instance stores only which
+   * definition it points at plus its own transform and overrides. */
+  const C=window.Components;
+  f.components=(Array.isArray(f.components)?f.components:[]).slice(0,200)
+    .map((d,i)=>C?C.normDef(d,i,newId):d)
+    .filter(d=>d&&d.root);
+  (f.components||[]).forEach(d=>{
+    d.root=normChildren([d.root],1)[0];
+    (d.variants||[]).forEach(v=>{ v.root=normChildren([v.root],1)[0]; });
+  });
   // §6.4 grid
   const gr=f.grid||{};
   f.grid={size:clamp(+gr.size||20,1,500),
@@ -315,7 +329,7 @@ function normChildren(list,depth){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
-    if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean','image'].includes(c.type)) c.type='rect';
+    if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean','image','instance'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
       c.color=c.color||'#111111';
@@ -341,9 +355,27 @@ function normChildren(list,depth){
         c.w=Math.max(4,+c.w||200); c.h=Math.max(4,+c.h||200);
         c.radius=clamp(+c.radius||0,0,300);
         c.clip=c.clip!==false;
+        // §6.12 stack layout on the frame
+        const L=c.layout||{};
+        const pd=L.padding||{};
+        c.layout={
+          mode:['none','horizontal','vertical'].includes(L.mode)?L.mode:'none',
+          gap:clamp(+L.gap||0,0,400),
+          padding:{t:clamp(+pd.t||0,0,400),r:clamp(+pd.r||0,0,400),
+                   b:clamp(+pd.b||0,0,400),l:clamp(+pd.l||0,0,400)},
+          align:['start','center','end','stretch'].includes(L.align)?L.align:'start',
+          justify:['start','center','end','between'].includes(L.justify)?L.justify:'start',
+          hug:!!L.hug,
+        };
       }
       // §6.9: a group's box is derived from its children, never stored
       delete c.pattern;
+    }else if(c.type==='instance'){
+      // §6.7/§6.8 instance: a pointer plus a transform plus overrides
+      c.compId=String(c.compId||'');
+      c.variant=c.variant?String(c.variant).slice(0,40):'';
+      c.overrides=(c.overrides&&typeof c.overrides==='object')?c.overrides:{};
+      delete c.pattern; delete c.children;
     }else if(c.type==='image'){
       // §5.15 flatten target: a plain pixel layer. `src` is a data URL so the
       // document stays self-contained and round-trips through save/undo.
@@ -609,6 +641,15 @@ function normChildren(list,depth){
     }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
+    // §6.11 constraints — how this child reacts when its frame resizes
+    const CN=(window.Components&&Components.CONSTRAINTS)||['left'];
+    c.constraints={
+      h:CN.includes((c.constraints||{}).h)?c.constraints.h:'left',
+      v:['top','bottom','both','center','scale'].includes((c.constraints||{}).v)?c.constraints.v:'top',
+    };
+    // §6.12 per-child sizing inside a stack, plus the absolute escape hatch
+    c.sizing=['fixed','hug','fill'].includes(c.sizing)?c.sizing:'fixed';
+    c.absolute=!!c.absolute;
     // §3.8/§3.9 masking. `maskMode` on a container makes its TOP child the
     // mask for the rest; on any object it marks how it is used as one.
     c.maskMode=['none','alpha','luminance','clip'].includes(c.maskMode)?c.maskMode:'none';
@@ -672,6 +713,61 @@ function pushHistory(label){
 function undo(){ if(HIST&&HIST.undo()) syncHistoryPanel(); }
 function redo(){ if(HIST&&HIST.redo()) syncHistoryPanel(); }
 function historyJump(i){ if(HIST&&HIST.jump(i)) syncHistoryPanel(); }
+
+/* ---- §6.7/§6.8 instances --------------------------------------------- */
+const CHELP={
+  boxOf:o=>boxOf(o),
+  translate:(o,dx,dy)=>translateObj(o,dx,dy),
+  place:(o,x,y,w,h)=>placeObject(o,x,y,w,h),
+};
+/** Move AND resize an object to an exact box — the operation constraints and
+ *  stack layout both need, and the one place that knows how each type resizes. */
+function placeObject(o,x,y,w,h){
+  const b=boxOf(o);
+  translateObj(o,x-b.x,y-b.y);
+  if(w===undefined||h===undefined) return;
+  const sx=b.w?w/b.w:1, sy=b.h?h/b.h:1;
+  if(Math.abs(sx-1)<1e-6&&Math.abs(sy-1)<1e-6) return;
+  const nb=boxOf(o);
+  if(o.type==='text'&&o.mode!=='area'){ o.size=clamp(Math.round(o.size*sy),8,300); return; }
+  if(o.type==='line'){
+    o.x2=nb.x+(o.x2-nb.x)*sx; o.y2=nb.y+(o.y2-nb.y)*sy;
+    o.x=nb.x+(o.x-nb.x)*sx;  o.y=nb.y+(o.y-nb.y)*sy;
+    return;
+  }
+  if(o.type==='path'){
+    (o.subpaths||[]).forEach(sp=>sp.points.forEach(q=>{
+      q.x=nb.x+(q.x-nb.x)*sx; q.y=nb.y+(q.y-nb.y)*sy;
+      q.ox*=sx; q.oy*=sy; q.ix*=sx; q.iy*=sy;
+    }));
+    return;
+  }
+  if(CONTAINER(o)){
+    (o.children||[]).forEach(k=>{
+      const kb=boxOf(k);
+      placeObject(k,nb.x+(kb.x-nb.x)*sx,nb.y+(kb.y-nb.y)*sy,kb.w*sx,kb.h*sy);
+    });
+    if(o.type==='frame'){ o.w=w; o.h=h; }
+    return;
+  }
+  o.w=Math.max(1,w); o.h=Math.max(1,h);
+}
+/** The drawable tree for an instance, cached against its inputs. */
+function instanceTree(inst){
+  const C=window.Components;
+  if(!C||!doc) return null;
+  const defs=doc.frame.components||[];
+  const sig=inst.compId+'|'+(inst.variant||'')+'|'+inst.x+','+inst.y+'|'+
+    (inst.rot||0)+'|'+(inst.opacity===undefined?1:inst.opacity)+'|'+
+    JSON.stringify(inst.overrides||{})+'|'+(doc.__defRev||0);
+  if(inst.__sig===sig&&inst.__tree) return inst.__tree;
+  const tree=C.resolve(inst,defs,CHELP);
+  inst.__sig=sig; inst.__tree=tree;
+  return tree;
+}
+/** Bump when a definition changes, so every instance re-resolves (§6.7
+ *  "instances update when the source changes"). */
+function defsChanged(){ if(doc) doc.__defRev=(doc.__defRev||0)+1; }
 
 /* ---- §6.5 artboards -------------------------------------------------- */
 /** The artboard an object sits in — the one containing its centre. Topmost
@@ -1441,6 +1537,12 @@ function drawList(c,W,H,list,depth){
         c.restore();
         return;
       }
+      if(obj.type==='frame'&&obj.layout&&obj.layout.mode!=='none'&&window.Components){
+        // §6.12 layout resolves at draw time from the frame's own rules, so a
+        // child added by any route lands in the stack without extra plumbing
+        Components.hugFrame(obj,CHELP);
+        Components.layoutStack(obj,CHELP);
+      }
       if(obj.type==='frame'){
         if(obj.fills&&obj.fills.length) paintAppearance(c,obj,cc=>addPath(cc,obj),b,obj.blend);
         if(obj.clip!==false){ c.beginPath(); addPath(c,obj); c.clip(); }   // §6.10
@@ -1799,6 +1901,13 @@ function drawObject(c,obj,plain){
       c.letterSpacing='0px';
       c.restore(); return;
     }
+    if(obj.type==='instance'){
+      // drawObject has no W/H in scope; mask layers size off the buffer, and
+      // the buffer IS the page raster, so its own dimensions are correct here
+      const tree=instanceTree(obj);
+      if(tree) drawList(c,frameBuf.width,frameBuf.height,[tree],1);
+      c.restore(); return;
+    }
     if(obj.type==='image'){
       const im=imageFor(obj.src);
       if(im&&im.complete&&im.naturalWidth) c.drawImage(im,obj.x,obj.y,obj.w,obj.h);
@@ -1961,6 +2070,10 @@ function textBox(obj){
   return {x, y:obj.y, w:L.width, h:L.boxH};
 }
 function boxOf(obj){
+  if(obj.type==='instance'){
+    const t=instanceTree(obj);
+    return t?boxOf(t):{x:obj.x||0,y:obj.y||0,w:1,h:1};
+  }
   if(obj.type==='frame') return {x:obj.x,y:obj.y,w:obj.w,h:obj.h};
   if(obj.type==='boolean'){
     const res=boolResult(obj);
@@ -2559,7 +2672,8 @@ function syncLayers(){
 const FX_PAGES=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
-  if(obj.type==='frame') return ['Frame','Fill','Stroke','Mask','Shadow'];
+  if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
+  if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Blur'];
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
@@ -2610,6 +2724,19 @@ function syncInspector(){
   $('pW').disabled=tx; $('pH').disabled=tx;
   $('pOpacity').value=Math.round(obj.opacity*100);
   $('pOpacityV').textContent=Math.round(obj.opacity*100)+'%';
+  // §6.11/§6.12 — only meaningful for a child of a frame
+  const par=(findById(obj.id)||{}).parent;
+  const inFrame=par&&par.type==='frame';
+  const cw=$('constraintRow');
+  if(cw){
+    cw.style.display=inFrame?'':'none';
+    if(inFrame){
+      $('cH').value=obj.constraints.h; $('cV').value=obj.constraints.v;
+      $('cSize').value=obj.sizing;
+      $('cAbs').checked=!!obj.absolute;
+      $('cSize').disabled=!(par.layout&&par.layout.mode!=='none');
+    }
+  }
   const noRot=obj.type==='line';
   $('trRot').disabled=noRot; $('trSkX').disabled=noRot; $('trSkY').disabled=noRot;
   $('trRot').value=noRot?'':Math.round(obj.rot||0);
@@ -2617,7 +2744,111 @@ function syncInspector(){
   $('trSkY').value=noRot?'':Math.round(obj.skewY||0);
   $('trScale').value='';
   $('objBlend').value=obj.blend||'normal';
+  syncInstancePanel(obj);
+  syncLayoutPanel(obj);
   buildFx(obj);
+}
+
+/* §6.7/§6.8 — the instance panel. Overrides are listed from the DEFINITION's
+ * tree rather than from whatever the instance happens to have overridden, so
+ * every overridable child is offered even before it has been touched, and a
+ * child added to the source shows up here without the instance being edited. */
+function syncInstancePanel(obj){
+  const p=$('instPanel');
+  if(!p) return;
+  const isInst=obj&&obj.type==='instance';
+  p.style.display=isInst?'':'none';
+  if(!isInst) return;
+  const defs=(doc.frame.components||[]);
+  const def=defs.find(d=>d.id===obj.compId);
+  $('instOf').textContent=def?(def.kind==='symbol'?'Symbol: ':'Component: ')+def.name
+                              :'Source definition is missing';
+  // variants (components only — a symbol has none by definition)
+  const vr=$('instVariantRow'), vs=$('instVariant');
+  const hasVars=!!(def&&def.kind==='component'&&def.variants.length);
+  vr.style.display=hasVars?'':'none';
+  if(hasVars){
+    vs.innerHTML='<option value="">Default</option>'+
+      def.variants.map(v=>'<option value="'+esc(v.name)+'">'+esc(v.name)+'</option>').join('');
+    vs.value=obj.variant||'';
+  }
+  // overrides
+  const box=$('instOverrides');
+  box.innerHTML='';
+  if(!def||def.kind!=='component'){
+    box.innerHTML='<div class="hint">'+(def&&def.kind==='symbol'
+      ? 'Symbols do not take overrides — every instance follows the source.'
+      : '')+'</div>';
+    return;
+  }
+  let src=def.root;
+  if(obj.variant){ const v=def.variants.find(x=>x.name===obj.variant); if(v) src=v.root; }
+  const rows=[];
+  (function walk(list,trail){
+    (list||[]).forEach(o=>{
+      const t=trail.concat(o.name||o.type);
+      const key=t.join('/');
+      if(o.type==='text') rows.push({key,label:t[t.length-1],kind:'text',
+        val:(o.text===undefined?'':o.text)});
+      else if(o.fills&&o.fills[0]) rows.push({key,label:t[t.length-1],kind:'color',
+        val:o.fills[0].color||'#000000'});
+      if(o.children) walk(o.children,t);
+    });
+  })([src],[]);
+  if(!rows.length){ box.innerHTML='<div class="hint">Nothing overridable in this component.</div>'; return; }
+  const ov=obj.overrides||{};
+  rows.slice(0,24).forEach(r=>{
+    const set=ov[r.key]||{};
+    const dirty=set.text!==undefined||set.color!==undefined||set.hidden!==undefined;
+    const row=document.createElement('div');
+    row.className='ovRow';
+    const cur=r.kind==='text'?(set.text!==undefined?set.text:r.val)
+                             :(set.color!==undefined?set.color:r.val);
+    row.innerHTML='<span class="'+(dirty?'ovDirty':'')+'" title="'+esc(r.key)+'">'+esc(r.label)+'</span>'+
+      (r.kind==='text'
+        ? '<input type="text" value="'+esc(cur)+'">'
+        : '<input type="color" value="'+esc(cur)+'">')+
+      '<label class="chk" style="margin:0" title="Hide this child in this instance only">'+
+      '<input type="checkbox"'+(set.hidden?' checked':'')+'></label>';
+    const field=row.querySelector('input[type=text],input[type=color]');
+    const hide=row.querySelector('input[type=checkbox]');
+    const write=(patch)=>{
+      const inst=primary();
+      if(!inst||inst.type!=='instance') return;
+      inst.overrides=inst.overrides||{};
+      const e=Object.assign({},inst.overrides[r.key]||{},patch);
+      Object.keys(e).forEach(k=>{ if(e[k]===undefined) delete e[k]; });
+      if(Object.keys(e).length) inst.overrides[r.key]=e; else delete inst.overrides[r.key];
+      delete inst.__sig;
+      render(); pushHistory('Override instance'); syncInspector();
+    };
+    field.addEventListener('input',()=>{
+      write(r.kind==='text'?{text:field.value}:{color:field.value});
+    });
+    hide.addEventListener('change',()=>write({hidden:hide.checked||undefined}));
+    box.appendChild(row);
+  });
+}
+
+/* §6.12 — the layout panel, shown for any frame. */
+function syncLayoutPanel(obj){
+  const p=$('layoutPanel');
+  if(!p) return;
+  const isFrame=obj&&obj.type==='frame';
+  p.style.display=isFrame?'':'none';
+  if(!isFrame) return;
+  const L=obj.layout||{mode:'none'};
+  $('lyMode').value=L.mode||'none';
+  const on=(L.mode||'none')!=='none';
+  $('lyBody').style.display=on?'':'none';
+  if(!on) return;
+  const pad=L.padding||{t:0,r:0,b:0,l:0};
+  $('lyGap').value=L.gap||0;
+  $('lyHug').checked=!!L.hug;
+  $('lyPT').value=pad.t||0; $('lyPR').value=pad.r||0;
+  $('lyPB').value=pad.b||0; $('lyPL').value=pad.l||0;
+  $('lyAlign').value=L.align||'start';
+  $('lyJustify').value=L.justify||'start';
 }
 
 /* Is this engine doing anything on this object? Drives the dot in the engine
@@ -2637,6 +2868,9 @@ function fxActive(obj,name){
     case 'Boolean':  return true;
     case 'Effects':  return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>FxStack.entryOn(x)));
     case 'Frame':    return obj.clip!==false;
+    case 'Layout':   return !!(obj.layout&&obj.layout.mode!=='none');
+    case 'Instance': return true;
+    case 'Constraints': return true;
     case 'Path':     return !!(obj.closed||obj.fillOn);
     case 'Pattern':  return !!obj.pattern;
     case 'Fill':     return (obj.fills||[]).length>1||(obj.fill&&obj.fill.kind!=='solid');
@@ -3195,6 +3429,108 @@ function buildFx(obj){
       <button class="rollBtn" id="blRel">Release operands</button></div>`);
     $('blFlat').addEventListener('click',()=>{ setSelIds(new Set([B.id])); flattenBoolean(); });
     $('blRel').addEventListener('click',()=>{ setSelIds(new Set([B.id])); releaseBoolean(); });
+  }
+
+  if(page==='Instance'){
+    const def=(doc.frame.components||[]).find(d=>d.id===obj.compId);
+    if(!def){ add(`<div class="fxWarn">This instance points at a definition that no longer exists, so it renders as nothing. Delete it, or recreate the component.</div>`); }
+    else{
+      add(`<div class="fxHint"><b>${def.name}</b> — ${def.kind}.
+        ${def.kind==='symbol'
+          ? 'A symbol shows exactly what its source shows; edit the source to change every instance.'
+          : 'Overrides below apply to this instance only.'}</div>`);
+      if(def.kind==='component'&&def.variants.length){
+        add(`<label class="slider">${def.variantKey}<select id="inVar">
+          <option value="">Default</option>`+
+          def.variants.map(v=>`<option value="${v.name}">${v.name}</option>`).join('')+
+          `</select></label>`);
+        $('inVar').value=obj.variant||'';
+        $('inVar').addEventListener('change',e=>{ obj.variant=e.target.value; delete obj.__sig;
+          pushHistory('Variant'); refresh(); });
+      }
+      if(def.kind==='component'){
+        // §6.7 per-instance overrides, addressed by name path
+        const tree=instanceTree(obj);
+        const rows=[];
+        (function walk(o,trail){
+          const t=trail.concat(o.name||o.type);
+          if(o.type==='text'||o.fills||o.strokes) rows.push({key:t.join('/'),o});
+          (o.children||[]).forEach(k=>walk(k,t));
+        })(def.root,[]);
+        add(`<div class="pSect">Overrides</div>`);
+        rows.slice(0,12).forEach((r,ri)=>{
+          const ov=obj.overrides[r.key]||{};
+          add(`<div class="pSect" style="border:0;margin:6px 0 2px;opacity:.7">${r.key}</div>`);
+          if(r.o.type==='text'){
+            add(`<label class="slider">Text <input type="text" id="ovT${ri}" value="${(ov.text!==undefined?ov.text:r.o.text)||''}"></label>`);
+            $('ovT'+ri).addEventListener('input',e=>{
+              obj.overrides[r.key]={...obj.overrides[r.key],text:e.target.value};
+              delete obj.__sig; render(); });
+            $('ovT'+ri).addEventListener('change',()=>pushHistory('Override text'));
+          }
+          const base=r.o.type==='text'?r.o.color:((r.o.fills&&r.o.fills[0]&&r.o.fills[0].color)||'#cccccc');
+          add(`<div class="row2">
+            <label class="slider">Colour <input type="color" id="ovC${ri}" value="${ov.color||base}"></label>
+            <label class="chk"><input type="checkbox" id="ovH${ri}" ${ov.hidden?'checked':''}> Hide</label>
+          </div>`);
+          $('ovC'+ri).addEventListener('input',e=>{
+            obj.overrides[r.key]={...obj.overrides[r.key],color:e.target.value};
+            delete obj.__sig; render(); });
+          $('ovC'+ri).addEventListener('change',()=>pushHistory('Override colour'));
+          $('ovH'+ri).addEventListener('change',e=>{
+            obj.overrides[r.key]={...obj.overrides[r.key],hidden:e.target.checked};
+            delete obj.__sig; pushHistory('Override visibility'); refresh(); });
+        });
+      }
+      add(`<div class="gsBtns">
+        <button class="rollBtn" id="inReset">Reset overrides</button>
+        <button class="rollBtn" id="inDetach">Detach</button></div>`);
+      $('inReset').addEventListener('click',resetInstances);
+      $('inDetach').addEventListener('click',detachInstances);
+      add(`<button class="rollBtn" id="inUpd">Update source from selection…</button>`);
+      $('inUpd').addEventListener('click',()=>{
+        alert('Select the object you want to become the new source, then use Edit ▸ Update component.');
+      });
+    }
+  }
+
+  if(page==='Layout'){
+    const L=obj.layout;
+    add(`<label class="slider">Direction<select id="lyMode">
+      <option value="none">None</option>
+      <option value="horizontal">Horizontal</option>
+      <option value="vertical">Vertical</option></select></label>`);
+    $('lyMode').value=L.mode;
+    $('lyMode').addEventListener('change',e=>{ L.mode=e.target.value; pushHistory('Layout'); refresh(); });
+    if(L.mode!=='none'){
+      const sl=(id,label,min,max,get,set)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${Math.round(get())}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" value="${get()}"></label>`);
+        $(id).addEventListener('input',e=>{ set(+e.target.value); $(id+'V').textContent=e.target.value; render(); });
+        $(id).addEventListener('change',()=>pushHistory('Layout'));
+      };
+      sl('lyGap','Gap',0,200,()=>L.gap,v=>L.gap=v);
+      add(`<div class="pSect">Padding</div>`);
+      sl('lyPT','Top',0,200,()=>L.padding.t,v=>L.padding.t=v);
+      sl('lyPR','Right',0,200,()=>L.padding.r,v=>L.padding.r=v);
+      sl('lyPB','Bottom',0,200,()=>L.padding.b,v=>L.padding.b=v);
+      sl('lyPL','Left',0,200,()=>L.padding.l,v=>L.padding.l=v);
+      add(`<div class="row2">
+        <label class="slider">Align<select id="lyAlign">
+          <option value="start">Start</option><option value="center">Center</option>
+          <option value="end">End</option><option value="stretch">Stretch</option></select></label>
+        <label class="slider">Justify<select id="lyJust">
+          <option value="start">Start</option><option value="center">Center</option>
+          <option value="end">End</option><option value="between">Space between</option></select></label>
+      </div>`);
+      $('lyAlign').value=L.align; $('lyJust').value=L.justify;
+      $('lyAlign').addEventListener('change',e=>{ L.align=e.target.value; pushHistory('Layout'); render(); });
+      $('lyJust').addEventListener('change',e=>{ L.justify=e.target.value; pushHistory('Layout'); render(); });
+      add(`<label class="chk"><input type="checkbox" id="lyHug" ${L.hug?'checked':''}> Hug contents</label>`);
+      $('lyHug').addEventListener('change',e=>{ L.hug=e.target.checked; pushHistory('Layout'); render(); });
+      add(`<div class="fxHint">Children with sizing "fill" share the leftover space.
+        Mark a child absolute in its own panel to take it out of the stack.</div>`);
+    }
   }
 
   if(page==='Group'||page==='Frame'){
@@ -3798,6 +4134,57 @@ $('trRot').addEventListener('change',e=>{
     pushHistory(); refresh();
   });
 });
+[['cH','h'],['cV','v']].forEach(([id,k])=>{
+  $(id).addEventListener('change',e=>{
+    selObjs().filter(o=>!o.locked).forEach(o=>o.constraints[k]=e.target.value);
+    pushHistory('Constraints'); refresh();
+  });
+});
+$('cSize').addEventListener('change',e=>{
+  selObjs().filter(o=>!o.locked).forEach(o=>o.sizing=e.target.value);
+  pushHistory('Sizing'); refresh();
+});
+$('cAbs').addEventListener('change',e=>{
+  selObjs().filter(o=>!o.locked).forEach(o=>o.absolute=e.target.checked);
+  pushHistory('Absolute'); refresh();
+});
+/* ---- §6.7/§6.8 instance panel ---------------------------------------- */
+$('instVariant').addEventListener('change',e=>{
+  selObjs().filter(o=>o.type==='instance').forEach(o=>{ o.variant=e.target.value; delete o.__sig; });
+  pushHistory('Variant'); refresh();
+});
+$('instReset').addEventListener('click',()=>resetInstances());
+$('instDetach').addEventListener('click',()=>detachInstances());
+$('instUpdate').addEventListener('click',()=>pushInstanceToSource());
+$('instSelectDef').addEventListener('click',()=>{
+  // The definition is not an object on the canvas, so "go to source" selects
+  // the first instance that has no overrides — the one that shows the source
+  // as authored. Falling back to a message beats silently doing nothing.
+  const inst=primary(); if(!inst||inst.type!=='instance') return;
+  const clean=allObjects().find(o=>o.type==='instance'&&o.compId===inst.compId&&
+    !Object.keys(o.overrides||{}).length&&!o.variant);
+  if(clean){ setSelIds(new Set([clean.id])); refresh(); }
+  else status('Every instance has overrides — reset one to see the source as authored.');
+});
+/* ---- §6.12 layout panel ---------------------------------------------- */
+function eachFrame(fn,label){
+  const fs=selObjs().filter(o=>o.type==='frame'&&!o.locked);
+  if(!fs.length) return;
+  fs.forEach(f=>{ f.layout=f.layout||{mode:'none',gap:0,padding:{t:0,r:0,b:0,l:0},
+    align:'start',justify:'start',hug:false}; fn(f); });
+  pushHistory(label); refresh();
+}
+$('lyMode').addEventListener('change',e=>eachFrame(f=>f.layout.mode=e.target.value,'Stack layout'));
+$('lyGap').addEventListener('input',e=>eachFrame(f=>f.layout.gap=Math.max(0,+e.target.value||0),'Gap'));
+$('lyHug').addEventListener('change',e=>eachFrame(f=>f.layout.hug=e.target.checked,'Hug contents'));
+[['lyPT','t'],['lyPR','r'],['lyPB','b'],['lyPL','l']].forEach(([id,k])=>{
+  $(id).addEventListener('input',e=>eachFrame(f=>{
+    f.layout.padding=f.layout.padding||{t:0,r:0,b:0,l:0};
+    f.layout.padding[k]=Math.max(0,+e.target.value||0);
+  },'Padding'));
+});
+$('lyAlign').addEventListener('change',e=>eachFrame(f=>f.layout.align=e.target.value,'Align'));
+$('lyJustify').addEventListener('change',e=>eachFrame(f=>f.layout.justify=e.target.value,'Distribute'));
 $('objBlend').addEventListener('change',e=>{
   const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
   os.forEach(o=>o.blend=e.target.value);
@@ -4535,6 +4922,16 @@ canvas.addEventListener('pointermove',e=>{
     const cs2=Math.cos(r), sn2=Math.sin(r);
     const c1={x:c0.x+(cl.x-c0.x)*cs2-(cl.y-c0.y)*sn2,
               y:c0.y+(cl.x-c0.x)*sn2+(cl.y-c0.y)*cs2};
+    if(obj.type==='frame'&&window.Components){
+      // §6.11: children react to the frame's new size per their own pinning
+      const prev={x:b0.x,y:b0.y,w:b0.w,h:b0.h};
+      obj.x=Math.round(c1.x-w1/2); obj.y=Math.round(c1.y-h1/2);
+      obj.w=Math.round(w1); obj.h=Math.round(h1);
+      Components.applyConstraints(obj,prev,CHELP);
+      const sc4=evtScreen(e);
+      drag.readout={text:Math.round(w1)+' × '+Math.round(h1),sx:sc4.x,sy:sc4.y};
+      render(); syncInspector(); return;
+    }
     if(obj.type==='text'&&obj.mode!=='area'){
       // point text scales its size instead of a box
       obj.size=clamp(Math.round(drag.size0*(h1/b0.h)),8,300);
@@ -4843,6 +5240,135 @@ function rotateSel(delta){
   // §2.2 "rotate each object individually": each about its own centre
   os.forEach(o=>{ o.rot=(((o.rot||0)+delta)%360+360)%360; });
   pushHistory(); refresh();
+}
+
+/* ---- §6.7/§6.8 component + symbol commands ---- */
+function makeDefinition(kind){
+  const os=selObjs().filter(o=>!o.locked&&o.type!=='instance');
+  if(!os.length) return;
+  const L=listOf(os[0]);
+  if(!os.every(o=>listOf(o)===L)) return;
+  const name=prompt(`${kind==='symbol'?'Symbol':'Component'} name:`,os[0].name||'Component');
+  if(name===null) return;
+  // one object becomes the root directly; several are wrapped in a group
+  let root;
+  if(os.length===1) root=JSON.parse(JSON.stringify(os[0]));
+  else{
+    let x0=1e9,y0=1e9;
+    os.forEach(o=>{ const b=aabbOf(o); x0=Math.min(x0,b.x); y0=Math.min(y0,b.y); });
+    root={type:'group',name:name.trim()||'Component',id:newId(),x:x0,y:y0,opacity:1,
+      children:os.map(o=>JSON.parse(JSON.stringify(o)))};
+  }
+  const def={id:newId(),name:(name.trim()||'Component'),kind,root,variantKey:'Variant',variants:[]};
+  doc.frame.components.push(def);
+  // the selection is REPLACED by an instance, so the thing on canvas is now
+  // driven by the definition rather than being a detached copy of it
+  const idxs=os.map(o=>L.indexOf(o)).sort((a,b)=>a-b);
+  const b0=aabbOf(os[0]);
+  let bx=1e9,by=1e9;
+  os.forEach(o=>{ const b=aabbOf(o); bx=Math.min(bx,b.x); by=Math.min(by,b.y); });
+  for(let i=idxs.length-1;i>=0;i--) L.splice(idxs[i],1);
+  const inst={type:'instance',name:def.name,id:newId(),compId:def.id,
+    x:bx,y:by,opacity:1,overrides:{},variant:''};
+  L.splice(idxs[0],0,inst);
+  setActiveDoc(normalizeDoc(doc));
+  defsChanged();
+  setSelIds(new Set([inst.id]));
+  pushHistory('Create '+kind); refresh();
+}
+function placeInstance(defId){
+  const def=(doc.frame.components||[]).find(d=>d.id===defId);
+  if(!def) return;
+  const b=boxOf(def.root);
+  const inst={type:'instance',name:def.name,id:newId(),compId:def.id,
+    x:Math.round(b.x+40),y:Math.round(b.y+40),opacity:1,overrides:{},variant:''};
+  activeList().push(inst);
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set([inst.id]));
+  pushHistory('Place instance'); refresh();
+}
+/** §6.7 detach: bake the resolved tree into ordinary objects. */
+function detachInstances(){
+  const os=selObjs().filter(o=>o.type==='instance');
+  if(!os.length) return;
+  const made=[];
+  os.forEach(o=>{
+    const t=instanceTree(o);
+    if(!t) return;
+    const copy=JSON.parse(JSON.stringify(t));
+    delete copy.__instanceOf;
+    reid(copy);
+    copy.name=o.name+' (detached)';
+    const L=listOf(o);
+    L.splice(L.indexOf(o),1,copy);
+    made.push(copy.id);
+  });
+  if(!made.length) return;
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(made));
+  pushHistory('Detach instance'); refresh();
+}
+/** §6.7 reset: throw away this instance's overrides. */
+function resetInstances(){
+  const os=selObjs().filter(o=>o.type==='instance');
+  if(!os.length) return;
+  os.forEach(o=>{ o.overrides={}; o.variant=''; delete o.__sig; });
+  pushHistory('Reset instance'); refresh();
+}
+/** §6.7 edit the source: swap the definition's root for the current selection. */
+function updateDefinitionFrom(defId){
+  const def=(doc.frame.components||[]).find(d=>d.id===defId);
+  const os=selObjs().filter(o=>o.type!=='instance');
+  if(!def||os.length!==1) return;
+  def.root=JSON.parse(JSON.stringify(os[0]));
+  setActiveDoc(normalizeDoc(doc));
+  defsChanged();
+  pushHistory('Update component'); refresh();
+}
+/** §6.7 "push overrides to the source": the selected instance's RESOLVED tree
+ *  becomes the definition, and its own overrides are dropped because they are
+ *  now the source. Every other instance follows, except where its own override
+ *  covers the same child — that override still wins, which is the point of it.
+ *  A symbol has no overrides, so this is a no-op for one. */
+function pushInstanceToSource(){
+  const inst=primary();
+  if(!inst||inst.type!=='instance') return;
+  const def=(doc.frame.components||[]).find(d=>d.id===inst.compId);
+  if(!def) return;
+  if(def.kind==='symbol'){ status('Symbols have no overrides to push.'); return; }
+  const tree=instanceTree(inst);
+  if(!tree) return;
+  const root=JSON.parse(JSON.stringify(tree));
+  delete root.__instanceOf; delete root.__sig; delete root.__tree;
+  if(inst.variant){
+    const v=def.variants.find(x=>x.name===inst.variant);
+    if(v) v.root=root; else def.root=root;
+  }else def.root=root;
+  inst.overrides={}; delete inst.__sig;
+  setActiveDoc(normalizeDoc(doc));
+  defsChanged();
+  pushHistory('Push to source'); refresh();
+}
+function addVariant(defId){
+  const def=(doc.frame.components||[]).find(d=>d.id===defId);
+  const os=selObjs().filter(o=>o.type!=='instance');
+  if(!def||os.length!==1) return;
+  const n=prompt('Variant name:','Variant '+(def.variants.length+2));
+  if(n===null) return;
+  def.variants.push({name:n.trim()||('Variant '+(def.variants.length+2)),
+    root:JSON.parse(JSON.stringify(os[0]))});
+  setActiveDoc(normalizeDoc(doc));
+  defsChanged();
+  pushHistory('Add variant'); refresh();
+}
+function deleteDefinition(defId){
+  const A=doc.frame.components, i=A.findIndex(d=>d.id===defId);
+  if(i<0) return;
+  const used=allObjects().filter(o=>o.type==='instance'&&o.compId===defId).length;
+  if(used&&!confirm(`${used} instance${used===1?'':'s'} use this. Delete anyway?\nThose instances will render as nothing.`)) return;
+  A.splice(i,1);
+  defsChanged();
+  pushHistory('Delete component'); refresh();
 }
 
 /* ---- §6.5 artboard commands ---- */
@@ -5617,6 +6143,9 @@ $('layerSearch').addEventListener('keydown',e=>{
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
+  makeComponent(){ makeDefinition('component'); },
+  makeSymbol(){ makeDefinition('symbol'); },
+  detach:detachInstances, resetInstance:resetInstances,
   addArtboard(){ addArtboard(); },
   artboardPreset(){
     const list=AB_PRESETS.map((p,i)=>`${i+1}. ${p[0]} ${p[1]}×${p[2]}`).join('\n');
@@ -5909,6 +6438,10 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get enteredId(){return enteredId;},
   setSelIds, selObjs, allObjects, findById, activeList, primary,
   groupSel, ungroupSel, distributeSel, enterContainer, exitContainer,
+  placeInstance, detachInstances, resetInstances, makeDefinition,
+  updateDefinitionFrom, addVariant, deleteDefinition, defsChanged, instanceTree,
+  placeObject, boxOf, translateObj, CHELP, normalizeDoc, setActiveDoc,
+  pushInstanceToSource,
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,

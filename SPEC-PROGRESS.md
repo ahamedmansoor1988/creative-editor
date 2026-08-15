@@ -203,8 +203,8 @@ future session can pick up without re-reading the whole app.
   leave, one level per press) with the entered container shown in the layer
   tree. Ungroup bakes the container's rotation/mirror/opacity into the
   children it releases.
-- §6.10 Frames: DONE except frame-level layout rules (that is §6.12 stack
-  layout). ⌥⌘F wraps a selection; frames clip their children (toggleable),
+- §6.10 Frames: DONE. (Frame-level layout rules arrived with §6.12 in
+  session 13.) ⌥⌘F wraps a selection; frames clip their children (toggleable),
   take their own fills, strokes and corner radius, and convert to/from groups
   by toggling clip.
 - §3.8 Masks: DONE. Alpha and luminance masks, invert, enable/disable without
@@ -225,9 +225,10 @@ future session can pick up without re-reading the whole app.
   into the ACTIVE list, but the pointer handler still read the id from the
   page's top level, so clicking inside a group resolved to the wrong object
   and left stale selections.
-- STILL OPEN in this area: §6.5 artboards (multiple per page), §6.7 components,
-  §6.8 symbols, §6.11 constraints, §6.12 stack layout, and drag-to-reorder in
-  the layer tree.
+- STILL OPEN in this area at the time: §6.5 artboards (multiple per page),
+  §6.7 components, §6.8 symbols, §6.11 constraints, §6.12 stack layout, and
+  drag-to-reorder in the layer tree. All except drag-to-reorder are now done
+  (artboards in session 11, the other four in session 13).
 
 ### Session 7 — booleans and compound paths: §3.3, §3.4, §3.5, §3.6, §3.7
 - §3.7 Compound paths FIRST, because booleans PRODUCE them: a path now holds
@@ -395,9 +396,87 @@ future session can pick up without re-reading the whole app.
 - Verified numerically rather than by eye: a sharp edge steps 255->71 in one
   sample, the blurred edge ramps through eleven.
 
-## Not yet started
-§1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
-(booleans/compound/masks — the path model now exists to build them on), §4
-(fills/strokes exist in primitive form), §5 (12 legacy engines exist as a
-fixed per-object set — §5.15 effect stack will absorb them), §6 (pages + flat
-layer list exist in primitive form).
+### Session 13 — components, symbols, constraints, stack layout: §6.7, §6.8, §6.11, §6.12
+- These were the last four untouched §6 sections. New file `public/components.js`
+  opens with a patent note explaining why the area is clear: §0's four live
+  patents cover snap-target lookup, tap-to-create guides and raster-to-vector,
+  none of which this touches, and §0 pre-approves Yoga for layout, which is an
+  affirmative clearance for stack layout as a feature. Prior art for all four
+  predates any current design tool by decades (Interface Builder springs and
+  struts, Fireworks/Flash symbols, the CSS Flexbox spec).
+- Yoga was NOT vendored despite being approved. The subset needed — one-axis
+  stacks with gap, padding, alignment and three sizing modes — is about a
+  hundred lines, and the app still has no runtime dependencies. Revisit if
+  wrap/grid/baseline get built.
+- §6.7 Components: `doc.frame.components[]` holds definitions; an `instance`
+  object references one by id. Instances resolve at draw time through a
+  signature cache (compId, variant, position, overrides, and a document-wide
+  `__defRev` that `defsChanged()` bumps), so editing a source repaints every
+  instance without walking the tree.
+- Overrides are addressed by NAME PATH ("Card/Title"), not by index. Index
+  paths break the moment the source gains a child; names survive reordering,
+  which is the whole point of an override outliving edits to its source.
+  Overridable set: text, colour, visibility. Geometry deliberately stays with
+  the source — an instance whose children could move is a group, not an
+  instance.
+- §6.8 Symbols: the same storage, different behaviour. A symbol takes no
+  overrides and no variants, so every instance always shows exactly what the
+  source shows. It is not a crippled component; it is what you reach for when
+  you want NO divergence.
+- §6.11 Constraints: per-axis pinning (left/right/both/center/scale on H,
+  top/bottom/both/center/scale on V), resolved when a frame resizes.
+- §6.12 Stack layout: flexbox semantics on one axis — direction, gap, per-side
+  padding, cross-axis align (start/center/end/stretch), main-axis distribute
+  (start/center/end/space-between), three child sizing modes, "hug contents",
+  and an `absolute` escape hatch for children that opt out entirely.
+- UI: an Instance panel (source name, variant picker, a row per overridable
+  child with dirty marking, Reset / Detach / Push to source / Go to source) and
+  a Stack layout panel. Push-to-source bakes an instance's resolved tree back
+  into the definition and clears that instance's own overrides.
+- `esc()` was added because these panels build rows with innerHTML and
+  component names, layer names and text content are all user-supplied. Nothing
+  else in the app had needed an HTML escape before, since the layer tree builds
+  DOM nodes instead.
+- One real bug: the instance draw branch landed in `drawObject`, which has no
+  W/H in scope, so any instance threw `ReferenceError: W is not defined`. Mask
+  layers size off the buffer and the buffer IS the page raster, so it now
+  passes the buffer's own dimensions.
+- 90 assertions, all on PIXELS rather than object counts. Four apparent
+  failures were all test artifacts worth recording, because each is a trap this
+  battery style invites: (1) two instances probed at the SAME point, because
+  `placeInstance` offsets by only +40,+40 and the shapes overlapped; (2) a
+  synthetic `pointermove` dispatched on `window` instead of the canvas, which
+  set `moved` without resizing and left a 4x4 seed shape — a bare click through
+  the real path correctly yields 160x120; (3) a probe landing on an override
+  that made the text LONGER, so white glyphs washed the fill colour; (4) a hug
+  test on a frame whose child was still 220 wide, frozen from an earlier
+  fill->fixed switch, which is correct behaviour.
+
+## What is left
+Every section of the spec has now been built into except §4.7. The list below
+is what remains, and it is partials rather than blank sections.
+
+FULLY UNTOUCHED
+- §4.7 Mesh gradient — the only section not started.
+
+PARTIALS, by area
+- §1.4 Pencil pressure and §1.6 open arcs — both blocked on §4.2 variable-width
+  stroke profiles, which is the shared prerequisite.
+- §1.9 Text — text-on-path, columns, OpenType feature access.
+- §2.4 Skew by dragging an edge handle (numeric skew works).
+- §2.7 Visual vs geometric bounding boxes (stroke and effect extents).
+- §3.1 Anchor points — join, split, average.
+- §4.1 Fill — pattern and image fills.
+- §4.2 Stroke — variable-width profiles.
+- §4.3 Opacity — knockout and isolate groups.
+- §4.5/§4.6 Gradients — on-canvas handles, OKLab interpolation.
+- §4.9 Shadow knockout.
+- §5.3/§5.8 Standalone versions of the two engines that only exist inside the
+  material slot today.
+- §5.12 Warp — mesh-warp grid and push-warp brush (six envelopes ship).
+- §6.1 Layer thumbnails, and drag-to-reorder in the tree.
+- §6.2 Inspector — mixed-value display, expressions, scrubbable fields.
+- §6.4 Canvas — transparency checkerboard, multiple views of one document.
+
+DOCS
+- HANDOFF.md is stale: it describes the tree at d70817e, twelve sessions back.

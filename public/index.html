@@ -42,6 +42,10 @@
       <button data-cmd="sameEffects">Select Same Effects</button>
       <button data-cmd="sameSize">Select Same Size</button>
       <button data-cmd="cropSel">Crop Page to Selection</button>
+      <button data-cmd="makeComponent">Create Component…</button>
+      <button data-cmd="makeSymbol">Create Symbol…</button>
+      <button data-cmd="detach">Detach Instance</button>
+      <button data-cmd="resetInstance">Reset Instance</button>
       <button data-cmd="group">Group <span>⌘G</span></button>
       <button data-cmd="ungroup">Ungroup <span>⇧⌘G</span></button>
       <button data-cmd="frame">Wrap in Frame <span>⌥⌘F</span></button>
@@ -225,6 +229,24 @@
       <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
       <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
     </div>
+    <div id="constraintRow" style="display:none">
+      <div class="grid4" style="margin-top:6px">
+        <label title="Horizontal constraint">↔<select id="cH">
+          <option value="left">Left</option><option value="right">Right</option>
+          <option value="both">Both</option><option value="center">Center</option>
+          <option value="scale">Scale</option></select></label>
+        <label title="Vertical constraint">↕<select id="cV">
+          <option value="top">Top</option><option value="bottom">Bottom</option>
+          <option value="both">Both</option><option value="center">Center</option>
+          <option value="scale">Scale</option></select></label>
+      </div>
+      <div class="grid4">
+        <label title="Sizing inside a stack">⤢<select id="cSize">
+          <option value="fixed">Fixed</option><option value="hug">Hug</option>
+          <option value="fill">Fill</option></select></label>
+        <label class="chk" style="margin:0"><input type="checkbox" id="cAbs"> Absolute</label>
+      </div>
+    </div>
     <label class="slider" style="margin-top:2px">Blend mode
       <select id="objBlend">
         <option>normal</option><option>multiply</option><option>screen</option>
@@ -238,6 +260,57 @@
       <button id="trR90R" data-icon="rotateCw" aria-label="Rotate 90 clockwise" title="Rotate 90 clockwise"></button>
       <button id="trFlipH" data-icon="flipH" aria-label="Flip horizontal" title="Flip horizontal"></button>
       <button id="trFlipV" data-icon="flipV" aria-label="Flip vertical" title="Flip vertical"></button>
+    </div>
+  </div>
+
+  <!-- §6.7/§6.8: shown only when an instance is selected -->
+  <div id="instPanel" style="display:none">
+    <hr>
+    <div class="secTitle">Instance</div>
+    <div id="instOf" class="hint" style="margin:0 0 6px"></div>
+    <label class="slider" id="instVariantRow">Variant
+      <select id="instVariant"></select></label>
+    <div class="secTitle" style="margin-top:8px">Overrides</div>
+    <div id="instOverrides"></div>
+    <div class="grid4" style="margin-top:6px">
+      <button id="instReset" title="Discard this instance's overrides">Reset</button>
+      <button id="instDetach" title="Turn this instance into ordinary objects">Detach</button>
+      <button id="instUpdate" title="Push this instance's state back to the source">Update source</button>
+      <button id="instSelectDef" title="Select the source definition">Go to source</button>
+    </div>
+  </div>
+
+  <!-- §6.12: shown only when a frame is selected -->
+  <div id="layoutPanel" style="display:none">
+    <hr>
+    <div class="secTitle">Stack layout</div>
+    <label class="slider">Direction
+      <select id="lyMode">
+        <option value="none">None</option>
+        <option value="horizontal">Horizontal</option>
+        <option value="vertical">Vertical</option>
+      </select></label>
+    <div id="lyBody" style="display:none">
+      <div class="grid4" style="margin-top:6px">
+        <label title="Space between children">Gap<input type="number" id="lyGap" min="0" step="1"></label>
+        <label class="chk" style="margin:0"><input type="checkbox" id="lyHug"> Hug</label>
+      </div>
+      <div class="grid4">
+        <label title="Padding top">T<input type="number" id="lyPT" min="0" step="1"></label>
+        <label title="Padding right">R<input type="number" id="lyPR" min="0" step="1"></label>
+        <label title="Padding bottom">B<input type="number" id="lyPB" min="0" step="1"></label>
+        <label title="Padding left">L<input type="number" id="lyPL" min="0" step="1"></label>
+      </div>
+      <label class="slider">Align (cross axis)
+        <select id="lyAlign">
+          <option value="start">Start</option><option value="center">Center</option>
+          <option value="end">End</option><option value="stretch">Stretch</option>
+        </select></label>
+      <label class="slider">Distribute (main axis)
+        <select id="lyJustify">
+          <option value="start">Start</option><option value="center">Center</option>
+          <option value="end">End</option><option value="between">Space between</option>
+        </select></label>
     </div>
   </div>
 
@@ -281,6 +354,7 @@
 <script src="capsule.js"></script>
 <script src="boolean.js"></script>
 <script src="snap.js"></script>
+<script src="components.js"></script>
 <script src="filters.js"></script>
 <script src="fxstack.js"></script>
 <script src="history.js"></script>
