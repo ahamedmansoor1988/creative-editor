@@ -35,6 +35,14 @@
       <button data-cmd="group">Group <span>⌘G</span></button>
       <button data-cmd="ungroup">Ungroup <span>⇧⌘G</span></button>
       <button data-cmd="frame">Wrap in Frame <span>⌥⌘F</span></button>
+      <button data-cmd="boolUnion">Union</button>
+      <button data-cmd="boolSubtract">Subtract</button>
+      <button data-cmd="boolIntersect">Intersect</button>
+      <button data-cmd="boolExclude">Exclude</button>
+      <button data-cmd="boolFlatten">Flatten Boolean</button>
+      <button data-cmd="boolRelease">Release Boolean</button>
+      <button data-cmd="compound">Make Compound Path</button>
+      <button data-cmd="releaseCompound">Release Compound Path</button>
       <button data-cmd="distH">Distribute Centers ⇢</button>
       <button data-cmd="distV">Distribute Centers ⇣</button>
       <button data-cmd="distHGap">Distribute Gaps ⇢</button>
@@ -239,6 +247,15 @@
 <script src="light.js"></script>
 <script src="prism.js"></script>
 <script src="capsule.js"></script>
+<script src="boolean.js"></script>
+<script type="module">
+  /* clipper2.mjs is an ES module and the app is classic scripts, so a tiny
+     shim hands it over. Module scripts are deferred, so the boolean engine
+     announces itself when ready rather than being assumed present. */
+  import * as C2 from './clipper2.mjs';
+  if(window.BooleanEngine) window.BooleanEngine.provide(C2);
+  else window.__clipper2=C2;
+</script>
 <script src="icons.js"></script>
 <script src="app.js"></script>
 </body>

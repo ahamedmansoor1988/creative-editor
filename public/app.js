@@ -257,7 +257,7 @@ function normChildren(list,depth){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
-    if(!['rect','ellipse','text','polygon','line','path','group','frame'].includes(c.type)) c.type='rect';
+    if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
       c.color=c.color||'#111111';
@@ -273,6 +273,12 @@ function normChildren(list,depth){
       c.caseTf=['none','upper','lower','title'].includes(c.caseTf)?c.caseTf:'none';
     }else if(CONTAINER(c)){
       c.children=normChildren(c.children||[],depth+1);
+      if(c.type==='boolean'){
+        c.boolOp=['union','subtract','intersect','exclude'].includes(c.boolOp)?c.boolOp:'union';
+        c.fillRule=c.fillRule==='evenodd'?'evenodd':'nonzero';
+        c.fillOn=c.fillOn!==false;
+        delete c.__sig; delete c.__res;      // never persist the cache
+      }
       if(c.type==='frame'){
         c.w=Math.max(4,+c.w||200); c.h=Math.max(4,+c.h||200);
         c.radius=clamp(+c.radius||0,0,300);
@@ -281,12 +287,24 @@ function normChildren(list,depth){
       // §6.9: a group's box is derived from its children, never stored
       delete c.pattern;
     }else if(c.type==='path'){
-      c.points=(Array.isArray(c.points)?c.points:[]).slice(0,500).map(p=>({
+      /* §3.7 compound path: one object, many subpaths. `points` and `closed`
+       * stay as LIVE ALIASES of subpath 0 so the pen, node editor and every
+       * existing reader keep working on single-contour paths unchanged. */
+      const normPts=arr=>(Array.isArray(arr)?arr:[]).slice(0,2000).map(p=>({
         x:+p.x||0, y:+p.y||0,
         ox:+p.ox||0, oy:+p.oy||0, ix:+p.ix||0, iy:+p.iy||0,
         m:['corner','smooth','asym','free'].includes(p.m)?p.m:'corner',
       }));
-      c.closed=!!c.closed; c.fillOn=!!c.fillOn;
+      let sps=Array.isArray(c.subpaths)?c.subpaths:null;
+      if(!sps) sps=[{points:c.points,closed:c.closed}];
+      c.subpaths=sps.slice(0,64)
+        .map(sp=>({points:normPts(sp&&sp.points),closed:!!(sp&&sp.closed)}))
+        .filter(sp=>sp.points.length);
+      if(!c.subpaths.length) c.subpaths=[{points:[],closed:false}];
+      c.points=c.subpaths[0].points;
+      c.closed=c.subpaths[0].closed;
+      c.fillRule=c.fillRule==='evenodd'?'evenodd':'nonzero';
+      c.fillOn=!!c.fillOn;
       c.x=+c.x||0; c.y=+c.y||0;
       delete c.pattern;
     }else if(c.type==='line'){
@@ -510,7 +528,84 @@ function restoreSnapshot(json){
  * geometry path — hit tests, handles, snapping, engines — working unchanged,
  * and a group transform is applied around the children at draw time.
  * A frame is a group that CLIPS to its box. */
-const CONTAINER=o=>o&&(o.type==='group'||o.type==='frame');
+const CONTAINER=o=>o&&(o.type==='group'||o.type==='frame'||o.type==='boolean');
+/* §3.3–3.6 non-destructive booleans: a `boolean` is a container whose children
+ * are the OPERANDS and whose rendered geometry is computed from them. Editing
+ * an operand updates the result; "Flatten" turns it into a plain path. The
+ * result is cached against a signature of the inputs so a redraw is free. */
+function boolSignature(o){
+  return o.boolOp+'|'+o.fillRule+'|'+(o.children||[]).map(k=>{
+    const b=boxOf(k);
+    return k.type+':'+Math.round(b.x)+','+Math.round(b.y)+','+Math.round(b.w)+','+Math.round(b.h)
+      +':'+(k.rot||0)+':'+(k.mirrorX?1:0)+(k.mirrorY?1:0)+':'+(k.hidden?'h':'')
+      +(k.type==='path'?':'+(k.subpaths||[]).map(sp=>sp.points.length).join('.'):'')
+      +(k.type==='polygon'?':'+k.sides+'.'+k.innerRatio:'')
+      +(k.type==='ellipse'?':'+k.startAngle+'.'+k.endAngle+'.'+k.innerRatio:'')
+      +(k.type==='rect'?':'+(k.radii||[k.radius]).join('.')+'.'+k.cornerStyle:'');
+  }).join('|');
+}
+/** Geometric outline sampling per primitive type (page space, pre-rotation). */
+function samplePolyline(o,tol){
+  const b=boxOf(o), out=[];
+  const push=(x,y)=>out.push([x,y]);
+  const N=n=>Math.max(16,Math.min(360,Math.ceil(n)));
+  if(o.type==='ellipse'){
+    const cx=b.x+b.w/2, cy=b.y+b.h/2, rx=b.w/2, ry=b.h/2;
+    const s=+o.startAngle||0, e=o.endAngle===undefined?360:+o.endAngle;
+    const inner=clamp(+o.innerRatio||0,0,0.95);
+    const full=Math.abs(e-s)>=360;
+    const n=N((b.w+b.h)/2/Math.max(tol,0.3));
+    const a0=(s-90)*Math.PI/180, a1=(e-90)*Math.PI/180;
+    for(let i=0;i<=n;i++){ const a=a0+(a1-a0)*(i/n); push(cx+Math.cos(a)*rx,cy+Math.sin(a)*ry); }
+    if(inner>0){ for(let i=n;i>=0;i--){ const a=a0+(a1-a0)*(i/n);
+      push(cx+Math.cos(a)*rx*inner,cy+Math.sin(a)*ry*inner); } }
+    else if(!full) push(cx,cy);
+    return [out];
+  }
+  if(o.type==='polygon'){
+    const cx=b.x+b.w/2, cy=b.y+b.h/2, rx=b.w/2, ry=b.h/2;
+    const sides=clamp(Math.round(o.sides||5),3,24);
+    const inner=clamp(o.innerRatio===undefined?1:+o.innerRatio,0.1,1);
+    const star=inner<0.999, steps=star?sides*2:sides;
+    for(let i=0;i<steps;i++){
+      const rr=star&&(i%2===1)?inner:1;
+      const a=-Math.PI/2+i*(Math.PI*2/steps);
+      push(cx+Math.cos(a)*rx*rr, cy+Math.sin(a)*ry*rr);
+    }
+    return [out];
+  }
+  if(o.type==='rect'){
+    const mx=Math.min(b.w,b.h)/2;
+    const u=clamp(o.radius||0,0,mx);
+    const R=(Array.isArray(o.radii)?o.radii:[u,u,u,u]).map(v=>clamp(+v||0,0,mx));
+    const [tl,tr,br,bl]=R;
+    const arc=(cx,cy,r,a0,a1)=>{ const n=N(r/Math.max(tol,0.3)*2);
+      for(let i=0;i<=n;i++){ const a=a0+(a1-a0)*(i/n); push(cx+Math.cos(a)*r,cy+Math.sin(a)*r); } };
+    const H=Math.PI/2;
+    push(b.x+tl,b.y); push(b.x+b.w-tr,b.y);
+    if(tr>0.5) arc(b.x+b.w-tr,b.y+tr,tr,-H,0);
+    push(b.x+b.w,b.y+b.h-br);
+    if(br>0.5) arc(b.x+b.w-br,b.y+b.h-br,br,0,H);
+    push(b.x+bl,b.y+b.h);
+    if(bl>0.5) arc(b.x+bl,b.y+b.h-bl,bl,H,Math.PI);
+    push(b.x,b.y+tl);
+    if(tl>0.5) arc(b.x+tl,b.y+tl,tl,Math.PI,Math.PI*1.5);
+    return [out];
+  }
+  return [];
+}
+/** The computed subpaths for a boolean container, cached on the object. */
+function boolResult(o){
+  if(!window.BooleanEngine||!BooleanEngine.available()) return null;
+  const sig=boolSignature(o);
+  if(o.__sig===sig&&o.__res!==undefined) return o.__res;
+  const kids=(o.children||[]).filter(k=>!k.hidden&&k.type!=='text'&&k.type!=='line');
+  const res=kids.length>=2
+    ? BooleanEngine.compute(o.boolOp,kids,{boxOf,addPathTo:(k,tol)=>samplePolyline(k,tol)[0]},o.fillRule)
+    : null;
+  o.__sig=sig; o.__res=res;
+  return res;
+}
 /** Depth-first walk over every object, containers included. */
 function walkAll(list,fn,parent){
   (list||[]).forEach((o,i)=>{ fn(o,list,i,parent); if(CONTAINER(o)) walkAll(o.children,fn,o); });
@@ -753,19 +848,20 @@ function polygonPath(c,o){
  * their anchor (ox,oy = out, ix,iy = in), so translating a path only touches
  * anchor coords. Anchor mode m: 'corner' (no handles), 'smooth' (mirrored),
  * 'asym' (same angle, free lengths), 'free' (disconnected). */
-function pathPath(c,o){
-  const P=o.points; if(!P.length) return;
+function subPath(c,sp){
+  const P=sp.points; if(!P||P.length<2) return;
   c.moveTo(P[0].x,P[0].y);
   for(let i=1;i<P.length;i++){
     const a=P[i-1], b=P[i];
     c.bezierCurveTo(a.x+a.ox,a.y+a.oy, b.x+b.ix,b.y+b.iy, b.x,b.y);
   }
-  if(o.closed&&P.length>2){
+  if(sp.closed&&P.length>2){
     const a=P[P.length-1], b=P[0];
     c.bezierCurveTo(a.x+a.ox,a.y+a.oy, b.x+b.ix,b.y+b.iy, b.x,b.y);
     c.closePath();
   }
 }
+function pathPath(c,o){ (o.subpaths||[{points:o.points,closed:o.closed}]).forEach(sp=>subPath(c,sp)); }
 /* §4.1–§4.4 appearance painter. `mk` builds the object's path into ctx.
  * Fills paint bottom-to-top, then strokes, each with its own opacity and
  * blend mode. Stroke alignment is done with clipping, since Canvas2D only
@@ -787,7 +883,12 @@ function paintAppearance(c,obj,mk,b,objBlend){
   const so=obj.strokeOpacity===undefined?1:obj.strokeOpacity;
   const base=c.globalAlpha;
   const fills=obj.fills||[];
-  const closedish=obj.type!=='path'||(obj.closed&&obj.fillOn);
+  // A path is fillable when it has at least one CLOSED subpath — checking
+  // obj.closed alone missed compound paths and boolean results, which carry
+  // their contours in subpaths and never set the single-contour alias.
+  const closedish=obj.type!=='path'||
+    (obj.fillOn&&(obj.subpaths||[{closed:obj.closed}]).some(sp=>sp.closed));
+  const fr=(obj.type==='path'&&obj.fillRule==='evenodd')?'evenodd':'nonzero';
   if(closedish) fills.forEach(f=>{
     if(f.on===false||f.opacity<=0) return;
     c.save();
@@ -795,7 +896,7 @@ function paintAppearance(c,obj,mk,b,objBlend){
     c.globalCompositeOperation=bl(f.blend);
     const st=paintStyle(c,f,b);
     c.beginPath(); mk(c);
-    c.fillStyle=st; c.fill();
+    c.fillStyle=st; c.fill(fr);
     if(c.__ellipticalGrad){ delete c.__ellipticalGrad; c.restore(); c.restore(); return; }
     c.restore();
   });
@@ -1128,6 +1229,28 @@ function drawList(c,W,H,list,depth){
         c.translate(-cx,-cy);
       }
       if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
+      if(obj.type==='boolean'){
+        // §3.3–3.6: the operands are not drawn — the computed result is.
+        const res=boolResult(obj);
+        if(res&&res.length){
+          const proxy={type:'path',subpaths:res,fillRule:obj.fillRule,fillOn:obj.fillOn,
+            fills:obj.fills,strokes:obj.strokes,
+            fillOpacity:obj.fillOpacity,strokeOpacity:obj.strokeOpacity};
+          const pb=(function(){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+            res.forEach(sp=>sp.points.forEach(p=>{x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);
+              x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);}));
+            return {x:x0,y:y0,w:x1-x0,h:y1-y0};})();
+          const a=c.globalAlpha;
+          c.globalAlpha=a*(obj.opacity===undefined?1:obj.opacity);
+          paintAppearance(c,proxy,cc=>pathPath(cc,proxy),pb,obj.blend);
+          c.globalAlpha=a;
+        }else{
+          // not enough operands yet: show them so the user can see what they have
+          drawList(c,W,H,obj.children,depth+1);
+        }
+        c.restore();
+        return;
+      }
       if(obj.type==='frame'){
         if(obj.fills&&obj.fills.length) paintAppearance(c,obj,cc=>addPath(cc,obj),b,obj.blend);
         if(obj.clip!==false){ c.beginPath(); addPath(c,obj); c.clip(); }   // §6.10
@@ -1536,7 +1659,17 @@ function textBox(obj){
 }
 function boxOf(obj){
   if(obj.type==='frame') return {x:obj.x,y:obj.y,w:obj.w,h:obj.h};
-  if(obj.type==='group'){
+  if(obj.type==='boolean'){
+    const res=boolResult(obj);
+    if(res&&res.length){
+      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+      res.forEach(sp=>sp.points.forEach(p=>{x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);
+        x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);}));
+      const sw=(obj.strokes&&obj.strokes[0]?obj.strokes[0].width:0)/2;
+      return {x:x0-sw,y:y0-sw,w:Math.max(1,x1-x0)+sw*2,h:Math.max(1,y1-y0)+sw*2};
+    }
+  }
+  if(obj.type==='group'||obj.type==='boolean'){
     // §6.9: a group's box is the union of its children, always derived
     const ch=(obj.children||[]).filter(o=>!o.hidden);
     if(!ch.length) return {x:obj.x||0,y:obj.y||0,w:1,h:1};
@@ -1549,7 +1682,7 @@ function boxOf(obj){
   if(obj.type==='text') return textBox(obj);
   if(obj.type==='path'){
     let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-    obj.points.forEach(p=>{
+    (obj.subpaths||[]).flatMap(sp=>sp.points).forEach(p=>{
       [[p.x,p.y],[p.x+p.ox,p.y+p.oy],[p.x+p.ix,p.y+p.iy]].forEach(([X,Y])=>{
         x0=Math.min(x0,X); y0=Math.min(y0,Y); x1=Math.max(x1,X); y1=Math.max(y1,Y);
       });
@@ -1571,7 +1704,7 @@ function translateObj(o,dx,dy){
   // children carry absolute coordinates, so a container moves them with it
   if(CONTAINER(o)) (o.children||[]).forEach(k=>translateObj(k,dx,dy));
   if(o.type==='line'){ o.x2+=dx; o.y2+=dy; }
-  if(o.type==='path') o.points.forEach(p=>{ p.x+=dx; p.y+=dy; });
+  if(o.type==='path') (o.subpaths||[]).forEach(sp=>sp.points.forEach(p=>{ p.x+=dx; p.y+=dy; }));
 }
 /* Scratch context for exact fill/stroke hit-testing of bézier paths. */
 const hitCtx=document.createElement('canvas').getContext('2d');
@@ -1579,7 +1712,9 @@ function pathHit(o,px,py,tol){
   hitCtx.setTransform(1,0,0,1,0,0);
   hitCtx.beginPath(); pathPath(hitCtx,o);
   hitCtx.lineWidth=Math.max(tol*2,(o.stroke?o.stroke.width:3)+tol);
-  if(o.fillOn&&o.closed&&hitCtx.isPointInPath(px,py)) return true;
+  const anyClosed=(o.subpaths||[]).some(sp=>sp.closed);
+  if(o.fillOn&&anyClosed&&
+     hitCtx.isPointInPath(px,py,o.fillRule==='evenodd'?'evenodd':'nonzero')) return true;
   return hitCtx.isPointInStroke(px,py);
 }
 /* §2.7: visual AABB of a possibly-rotated object. boxOf stays the unrotated
@@ -1877,6 +2012,7 @@ function syncLayers(){
 }
 
 const FX_PAGES=obj=>{
+  if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Fill','Stroke','Mask','Shadow'];
   if(obj.type==='text') return ['Text','Shadow'];
@@ -1952,6 +2088,7 @@ function fxActive(obj,name){
     case 'Line':     return obj.arrowStart!=='none'||obj.arrowEnd!=='none';
     case 'Mask':     return !!(obj.maskMode&&obj.maskMode!=='none'&&obj.maskOn!==false);
     case 'Group':    return (obj.children||[]).length>0;
+    case 'Boolean':  return true;
     case 'Frame':    return obj.clip!==false;
     case 'Path':     return !!(obj.closed||obj.fillOn);
     case 'Pattern':  return !!obj.pattern;
@@ -2069,10 +2206,20 @@ function buildFx(obj){
 
   if(page==='Path'){
     const P=obj;
-    add(`<div class="fxHint">${P.points.length} anchors · ${P.closed?'closed':'open'} path.
+    add(`<div class="fxHint">${(P.subpaths||[]).reduce((a,sp)=>a+sp.points.length,0)} anchors in
+      ${(P.subpaths||[]).length} subpath${(P.subpaths||[]).length===1?'':'s'} · ${P.closed?'closed':'open'}.
       Double-click the path with the Select tool (or press A) to edit nodes:
       drag anchors and handles, double-click an anchor to convert corner/smooth,
       double-click a segment to add an anchor, Delete removes selected anchors.</div>`);
+    if((P.subpaths||[]).length>1){
+      add(`<label class="slider">Fill rule<select id="paRule">
+        <option value="nonzero">Non-zero</option><option value="evenodd">Even-odd (holes)</option>
+      </select></label>`);
+      $('paRule').value=P.fillRule||'nonzero';
+      $('paRule').addEventListener('change',e=>{ P.fillRule=e.target.value; pushHistory(); render(); });
+      add(`<button class="rollBtn" id="paRelease">Release compound path (${P.subpaths.length} subpaths)</button>`);
+      $('paRelease').addEventListener('click',()=>{ setSelIds(new Set([P.id])); releaseCompound(); });
+    }
     add(`<label class="chk"><input type="checkbox" id="paClosed" ${P.closed?'checked':''}> Closed path</label>`);
     $('paClosed').addEventListener('change',e=>{ P.closed=e.target.checked; pushHistory(); refresh(); });
     add(`<label class="chk"><input type="checkbox" id="paFill" ${P.fillOn?'checked':''}> Fill (when closed)</label>`);
@@ -2381,6 +2528,38 @@ function buildFx(obj){
         ? 'Fills paint bottom to top, each with its own opacity and blend mode.'
         : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.'}</div>`);
     }
+  }
+
+  if(page==='Boolean'){
+    const B=obj;
+    const res=boolResult(B);
+    if(!(window.BooleanEngine&&BooleanEngine.available())){
+      add(`<div class="fxWarn">The boolean engine is still loading, or this browser
+        blocked the module. The operands are shown unmodified until it is ready.</div>`);
+    }
+    add(`<label class="slider">Operation<select id="blOp">
+      <option value="union">Union</option>
+      <option value="subtract">Subtract (bottom minus the rest)</option>
+      <option value="intersect">Intersect</option>
+      <option value="exclude">Exclude</option>
+    </select></label>`);
+    $('blOp').value=B.boolOp;
+    $('blOp').addEventListener('change',e=>{ B.boolOp=e.target.value; delete B.__sig; pushHistory(); refresh(); });
+    add(`<label class="slider">Fill rule<select id="blRule">
+      <option value="nonzero">Non-zero</option><option value="evenodd">Even-odd</option>
+    </select></label>`);
+    $('blRule').value=B.fillRule;
+    $('blRule').addEventListener('change',e=>{ B.fillRule=e.target.value; delete B.__sig; pushHistory(); refresh(); });
+    add(`<div class="fxHint">${(B.children||[]).length} operands ·
+      ${res?res.length+' resulting contour'+(res.length===1?'':'s'):'no result yet'}.
+      The operands stay editable — enter the object (double-click) to move one and the
+      result follows. Curves are flattened to polylines by the clipper, so a boolean of
+      two circles comes back as a fine-grained polygon, not arcs.</div>`);
+    add(`<div class="gsBtns">
+      <button class="rollBtn" id="blFlat">Flatten to path</button>
+      <button class="rollBtn" id="blRel">Release operands</button></div>`);
+    $('blFlat').addEventListener('click',()=>{ setSelIds(new Set([B.id])); flattenBoolean(); });
+    $('blRel').addEventListener('click',()=>{ setSelIds(new Set([B.id])); releaseBoolean(); });
   }
 
   if(page==='Group'||page==='Frame'){
@@ -2904,8 +3083,9 @@ $('trScale').addEventListener('change',e=>{
       return;
     }
     if(o.type==='path'){
-      o.points.forEach(q=>{ q.x=cx+(q.x-cx)*f; q.y=cy+(q.y-cy)*f;
-        q.ox*=f; q.oy*=f; q.ix*=f; q.iy*=f; });
+      (o.subpaths||[]).forEach(sp=>sp.points.forEach(q=>{
+        q.x=cx+(q.x-cx)*f; q.y=cy+(q.y-cy)*f;
+        q.ox*=f; q.oy*=f; q.ix*=f; q.iy*=f; }));
       return;
     }
     o.w=Math.max(4,Math.round(o.w*f)); o.h=Math.max(4,Math.round(o.h*f));
@@ -2967,7 +3147,15 @@ function hitObj(px,py){
   }
   return null;
 }
+function hitBoolean(o,px,py){
+  const res=boolResult(o);
+  if(!res||!res.length) return false;
+  const proxy={type:'path',subpaths:res,fillRule:o.fillRule,fillOn:true,
+    strokes:o.strokes,stroke:o.strokes&&o.strokes[0]};
+  return pathHit(proxy,px,py,Math.max(6/view.z,4));
+}
 function hitInside(cont,px,py){
+  if(cont.type==='boolean') return hitBoolean(cont,px,py);
   if(cont.type==='frame'){
     const b=boxOf(cont);
     if(cont.clip!==false&&!(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h)) return false;
@@ -3232,7 +3420,7 @@ canvas.addEventListener('pointerdown',e=>{
     if(grab&&grab.kind==='resize'){
       const b0=boxOf(prim0);
       drag={mode:'resize',ix:grab.ix,b0:{...b0},rot:prim0.rot||0,size0:prim0.size,
-        pts0:prim0.type==='path'?prim0.points.map(q=>({...q})):null};
+        pts0:prim0.type==='path'?(prim0.subpaths||[]).map(sp=>sp.points.map(q=>({...q}))):null};
       cap(); return;
     }
     if(grab&&grab.kind==='rotate'){
@@ -3503,10 +3691,13 @@ canvas.addEventListener('pointermove',e=>{
     }else if(obj.type==='path'){
       // scale every anchor and handle about the original box
       const sx3=w1/b0.w, sy3=h1/b0.h;
-      obj.points.forEach((q,qi)=>{
-        const q0=drag.pts0[qi];
-        q.x=c1.x+(q0.x-c0.x)*sx3; q.y=c1.y+(q0.y-c0.y)*sy3;
-        q.ox=q0.ox*sx3; q.oy=q0.oy*sy3; q.ix=q0.ix*sx3; q.iy=q0.iy*sy3;
+      (obj.subpaths||[]).forEach((sp,si)=>{
+        const base=drag.pts0&&drag.pts0[si]; if(!base) return;
+        sp.points.forEach((q,qi)=>{
+          const q0=base[qi]; if(!q0) return;
+          q.x=c1.x+(q0.x-c0.x)*sx3; q.y=c1.y+(q0.y-c0.y)*sy3;
+          q.ox=q0.ox*sx3; q.oy=q0.oy*sy3; q.ix=q0.ix*sx3; q.iy=q0.iy*sy3;
+        });
       });
     }else{
       obj.w=Math.round(w1); obj.h=Math.round(h1);
@@ -3623,8 +3814,16 @@ canvas.addEventListener('pointercancel',endDrag);
 let penDraft=null;    // {oi} index of the path being authored
 let penHover=null;    // page point for the rubber-band preview
 function penObj(){ return penDraft?activeList()[penDraft.oi]:null; }
+/** Keep the `points`/`closed` aliases pointing at subpath 0 after any edit
+ *  that replaced the array wholesale. */
+function relinkPath(o){
+  if(!o||o.type!=='path'||!o.subpaths||!o.subpaths.length) return;
+  o.subpaths[0].points=o.points;
+  o.subpaths[0].closed=o.closed;
+}
 function penCommit(){
   const o=penObj();
+  relinkPath(o);
   penDraft=null; penHover=null;
   if(o&&o.points.length<2){ const L=listOf(o); L.splice(L.indexOf(o),1); setSel(-1); }
   pushHistory(); refresh();
@@ -3761,10 +3960,10 @@ function flipSel(axis){
       return;
     }
     if(o.type==='path'){
-      o.points.forEach(q=>{
+      (o.subpaths||[]).forEach(sp=>sp.points.forEach(q=>{
         if(axis==='h'){ q.x=2*cx-q.x; q.ox=-q.ox; q.ix=-q.ix; }
         else { q.y=2*cy-q.y; q.oy=-q.oy; q.iy=-q.iy; }
-      });
+      }));
       return;
     }
     if(axis==='h') o.mirrorX=!o.mirrorX; else o.mirrorY=!o.mirrorY;
@@ -3832,6 +4031,101 @@ function exitContainer(){
   enteredId=parentOf;
   if(f) setSelIds(new Set([f.obj.id]));
   refresh(); return true;
+}
+
+/* ---- §3.3–3.6 boolean operations ---- */
+function booleanSel(op){
+  const os=selObjs().filter(o=>!o.locked&&o.type!=='text'&&o.type!=='line');
+  if(os.length<2) return;
+  const L=listOf(os[0]);
+  if(!os.every(o=>listOf(o)===L)) return;      // one parent list only
+  const idxs=os.map(o=>L.indexOf(o)).sort((a,b)=>a-b);
+  // subject first = the BOTTOM-most object, so "subtract" reads as
+  // "the shape underneath, minus the ones on top" (§3.3–3.6: the result
+  // inherits the bottom-most object's appearance)
+  const ordered=idxs.map(i=>L[i]);
+  const src=ordered[0];
+  const node={type:'boolean',name:op[0].toUpperCase()+op.slice(1),id:newId(),
+    x:0,y:0,opacity:1,boolOp:op,fillRule:'nonzero',fillOn:true,
+    fills:src.fills?JSON.parse(JSON.stringify(src.fills)):[{kind:'solid',color:'#cccccc'}],
+    strokes:src.strokes?JSON.parse(JSON.stringify(src.strokes)):[],
+    children:ordered};
+  for(let i=idxs.length-1;i>=0;i--) L.splice(idxs[i],1);
+  L.splice(idxs[0],0,node);
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set([node.id]));
+  pushHistory(); refresh();
+}
+/** §3.3–3.6 destructive flatten: replace the live boolean with a plain path. */
+function flattenBoolean(){
+  const os=selObjs().filter(o=>o.type==='boolean'&&!o.locked);
+  if(!os.length) return;
+  const made=[];
+  os.forEach(o=>{
+    const res=boolResult(o);
+    if(!res||!res.length) return;
+    const L=listOf(o), at=L.indexOf(o);
+    const p={type:'path',name:o.name,id:newId(),x:0,y:0,
+      opacity:o.opacity,subpaths:JSON.parse(JSON.stringify(res)),
+      fillRule:o.fillRule,fillOn:true,
+      fills:JSON.parse(JSON.stringify(o.fills||[])),
+      strokes:JSON.parse(JSON.stringify(o.strokes||[]))};
+    L.splice(at,1,p);
+    made.push(p.id);
+  });
+  if(!made.length) return;
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(made));
+  pushHistory(); refresh();
+}
+/** Give the operands back, discarding the operation. */
+function releaseBoolean(){
+  const os=selObjs().filter(o=>o.type==='boolean'&&!o.locked);
+  if(!os.length) return;
+  const freed=[];
+  os.forEach(o=>{
+    const L=listOf(o), at=L.indexOf(o);
+    L.splice(at,1,...(o.children||[]));
+    freed.push(...(o.children||[]).map(k=>k.id));
+  });
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(freed));
+  pushHistory(); refresh();
+}
+
+/* ---- §3.7 compound paths ---- */
+function makeCompound(){
+  const os=selObjs().filter(o=>o.type==='path'&&!o.locked);
+  if(os.length<2) return;
+  const L=listOf(os[0]);
+  if(!os.every(o=>listOf(o)===L)) return;
+  const idxs=os.map(o=>L.indexOf(o)).sort((a,b)=>a-b);
+  const src=L[idxs[0]];
+  const sps=idxs.flatMap(i=>JSON.parse(JSON.stringify(L[i].subpaths||[])));
+  for(let i=idxs.length-1;i>=0;i--) L.splice(idxs[i],1);
+  const p={type:'path',name:src.name,id:newId(),x:0,y:0,opacity:src.opacity,
+    subpaths:sps, fillRule:'evenodd', fillOn:true,
+    fills:JSON.parse(JSON.stringify(src.fills||[])),
+    strokes:JSON.parse(JSON.stringify(src.strokes||[]))};
+  L.splice(idxs[0],0,p);
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set([p.id]));
+  pushHistory(); refresh();
+}
+function releaseCompound(){
+  const os=selObjs().filter(o=>o.type==='path'&&(o.subpaths||[]).length>1&&!o.locked);
+  if(!os.length) return;
+  const made=[];
+  os.forEach(o=>{
+    const L=listOf(o), at=L.indexOf(o);
+    const parts=o.subpaths.map((sp,i)=>({...JSON.parse(JSON.stringify(o)),
+      id:newId(), name:o.name+' '+(i+1), subpaths:[JSON.parse(JSON.stringify(sp))]}));
+    L.splice(at,1,...parts);
+    made.push(...parts.map(p=>p.id));
+  });
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(made));
+  pushHistory(); refresh();
 }
 
 /* ---- §2.9 distribution ---- */
@@ -4156,6 +4450,10 @@ const CMDS={
   selectAll:selectAllCmd, deselect:deselectCmd, invertSel:invertSelCmd,
   cropSel:cropToSelection,
   group(){ groupSel(false); }, frame(){ groupSel(true); }, ungroup:ungroupSel,
+  boolUnion(){ booleanSel('union'); }, boolSubtract(){ booleanSel('subtract'); },
+  boolIntersect(){ booleanSel('intersect'); }, boolExclude(){ booleanSel('exclude'); },
+  boolFlatten:flattenBoolean, boolRelease:releaseBoolean,
+  compound:makeCompound, releaseCompound,
   distH(){ distributeSel('h','centers'); },
   distV(){ distributeSel('v','centers'); },
   distHGap(){ distributeSel('h','gaps'); },
@@ -4219,6 +4517,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();
     const o=nodeObj();
     o.points=o.points.filter((_,i)=>!nodeSel.pts.has(i));
+    relinkPath(o);
     nodeSel.pts=new Set();
     if(o.points.length<2){ const L=listOf(o); L.splice(L.indexOf(o),1); nodeSel=null; setSel(-1); setTool('select'); }
     pushHistory(); refresh();

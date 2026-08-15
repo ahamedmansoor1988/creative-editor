@@ -223,6 +223,39 @@ future session can pick up without re-reading the whole app.
   §6.8 symbols, §6.11 constraints, §6.12 stack layout, and drag-to-reorder in
   the layer tree.
 
+### Session 7 — booleans and compound paths: §3.3, §3.4, §3.5, §3.6, §3.7
+- §3.7 Compound paths FIRST, because booleans PRODUCE them: a path now holds
+  `subpaths[]`, with `points`/`closed` kept as live aliases of subpath 0 so the
+  pen, node editor and every existing reader work unchanged on single-contour
+  paths. Fill rule (non-zero / even-odd) per path, make/release commands,
+  and every transform (translate, scale, flip, handle-resize) walks all
+  subpaths.
+- §3.3–3.6 Booleans: DONE. Union, Subtract, Intersect, Exclude, implemented
+  with Clipper2 (BSL-1.0), vendored as public/clipper2.mjs and loaded as an ES
+  module — still no build step. Chosen over hand-rolled Greiner-Hormann
+  because Clipper2 is Vatti-based and survives the degeneracies an editor hits
+  constantly (shared edges, collinear overlaps, vertex-on-edge); verified
+  against the shared-edge case before committing to it.
+- NON-DESTRUCTIVE by default: a boolean is a CONTAINER whose children are the
+  operands and whose geometry is computed from them and cached against a
+  signature of the inputs. Enter it, move an operand, and the result follows.
+  "Flatten to path" is the explicit destructive step; "Release operands"
+  discards the operation. The result inherits the bottom-most operand's
+  appearance, per the spec.
+- Open paths are skipped as operands (no area to clip); text and lines are
+  excluded from the operand set.
+- KNOWN LIMITATION, stated in the panel: curves are flattened to polylines
+  before clipping and come back as corner anchors, so a boolean of two circles
+  is a fine polygon rather than arcs. Tolerance scales with the shape, so the
+  error stays under a fraction of a pixel. Refitting to béziers is not
+  attempted.
+- THREE bugs caught: normalizeDoc's allowed-type list did not include
+  'boolean', so every boolean node was silently coerced back to a rect; the
+  server sent .mjs as application/octet-stream and the browser refused the
+  module outright; and paintAppearance gated fills on `obj.closed`, which
+  compound paths and boolean results never set (they carry contours in
+  subpaths), so correct geometry rendered as nothing.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4

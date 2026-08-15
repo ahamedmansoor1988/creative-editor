@@ -215,7 +215,7 @@ async function generate(body) {
   return { doc, model: payload.model, usage: data.usage };
 }
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
   ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json" };
 
 /* Map an internal error to something safe to show a user. Provider text can
