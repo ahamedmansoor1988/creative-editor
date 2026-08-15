@@ -536,3 +536,26 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 }
 /* a locked or hidden layer keeps its badge visible even without hover */
 #layerList .layerTgl.on{opacity:1;}
+
+/* §6.13 effect stack rows */
+#fxBody .fxRow{
+  display:flex; align-items:center; gap:4px; margin:3px 0;
+  padding:3px 4px; border:1px solid var(--line); border-radius:7px;
+  background:#fafafa; opacity:.55;
+}
+#fxBody .fxRow.on{opacity:1; background:#fff;}
+#fxBody .fxRow button{
+  border:0; background:none; padding:2px; cursor:pointer; color:var(--muted);
+  display:inline-flex; align-items:center; justify-content:center;
+}
+#fxBody .fxRow .fxName{
+  flex:1 1 auto; min-width:0; text-align:left; font:inherit;
+  font-size:var(--text-sm); font-weight:var(--weight-medium); color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+#fxBody .fxRow .fxName:hover{color:var(--accent);}
+#fxBody .fxRow .fxSlot{
+  flex:0 0 auto; font-size:9px; color:var(--muted); text-transform:uppercase;
+  letter-spacing:.04em;
+}
+#fxBody .fxRow button:disabled{opacity:.25; cursor:default;}

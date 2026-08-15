@@ -284,6 +284,37 @@ future session can pick up without re-reading the whole app.
   bounds for them. Both ends fixed: makeShape builds the structure with the
   alias identity intact, and boxOf falls back to the single-contour alias.
 
+### Session 9 — the non-destructive effect stack: §5.15, §6.13 (+ §4.9)
+- The twelve engines are no longer a fixed dictionary applied in a hard-coded
+  order. Each object carries `fx: [{id,type,on,params}]`, bottom of stack
+  first, and the renderer walks it. The old `effects` dictionary is kept as a
+  LIVE ALIAS of the first entry of each type, so all twelve engine panels, the
+  AI capability registry and every existing reader work untouched.
+- MIGRATION IS INVISIBLE: a document saved before this session has only the
+  dictionary, so the array is built in exactly the order the renderer used to
+  apply them. Verified — nothing shifts on screen on first load.
+- SLOTS: an effect declares where it composites (behind / material / over) and
+  stack order is honoured within each slot. Only one material can win — the
+  TOPMOST enabled one — and the panel warns about any enabled material below
+  it rather than silently ignoring them.
+- §4.9's "multiple stacked shadows" falls out for free: the same type can
+  appear more than once. Verified with two shadows offset in opposite
+  directions and different colours.
+- §6.13 UI: an Effects page listing the stack top-first, with per-entry
+  enable (which is independent of the effect's own on flag), reorder arrows,
+  a click-through to each effect's own panel, and save/apply presets in
+  localStorage.
+- Flatten-to-raster is the explicit destructive action, behind a confirm. It
+  renders the object and its whole stack into a NEW `image` object type (also
+  the first piece of §4.1's image support), padded for shadow and glow reach.
+  Undo restores the vector.
+- ONE bug, and it was mine in fresh code: entryOn used a chained ternary
+  `p.on!==false && p.on!==undefined ? !!p.on : true`, which falls to the
+  DEFAULT branch when p.on is false and therefore reported every disabled
+  effect as enabled. Consequence: all six materials counted as active, glass
+  "won", and its early-return skipped both the normal draw and the drop
+  shadow. One wrong operator precedence disabled three separate features.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4

@@ -282,7 +282,7 @@ function normChildren(list,depth){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
-    if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean'].includes(c.type)) c.type='rect';
+    if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean','image'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
       c.color=c.color||'#111111';
@@ -310,6 +310,12 @@ function normChildren(list,depth){
         c.clip=c.clip!==false;
       }
       // §6.9: a group's box is derived from its children, never stored
+      delete c.pattern;
+    }else if(c.type==='image'){
+      // §5.15 flatten target: a plain pixel layer. `src` is a data URL so the
+      // document stays self-contained and round-trips through save/undo.
+      c.w=Math.max(1,+c.w||100); c.h=Math.max(1,+c.h||100);
+      c.src=typeof c.src==='string'?c.src:'';
       delete c.pattern;
     }else if(c.type==='path'){
       /* §3.7 compound path: one object, many subpaths. `points` and `closed`
@@ -486,7 +492,41 @@ function normChildren(list,depth){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
-      c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
+      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
+        glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
+      /* §5.15: build the ORDERED stack. An existing document has only the
+       * dictionary, so the array is laid out in the exact order the renderer
+       * used to apply them — nothing moves on screen on first load. Entries
+       * hold the SAME param objects the dictionary points at, so the twelve
+       * engine panels keep editing through `obj.effects.<type>` unchanged. */
+      const FS=window.FxStack;
+      const known=FS?FS.types():Object.keys(EFF);
+      let stack=Array.isArray(c.fx)?c.fx:null;
+      if(stack){
+        stack=stack.slice(0,32).filter(e=>e&&known.includes(e.type)).map(e=>({
+          id:typeof e.id==='string'&&e.id?e.id:newId(),
+          type:e.type, on:e.on!==false,
+          params:(e.params&&typeof e.params==='object')?e.params:{},
+        }));
+        // a saved stack carries the params; fold them back into the
+        // normalised dictionary objects so both views agree
+        stack.forEach(e=>{ if(EFF[e.type]) Object.assign(EFF[e.type],e.params); });
+      }else{
+        stack=(FS?FS.LEGACY_ORDER:known).filter(t=>EFF[t]).map(t=>({
+          id:newId(), type:t, on:true, params:EFF[t],
+        }));
+      }
+      // re-link: entry params ARE the dictionary objects (first of each type)
+      const seen={};
+      stack.forEach(e=>{
+        if(!seen[e.type]&&EFF[e.type]){ e.params=EFF[e.type]; seen[e.type]=1; }
+      });
+      // any known type missing from a saved stack is appended, off
+      (FS?FS.LEGACY_ORDER:known).forEach(t=>{
+        if(!seen[t]&&EFF[t]){ stack.push({id:newId(),type:t,on:true,params:EFF[t]}); seen[t]=1; }
+      });
+      c.fx=stack;
+      delete c.__fxCache;
     }
     if(c.type!=='line'){
       // §2.2/§2.4/§2.5 transform state. Lines have no rot — their endpoints
@@ -1124,7 +1164,9 @@ function allInstances(){
  * "either effect is on"; the material is glass when ANY member asks for it. */
 function inBlobGroup(o){
   const e=o&&o.effects;
-  return o&&!o.hidden&&o.type!=='text'&&e&&((e.blob&&e.blob.on)||(e.glass2&&e.glass2.on));
+  if(!o||o.hidden||o.type==='text'||!e) return false;
+  // a disabled stack entry must switch the merge off too, not just the param
+  return fxOn(o,'blob')||fxOn(o,'glass2');
 }
 function blobGroup(){
   /* nested-aware: blob members can live inside groups */
@@ -1305,6 +1347,45 @@ function drawList(c,W,H,list,depth){
     drawOne(c,W,H,obj);
   });
 }
+/* §5.15: the stack decides WHICH material renders and in WHAT ORDER the
+ * behind/over filters run. `fxOn(obj,type)` replaces the old
+ * `obj.effects.<type>.on` checks so a disabled STACK ENTRY also switches the
+ * effect off, not just the param flag. */
+function fxEntries(obj,slot){
+  const FS=window.FxStack;
+  if(!FS||!obj.fx) return [];
+  return FS.inSlot(obj.fx,slot);
+}
+function fxMaterial(obj){
+  const FS=window.FxStack;
+  if(!FS||!obj.fx) return null;
+  return FS.activeMaterial(obj.fx);
+}
+/** True when `type` is BOTH parameter-enabled and its stack entry is on,
+ *  and it is the material that actually wins. */
+function fxOn(obj,type){
+  const FS=window.FxStack;
+  if(!FS||!obj.fx) return !!(obj.effects&&obj.effects[type]&&obj.effects[type].on);
+  if(FS.slotOf(type)==='material'){
+    const m=FS.activeMaterial(obj.fx);
+    return !!(m&&m.type===type);
+  }
+  return obj.fx.some(e=>e.type===type&&FS.entryOn(e));
+}
+/* Decoded-image cache. A newly decoded bitmap triggers one re-render, so a
+ * flattened layer appears as soon as its data URL is ready. */
+const _imgs=new Map();
+function imageFor(src){
+  if(!src) return null;
+  let im=_imgs.get(src);
+  if(!im){
+    im=new Image();
+    im.onload=()=>{ if(doc) render(); };
+    im.src=src;
+    _imgs.set(src,im);
+  }
+  return im;
+}
 function drawOne(c,W,H,obj){
     const f=doc.frame;
     const fx=obj.effects||{};
@@ -1363,7 +1444,7 @@ function drawOne(c,W,H,obj){
       return;
     }
     const li=fx.light;
-    if(li&&li.on&&obj.type!=='text'&&window.LightEngine&&window.LightEngine.available()){
+    if(li&&fxOn(obj,'light')&&obj.type!=='text'&&window.LightEngine&&window.LightEngine.available()){
       // Generative graphic: rendered at the shape's box size, then clipped to
       // the shape so a cone can live inside a rounded rect or ellipse.
       const draw=(o)=>{
@@ -1387,7 +1468,7 @@ function drawOne(c,W,H,obj){
       return;
     }
     const pr=fx.prism;
-    if(pr&&pr.on&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
+    if(pr&&fxOn(obj,'prism')&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
       // FULL CANVAS, deliberately not clipped to the shape: a prism's whole
       // point is that the light leaves it, and clipping to the outline would
       // delete the exit fan and leave a lit rectangle. The shape supplies the
@@ -1406,7 +1487,7 @@ function drawOne(c,W,H,obj){
       }
     }
     const cap=fx.capsule;
-    if(cap&&cap.on&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
+    if(cap&&fxOn(obj,'capsule')&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
       // Like Glass: the capsule IS the material, refracting everything painted
       // so far, so the object's own fill is deliberately not painted first.
       // Pattern copies are skipped — each would need its own trace.
@@ -1414,7 +1495,7 @@ function drawOne(c,W,H,obj){
       return;
     }
     const st=fx.strip;
-    if(st&&st.on&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
+    if(st&&fxOn(obj,'strip')&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
       // Reeded panel: reads the page behind the box, smears it into ribs,
       // clipped to the shape's outline. Replaces the fill.
       const img=window.CapsuleEngine.strip(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},st);
@@ -1428,7 +1509,7 @@ function drawOne(c,W,H,obj){
       }
     }
     const gla=fx.glass;
-    if(gla&&gla.on&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
+    if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
       // Glass replaces the fill entirely: the shader refracts everything
       // painted so far (page bg + layers below), so the object's own
       // fill/shadow/grain are deliberately NOT painted first.
@@ -1471,9 +1552,11 @@ function drawObject(c,obj,plain){
       c.globalCompositeOperation=blendOp(obj.blend);
     const sh=obj.effects.shadow;
     const mkPath=cc=>addPath(cc,obj);
-    if(!plain&&obj.type!=='text'){
-      const gl=obj.effects.glow;
-      if(gl&&gl.on&&gl.type==='outer'&&gl.radius>0){
+    // §5.15 behind slot, walked in STACK ORDER — stacking two shadows or a
+    // shadow plus a glow now works, and their order is the user's choice.
+    if(!plain&&obj.type!=='text') fxEntries(obj,'behind').forEach(entry=>{
+      const gl=entry.type==='glow'?entry.params:null;
+      if(gl&&gl.type==='outer'&&gl.radius>0){
         // §4.11 outer glow: a zero-offset shadow laid under the object.
         // Falloff is applied by repeating the pass — each repeat concentrates
         // the core, which is what a falloff curve does to the profile.
@@ -1490,8 +1573,20 @@ function drawObject(c,obj,plain){
         }
         c.restore();
       }
-    }
-    if(sh.on&&!plain){
+      const sd=entry.type==='shadow'?entry.params:null;
+      if(sd&&sd.on){
+        c.save();
+        c.shadowColor=hexAlpha(sd.color,sd.alpha); c.shadowBlur=sd.blur;
+        c.shadowOffsetX=sd.x; c.shadowOffsetY=sd.y;
+        c.globalCompositeOperation=blendOp(sd.blend);
+        c.beginPath(); mkPath(c);
+        if(sd.spread>0){ c.lineWidth=sd.spread*2; c.strokeStyle='#000'; c.stroke(); }
+        c.fillStyle='#000'; c.fill();
+        c.restore();
+      }
+    });
+    // the legacy single-shadow path stays for text, which has no stack slot
+    if(sh.on&&!plain&&obj.type==='text'){
       c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur;
       c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y;
       if(sh.spread>0&&obj.type!=='text'){
@@ -1525,6 +1620,11 @@ function drawObject(c,obj,plain){
       L.lines.forEach((ln,li)=>c.fillText(ln,tx,ty+li*L.lh));
       if(area&&obj.autosize==='fixed') c.restore();
       c.letterSpacing='0px';
+      c.restore(); return;
+    }
+    if(obj.type==='image'){
+      const im=imageFor(obj.src);
+      if(im&&im.complete&&im.naturalWidth) c.drawImage(im,obj.x,obj.y,obj.w,obj.h);
       c.restore(); return;
     }
     if(obj.type==='path'){
@@ -1576,17 +1676,18 @@ function drawObject(c,obj,plain){
       paintAppearance(c,obj,cc=>addPath(cc,obj),b,obj.blend);
     }
     c.shadowColor='transparent';
-    // §4.10 inner shadow / §4.11 inner glow: clip to the shape, then cast a
-    // shadow from the INVERSE region so it falls inward from every edge.
+    // §4.10 inner shadow / §4.11 inner glow, walked in STACK ORDER.
     if(!plain&&obj.type!=='text'){
-      const ish=obj.effects.innerShadow, gl=obj.effects.glow;
       const inners=[];
-      if(ish&&ish.on&&(ish.blur>0||ish.spread>0))
-        inners.push({x:ish.x,y:ish.y,blur:ish.blur,spread:ish.spread,
-          color:ish.color,alpha:ish.alpha,blend:ish.blend,reps:1});
-      if(gl&&gl.on&&gl.type==='inner'&&gl.radius>0)
-        inners.push({x:0,y:0,blur:gl.radius,spread:gl.spread,
-          color:gl.color,alpha:gl.alpha,blend:gl.blend,reps:Math.max(1,Math.round(gl.falloff*2))});
+      fxEntries(obj,'behind').concat(fxEntries(obj,'over')).forEach(entry=>{
+        const p=entry.params;
+        if(entry.type==='innerShadow'&&p.on&&(p.blur>0||p.spread>0))
+          inners.push({x:p.x,y:p.y,blur:p.blur,spread:p.spread,
+            color:p.color,alpha:p.alpha,blend:p.blend,reps:1});
+        if(entry.type==='glow'&&p.on&&p.type==='inner'&&p.radius>0)
+          inners.push({x:0,y:0,blur:p.radius,spread:p.spread,
+            color:p.color,alpha:p.alpha,blend:p.blend,reps:Math.max(1,Math.round(p.falloff*2))});
+      });
       inners.forEach(S=>{
         c.save();
         c.beginPath(); mkPath(c); c.clip();
@@ -1612,7 +1713,7 @@ function drawObject(c,obj,plain){
     // Stripe fill paints OVER the flat fill rather than replacing it: the flat
     // fill above is what casts the drop shadow, and a clipped drawImage cannot.
     const grd=obj.effects.gradient;
-    if(grd&&grd.on&&window.GradientEngine&&b.w>=1&&b.h>=1){
+    if(grd&&fxOn(obj,'gradient')&&window.GradientEngine&&b.w>=1&&b.h>=1){
       const tile=window.GradientEngine.get(b.w,b.h,grd);
       if(tile){
         if(plain==='flood'){
@@ -1625,7 +1726,7 @@ function drawObject(c,obj,plain){
       }
     }
     const gr=obj.effects.grain;
-    if(gr.amount>0){
+    if(gr.amount>0&&fxOn(obj,'grain')){
       if(!grainTile) grainTile=makeGrain();
       c.save();
       pathFor(c,obj); c.clip();
@@ -2150,16 +2251,17 @@ function syncLayers(){
 }
 
 const FX_PAGES=obj=>{
-  if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Shadow','Glow'];
+  if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Fill','Stroke','Mask','Shadow'];
+  if(obj.type==='image') return ['Image','Effects','Shadow','Glow'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
-  return ['Shape','Pattern','Fill','Stroke','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain'];
 };
 
 function syncInspector(){
@@ -2227,6 +2329,7 @@ function fxActive(obj,name){
     case 'Mask':     return !!(obj.maskMode&&obj.maskMode!=='none'&&obj.maskOn!==false);
     case 'Group':    return (obj.children||[]).length>0;
     case 'Boolean':  return true;
+    case 'Effects':  return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>FxStack.entryOn(x)));
     case 'Frame':    return obj.clip!==false;
     case 'Path':     return !!(obj.closed||obj.fillOn);
     case 'Pattern':  return !!obj.pattern;
@@ -2665,6 +2768,88 @@ function buildFx(obj){
       add(`<div class="fxHint">${isFill
         ? 'Fills paint bottom to top, each with its own opacity and blend mode.'
         : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.'}</div>`);
+    }
+  }
+
+  if(page==='Image'){
+    add(`<div class="fxHint">A flattened pixel layer, ${Math.round(obj.w)}×${Math.round(obj.h)}px.
+      Its vector source was replaced when it was flattened — undo brings that back.</div>`);
+    add(`<button class="rollBtn" id="imDl">Download this layer</button>`);
+    $('imDl').addEventListener('click',()=>{
+      const a=document.createElement('a');
+      a.href=obj.src; a.download=(obj.name||'layer')+'.png'; a.click();
+    });
+  }
+
+  if(page==='Effects'){
+    const FS=window.FxStack;
+    if(!FS||!obj.fx){ add(`<div class="fxHint">No effect stack on this object.</div>`); }
+    else{
+      const mat=FS.activeMaterial(obj.fx);
+      const shadowed=FS.shadowedMaterials(obj.fx);
+      add(`<div class="fxHint">Effects apply bottom to top. Drag order with the
+        arrows; the eye toggles an entry without losing its settings. Click a
+        name to open its own panel.</div>`);
+      if(shadowed.length){
+        add(`<div class="fxWarn">${shadowed.length} material effect${shadowed.length===1?' is':'s are'}
+          enabled below <b>${FS.label(mat.type)}</b> and cannot show —
+          only the topmost material renders. Reorder or switch the others off.</div>`);
+      }
+      // top of stack listed FIRST, the way layers read
+      [...obj.fx].reverse().forEach((e,ri)=>{
+        const i=obj.fx.length-1-ri;
+        const on=FS.entryOn(e);
+        const isMat=FS.slotOf(e.type)==='material';
+        const wins=mat&&mat.id===e.id;
+        add(`<div class="fxRow${on?' on':''}">
+          <button class="fxEye" data-i="${i}" title="${e.on===false?'Enable':'Disable'}"
+            aria-label="${e.on===false?'Enable':'Disable'} ${FS.label(e.type)}">${IC(e.on===false?'eyeOff':'eye',13)}</button>
+          <button class="fxName" data-i="${i}">${FS.label(e.type)}</button>
+          <span class="fxSlot">${isMat?(wins?'material':'hidden'):FS.slotOf(e.type)}</span>
+          <button class="fxUp" data-i="${i}" title="Move up" aria-label="Move up" ${i===obj.fx.length-1?'disabled':''}>${IC('chevronUp',12)}</button>
+          <button class="fxDn" data-i="${i}" title="Move down" aria-label="Move down" ${i===0?'disabled':''}>${IC('chevronDown',12)}</button>
+        </div>`);
+      });
+      const wire=(cls,fn)=>body.querySelectorAll('.'+cls).forEach(el=>
+        el.addEventListener('click',ev=>{ ev.stopPropagation(); fn(+el.dataset.i,el); }));
+      wire('fxEye',i=>{ obj.fx[i].on=obj.fx[i].on===false; pushHistory(); refresh(); });
+      wire('fxUp',i=>{ const a=obj.fx; [a[i],a[i+1]]=[a[i+1],a[i]]; pushHistory(); refresh(); });
+      wire('fxDn',i=>{ const a=obj.fx; [a[i],a[i-1]]=[a[i-1],a[i]]; pushHistory(); refresh(); });
+      wire('fxName',i=>{
+        const PAGE={shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',grain:'Grain',
+          gradient:'Gradient',light:'Light',prism:'Prism',capsule:'Capsule',strip:'Strip',
+          blob:'Blob',glass2:'Glass 2',glass:'Glass'};
+        const nm=PAGE[obj.fx[i].type];
+        const idx=FX_PAGES(obj).indexOf(nm);
+        if(idx>=0){ fxPage=idx; syncInspector(); }
+      });
+      add(`<div class="pSect">Presets</div>`);
+      add(`<div class="gsBtns">
+        <button class="rollBtn" id="fxSave">Save preset</button>
+        <button class="rollBtn" id="fxLoad">Apply preset…</button></div>`);
+      $('fxSave').addEventListener('click',()=>{
+        const nm=prompt('Preset name:','Effect preset');
+        if(!nm) return;
+        const P=JSON.parse(localStorage.getItem('ce.fxPresets')||'{}');
+        P[nm]=JSON.parse(JSON.stringify(obj.fx.map(e=>({type:e.type,on:e.on,params:e.params}))));
+        localStorage.setItem('ce.fxPresets',JSON.stringify(P));
+        status('Preset saved: '+nm);
+      });
+      $('fxLoad').addEventListener('click',()=>{
+        const P=JSON.parse(localStorage.getItem('ce.fxPresets')||'{}');
+        const names=Object.keys(P);
+        if(!names.length){ status('No saved presets yet',true); return; }
+        const nm=prompt('Apply which preset?\n\n'+names.join('\n'),names[0]);
+        if(!nm||!P[nm]) return;
+        selObjs().filter(o=>!o.locked&&o.fx).forEach(o=>{ o.fx=JSON.parse(JSON.stringify(P[nm])); });
+        setActiveDoc(normalizeDoc(doc));
+        pushHistory(); refresh();
+      });
+      add(`<button class="rollBtn danger" id="fxFlatten">Flatten to raster…</button>`);
+      $('fxFlatten').addEventListener('click',flattenSelToRaster);
+      add(`<div class="fxHint">Flattening is destructive and opt-in: it bakes the
+        object and its whole stack into a pixel layer, and the vector data is gone
+        (undo still gets it back).</div>`);
     }
   }
 
@@ -4307,6 +4492,41 @@ function exitContainer(){
   enteredId=parentOf;
   if(f) setSelIds(new Set([f.obj.id]));
   refresh(); return true;
+}
+
+/* §5.15: flatten-to-raster, the EXPLICIT destructive action. Renders the
+ * object with its whole stack into a bitmap and replaces it with an image
+ * layer. Undo restores the vector. */
+function flattenSelToRaster(){
+  const os=selObjs().filter(o=>!o.locked&&o.type!=='image');
+  if(!os.length) return;
+  if(!confirm(os.length===1
+      ? `Flatten "${os[0].name}" and its effects into a pixel layer?\nThe vector data is replaced (undo restores it).`
+      : `Flatten ${os.length} objects into pixel layers?`)) return;
+  const made=[];
+  os.forEach(o=>{
+    const b=aabbOf(o);
+    const e=o.effects||{};
+    const pad=Math.ceil(Math.max(24,
+      (e.shadow?e.shadow.blur+e.shadow.spread:0)+(e.glow?e.glow.radius+e.glow.spread:0)));
+    const x=Math.floor(b.x-pad), y=Math.floor(b.y-pad);
+    const w=Math.ceil(b.w+pad*2), h=Math.ceil(b.h+pad*2);
+    if(w<1||h<1||w>4096||h>4096) return;
+    const cv2=document.createElement('canvas');
+    cv2.width=w; cv2.height=h;
+    const cx=cv2.getContext('2d');
+    cx.translate(-x,-y);
+    drawList(cx,doc.frame.w,doc.frame.h,[o],0);
+    const L=listOf(o), at=L.indexOf(o);
+    const img={type:'image',name:o.name+' (flattened)',id:newId(),
+      x,y,w,h,opacity:1,src:cv2.toDataURL('image/png')};
+    L.splice(at,1,img);
+    made.push(img.id);
+  });
+  if(!made.length) return;
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(made));
+  pushHistory(); refresh();
 }
 
 /* ---- §3.3–3.6 boolean operations ---- */
