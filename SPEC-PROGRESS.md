@@ -102,6 +102,38 @@ future session can pick up without re-reading the whole app.
   exist (§4.1).
 - The AI schema can now emit path and area-text children.
 
+### Session 4 — transforms: §2.2, §2.3, §2.4, §2.5, §2.6 (+ §2.1 finished)
+- §2.6 Transform handles: DONE. Eight handles (corners + edges) drawn in the
+  object's ROTATED frame at constant screen size, rotation zones just outside
+  the corners, per-region cursor feedback (diagonal pairs swap as the frame
+  rotates), live W×H / angle readout chip during the drag, modifiers read
+  live mid-drag. Handles are grabbed BEFORE hit-testing — the rotate zones
+  sit outside the object where hit() misses (bug found by the battery: the
+  marquee was swallowing every rotate gesture).
+- §2.2 Rotate: DONE except a movable on-canvas pivot (numeric rotation uses
+  each object's centre; preset-anchor pivot arrives with §6.11-era UI).
+  Drag outside a corner, shift = 15° steps, numeric entry, ±90° buttons,
+  alt on release = rotate-and-copy, multi-selection rotates each object
+  about its own centre ("as a unit" deferred to group transforms).
+- §2.3 Scale: DONE except the scale-strokes/effects toggle (waits for §4.2).
+  Corner + edge handles with shift aspect lock and alt from-centre, numeric
+  W/H (existing), percentage entry scaling about each centre. Point text
+  scales its font size; paths scale every anchor and handle; lines scale
+  their endpoints.
+- §2.4 Skew: numeric X/Y entry (±75°), rendered about the centre in the same
+  transform block as rotation. Edge-handle skew drag deferred.
+- §2.5 Flip: DONE except flip about a custom axis/guide (no guides yet).
+  Buttons flip each object about its own centre: mirror flags for shapes,
+  endpoint/point mirroring for lines and paths (handles mirror too).
+- §2.1 is now COMPLETE: shift constrains a move to the dominant axis, and
+  alt-drag duplicates (the copies move, originals stay). Alt-CLICK still
+  cycles depth — the ambiguity is resolved on release by whether the pointer
+  moved. Move-by-delta dialog: skipped as redundant with relative nudge +
+  numeric X/Y.
+- §2.7 partially satisfied: aabbOf() gives rotation-aware visual bounds used
+  by marquee, align, fit-selection and union outlines; hit-testing runs in
+  the object's local frame via toLocal().
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4

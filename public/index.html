@@ -163,6 +163,18 @@
     <label class="slider">Opacity <span id="pOpacityV">100%</span>
       <input type="range" id="pOpacity" min="5" max="100" value="100">
     </label>
+    <div class="grid4" style="margin-top:6px">
+      <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
+      <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
+      <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
+      <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
+    </div>
+    <div id="alignRow" style="margin-top:2px">
+      <button id="trR90L" title="Rotate 90° counter-clockwise">↺</button>
+      <button id="trR90R" title="Rotate 90° clockwise">↻</button>
+      <button id="trFlipH" title="Flip horizontal">⇋</button>
+      <button id="trFlipV" title="Flip vertical">⇵</button>
+    </div>
   </div>
 
   <hr>

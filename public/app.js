@@ -346,6 +346,14 @@ function normalizeDoc(d){
       });
       c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
     }
+    if(c.type!=='line'){
+      // §2.2/§2.4/§2.5 transform state. Lines have no rot — their endpoints
+      // ARE the orientation, and flip/rotate rewrite the endpoints directly.
+      c.rot=((+c.rot||0)%360+360)%360;
+      c.skewX=clamp(+c.skewX||0,-75,75);
+      c.skewY=clamp(+c.skewY||0,-75,75);
+      c.mirrorX=!!c.mirrorX; c.mirrorY=!!c.mirrorY;
+    }
     // Stable identity. Required so instances can carry an explicit parentId.
     if(typeof c.id!=='string'||!c.id) c.id=newId();
     // §1.1: lock suppresses canvas selectability, hide suppresses render too.
@@ -415,7 +423,7 @@ function selObjs(){ return doc?doc.frame.children.filter(c=>selIds.has(c.id)):[]
 function selBounds(){
   const os=selObjs(); if(!os.length) return null;
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  os.forEach(o=>{ const b=boxOf(o);
+  os.forEach(o=>{ const b=aabbOf(o);
     x0=Math.min(x0,b.x); y0=Math.min(y0,b.y);
     x1=Math.max(x1,b.x+b.w); y1=Math.max(y1,b.y+b.h); });
   return {x:x0,y:y0,w:x1-x0,h:y1-y0};
@@ -907,10 +915,12 @@ function drawObject(c,obj,plain){
     c.save();
     // Rotation/mirror are applied about the instance centre BEFORE anything is
     // drawn, so geometry, gradient and effects all transform together.
-    if(obj.rot||obj.mirrorX||obj.mirrorY){
-      const cx=obj.x+obj.w/2, cy=obj.y+obj.h/2;
+    if(obj.rot||obj.mirrorX||obj.mirrorY||obj.skewX||obj.skewY){
+      const bb=boxOf(obj), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
       c.translate(cx,cy);
       if(obj.rot) c.rotate(obj.rot*Math.PI/180);
+      if(obj.skewX||obj.skewY)
+        c.transform(1,Math.tan((obj.skewY||0)*Math.PI/180),Math.tan((obj.skewX||0)*Math.PI/180),1,0,0);
       if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1, obj.mirrorY?-1:1);
       c.translate(-cx,-cy);
     }
@@ -1102,6 +1112,29 @@ function pathHit(o,px,py,tol){
   if(o.fillOn&&o.closed&&hitCtx.isPointInPath(px,py)) return true;
   return hitCtx.isPointInStroke(px,py);
 }
+/* §2.7: visual AABB of a possibly-rotated object. boxOf stays the unrotated
+ * geometric box; this wraps it for marquee, align, and union bounds. */
+function aabbOf(o){
+  const b=boxOf(o);
+  if(!o.rot) return b;
+  const cx=b.x+b.w/2, cy=b.y+b.h/2, r=o.rot*Math.PI/180;
+  const cs=Math.cos(r), sn=Math.sin(r);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  [[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.h],[b.x,b.y+b.h]].forEach(([X,Y])=>{
+    const dx=X-cx, dy=Y-cy;
+    const rx=cx+dx*cs-dy*sn, ry=cy+dx*sn+dy*cs;
+    x0=Math.min(x0,rx); y0=Math.min(y0,ry); x1=Math.max(x1,rx); y1=Math.max(y1,ry);
+  });
+  return {x:x0,y:y0,w:x1-x0,h:y1-y0};
+}
+/* Inverse-rotate a page point into an object's unrotated frame, so hit tests
+ * and handle grabs work on rotated objects. */
+function toLocal(o,px,py){
+  if(!o.rot) return {x:px,y:py};
+  const b=boxOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2, r=-o.rot*Math.PI/180;
+  const cs=Math.cos(r), sn=Math.sin(r), dx=px-cx, dy=py-cy;
+  return {x:cx+dx*cs-dy*sn, y:cy+dx*sn+dy*cs};
+}
 function distToSegment(px,py,x1,y1,x2,y2){
   const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy;
   const t=L2?clamp(((px-x1)*dx+(py-y1)*dy)/L2,0,1):0;
@@ -1173,16 +1206,38 @@ function paint(){
   const os=selObjs();
   os.forEach(o=>{
     const b=boxOf(o);
+    ctx.save();
+    if(o.rot){ const cx=b.x+b.w/2, cy=b.y+b.h/2;
+      ctx.translate(cx,cy); ctx.rotate(o.rot*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
     ctx.strokeRect(b.x,b.y,b.w,b.h);
+    ctx.restore();
   });
-  // primary object carries the resize handle
+  // §2.6: eight handles on the primary object, drawn in its rotated frame,
+  // constant screen size. Lines keep their endpoint grips instead.
   const obj=doc.frame.children[sel];
-  if(obj&&obj.type!=='text'&&!obj.locked){
-    const b=boxOf(obj), hs=7/z;
-    ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
-    ctx.fillRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
-    ctx.strokeRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
+  if(obj&&obj.type!=='line'&&!obj.locked&&selIds.size===1&&tool==='select'){
+    handlePts(obj).forEach(h=>{
+      const hs=7/z;
+      ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
+      ctx.fillRect(h.x-hs/2,h.y-hs/2,hs,hs);
+      ctx.strokeRect(h.x-hs/2,h.y-hs/2,hs,hs);
+    });
+  }
+  // live numeric readout during a transform drag (§2.6)
+  if(drag&&drag.readout){
+    const m=drag.readout;
+    ctx.save();
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.font='11px Inter,-apple-system,sans-serif';
+    const tw=ctx.measureText(m.text).width+12;
+    ctx.fillStyle='rgba(17,24,39,.85)';
+    ctx.beginPath();
+    ctx.roundRect?ctx.roundRect(m.sx+12,m.sy+12,tw,20,5):ctx.rect(m.sx+12,m.sy+12,tw,20);
+    ctx.fill();
+    ctx.fillStyle='#fff'; ctx.textBaseline='middle';
+    ctx.fillText(m.text,m.sx+18,m.sy+22);
+    ctx.restore();
   }
   if(obj&&obj.type==='line'&&!obj.locked&&selIds.size===1){
     const hs=7/z;
@@ -1372,6 +1427,12 @@ function syncInspector(){
   $('pW').disabled=tx; $('pH').disabled=tx;
   $('pOpacity').value=Math.round(obj.opacity*100);
   $('pOpacityV').textContent=Math.round(obj.opacity*100)+'%';
+  const noRot=obj.type==='line';
+  $('trRot').disabled=noRot; $('trSkX').disabled=noRot; $('trSkY').disabled=noRot;
+  $('trRot').value=noRot?'':Math.round(obj.rot||0);
+  $('trSkX').value=noRot?'':Math.round(obj.skewX||0);
+  $('trSkY').value=noRot?'':Math.round(obj.skewY||0);
+  $('trScale').value='';
   buildFx(obj);
 }
 
@@ -2304,7 +2365,7 @@ document.querySelectorAll('#alignRow button').forEach(btn=>{
     const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
     const f=doc.frame;
     os.forEach(obj=>{
-      const b=boxOf(obj);
+      const b=aabbOf(obj);
       let dx=0, dy=0;
       switch(btn.dataset.align){
         case 'left': dx=-b.x; break;
@@ -2320,7 +2381,78 @@ document.querySelectorAll('#alignRow button').forEach(btn=>{
   });
 });
 
+/* ---- Transform section (§2.2–2.5 numeric) ---- */
+$('trRot').addEventListener('change',e=>{
+  const os=selObjs().filter(o=>!o.locked&&o.type!=='line'); if(!os.length)return;
+  const v=((+e.target.value||0)%360+360)%360;
+  os.forEach(o=>o.rot=v);
+  pushHistory(); refresh();
+});
+[['trSkX','skewX'],['trSkY','skewY']].forEach(([id,k])=>{
+  $(id).addEventListener('change',e=>{
+    const os=selObjs().filter(o=>!o.locked&&o.type!=='line'); if(!os.length)return;
+    const v=clamp(+e.target.value||0,-75,75);
+    os.forEach(o=>o[k]=v);
+    pushHistory(); refresh();
+  });
+});
+$('trR90L').addEventListener('click',()=>rotateSel(-90));
+$('trR90R').addEventListener('click',()=>rotateSel(90));
+$('trFlipH').addEventListener('click',()=>flipSel('h'));
+$('trFlipV').addEventListener('click',()=>flipSel('v'));
+$('trScale').addEventListener('change',e=>{
+  // §2.3 percentage scale about each object's centre
+  const pct=parseFloat(e.target.value);
+  if(!Number.isFinite(pct)||pct<=0){ e.target.value=''; return; }
+  const f=clamp(pct,1,1000)/100;
+  const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+  os.forEach(o=>{
+    const b=boxOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
+    if(o.type==='text'&&o.mode!=='area'){ o.size=clamp(Math.round(o.size*f),8,300); return; }
+    if(o.type==='line'){
+      o.x=cx+(o.x-cx)*f; o.y=cy+(o.y-cy)*f; o.x2=cx+(o.x2-cx)*f; o.y2=cy+(o.y2-cy)*f;
+      return;
+    }
+    if(o.type==='path'){
+      o.points.forEach(q=>{ q.x=cx+(q.x-cx)*f; q.y=cy+(q.y-cy)*f;
+        q.ox*=f; q.oy*=f; q.ix*=f; q.iy*=f; });
+      return;
+    }
+    o.w=Math.max(4,Math.round(o.w*f)); o.h=Math.max(4,Math.round(o.h*f));
+    o.x=Math.round(cx-o.w/2); o.y=Math.round(cy-o.h/2);
+  });
+  e.target.value='';
+  pushHistory(); refresh();
+});
+
 /* ================= canvas interaction ================= */
+/* §2.6: the eight handle positions of an object's (possibly rotated) frame,
+ * in PAGE coords. ix encodes position: 0-3 corners TL,TR,BR,BL; 4-7 edges
+ * T,R,B,L. Point text gets corners only (edge resize is meaningless). */
+function handlePts(o){
+  const b=boxOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
+  const r=(o.rot||0)*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r);
+  const P=(X,Y)=>({x:cx+(X-cx)*cs-(Y-cy)*sn, y:cy+(X-cx)*sn+(Y-cy)*cs});
+  const pts=[
+    {...P(b.x,b.y),ix:0},{...P(b.x+b.w,b.y),ix:1},
+    {...P(b.x+b.w,b.y+b.h),ix:2},{...P(b.x,b.y+b.h),ix:3},
+    {...P(cx,b.y),ix:4},{...P(b.x+b.w,cy),ix:5},
+    {...P(cx,b.y+b.h),ix:6},{...P(b.x,cy),ix:7},
+  ];
+  return (o.type==='text'&&o.mode!=='area')?pts.slice(0,4):pts;
+}
+/** What a pointer at page p grabs on the primary object: a resize handle, a
+ *  rotation zone just outside a corner, or nothing. */
+function handleAt(o,p){
+  const grip=9/view.z;
+  const pts=handlePts(o);
+  for(const h of pts) if(Math.hypot(p.x-h.x,p.y-h.y)<grip) return {kind:'resize',ix:h.ix};
+  for(const h of pts.slice(0,4)){
+    const d=Math.hypot(p.x-h.x,p.y-h.y);
+    if(d>=grip&&d<26/view.z) return {kind:'rotate'};
+  }
+  return null;
+}
 function evtScreen(e){
   const r=canvas.getBoundingClientRect();
   return {x:e.clientX-r.left, y:e.clientY-r.top};
@@ -2340,12 +2472,13 @@ function hit(px,py){
       if(distToSegment(px,py,o.x,o.y,o.x2,o.y2)<=tol) return i;
       continue;
     }
+    const lp=toLocal(o,px,py);
     if(o.type==='path'){
-      if(pathHit(o,px,py,Math.max(6/view.z,4))) return i;
+      if(pathHit(o,lp.x,lp.y,Math.max(6/view.z,4))) return i;
       continue;
     }
     const b=boxOf(o);
-    if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return i;
+    if(lp.x>=b.x&&lp.x<=b.x+b.w&&lp.y>=b.y&&lp.y<=b.y+b.h) return i;
   }
   return -1;
 }
@@ -2381,7 +2514,7 @@ function marqueeIds(contain){
   const ids=new Set();
   doc.frame.children.forEach(o=>{
     if(!selectable(o)) return;
-    const b=boxOf(o);
+    const b=aabbOf(o);
     const ok=contain
       ? (b.x>=x0&&b.y>=y0&&b.x+b.w<=x1&&b.y+b.h<=y1)
       : (b.x<x1&&b.x+b.w>x0&&b.y<y1&&b.y+b.h>y0);
@@ -2560,6 +2693,26 @@ canvas.addEventListener('pointerdown',e=>{
     drag={mode:'draw',kind:tool,ox:p.x,oy:p.y,obj,moved:false};
     cap(); refresh(); return;
   }
+  // §2.6: transform handles come before hit-testing — the rotate zones (and
+  // corner grips at the exact boundary) sit OUTSIDE the object, where hit()
+  // misses and the marquee would swallow the gesture.
+  const prim0=doc.frame.children[sel];
+  if(prim0&&!prim0.locked&&selIds.size===1&&prim0.type!=='line'){
+    const grab=handleAt(prim0,p);
+    if(grab&&grab.kind==='resize'){
+      const b0=boxOf(prim0);
+      drag={mode:'resize',ix:grab.ix,b0:{...b0},rot:prim0.rot||0,size0:prim0.size,
+        pts0:prim0.type==='path'?prim0.points.map(q=>({...q})):null};
+      cap(); return;
+    }
+    if(grab&&grab.kind==='rotate'){
+      const b0=boxOf(prim0);
+      const cx=b0.x+b0.w/2, cy=b0.y+b0.h/2;
+      drag={mode:'rotate',cx,cy,rot0:prim0.rot||0,a0:Math.atan2(p.y-cy,p.x-cx),
+        copy:JSON.stringify(prim0)};
+      cap(); return;
+    }
+  }
   // line endpoint grips take priority over a body hit on the primary line
   const prim=doc.frame.children[sel];
   if(prim&&prim.type==='line'&&selIds.size===1&&!prim.locked){
@@ -2582,13 +2735,6 @@ canvas.addEventListener('pointerdown',e=>{
     fxPage=0; refresh(); return;
   }
   const id=doc.frame.children[i].id;
-  if(e.altKey){
-    // §1.1 click-through: alt-click cycles depth through overlapping objects
-    const stack=hitAll(p.x,p.y);
-    const cur=stack.indexOf(sel);
-    setSel(stack[(cur+1)%stack.length]);
-    fxPage=0; refresh(); return;
-  }
   if(e.shiftKey){
     // §1.1: shift-click toggles membership; no drag starts from a shift-click
     if(selIds.has(id)&&selIds.size>1) selIds.delete(id);
@@ -2598,18 +2744,28 @@ canvas.addEventListener('pointerdown',e=>{
   }
   if(!selIds.has(id)){ setSel(i); fxPage=0; }
   else { sel=i; }   // member of a multi-selection: promote to primary, keep the set
-  const obj=doc.frame.children[i], b=boxOf(obj);
-  const nearHandle=obj.type!=='text'&&obj.type!=='line'&&selIds.size===1&&
-    Math.abs(p.x-(b.x+b.w))<12/view.z && Math.abs(p.y-(b.y+b.h))<12/view.z;
-  drag=nearHandle?{mode:'resize'}:{
-    mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
+  drag={mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
     offs:selObjs().map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2})),
-  };
+    // §2.1 alt-drag duplicates: the copies move, the originals stay
+    dup:e.altKey};
   cap(); refresh();
 });
 canvas.addEventListener('pointermove',e=>{
   if(!drag){
     if(tool==='pen'&&penDraft&&doc){ penHover=evtPage(e); paint(); }
+    else if(tool==='select'&&doc&&selIds.size===1&&!spaceDown){
+      const obj=doc.frame.children[sel];
+      if(obj&&obj.type!=='line'&&!obj.locked){
+        const g2=handleAt(obj,evtPage(e));
+        // §2.6 cursor feedback; the diagonal pairs swap as the frame rotates
+        const quad=Math.round(((obj.rot||0)%180)/45)%2===1;
+        canvas.style.cursor=!g2?'default'
+          :g2.kind==='rotate'?'alias'
+          :g2.ix===4||g2.ix===6?(quad?'ew-resize':'ns-resize')
+          :g2.ix===5||g2.ix===7?(quad?'ns-resize':'ew-resize')
+          :(g2.ix===0||g2.ix===2)!==quad?'nwse-resize':'nesw-resize';
+      }
+    }
     return;
   }
   const s=evtScreen(e);
@@ -2740,10 +2896,23 @@ canvas.addEventListener('pointermove',e=>{
     render(); syncInspector(); return;
   }
   if(drag.mode==='move'){
+    if(!drag.moved&&drag.dup){
+      // §2.1 alt-drag duplicate: clone the selection, drag the clones
+      const clones=drag.offs.map(({o})=>{
+        const c2=JSON.parse(JSON.stringify(o)); c2.id=newId(); return c2;
+      });
+      doc.frame.children.push(...clones);
+      setSelIds(new Set(clones.map(c2=>c2.id)));
+      drag.offs=clones.map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2}));
+      drag.clickI=doc.frame.children.length-1;
+      syncLayers();
+    }
     drag.moved=true;
     // Round the DELTA once, not each object: relative spacing inside a
-    // multi-selection survives the move exactly.
-    const ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
+    // multi-selection survives the move exactly. Shift constrains to the
+    // dominant axis (§2.1).
+    let ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
+    if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
     drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
       if(o.locked) return;
       o.x=ox+ddx; o.y=oy+ddy;
@@ -2751,9 +2920,69 @@ canvas.addEventListener('pointermove',e=>{
     });
     render(); syncInspector(); return;
   }
-  const obj=doc.frame.children[sel]; if(!obj) return;
-  obj.w=Math.max(8,Math.round(p.x-obj.x)); obj.h=Math.max(8,Math.round(p.y-obj.y));
-  render(); syncInspector();
+  if(drag.mode==='rotate'){
+    const obj=doc.frame.children[sel]; if(!obj) return;
+    let deg=drag.rot0+(Math.atan2(p.y-drag.cy,p.x-drag.cx)-drag.a0)*180/Math.PI;
+    if(e.shiftKey) deg=Math.round(deg/15)*15;      // §2.2 shift = 15° steps
+    obj.rot=((Math.round(deg*10)/10)%360+360)%360;
+    const sc=evtScreen(e);
+    drag.readout={text:Math.round(obj.rot)+'°',sx:sc.x,sy:sc.y};
+    render(); syncInspector(); return;
+  }
+  if(drag.mode==='resize'){
+    const obj=doc.frame.children[sel]; if(!obj) return;
+    const b0=drag.b0, r=drag.rot*Math.PI/180;
+    const c0={x:b0.x+b0.w/2, y:b0.y+b0.h/2};
+    // pointer into the unrotated frame of the ORIGINAL box
+    const cs=Math.cos(-r), sn=Math.sin(-r);
+    const lp={x:c0.x+(p.x-c0.x)*cs-(p.y-c0.y)*sn,
+              y:c0.y+(p.x-c0.x)*sn+(p.y-c0.y)*cs};
+    // fixed point: the opposite corner/edge (or the centre with alt)
+    const FIX=[[b0.x+b0.w,b0.y+b0.h],[b0.x,b0.y+b0.h],[b0.x,b0.y],[b0.x+b0.w,b0.y],
+               [c0.x,b0.y+b0.h],[b0.x,c0.y],[c0.x,b0.y],[b0.x+b0.w,c0.y]][drag.ix];
+    const corner=drag.ix<4, alt=e.altKey;
+    let w1=b0.w, h1=b0.h;
+    const fx=alt?c0.x:FIX[0], fy=alt?c0.y:FIX[1], k=alt?2:1;
+    if(corner||drag.ix===5||drag.ix===7) w1=Math.max(4,Math.abs(lp.x-fx)*k);
+    if(corner||drag.ix===4||drag.ix===6) h1=Math.max(4,Math.abs(lp.y-fy)*k);
+    if(e.shiftKey&&corner){                        // §2.3 aspect lock
+      const sc2=Math.max(w1/b0.w,h1/b0.h);
+      w1=b0.w*sc2; h1=b0.h*sc2;
+    }
+    // new centre in the local frame keeps the fixed point fixed
+    let cl;
+    if(alt) cl={x:c0.x,y:c0.y};
+    else{
+      const sxd=Math.sign(c0.x-fx)||1, syd=Math.sign(c0.y-fy)||1;
+      cl={x:(corner||drag.ix===5||drag.ix===7)?fx+sxd*w1/2:c0.x,
+          y:(corner||drag.ix===4||drag.ix===6)?fy+syd*h1/2:c0.y};
+    }
+    // rotate the new centre back to page space about the original centre
+    const cs2=Math.cos(r), sn2=Math.sin(r);
+    const c1={x:c0.x+(cl.x-c0.x)*cs2-(cl.y-c0.y)*sn2,
+              y:c0.y+(cl.x-c0.x)*sn2+(cl.y-c0.y)*cs2};
+    if(obj.type==='text'&&obj.mode!=='area'){
+      // point text scales its size instead of a box
+      obj.size=clamp(Math.round(drag.size0*(h1/b0.h)),8,300);
+      const nb=boxOf(obj);
+      obj.x+= (c1.x-(nb.x+nb.w/2));
+      obj.y+= (c1.y-(nb.y+nb.h/2));
+    }else if(obj.type==='path'){
+      // scale every anchor and handle about the original box
+      const sx3=w1/b0.w, sy3=h1/b0.h;
+      obj.points.forEach((q,qi)=>{
+        const q0=drag.pts0[qi];
+        q.x=c1.x+(q0.x-c0.x)*sx3; q.y=c1.y+(q0.y-c0.y)*sy3;
+        q.ox=q0.ox*sx3; q.oy=q0.oy*sy3; q.ix=q0.ix*sx3; q.iy=q0.iy*sy3;
+      });
+    }else{
+      obj.w=Math.round(w1); obj.h=Math.round(h1);
+      obj.x=Math.round(c1.x-w1/2); obj.y=Math.round(c1.y-h1/2);
+    }
+    const sc3=evtScreen(e);
+    drag.readout={text:Math.round(w1)+' × '+Math.round(h1),sx:sc3.x,sy:sc3.y};
+    render(); syncInspector(); return;
+  }
 });
 const endDrag=e=>{
   if(!drag) return;
@@ -2825,7 +3054,28 @@ const endDrag=e=>{
   }
   if(d.mode==='lineEnd'){ pushHistory(); refresh(); return; }
   if(d.mode==='marquee'){ marquee=null; paint(); syncLayers(); syncInspector(); return; }
+  if(d.mode==='rotate'){
+    // §2.2 rotate-and-copy: alt on release leaves the original behind
+    if(e.altKey&&d.copy){
+      const orig=JSON.parse(d.copy); orig.id=newId();
+      const idx=doc.frame.children.findIndex(o=>o.id===doc.frame.children[sel].id);
+      doc.frame.children.splice(idx,0,orig);
+      setSel(idx+1);
+    }
+    pushHistory(); refresh(); return;
+  }
+  if(d.mode==='resize'){ pushHistory(); refresh(); return; }
   if(d.mode==='move'&&!d.moved){
+    if(d.dup){
+      // §1.1 alt-CLICK (no drag) cycles depth through overlapping objects
+      const p2=evtPage(e);
+      const stack=hitAll(p2.x,p2.y);
+      if(stack.length>1){
+        const cur=stack.indexOf(sel);
+        setSel(stack[(cur+1)%stack.length]);
+        fxPage=0; refresh(); return;
+      }
+    }
     // a plain click on a member of a multi-selection collapses to it
     if(selIds.size>1){ setSel(d.clickI); refresh(); }
     return;                                  // nothing changed: no history entry
@@ -2963,6 +3213,34 @@ function eyedrop(p,e){
   }
   const n=(e.metaKey||e.ctrlKey)?5:e.shiftKey?3:1;
   applySampledColor(samplePage(p.x,p.y,n),under);
+}
+
+/* ---- §2.2/§2.4/§2.5 numeric transforms ---- */
+function flipSel(axis){
+  const os=selObjs().filter(o=>!o.locked); if(!os.length) return;
+  os.forEach(o=>{
+    const b=boxOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
+    if(o.type==='line'){
+      if(axis==='h'){ o.x=2*cx-o.x; o.x2=2*cx-o.x2; }
+      else { o.y=2*cy-o.y; o.y2=2*cy-o.y2; }
+      return;
+    }
+    if(o.type==='path'){
+      o.points.forEach(q=>{
+        if(axis==='h'){ q.x=2*cx-q.x; q.ox=-q.ox; q.ix=-q.ix; }
+        else { q.y=2*cy-q.y; q.oy=-q.oy; q.iy=-q.iy; }
+      });
+      return;
+    }
+    if(axis==='h') o.mirrorX=!o.mirrorX; else o.mirrorY=!o.mirrorY;
+  });
+  pushHistory(); refresh();
+}
+function rotateSel(delta){
+  const os=selObjs().filter(o=>!o.locked&&o.type!=='line'); if(!os.length) return;
+  // §2.2 "rotate each object individually": each about its own centre
+  os.forEach(o=>{ o.rot=(((o.rot||0)+delta)%360+360)%360; });
+  pushHistory(); refresh();
 }
 
 /* ---- §1.11 crop: resize the page, translating content ---- */
