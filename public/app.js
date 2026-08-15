@@ -23,6 +23,9 @@ function setActiveDoc(d){
   if(pageIdx<0){ pages.push(d); pageIdx=pages.length-1; }
   else pages[pageIdx]=d;
   doc=d;
+  // cached bitmaps are keyed by object id; a replaced document leaves every
+  // one of them unreachable, so drop them rather than leak
+  if(typeof paintCacheClear==='function') paintCacheClear();
 }
 let sel=-1;              // index into children
 let selInstance=null;    // derived instance under inspection (never editable)
@@ -322,10 +325,28 @@ function normalizeDoc(d){
   return d;
 }
 /* Recursive child normalizer — containers normalize their own children. The
- * depth cap stops a malformed or hostile document from recursing forever. */
+ * depth cap stops a malformed or hostile document from recursing forever.
+ *
+ * THE CHILD CAP WAS 64 AND IT SILENTLY DELETED WORK. normalizeDoc runs on
+ * every load, paste, undo and structural edit, so pasting 100 objects kept 64
+ * and dropped 36 with no error — the same document normalised twice lost more
+ * each time. The cap exists to bound a malformed or hostile document, which is
+ * a real concern, but 64 is far below any honest document. It is now high
+ * enough never to touch real work, and truncation SAYS SO instead of happening
+ * quietly. */
+const MAX_CHILDREN=20000;
+let truncWarned=false;
 function normChildren(list,depth){
   if(depth>8) return [];
-  return (list||[]).slice(0,64).map((c,i)=>{
+  const src=list||[];
+  if(src.length>MAX_CHILDREN&&!truncWarned){
+    truncWarned=true;
+    console.warn('Document exceeds '+MAX_CHILDREN+' children in one container; '+
+      (src.length-MAX_CHILDREN)+' dropped.');
+    if(window.__editor) try{ status('Too many objects in one container — '+
+      (src.length-MAX_CHILDREN)+' were dropped.',true); }catch(e){}
+  }
+  return src.slice(0,MAX_CHILDREN).map((c,i)=>{
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
@@ -690,13 +711,95 @@ function newDoc(){
  * why snapshots had to go. The call sites are unchanged: every committed edit
  * still calls pushHistory(), and a drag still pushes once on release, so
  * coalescing behaviour is identical. */
+/* ---- compact serialization -------------------------------------------
+ * MEASURED: a bare normalised rectangle was 7,565 bytes, of which 204 were the
+ * fields that matter — a 37x multiple. normalizeDoc materialises all nineteen
+ * effect types on every object so the twelve engine panels can read
+ * `obj.effects.<type>` without null checks, and that is worth keeping IN
+ * MEMORY. It is not worth writing to disk, to the clipboard, or into the undo
+ * baseline, which is deep-cloned on every single edit.
+ *
+ * So the split is: fully materialised in memory, compact on the wire. An
+ * effect survives compaction only if it DIFFERS from its default — which also
+ * means a shadow you tuned and then switched off keeps your settings, because
+ * the params still differ even though `on` is false.
+ *
+ * normalizeDoc() is the exact inverse: it re-materialises whatever is missing.
+ * compact -> normalize is a round trip, which is what makes it safe to store
+ * the compact form and rebuild from it.
+ */
+/* Key-order-INDEPENDENT deep equality. JSON.stringify comparison looks right
+ * and is not: the normaliser rebuilds gradient stops as {pos,color} while the
+ * default literal writes {color,pos}, so identical stops stringify differently
+ * and every plain rectangle kept a 408-byte gradient it had never touched. */
+function deepEq(a,b){
+  if(a===b) return true;
+  if(typeof a!==typeof b||a===null||b===null||typeof a!=='object') return a===b;
+  if(Array.isArray(a)!==Array.isArray(b)) return false;
+  if(Array.isArray(a)){
+    if(a.length!==b.length) return false;
+    for(let i=0;i<a.length;i++) if(!deepEq(a[i],b[i])) return false;
+    return true;
+  }
+  const ka=Object.keys(a), kb=Object.keys(b);
+  if(ka.length!==kb.length) return false;
+  return ka.every(k=>Object.prototype.hasOwnProperty.call(b,k)&&deepEq(a[k],b[k]));
+}
+function sameAsDefault(type,params,defs){
+  const d=defs[type];
+  if(!d||!params) return false;
+  // compare only the DEFAULT's own keys — the normaliser may add derived ones
+  return Object.keys(d).every(k=>deepEq(d[k],params[k]));
+}
+function compactObj(c,defs){
+  const out={};
+  for(const k in c){
+    if(k.startsWith('__')||k==='effects'||k==='fx') continue;
+    out[k]=c[k];
+  }
+  // keep only effect entries the user actually moved away from the default
+  if(Array.isArray(c.fx)){
+    const keep=c.fx.filter(e=>!sameAsDefault(e.type,e.params,defs))
+      .map(e=>({id:e.id,type:e.type,on:e.on!==false,params:e.params}));
+    if(keep.length) out.fx=keep;
+  }
+  if(Array.isArray(c.children)) out.children=c.children.map(k=>compactObj(k,defs));
+  return out;
+}
+function compactDoc(d){
+  if(!d) return d;
+  const defs=DEFAULT_EFFECTS();
+  const out=JSON.parse(JSON.stringify(d,(k,v)=>k.startsWith('__')?undefined:v));
+  const walk=f=>{
+    if(!f) return;
+    if(Array.isArray(f.children)) f.children=f.children.map(c=>compactObj(c,defs));
+  };
+  if(out.frame) walk(out.frame);
+  if(Array.isArray(out.pages)) out.pages.forEach(p=>walk(p.frame||p));
+  return out;
+}
+function compactPages(list){
+  return (list||[]).map(p=>{
+    const q={};
+    for(const k in p){ if(!k.startsWith('__')) q[k]=p[k]; }
+    if(q.frame) q.frame=compactDoc({frame:q.frame}).frame;
+    return q;
+  });
+}
+
 let HIST=null;
 function initHistory(){
   if(!window.History) return;
   HIST=new window.History(
-    ()=>({pages,pageIdx}),
+    /* The baseline is deep-cloned on every push and diffed on every edit, so
+     * it stores the COMPACT form — the 37x effect bloat never enters it. */
+    ()=>({pages:compactPages(pages),pageIdx}),
     st=>{
-      pages=st.pages||[];
+      pages=(st.pages||[]).map(p=>{
+        // re-materialise: the compact form omits default effects
+        if(p&&p.frame) return Object.assign({},p,{frame:normalizeDoc({frame:p.frame}).frame});
+        return p;
+      });
       setActivePage(st.pageIdx);
       // ids can vanish under us on undo; drop any selection that no longer exists
       setSelIds(new Set([...selIds]));
@@ -1605,7 +1708,11 @@ function imageFor(src){
   let im=_imgs.get(src);
   if(!im){
     im=new Image();
-    im.onload=()=>{ if(doc) render(); };
+    /* A cached bitmap painted BEFORE the bitmap decoded holds a blank space,
+     * and nothing about the object changes when the decode lands — its
+     * signature is identical — so the cache would serve that blank forever.
+     * The decode is the invalidation event. */
+    im.onload=()=>{ paintCacheClear(); if(doc) render(); };
     im.src=src;
     _imgs.set(src,im);
   }
@@ -1635,7 +1742,120 @@ function pixelPad(entries){
   });
   return Math.min(400,Math.ceil(pad));
 }
+/* ---- per-object paint cache -------------------------------------------
+ * MEASURED, before this existed: re-rendering an UNCHANGED 64-object document
+ * with drop shadows cost the same ~40ms as re-rendering it after an edit, and
+ * zero objects held a cached layer. Canvas `shadowBlur` is expensive per
+ * object, so dragging one rectangle re-blurred all 63 others every frame —
+ * about 25fps.
+ *
+ * An object is now painted into its own bitmap and blitted. The bitmap is kept
+ * until the object's APPEARANCE signature changes, so moving one object leaves
+ * the rest as pure blits.
+ *
+ * WHAT IS DELIBERATELY NOT CACHED, and why:
+ *   - blend modes other than `normal` — a cached bitmap is composited from a
+ *     TRANSPARENT layer, so `multiply` and friends would blend against nothing
+ *     instead of against the page. Opacity is safe because baking it into the
+ *     bitmap and blitting at alpha 1 is the same result; it is in the
+ *     signature, so changing it invalidates.
+ *   - backdrop materials (glass, prism, capsule, strip) — their input IS the
+ *     page beneath them, which changes when anything else moves.
+ *   - containers and instances — they composite children, and a child can be
+ *     any of the above.
+ *   - blob-group members — they merge into one shared field.
+ *   - objects with nothing expensive on them: caching a plain rectangle costs
+ *     more than drawing it.
+ */
+const _paintCache=new Map();
+let _paintCacheOff=false;    // test hook: forces the uncached path for comparison
+/* Same reasoning as the image decode: text cached while the webfont was still
+ * loading holds fallback glyphs, and the object's signature never changes. */
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{
+  if(typeof paintCacheClear==='function'){ paintCacheClear(); if(window.__editor&&__editor.doc) render(); }
+});
+let _paintCachePx=0;
+const PAINT_CACHE_MAX_PX=16e6;          // ~64MB of RGBA at most
+function paintCacheClear(){ _paintCache.clear(); _paintCachePx=0; }
+/** Everything drawOneInner reads that can change what the object LOOKS like.
+ *  Built from enabled effects only, so it stays a few hundred bytes rather
+ *  than the ~7.5KB a fully materialised object stringifies to. */
+function paintSig(obj){
+  const FS=window.FxStack;
+  let s=obj.type+'|'+obj.x+','+obj.y+','+obj.w+','+obj.h+'|'+
+    (obj.rot||0)+','+(obj.skewX||0)+','+(obj.skewY||0)+','+
+    (obj.mirrorX?1:0)+(obj.mirrorY?1:0)+'|'+
+    (obj.radius||0)+'|'+(obj.opacity===undefined?1:obj.opacity)+'|'+
+    (obj.hidden?1:0)+'|'+JSON.stringify(obj.fills||null)+'|'+
+    JSON.stringify(obj.strokes||null);
+  if(obj.type==='text') s+='|'+obj.text+','+obj.size+','+obj.weight+','+obj.color+','+
+    obj.align+','+obj.lineHeight+','+obj.tracking+','+obj.font;
+  if(obj.subpaths) s+='|'+JSON.stringify(obj.subpaths);
+  if(obj.type==='line') s+='|'+obj.x2+','+obj.y2+','+JSON.stringify(obj.stroke);
+  if(obj.type==='polygon') s+='|'+obj.sides+','+obj.star+','+obj.inset;
+  if(obj.type==='image') s+='|'+(obj.src||'').length;
+  if(FS&&obj.fx) obj.fx.forEach(e=>{
+    if(FS.entryOn(e)) s+='|'+e.type+JSON.stringify(e.params);
+  });
+  return s;
+}
+/** How far this object's ink can spill outside its own box. */
+function spillPad(obj){
+  const FS=window.FxStack;
+  let pad=2;
+  (obj.strokes||[]).forEach(st=>{ if(st.on!==false) pad=Math.max(pad,(+st.width||0)+2); });
+  if(FS&&obj.fx) obj.fx.forEach(e=>{
+    if(!FS.entryOn(e)) return;
+    const p=e.params||{};
+    if(e.type==='shadow') pad=Math.max(pad,Math.abs(+p.x||0)+Math.abs(+p.y||0)+(+p.blur||0)+(+p.spread||0)+4);
+    if(e.type==='glow') pad=Math.max(pad,(+p.radius||0)+(+p.spread||0)+4);
+  });
+  if(FS&&obj.fx){
+    const pix=FS.inSlot(obj.fx,'pixel');
+    if(pix.length) pad=Math.max(pad,pixelPad(pix));
+  }
+  return Math.ceil(pad);
+}
+function paintCacheable(obj){
+  const FS=window.FxStack;
+  if(_paintCacheOff) return false;
+  if(!FS||!obj.fx||obj.__inPixelPass) return false;
+  if(CONTAINER(obj)||obj.type==='instance') return false;
+  if(obj.blend&&obj.blend!=='normal') return false;
+  const m=FS.activeMaterial(obj.fx);
+  if(m&&FS.isBackdrop(m.type)) return false;
+  if(window.BlobEngine&&window.BlobEngine.available()&&inBlobGroup(obj)) return false;
+  // only worth it when something expensive is on
+  const worth=obj.fx.some(e=>FS.entryOn(e)&&
+    (FS.slotOf(e.type)==='behind'||FS.slotOf(e.type)==='pixel'||FS.slotOf(e.type)==='material'));
+  return worth;
+}
 function drawOne(c,W,H,obj){
+  if(paintCacheable(obj)){
+    const sig=paintSig(obj);
+    let ent=_paintCache.get(obj.id);
+    if(!ent||ent.sig!==sig){
+      const b=aabbOf(obj), pad=spillPad(obj);
+      const lx=Math.floor(b.x-pad), ly=Math.floor(b.y-pad);
+      const lw=Math.ceil(b.w+pad*2), lh=Math.ceil(b.h+pad*2);
+      if(lw>0&&lh>0&&lw<6000&&lh<6000){
+        if(ent){ _paintCachePx-=ent.px; _paintCache.delete(obj.id); }
+        if(_paintCachePx>PAINT_CACHE_MAX_PX) paintCacheClear();
+        const cv=document.createElement('canvas');
+        cv.width=lw; cv.height=lh;
+        const cc=cv.getContext('2d');
+        cc.setTransform(1,0,0,1,-lx,-ly);
+        drawOneUncached(cc,W,H,obj);
+        ent={sig,cv,lx,ly,px:lw*lh};
+        _paintCache.set(obj.id,ent);
+        _paintCachePx+=ent.px;
+      }
+    }
+    if(ent){ c.drawImage(ent.cv,ent.lx,ent.ly); return; }
+  }
+  drawOneUncached(c,W,H,obj);
+}
+function drawOneUncached(c,W,H,obj){
   const FS=window.FxStack;
   const pix=(FS&&obj.fx)?FS.inSlot(obj.fx,'pixel'):[];
   if(pix.length&&window.Filters&&!obj.__inPixelPass){
@@ -1648,7 +1868,7 @@ function drawOne(c,W,H,obj){
       const lc=lay.getContext('2d');
       lc.setTransform(1,0,0,1,-lx,-ly);
       obj.__inPixelPass=true;                 // re-entry guard
-      try{ drawOne(lc,W,H,obj); } finally{ delete obj.__inPixelPass; }
+      try{ drawOneUncached(lc,W,H,obj); } finally{ delete obj.__inPixelPass; }
       lc.setTransform(1,0,0,1,0,0);
       // filters run in STACK ORDER — blur-then-warp differs from warp-then-blur
       pix.forEach(e=>{ lay=Filters.apply(e.type,lay,e.params); });
@@ -6441,6 +6661,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   placeInstance, detachInstances, resetInstances, makeDefinition,
   updateDefinitionFrom, addVariant, deleteDefinition, defsChanged, instanceTree,
   placeObject, boxOf, translateObj, CHELP, normalizeDoc, setActiveDoc,
+  compactDoc, compactPages, paintCacheClear,
+  get paintCacheSize(){return _paintCache.size;},
+  set paintCacheOff(v){ _paintCacheOff=!!v; paintCacheClear(); },
   pushInstanceToSource,
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,

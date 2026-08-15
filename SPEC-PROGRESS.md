@@ -452,6 +452,72 @@ future session can pick up without re-reading the whole app.
   test on a frame whose child was still 220 wide, frozen from an earlier
   fill->fixed switch, which is correct behaviour.
 
+### Session 14 — production defects found by measurement
+Not a spec section. Three defects found by measuring rather than guessing, after
+the tool was reported as "heavy and not production ready".
+
+**1. Silent data loss (the actual blocker).** `normChildren` capped every
+container at `slice(0,64)`. normalizeDoc runs on every load, paste, undo and
+structural edit, so a 300-object document kept 64 and dropped 236 with no error,
+and normalising twice lost more each time. The cap exists to bound a malformed
+document, which is legitimate, but 64 is far below any honest one. It is now
+20000, and truncation warns instead of happening quietly.
+
+**2. Documents were 37x larger than their content.** MEASURED: a bare normalised
+rectangle was 7,565 bytes, of which 204 were the fields that matter — nineteen
+effect types materialised on every object, none of them on. normalizeDoc does
+that so the twelve engine panels can read `obj.effects.<type>` without null
+checks, which is worth keeping in memory and not worth writing anywhere.
+- Split: fully materialised IN MEMORY, compact ON THE WIRE. `compactDoc()` keeps
+  an effect only if it DIFFERS from its default, so a shadow you tuned and then
+  switched off keeps your settings. normalizeDoc is the exact inverse, which is
+  what makes it safe to store the compact form and rebuild from it.
+- History's baseline is deep-cloned on every push and diffed on every edit, so it
+  now stores the compact form.
+- Result: 300 rectangles went from 2.27 MB to 180 KB. 12.6x.
+- A bug inside the fix, worth recording: `sameAsDefault` compared with
+  JSON.stringify, which is KEY-ORDER SENSITIVE. The normaliser rebuilds gradient
+  stops as {pos,color} while the default literal writes {color,pos}, so identical
+  stops compared unequal and every plain rectangle kept a 408-byte gradient it had
+  never touched. Replaced with a real deep equality.
+
+**3. Nothing was cached between renders.** MEASURED: re-rendering an UNCHANGED
+64-object shadowed document cost the same ~40ms as after an edit, and zero
+objects held a cached layer — the fxstack prefix cache was designed but never
+retained anything. Canvas `shadowBlur` is expensive per object, so dragging one
+rectangle re-blurred every other one, every frame.
+- Objects are now painted into their own bitmap and blitted, keyed on an
+  appearance signature built from ENABLED effects only (a few hundred bytes
+  rather than the 7.5KB a materialised object stringifies to).
+- Deliberately NOT cached, each for a reason: non-normal blend modes (a cached
+  bitmap composites from a TRANSPARENT layer, so multiply would blend against
+  nothing); backdrop materials, whose input IS the page beneath them; containers
+  and instances, which composite children that may be any of the above;
+  blob-group members, which merge into one shared field; and anything with
+  nothing expensive on it, since caching a plain rectangle costs more than
+  drawing it. Opacity IS safe to bake in and is part of the signature.
+- Async resources are the one invalidation the signature cannot see: a bitmap
+  cached before an image decoded or a webfont loaded would serve that blank
+  forever, because nothing about the object changes when the resource lands. The
+  decode and `document.fonts.ready` are now explicit invalidation events.
+- Result, drag one object: 100 shadowed objects 62ms -> 7.5ms (16fps -> 133fps);
+  300 objects 176ms -> 10.9ms (5.7fps -> 92fps).
+
+**Correctness of the cache was verified by comparison, not by eye.** A test hook
+forces the uncached path, so the same document renders both ways and the two
+rasters are diffed: 0.48% of pixels differ, worst channel delta 4, ZERO pixels
+off by more than 8 — alpha rounding through a layer, which is inherent to any
+layer-based caching and invisible. Repeat renders are byte-identical.
+- A control run mattered here: renders 1 and 2 of a fresh document differ by
+  48,136 pixels — with the cache OFF as well as ON, identical bounding box. That
+  is pre-existing fit-view settling, not the cache. Measuring the control is what
+  kept it from being attributed to this change.
+
+**Found but NOT fixed, and out of scope for this session:** the prism material
+blanks the entire page — every pixel reads white, including a backdrop rect
+unrelated to the prism object. It reproduces identically with the cache forced
+off, so it is pre-existing. glass, capsule and strip are fine in the same setup.
+
 ## What is left
 Every section of the spec has now been built into except §4.7. The list below
 is what remains, and it is partials rather than blank sections.
@@ -478,5 +544,9 @@ PARTIALS, by area
 - §6.2 Inspector — mixed-value display, expressions, scrubbable fields.
 - §6.4 Canvas — transparency checkerboard, multiple views of one document.
 
+KNOWN BUGS
+- The prism material blanks the whole page (see session 14). Pre-existing;
+  glass, capsule and strip are unaffected.
+
 DOCS
-- HANDOFF.md is stale: it describes the tree at d70817e, twelve sessions back.
+- HANDOFF.md is stale: it describes the tree at d70817e, thirteen sessions back.
