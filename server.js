@@ -37,6 +37,8 @@ const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Rep
 Each child is one of:
 {"type":"rect","name":string,"x":n,"y":n,"w":n,"h":n,"radius":n,"opacity":0..1,"fill":FILL}
 {"type":"ellipse","name":string,"x":n,"y":n,"w":n,"h":n,"opacity":0..1,"fill":FILL}
+{"type":"polygon","name":string,"x":n,"y":n,"w":n,"h":n,"sides":3-24,"innerRatio":0.1-1,"radius":n,"opacity":0..1,"fill":FILL} (innerRatio 1 = regular polygon, below 1 = star)
+{"type":"line","name":string,"x":n,"y":n,"x2":n,"y2":n,"stroke":{"width":1-60,"color":"#hex"},"arrowStart":"none"|"triangle"|"open"|"circle"|"bar","arrowEnd":same,"arrowSize":4-60,"opacity":0..1}
 {"type":"text","name":string,"x":n,"y":n,"text":string,"size":n,"weight":400|600|800,"color":"#hex","align":"left"|"center"}
 FILL is {"kind":"solid","color":"#hex"} or {"kind":"linear","angle":deg,"stops":[{"pos":0,"color":"#hex"},{"pos":1,"color":"#hex"}]} (2-4 stops) or {"kind":"radial","stops":[...]}.
 Rules: coordinates are absolute px inside the frame; 3-10 children; x,y,w,h within bounds; design deliberately - strong palette, clear hierarchy, generous negative space; text must fit its area (size*0.6*chars <= available width).`;

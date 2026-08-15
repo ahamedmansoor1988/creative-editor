@@ -42,6 +42,32 @@ future session can pick up without re-reading the whole app.
   an id-set (selIds) with `sel` kept as the primary index so every existing
   single-object code path still works.
 
+### Session 2 — drawing tools: §1.5, §1.6, §1.7, §1.8, §1.10
+- §1.5 Rectangle: DONE except on-canvas radius handles and live numeric entry
+  DURING the draw (numeric via inspector). Drag-to-draw, shift square, alt from
+  centre, uniform + independent per-corner radii, corner styles round/bevel/
+  scoop, radius clamps on non-uniform scale.
+- §1.6 Ellipse: DONE except open-arc (needs §4.2 strokes — noted in panel).
+  Drag/shift-circle/alt-centre, start+end angle (pie), inner radius
+  (ring/donut segment).
+- §1.7 Polygon: DONE except rotation-during-draw (obj.rot exists in the model;
+  rotate UI arrives with §2.2). Sides 3–24, star inner ratio, corner radius.
+- §1.8 Line: DONE. Drag with shift 45°, endpoint grips (shift snaps about the
+  other end), length+angle numeric, arrowheads none/triangle/open/circle/bar
+  with size, tip aligned to endpoint.
+- §1.10 Eyedropper: DONE. Samples the composited raster (engines included):
+  click 1px, shift 3×3, cmd 5×5 average; alt copies full appearance
+  (fill+effects) from the object under the cursor; outside the page uses the
+  platform EyeDropper API where available (Chrome).
+- Model: new child types polygon/line normalize + round-trip; movement paths
+  (drag/nudge/align/numeric X/Y) go through translateObj so lines carry both
+  endpoints; line hit-test is distance-to-segment, not bounding box.
+- Engine availability by type: polygon gets Pattern/Fill/Gradient/Light/
+  Shadow/Grain (path-clipped engines); the glass-family solids stay
+  rect/ellipse-only; line gets its own Line panel + Shadow.
+- Shortcuts: P polygon, L line, I eyedropper. NOTE: §1.3 Pen will want P —
+  when it ships, pen takes P and polygon moves to shift-P.
+
 ## Not yet started
 §1.2–§1.11, §2 (except nudge), §3, §4 (fills/strokes exist in primitive form),
 §5 (12 legacy engines exist as a fixed per-object set — §5.15 effect stack will

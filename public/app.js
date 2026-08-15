@@ -170,13 +170,38 @@ function normalizeDoc(d){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
+    if(!['rect','ellipse','text','polygon','line'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
       c.color=c.color||'#111111'; c.align=c.align==='center'?'center':'left';
       c.text=String(c.text||'Text');
+    }else if(c.type==='line'){
+      c.x2=Number.isFinite(+c.x2)?+c.x2:c.x+160;
+      c.y2=Number.isFinite(+c.y2)?+c.y2:c.y;
+      const st=c.stroke||{};
+      c.stroke={width:clamp(+st.width||4,1,100),
+                color:/^#[0-9a-fA-F]{6}$/.test(st.color||'')?st.color:'#111111'};
+      const HEADS=['none','triangle','open','circle','bar'];
+      c.arrowStart=HEADS.includes(c.arrowStart)?c.arrowStart:'none';
+      c.arrowEnd=HEADS.includes(c.arrowEnd)?c.arrowEnd:'none';
+      c.arrowSize=clamp(+c.arrowSize||12,4,60);
+      delete c.pattern; delete c.fill;
     }else{
       c.w=Math.max(4,+c.w||100); c.h=Math.max(4,+c.h||100);
       c.radius=clamp(+c.radius||0,0,300);
+      if(c.type==='rect'){
+        if(Array.isArray(c.radii)) c.radii=c.radii.slice(0,4).map(v=>clamp(+v||0,0,300));
+        c.cornerStyle=['round','bevel','scoop'].includes(c.cornerStyle)?c.cornerStyle:'round';
+      }
+      if(c.type==='ellipse'){
+        c.startAngle=clamp(+c.startAngle||0,0,360);
+        c.endAngle=c.endAngle===undefined?360:clamp(+c.endAngle,0,360);
+        c.innerRatio=clamp(+c.innerRatio||0,0,0.95);
+      }
+      if(c.type==='polygon'){
+        c.sides=clamp(Math.round(+c.sides)||5,3,24);
+        c.innerRatio=c.innerRatio===undefined?1:clamp(+c.innerRatio,0.1,1);
+      }
       if(!c.fill||!c.fill.kind) c.fill={kind:'solid',color:'#cccccc'};
       if(c.fill.kind!=='solid'){
         c.fill.stops=(c.fill.stops||[]).slice(0,4).map(s=>({pos:clamp(+s.pos||0,0,1),color:s.color||'#888888'}));
@@ -195,7 +220,7 @@ function normalizeDoc(d){
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
       const grd=Object.assign(de.gradient, ce.gradient||{});
-      grd.on=!!grd.on && c.type!=='text';
+      grd.on=!!grd.on && ['rect','ellipse','polygon'].includes(c.type);
       grd.bandHeight=clamp(Math.round(+grd.bandHeight)||60,2,400);
       grd.split=clamp(+grd.split||0,5,95);
       grd.drift=clamp(+grd.drift||0,-20,20);
@@ -217,7 +242,7 @@ function normalizeDoc(d){
         grd[k]=a;
       });
       const gla=Object.assign(de.glass, ce.glass||{});
-      gla.on=!!gla.on && c.type!=='text';
+      gla.on=!!gla.on && (c.type==='rect'||c.type==='ellipse');
       gla.depth=clamp(+gla.depth||0,-200,200);
       gla.refraction=clamp(+gla.refraction||0,-200,200);
       gla.frost=clamp(+gla.frost||0,0,100);
@@ -227,7 +252,7 @@ function normalizeDoc(d){
       gla.opacity=clamp(gla.opacity===undefined?100:+gla.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
       const nb=(o,d)=>{
-        o.on=!!o.on && c.type!=='text';
+        o.on=!!o.on && (c.type==='rect'||c.type==='ellipse');
         o.smoothness=clamp(+o.smoothness||0,0,300);
         o.mode=BLOB_MODES.includes(o.mode)?o.mode:'union';
         return o;
@@ -243,7 +268,7 @@ function normalizeDoc(d){
       gl2.opacity=clamp(gl2.opacity===undefined?100:+gl2.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gl2.tint||'')) gl2.tint='#ffffff';
       const pr=Object.assign(de.prism, ce.prism||{});
-      pr.on=!!pr.on && c.type!=='text';
+      pr.on=!!pr.on && (c.type==='rect'||c.type==='ellipse');
       pr.shape=clamp(Math.round(+pr.shape)||0,0,8);
       pr.blend=pr.blend==='normal'?'normal':'add';
       pr.seeded=!!pr.seeded;
@@ -267,7 +292,7 @@ function normalizeDoc(d){
         });
       }
       const cap=Object.assign(de.capsule, ce.capsule||{});
-      cap.on=!!cap.on && c.type!=='text';
+      cap.on=!!cap.on && (c.type==='rect'||c.type==='ellipse');
       {
         const n=(k,lo,hi)=>{ const v=+cap[k]; cap[k]=Number.isFinite(v)?clamp(v,lo,hi):de.capsule[k]; };
         n('lensSize',0.1,1.2); n('lensSquash',0.5,1.6); n('lensShift',-0.5,0.5);
@@ -279,14 +304,14 @@ function normalizeDoc(d){
         });
       }
       const st=Object.assign(de.strip, ce.strip||{});
-      st.on=!!st.on && c.type!=='text';
+      st.on=!!st.on && (c.type==='rect'||c.type==='ellipse');
       {
         const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):de.strip[k]; };
         n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.01,0.4);
         n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
       }
       const li=Object.assign(de.light, ce.light||{});
-      li.on=!!li.on && c.type!=='text';
+      li.on=!!li.on && ['rect','ellipse','polygon'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
       num('mode',0,34,0); num('throat',-0.2,0.55,0.39); num('mouth',0.35,1.4,0.95);
       num('curve',1,3.2,2.07); num('intensity',0,2.8,0.62); num('density',2,36,2);
@@ -304,7 +329,7 @@ function normalizeDoc(d){
     // §1.1: lock suppresses canvas selectability, hide suppresses render too.
     // Document state, so they round-trip through save/load and history.
     c.locked=!!c.locked; c.hidden=!!c.hidden;
-    if(c.type!=='text'){
+    if(c.type!=='text'&&c.type!=='line'){
       // Migrate the legacy bounding-box `engine` field. Deliberate semantic
       // change: same knobs, but they now place linked duplicates outside the
       // parent instead of gradient segments inside it. See the contract doc.
@@ -405,20 +430,104 @@ function fillStyleFor(c,obj,b){
   f.stops.forEach(s=>g.addColorStop(s.pos,s.color));
   return g;
 }
+/* One corner of a rectangle. The path is already at the corner's approach
+ * point; this emits the treatment and leaves the path at the exit point.
+ *   round — convex arc (arcTo through the corner)
+ *   bevel — straight chamfer
+ *   scoop — concave quarter-arc centred ON the corner point */
+function rectCorner(c,style,cx,cy,toX,toY,r){
+  if(r<=0.5){ c.lineTo(cx,cy); return; }
+  if(style==='bevel'){ c.lineTo(toX,toY); return; }
+  if(style==='scoop'){
+    const a1=Math.atan2(toY-cy,toX-cx);
+    // current point is the approach point; sweep the short way to the exit
+    const cur=c.__last||[cx,cy];
+    const a0=Math.atan2(cur[1]-cy,cur[0]-cx);
+    const ccw=((a1-a0+Math.PI*2)%(Math.PI*2))>Math.PI;
+    c.arc(cx,cy,r,a0,a1,ccw);
+    return;
+  }
+  c.arcTo(cx,cy,toX,toY,r);
+}
+function rectPath(c,o){
+  const x=o.x,y=o.y,w=o.w,h=o.h,mx=Math.min(w,h)/2;
+  const u=clamp(o.radius||0,0,mx);
+  // §1.5: independent per-corner radii [tl,tr,br,bl]; uniform radius otherwise.
+  // Clamped against the CURRENT box, so non-uniform scaling stays valid.
+  const R=(Array.isArray(o.radii)?o.radii:[u,u,u,u]).map(v=>clamp(+v||0,0,mx));
+  const st=o.cornerStyle||'round';
+  if(!R.some(v=>v>0.5)){ c.rect(x,y,w,h); return; }
+  const [tl,tr,br,bl]=R;
+  const at=(px,py)=>{ c.__last=[px,py]; };
+  c.moveTo(x+tl,y);
+  c.lineTo(x+w-tr,y); at(x+w-tr,y);
+  rectCorner(c,st,x+w,y,   x+w,y+tr,  tr);
+  c.lineTo(x+w,y+h-br); at(x+w,y+h-br);
+  rectCorner(c,st,x+w,y+h, x+w-br,y+h, br);
+  c.lineTo(x+bl,y+h); at(x+bl,y+h);
+  rectCorner(c,st,x,y+h,   x,y+h-bl,  bl);
+  c.lineTo(x,y+tl); at(x,y+tl);
+  rectCorner(c,st,x,y,     x+tl,y,    tl);
+  c.closePath();
+  delete c.__last;
+}
+/* §1.6: full disc, ring, pie sector, or annular (donut) sector. Angles are
+ * degrees clockwise from 12 o'clock. */
+function ellipsePath(c,o){
+  const cx=o.x+o.w/2, cy=o.y+o.h/2, rx=Math.max(0.5,o.w/2), ry=Math.max(0.5,o.h/2);
+  const s=+o.startAngle||0, e=o.endAngle===undefined?360:+o.endAngle;
+  const inner=clamp(+o.innerRatio||0,0,0.95);
+  const full=Math.abs(e-s)>=360;
+  const a0=(s-90)*Math.PI/180, a1=(e-90)*Math.PI/180;
+  if(full){
+    c.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);
+    // reversed inner sweep + nonzero winding = ring
+    if(inner>0) c.ellipse(cx,cy,rx*inner,ry*inner,0,Math.PI*2,0,true);
+    return;
+  }
+  c.ellipse(cx,cy,rx,ry,0,a0,a1);
+  if(inner>0) c.ellipse(cx,cy,rx*inner,ry*inner,0,a1,a0,true);
+  else c.lineTo(cx,cy);           // pie: close through the centre
+  c.closePath();
+}
+/* §1.7: regular polygon; star when innerRatio<1 (alternating radii). Corner
+ * radius rounds every vertex via arcTo. Rotation comes from obj.rot, applied
+ * by drawObject about the centre like every other shape. */
+function polygonPath(c,o){
+  const cx=o.x+o.w/2, cy=o.y+o.h/2, rx=o.w/2, ry=o.h/2;
+  const n=clamp(Math.round(o.sides||5),3,24);
+  const inner=clamp(o.innerRatio===undefined?1:+o.innerRatio,0.1,1);
+  const star=inner<0.999;
+  const steps=star?n*2:n;
+  const pts=[];
+  for(let i=0;i<steps;i++){
+    const rr=star&&(i%2===1)?inner:1;
+    const a=-Math.PI/2+i*(Math.PI*2/steps);
+    pts.push([cx+Math.cos(a)*rx*rr, cy+Math.sin(a)*ry*rr]);
+  }
+  const r=clamp(o.radius||0,0,Math.min(rx,ry)*0.6);
+  if(r>0.5){
+    const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
+    const m0=mid(pts[steps-1],pts[0]);
+    c.moveTo(m0[0],m0[1]);
+    for(let i=0;i<steps;i++){
+      const cur=pts[i], nxt=pts[(i+1)%steps], m=mid(cur,nxt);
+      c.arcTo(cur[0],cur[1],m[0],m[1],r);
+    }
+    c.closePath();
+  }else{
+    pts.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
+    c.closePath();
+  }
+}
 function pathFor(c,obj){
   c.beginPath();
-  if(obj.type==='ellipse') c.ellipse(obj.x+obj.w/2,obj.y+obj.h/2,obj.w/2,obj.h/2,0,0,Math.PI*2);
-  else{
-    const r=Math.min(obj.radius||0,obj.w/2,obj.h/2);
-    if(r>0.5){
-      c.moveTo(obj.x+r,obj.y);
-      c.arcTo(obj.x+obj.w,obj.y,obj.x+obj.w,obj.y+obj.h,r);
-      c.arcTo(obj.x+obj.w,obj.y+obj.h,obj.x,obj.y+obj.h,r);
-      c.arcTo(obj.x,obj.y+obj.h,obj.x,obj.y,r);
-      c.arcTo(obj.x,obj.y,obj.x+obj.w,obj.y,r);
-      c.closePath();
-    } else c.rect(obj.x,obj.y,obj.w,obj.h);
+  if(obj.type==='ellipse') ellipsePath(c,obj);
+  else if(obj.type==='polygon') polygonPath(c,obj);
+  else if(obj.type==='line'){
+    c.moveTo(obj.x,obj.y); c.lineTo(obj.x2,obj.y2);
   }
+  else rectPath(c,obj);
 }
 function hexAlpha(hex,a){
   const n=parseInt(hex.slice(1),16);
@@ -775,6 +884,39 @@ function drawObject(c,obj,plain){
       c.fillText(obj.text,obj.x,obj.y);
       c.restore(); return;
     }
+    if(obj.type==='line'){
+      const s=obj.stroke||{width:4,color:'#111111'};
+      const ang=Math.atan2(obj.y2-obj.y,obj.x2-obj.x);
+      const sz=Math.max(4,+obj.arrowSize||12);
+      // Pull the stroke back so it never pokes through a triangle/open tip.
+      const inset=k=>(k==='triangle'?sz*0.8:0);
+      const i1=inset(obj.arrowStart), i2=inset(obj.arrowEnd);
+      c.strokeStyle=s.color; c.lineWidth=s.width; c.lineCap='butt'; c.lineJoin='round';
+      c.beginPath();
+      c.moveTo(obj.x+Math.cos(ang)*i1, obj.y+Math.sin(ang)*i1);
+      c.lineTo(obj.x2-Math.cos(ang)*i2, obj.y2-Math.sin(ang)*i2);
+      c.stroke();
+      // §1.8 arrowheads: tip sits exactly on the endpoint
+      const head=(x,y,a,kind)=>{
+        if(!kind||kind==='none') return;
+        c.save(); c.translate(x,y); c.rotate(a);
+        c.fillStyle=s.color; c.strokeStyle=s.color; c.lineWidth=s.width;
+        if(kind==='triangle'){
+          c.beginPath(); c.moveTo(0,0); c.lineTo(-sz,-sz*0.55); c.lineTo(-sz,sz*0.55);
+          c.closePath(); c.fill();
+        }else if(kind==='open'){
+          c.beginPath(); c.moveTo(-sz,-sz*0.6); c.lineTo(0,0); c.lineTo(-sz,sz*0.6); c.stroke();
+        }else if(kind==='circle'){
+          c.beginPath(); c.arc(0,0,sz*0.45,0,Math.PI*2); c.fill();
+        }else if(kind==='bar'){
+          c.beginPath(); c.moveTo(0,-sz*0.6); c.lineTo(0,sz*0.6); c.stroke();
+        }
+        c.restore();
+      };
+      head(obj.x2,obj.y2,ang,obj.arrowEnd);
+      head(obj.x,obj.y,ang+Math.PI,obj.arrowStart);
+      c.restore(); return;
+    }
     const b={x:obj.x,y:obj.y,w:obj.w,h:obj.h};
     // A patterned parent still draws its OWN complete fill. Instances are
     // separate complete objects drawn by the caller; nothing is segmented.
@@ -822,7 +964,25 @@ function textBox(obj){
   const x=obj.align==='center'?obj.x-w/2:obj.x;
   return {x, y:obj.y, w, h:obj.size*1.2};
 }
-function boxOf(obj){ return obj.type==='text'?textBox(obj):{x:obj.x,y:obj.y,w:obj.w,h:obj.h}; }
+function boxOf(obj){
+  if(obj.type==='text') return textBox(obj);
+  if(obj.type==='line'){
+    const x=Math.min(obj.x,obj.x2), y=Math.min(obj.y,obj.y2);
+    return {x, y, w:Math.max(1,Math.abs(obj.x2-obj.x)), h:Math.max(1,Math.abs(obj.y2-obj.y))};
+  }
+  return {x:obj.x,y:obj.y,w:obj.w,h:obj.h};
+}
+/** Translate an object. Lines carry BOTH endpoints, so every mover (drag,
+ *  nudge, align, numeric X/Y) must go through here rather than setting x/y. */
+function translateObj(o,dx,dy){
+  o.x+=dx; o.y+=dy;
+  if(o.type==='line'){ o.x2+=dx; o.y2+=dy; }
+}
+function distToSegment(px,py,x1,y1,x2,y2){
+  const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy;
+  const t=L2?clamp(((px-x1)*dx+(py-y1)*dy)/L2,0,1):0;
+  return Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+}
 
 /* Render is split in two so navigation is cheap:
  *   renderDoc() — the expensive pass. Draws the document (engines included)
@@ -899,6 +1059,14 @@ function paint(){
     ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
     ctx.fillRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
     ctx.strokeRect(b.x+b.w-hs/2,b.y+b.h-hs/2,hs,hs);
+  }
+  if(obj&&obj.type==='line'&&!obj.locked&&selIds.size===1){
+    const hs=7/z;
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
+    [[obj.x,obj.y],[obj.x2,obj.y2]].forEach(([px,py])=>{
+      ctx.fillRect(px-hs/2,py-hs/2,hs,hs);
+      ctx.strokeRect(px-hs/2,py-hs/2,hs,hs);
+    });
   }
   // union bounds when more than one object is selected
   if(os.length>1){
@@ -978,7 +1146,14 @@ function syncLayers(){
   });
 }
 
-const FX_PAGES=obj=>obj.type==='text' ? ['Text','Shadow'] : ['Pattern','Fill','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Grain'];
+const FX_PAGES=obj=>{
+  if(obj.type==='text') return ['Text','Shadow'];
+  if(obj.type==='line') return ['Line','Shadow'];
+  // polygons clip fine through pathFor, but the glass-family engines fit a
+  // 3D solid to the box and would render a misleading rect footprint
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Gradient','Light','Shadow','Grain'];
+  return ['Shape','Pattern','Fill','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Grain'];
+};
 
 function syncInspector(){
   const obj=doc&&doc.frame.children[sel];
@@ -1016,7 +1191,7 @@ function syncInspector(){
   const b=boxOf(obj);
   $('pX').value=Math.round(obj.x); $('pY').value=Math.round(obj.y);
   $('pW').value=Math.round(b.w); $('pH').value=Math.round(b.h);
-  const tx=obj.type==='text';
+  const tx=obj.type==='text'||obj.type==='line';   // line W/H = derived bounds
   $('pW').disabled=tx; $('pH').disabled=tx;
   $('pOpacity').value=Math.round(obj.opacity*100);
   $('pOpacityV').textContent=Math.round(obj.opacity*100)+'%';
@@ -1029,6 +1204,12 @@ function syncInspector(){
 function fxActive(obj,name){
   const e=obj.effects||{};
   switch(name){
+    case 'Shape':
+      if(obj.type==='rect') return !!(obj.radii&&obj.radii.some((v,i,a)=>v!==a[0]))||obj.cornerStyle!=='round';
+      if(obj.type==='ellipse') return obj.innerRatio>0||obj.startAngle>0||(obj.endAngle!==undefined&&obj.endAngle<360);
+      if(obj.type==='polygon') return true;
+      return false;
+    case 'Line':     return obj.arrowStart!=='none'||obj.arrowEnd!=='none';
     case 'Pattern':  return !!obj.pattern;
     case 'Fill':     return obj.fill&&obj.fill.kind!=='solid';
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
@@ -1088,6 +1269,92 @@ function buildFx(obj){
   const body=$('fxBody'); body.innerHTML='';
   const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
   const page=pages[fxPage];
+
+  if(page==='Shape'){
+    const sl=(id,label,min,max,step,key,fmt)=>{
+      add(`<label class="slider">${label} <span id="${id}V">${fmt(obj[key])}</span>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${obj[key]}"></label>`);
+      $(id).addEventListener('input',e=>{ obj[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+      $(id).addEventListener('change',()=>pushHistory());
+    };
+    const int=v=>String(Math.round(v)), deg=v=>Math.round(v)+'°', f2=v=>(+v).toFixed(2);
+    if(obj.type==='rect'){
+      add(`<label class="slider">Corner style<select id="shSt">
+        <option value="round">Round</option><option value="bevel">Bevel</option>
+        <option value="scoop">Scoop (inverted)</option></select></label>`);
+      $('shSt').value=obj.cornerStyle||'round';
+      $('shSt').addEventListener('change',e=>{ obj.cornerStyle=e.target.value; pushHistory(); render(); });
+      const per=Array.isArray(obj.radii);
+      add(`<label class="chk"><input type="checkbox" id="shPer" ${per?'checked':''}> Independent corners</label>`);
+      $('shPer').addEventListener('change',e=>{
+        if(e.target.checked){ const u=obj.radius||0; obj.radii=[u,u,u,u]; }
+        else delete obj.radii;
+        pushHistory(); refresh();
+      });
+      if(per){
+        ['Top left','Top right','Bottom right','Bottom left'].forEach((lab,ci)=>{
+          add(`<label class="slider">${lab} <span id="shR${ci}V">${Math.round(obj.radii[ci])}</span>
+            <input type="range" id="shR${ci}" min="0" max="200" value="${obj.radii[ci]}"></label>`);
+          $('shR'+ci).addEventListener('input',e=>{ obj.radii[ci]=+e.target.value; $(`shR${ci}V`).textContent=e.target.value; render(); });
+          $('shR'+ci).addEventListener('change',()=>pushHistory());
+        });
+      }else{
+        sl('shRad','Corner radius',0,200,1,'radius',int);
+      }
+      add(`<div class="fxHint">Radii clamp to the box automatically, so non-uniform scaling never breaks a corner.</div>`);
+    }
+    if(obj.type==='ellipse'){
+      sl('shA0','Start angle',0,360,1,'startAngle',deg);
+      sl('shA1','End angle',0,360,1,'endAngle',deg);
+      sl('shIn','Inner radius (ring)',0,0.95,0.01,'innerRatio',f2);
+      add(`<div class="fxHint">A partial sweep makes a pie; inner radius makes a ring or donut segment. Open arcs need strokes (§4.2, not built yet).</div>`);
+    }
+    if(obj.type==='polygon'){
+      sl('shN','Sides',3,24,1,'sides',int);
+      sl('shStar','Star inner ratio',0.1,1,0.01,'innerRatio',f2);
+      sl('shRad','Corner radius',0,120,1,'radius',int);
+      add(`<div class="fxHint">Inner ratio 1 is a regular polygon; below 1 the vertices alternate and it becomes a star.</div>`);
+    }
+  }
+
+  if(page==='Line'){
+    const L=obj;
+    const sl=(id,label,min,max,step,get,set,fmt)=>{
+      add(`<label class="slider">${label} <span id="${id}V">${fmt(get())}</span>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${get()}"></label>`);
+      $(id).addEventListener('input',e=>{ set(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
+      $(id).addEventListener('change',()=>pushHistory());
+    };
+    const int=v=>String(Math.round(v));
+    sl('lnW','Stroke width',1,60,1,()=>L.stroke.width,v=>L.stroke.width=v,int);
+    add(`<label class="slider">Color <input type="color" id="lnC" value="${L.stroke.color}"></label>`);
+    $('lnC').addEventListener('input',e=>{ L.stroke.color=e.target.value; render(); });
+    $('lnC').addEventListener('change',()=>pushHistory());
+    // §1.8 numeric length + angle, editing about the start point
+    const len=()=>Math.hypot(L.x2-L.x,L.y2-L.y);
+    const ang=()=>Math.atan2(L.y2-L.y,L.x2-L.x)*180/Math.PI;
+    const apply=(nl,na)=>{
+      const r=na*Math.PI/180;
+      L.x2=Math.round(L.x+Math.cos(r)*nl); L.y2=Math.round(L.y+Math.sin(r)*nl);
+    };
+    add(`<div class="pSect">Geometry</div>
+      <div class="row2">
+        <label class="slider">Length <input type="number" id="lnLen" value="${Math.round(len())}" min="1" step="1"></label>
+        <label class="slider">Angle° <input type="number" id="lnAng" value="${Math.round(ang())}" step="1"></label>
+      </div>`);
+    $('lnLen').addEventListener('change',e=>{ apply(Math.max(1,+e.target.value||1),ang()); pushHistory(); refresh(); });
+    $('lnAng').addEventListener('change',e=>{ apply(len(),+e.target.value||0); pushHistory(); refresh(); });
+    add(`<div class="pSect">Arrowheads</div>`);
+    const HEADS=[['none','None'],['triangle','Triangle'],['open','Open'],['circle','Circle'],['bar','Bar']];
+    [['arrowStart','Start'],['arrowEnd','End']].forEach(([key,lab])=>{
+      add(`<label class="slider">${lab}<select id="ln_${key}">`+
+        HEADS.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+      $('ln_'+key).value=L[key];
+      $('ln_'+key).addEventListener('change',e=>{ L[key]=e.target.value; pushHistory(); render(); });
+    });
+    sl('lnAS','Arrow size',4,60,1,()=>L.arrowSize,v=>L.arrowSize=v,int);
+    add(`<div class="fxHint">Drag either endpoint on canvas; shift snaps to 45°. Heads align their tip to the endpoint.</div>`);
+  }
 
   if(page==='Pattern'){
     const E=obj.pattern;
@@ -1777,11 +2044,14 @@ $('engineSearch').addEventListener('keydown',e=>{
     const obj=doc&&doc.frame.children[sel]; if(!obj)return;
     const v=parseFloat(e.target.value); if(isNaN(v))return;
     if(obj.type==='text'&&(k==='w'||k==='h'))return;
-    if((k==='x'||k==='y')&&selIds.size>1){
-      // multi-select: X/Y edits move the whole selection by the delta
+    if(k==='x'||k==='y'){
+      // translate (a line carries both endpoints); a multi-selection moves
+      // as a set by the delta
       const dv=v-obj[k];
-      selObjs().forEach(o=>{ if(!o.locked) o[k]+=dv; });
-    }else obj[k]=v;
+      const os=selIds.size>1?selObjs():[obj];
+      os.forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
+    }else if(obj.type==='line'){ return; }
+    else obj[k]=v;
     render();
   });
   $(id).addEventListener('change',()=>pushHistory());
@@ -1797,14 +2067,16 @@ document.querySelectorAll('#alignRow button').forEach(btn=>{
     const f=doc.frame;
     os.forEach(obj=>{
       const b=boxOf(obj);
+      let dx=0, dy=0;
       switch(btn.dataset.align){
-        case 'left': obj.x=0+(obj.x-b.x); break;
-        case 'hcenter': obj.x=(f.w-b.w)/2+(obj.x-b.x); break;
-        case 'right': obj.x=f.w-b.w+(obj.x-b.x); break;
-        case 'top': obj.y=0; break;
-        case 'vcenter': obj.y=(f.h-b.h)/2; break;
-        case 'bottom': obj.y=f.h-b.h; break;
+        case 'left': dx=-b.x; break;
+        case 'hcenter': dx=(f.w-b.w)/2-b.x; break;
+        case 'right': dx=f.w-b.w-b.x; break;
+        case 'top': dy=-b.y; break;
+        case 'vcenter': dy=(f.h-b.h)/2-b.y; break;
+        case 'bottom': dy=f.h-b.h-b.y; break;
       }
+      translateObj(obj,dx,dy);
     });
     pushHistory(); refresh();
   });
@@ -1822,8 +2094,15 @@ function evtPage(e){
 function hit(px,py){
   const ch=doc.frame.children;
   for(let i=ch.length-1;i>=0;i--){
-    if(!selectable(ch[i])) continue;   // §1.1: lock/hide suppress selectability
-    const b=boxOf(ch[i]);
+    const o=ch[i];
+    if(!selectable(o)) continue;   // §1.1: lock/hide suppress selectability
+    if(o.type==='line'){
+      // a thin diagonal line must not claim its whole bounding box
+      const tol=Math.max(6/view.z,(o.stroke?o.stroke.width:4)/2+3);
+      if(distToSegment(px,py,o.x,o.y,o.x2,o.y2)<=tol) return i;
+      continue;
+    }
+    const b=boxOf(o);
     if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return i;
   }
   return -1;
@@ -1935,7 +2214,24 @@ canvas.addEventListener('pointerdown',e=>{
     drag={mode:'zoomRect',x0:p.x,y0:p.y,x1:p.x,y1:p.y,sx:s.x,sy:s.y,moved:false};
     cap(); return;
   }
-  if(tool!=='select'){ addShapeAt(tool,p); setTool('select'); return; }
+  if(tool==='eyedrop'){ eyedrop(p,e); return; }
+  if(tool==='text'){ addShapeAt('text',p); setTool('select'); return; }
+  if(tool!=='select'){
+    // §1.5–1.8: drag to draw. Modifiers are applied live in pointermove —
+    // shift constrains (square / circle / 45°), alt draws from the centre.
+    const obj=makeShape(tool,p);
+    doc.frame.children.push(obj);
+    setSel(doc.frame.children.length-1); fxPage=0;
+    drag={mode:'draw',kind:tool,ox:p.x,oy:p.y,obj,moved:false};
+    cap(); refresh(); return;
+  }
+  // line endpoint grips take priority over a body hit on the primary line
+  const prim=doc.frame.children[sel];
+  if(prim&&prim.type==='line'&&selIds.size===1&&!prim.locked){
+    const grip=12/view.z;
+    if(Math.hypot(p.x-prim.x,p.y-prim.y)<grip){ drag={mode:'lineEnd',end:1,obj:prim}; cap(); return; }
+    if(Math.hypot(p.x-prim.x2,p.y-prim.y2)<grip){ drag={mode:'lineEnd',end:2,obj:prim}; cap(); return; }
+  }
   const i=hit(p.x,p.y);
   selInstance = i>=0 ? null : hitInstance(p.x,p.y);
   if(i<0){
@@ -1968,11 +2264,11 @@ canvas.addEventListener('pointerdown',e=>{
   if(!selIds.has(id)){ setSel(i); fxPage=0; }
   else { sel=i; }   // member of a multi-selection: promote to primary, keep the set
   const obj=doc.frame.children[i], b=boxOf(obj);
-  const nearHandle=obj.type!=='text'&&selIds.size===1&&
+  const nearHandle=obj.type!=='text'&&obj.type!=='line'&&selIds.size===1&&
     Math.abs(p.x-(b.x+b.w))<12/view.z && Math.abs(p.y-(b.y+b.h))<12/view.z;
   drag=nearHandle?{mode:'resize'}:{
     mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
-    offs:selObjs().map(o=>({o,ox:o.x,oy:o.y})),
+    offs:selObjs().map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2})),
   };
   cap(); refresh();
 });
@@ -1998,13 +2294,61 @@ canvas.addEventListener('pointermove',e=>{
     setSelIds(ids);
     paint(); syncLayers(); return;
   }
+  if(drag.mode==='draw'){
+    const o=drag.obj; drag.moved=true;
+    if(drag.kind==='line'){
+      let x2=p.x, y2=p.y;
+      if(e.shiftKey){
+        // §1.8: shift constrains to 45° increments
+        const a=Math.atan2(y2-drag.oy,x2-drag.ox);
+        const sn=Math.round(a/(Math.PI/4))*(Math.PI/4);
+        const dd=Math.hypot(x2-drag.ox,y2-drag.oy);
+        x2=drag.ox+Math.cos(sn)*dd; y2=drag.oy+Math.sin(sn)*dd;
+      }
+      o.x=Math.round(drag.ox); o.y=Math.round(drag.oy);
+      o.x2=Math.round(x2); o.y2=Math.round(y2);
+    }else{
+      let w=p.x-drag.ox, h=p.y-drag.oy;
+      if(e.shiftKey){
+        // square / circle / regular polygon
+        const m=Math.max(Math.abs(w),Math.abs(h));
+        w=(w<0?-1:1)*m; h=(h<0?-1:1)*m;
+      }
+      if(e.altKey){
+        // draw from the centre
+        o.x=Math.round(drag.ox-Math.abs(w)); o.y=Math.round(drag.oy-Math.abs(h));
+        o.w=Math.max(1,Math.round(Math.abs(w)*2)); o.h=Math.max(1,Math.round(Math.abs(h)*2));
+      }else{
+        o.x=Math.round(Math.min(drag.ox,drag.ox+w)); o.y=Math.round(Math.min(drag.oy,drag.oy+h));
+        o.w=Math.max(1,Math.round(Math.abs(w))); o.h=Math.max(1,Math.round(Math.abs(h)));
+      }
+    }
+    render(); syncInspector(); return;
+  }
+  if(drag.mode==='lineEnd'){
+    const o=drag.obj;
+    let nx=p.x, ny=p.y;
+    if(e.shiftKey){
+      // snap about the other endpoint
+      const ax=drag.end===1?o.x2:o.x, ay=drag.end===1?o.y2:o.y;
+      const a=Math.atan2(ny-ay,nx-ax);
+      const sn=Math.round(a/(Math.PI/4))*(Math.PI/4);
+      const dd=Math.hypot(nx-ax,ny-ay);
+      nx=ax+Math.cos(sn)*dd; ny=ay+Math.sin(sn)*dd;
+    }
+    if(drag.end===1){ o.x=Math.round(nx); o.y=Math.round(ny); }
+    else{ o.x2=Math.round(nx); o.y2=Math.round(ny); }
+    render(); syncInspector(); return;
+  }
   if(drag.mode==='move'){
     drag.moved=true;
     // Round the DELTA once, not each object: relative spacing inside a
     // multi-selection survives the move exactly.
     const ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
-    drag.offs.forEach(({o,ox,oy})=>{
-      if(!o.locked){ o.x=ox+ddx; o.y=oy+ddy; }
+    drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
+      if(o.locked) return;
+      o.x=ox+ddx; o.y=oy+ddy;
+      if(o.type==='line'){ o.x2=ox2+ddx; o.y2=oy2+ddy; }
     });
     render(); syncInspector(); return;
   }
@@ -2036,6 +2380,12 @@ const endDrag=e=>{
     }
     return;
   }
+  if(d.mode==='draw'){
+    if(!d.moved||Math.max(boxOf(d.obj).w,boxOf(d.obj).h)<4) applyDefaultSize(d.obj,{x:d.ox,y:d.oy});
+    setTool('select');
+    pushHistory(); refresh(); return;
+  }
+  if(d.mode==='lineEnd'){ pushHistory(); refresh(); return; }
   if(d.mode==='marquee'){ marquee=null; paint(); syncLayers(); syncInspector(); return; }
   if(d.mode==='move'&&!d.moved){
     // a plain click on a member of a multi-selection collapses to it
@@ -2046,6 +2396,60 @@ const endDrag=e=>{
 };
 canvas.addEventListener('pointerup',endDrag);
 canvas.addEventListener('pointercancel',endDrag);
+
+/* ---- eyedropper (§1.10) ----
+ * Samples the COMPOSITED page raster, so it reads engine output and gradients,
+ * not just stored fills. Plain click = 1px, shift = 3×3 average, cmd = 5×5.
+ * Alt-click copies the full appearance (fill + effects) of the object under
+ * the cursor onto the selection. Clicking outside the page opens the
+ * platform's screen-wide picker where the browser provides one. */
+function samplePage(x,y,n){
+  const g=frameBuf.getContext('2d');
+  const x0=clamp(Math.round(x-(n-1)/2),0,Math.max(0,frameBuf.width-n));
+  const y0=clamp(Math.round(y-(n-1)/2),0,Math.max(0,frameBuf.height-n));
+  const d=g.getImageData(x0,y0,n,n).data;
+  let r=0,gg=0,b=0,c=0;
+  for(let i=0;i<d.length;i+=4){ r+=d[i]; gg+=d[i+1]; b+=d[i+2]; c++; }
+  return '#'+[r,gg,b].map(v=>Math.round(v/c).toString(16).padStart(2,'0')).join('');
+}
+function applySampledColor(hex,fallbackI){
+  let os=selObjs();
+  if(!os.length&&fallbackI>=0) os=[doc.frame.children[fallbackI]];
+  if(!os.length) return;
+  os.forEach(o=>{
+    if(o.locked) return;
+    if(o.type==='text') o.color=hex;
+    else if(o.type==='line') o.stroke.color=hex;
+    else o.fill={kind:'solid',color:hex};
+  });
+  pushHistory(); refresh();
+}
+function eyedrop(p,e){
+  const f=doc.frame;
+  const inPage=p.x>=0&&p.y>=0&&p.x<f.w&&p.y<f.h;
+  if(!inPage){
+    // outside the page: the platform picker samples anywhere on screen
+    if(window.EyeDropper) new EyeDropper().open()
+      .then(r=>applySampledColor(r.sRGBHex,hit(p.x,p.y))).catch(()=>{});
+    return;
+  }
+  const under=hit(p.x,p.y);
+  if(e.altKey){
+    // full appearance: fill + effects from the top object under the cursor
+    const src=doc.frame.children[under]; if(!src) return;
+    const os=selObjs().filter(o=>o!==src&&!o.locked);
+    if(!os.length) return;
+    os.forEach(o=>{
+      if(src.fill&&o.type!=='text'&&o.type!=='line') o.fill=JSON.parse(JSON.stringify(src.fill));
+      if(o.type==='text'&&src.type==='text') o.color=src.color;
+      if(src.effects&&o.effects) o.effects=JSON.parse(JSON.stringify(src.effects));
+    });
+    setActiveDoc(normalizeDoc(doc));   // re-clamp copied effects per target type
+    pushHistory(); refresh(); return;
+  }
+  const n=(e.metaKey||e.ctrlKey)?5:e.shiftKey?3:1;
+  applySampledColor(samplePage(p.x,p.y,n),under);
+}
 
 /* ---- selection commands (§1.1) ---- */
 function selectAllCmd(){
@@ -2078,7 +2482,7 @@ function selectSame(kind){
 let nudgeTimer=null;
 function nudgeSel(dx,dy){
   const os=selObjs().filter(o=>!o.locked); if(!os.length) return;
-  os.forEach(o=>{ o.x+=dx; o.y+=dy; });
+  os.forEach(o=>translateObj(o,dx,dy));
   render(); syncInspector();
   clearTimeout(nudgeTimer);
   nudgeTimer=setTimeout(pushHistory,400);
@@ -2094,20 +2498,39 @@ function setTool(t){
   canvas.style.cursor=cursorForTool();
 }
 document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
-function addShapeAt(kind,p){
-  if(!doc){ openPageModal(); return; }   // no silent premade page
-  const f=doc.frame;
+const SHAPE_DEFAULT={rect:[160,120],ellipse:[160,120],polygon:[140,140]};
+function makeShape(kind,p){
   let obj;
-  if(kind==='text') obj={type:'text',name:'Text',x:p.x,y:p.y,text:'Text',size:36,weight:600,color:'#111111',align:'left',opacity:1};
+  if(kind==='text')
+    obj={type:'text',name:'Text',x:p.x,y:p.y,text:'Text',size:36,weight:600,color:'#111111',align:'left',opacity:1};
+  else if(kind==='line')
+    obj={type:'line',name:'Line',x:p.x,y:p.y,x2:p.x,y2:p.y,
+      stroke:{width:4,color:'#111111'},arrowStart:'none',arrowEnd:'none',arrowSize:12,opacity:1};
+  else if(kind==='polygon')
+    obj={type:'polygon',name:'Polygon',x:p.x,y:p.y,w:1,h:1,sides:5,innerRatio:1,radius:0,opacity:1,
+      fill:{kind:'solid',color:'#d9d9d9'}};
   else obj={type:kind,name:kind==='rect'?'Rectangle':'Ellipse',
-    x:p.x-80,y:p.y-60,w:160,h:120,radius:kind==='rect'?8:0,opacity:1,
+    x:p.x,y:p.y,w:1,h:1,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
-  if(obj.type!=='text') obj.pattern=DEFAULT_PATTERN();
+  if(obj.type!=='text'&&obj.type!=='line') obj.pattern=DEFAULT_PATTERN();
   obj.id=newId();
-  f.children.push(obj);
-  setSel(f.children.length-1); fxPage=0;
+  return obj;
+}
+function addShapeAt(kind,p){
+  if(!doc){ openPageModal(); return; }   // no silent premade page
+  const obj=makeShape(kind,p);
+  applyDefaultSize(obj,p);
+  doc.frame.children.push(obj);
+  setSel(doc.frame.children.length-1); fxPage=0;
   pushHistory(); refresh();
+}
+/** A click without a drag still yields a usable object at a default size. */
+function applyDefaultSize(obj,p){
+  if(obj.type==='text') return;
+  if(obj.type==='line'){ obj.x=p.x-80; obj.y=p.y; obj.x2=p.x+80; obj.y2=p.y; return; }
+  const [w,h]=SHAPE_DEFAULT[obj.type]||[160,120];
+  obj.x=Math.round(p.x-w/2); obj.y=Math.round(p.y-h/2); obj.w=w; obj.h=h;
 }
 
 /* ================= menus / commands ================= */
@@ -2270,6 +2693,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='o'||e.key==='O') setTool('ellipse');
   else if(e.key==='t'||e.key==='T') setTool('text');
   else if(e.key==='z'||e.key==='Z') setTool('zoom');
+  else if(e.key==='p'||e.key==='P') setTool('polygon');
+  else if(e.key==='l'||e.key==='L') setTool('line');
+  else if(e.key==='i'||e.key==='I') setTool('eyedrop');
 });
 document.addEventListener('keyup',e=>{
   if(e.key===' '){ spaceDown=false; if(!drag) canvas.style.cursor=cursorForTool(); }
