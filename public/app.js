@@ -35,6 +35,17 @@ let selIds=new Set();
 /* §6.9 isolation: the container we have "entered" by double-click. Clicks
  * select its children directly; everything outside it dims and is inert. */
 let enteredId=null;
+/* §2.10 snapping preferences. Radius is in SCREEN pixels so it feels the
+ * same at every zoom. Per-target-type toggles are the spec's requirement. */
+let snapCfg={on:true, radius:7,
+  edges:true, centers:true, anchors:true, guides:true, grid:true, artboard:true};
+let showRulers=true;
+let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
+let snapLines=[];        // live indicators, screen chrome only
+let gapHints=[];         // §2.11 equal-spacing indicators
+let guideDrag=null;      // dragging a guide out of a ruler, or moving one
+let lastPointer=null;    // screen coords, for the ruler markers
+const RULER=22;          // px
 /* Prism and Capsule accumulate samples synchronously, so a full-quality pass
  * is far too slow to run on every pointer move. Slider `input` renders a
  * draft; the `change` that ends the drag renders properly. */
@@ -246,6 +257,20 @@ function normalizeDoc(d){
   const f=d.frame;
   f.w=clamp(+f.w||900,100,4000); f.h=clamp(+f.h||600,100,4000);
   if(!/^#/.test(f.bg||'')) f.bg='#ffffff';
+  /* §2.11 guides live with the page, so they save and undo with it.
+   * §0 constraint 2: guides are created by DRAGGING FROM A RULER or by
+   * numeric entry — never by tapping a ruler on a touchscreen. */
+  f.guides=(Array.isArray(f.guides)?f.guides:[]).slice(0,200).map(g=>({
+    axis:g.axis==='v'?'v':'h',
+    pos:clamp(+g.pos||0,-10000,10000),
+    locked:!!g.locked,
+  }));
+  // §6.4 grid
+  const gr=f.grid||{};
+  f.grid={size:clamp(+gr.size||20,1,500),
+          subdivisions:clamp(Math.round(+gr.subdivisions)||1,1,10),
+          show:!!gr.show, snap:gr.snap!==false,
+          color:/^#[0-9a-fA-F]{6}$/.test(gr.color||'')?gr.color:'#c9ced6'};
   f.children=normChildren(f.children||[],0);
   return d;
 }
@@ -1682,7 +1707,9 @@ function boxOf(obj){
   if(obj.type==='text') return textBox(obj);
   if(obj.type==='path'){
     let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-    (obj.subpaths||[]).flatMap(sp=>sp.points).forEach(p=>{
+    // an object built by makeShape has not been through normalizeDoc yet, so
+    // fall back to the single-contour alias rather than reporting no bounds
+    (obj.subpaths||[{points:obj.points||[]}]).flatMap(sp=>sp.points).forEach(p=>{
       [[p.x,p.y],[p.x+p.ox,p.y+p.oy],[p.x+p.ix,p.y+p.iy]].forEach(([X,Y])=>{
         x0=Math.min(x0,X); y0=Math.min(y0,Y); x1=Math.max(x1,X); y1=Math.max(y1,Y);
       });
@@ -1798,6 +1825,29 @@ function paint(){
   ctx.imageSmoothingEnabled=z<4;
   ctx.drawImage(frameBuf,0,0);
   ctx.imageSmoothingEnabled=true;
+  // §6.4 grid, drawn OVER the page but under the chrome; skipped when the
+  // lines would be denser than a couple of screen pixels
+  const G=f.grid;
+  if(G&&G.show&&G.size>0){
+    const sub=Math.max(1,G.subdivisions||1);
+    const step=G.size/sub;
+    if(step*z>=3){
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0,0,f.w,f.h); ctx.clip();
+      for(let pass=0;pass<2;pass++){
+        const st=pass?G.size:step;
+        if(pass===0&&sub===1) continue;
+        ctx.strokeStyle=G.color;
+        ctx.globalAlpha=pass?0.55:0.28;
+        ctx.lineWidth=1/z;
+        ctx.beginPath();
+        for(let x=0;x<=f.w+0.5;x+=st){ ctx.moveTo(x,0); ctx.lineTo(x,f.h); }
+        for(let y=0;y<=f.h+0.5;y+=st){ ctx.moveTo(0,y); ctx.lineTo(f.w,y); }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
   // ---- screen-space chrome (line widths divided by z stay constant) ----
   if(selInstance){
     // Instances: dashed, so a derived object never looks editable.
@@ -1912,12 +1962,100 @@ function paint(){
       ctx.fillText('+',b.x+b.w-r,b.y+b.h-r);
     }
   });
+  // §2.11 guides — full-viewport lines so they read outside the page too
+  const vx0=-view.x/z, vy0=-view.y/z, vx1=(W-view.x)/z, vy1=(H-view.y)/z;
+  if(!guidesHidden) (f.guides||[]).forEach((g,gi)=>{
+    ctx.save();
+    ctx.strokeStyle=(guideDrag&&guideDrag.index===gi)?'#f43f5e':'#22c1c3';
+    ctx.lineWidth=1/z;
+    ctx.beginPath();
+    if(g.axis==='v'){ ctx.moveTo(g.pos,vy0); ctx.lineTo(g.pos,vy1); }
+    else { ctx.moveTo(vx0,g.pos); ctx.lineTo(vx1,g.pos); }
+    ctx.stroke();
+    ctx.restore();
+  });
+  // §2.11 live alignment guides, drawn only while a snap is active
+  if(snapLines.length){
+    ctx.save();
+    ctx.strokeStyle='#f43f5e'; ctx.lineWidth=1/z;
+    ctx.setLineDash([5/z,3/z]);
+    snapLines.forEach(L=>{
+      ctx.beginPath();
+      if(L.axis==='v'){ ctx.moveTo(L.pos,vy0); ctx.lineTo(L.pos,vy1); }
+      else { ctx.moveTo(vx0,L.pos); ctx.lineTo(vx1,L.pos); }
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+  // §2.11 equal-spacing indicators
+  if(gapHints.length&&!drag){
+    ctx.save();
+    ctx.strokeStyle='#f43f5e'; ctx.fillStyle='#f43f5e'; ctx.lineWidth=1/z;
+    gapHints.forEach(g=>{
+      const H2=g.axis==='h';
+      const y=H2?(Math.max(g.a.y,g.b.y)+Math.min(g.a.y+g.a.h,g.b.y+g.b.h))/2
+               :(Math.max(g.a.x,g.b.x)+Math.min(g.a.x+g.a.w,g.b.x+g.b.w))/2;
+      const s0=H2?g.a.x+g.a.w:g.a.y+g.a.h, s1=H2?g.b.x:g.b.y;
+      ctx.beginPath();
+      if(H2){ ctx.moveTo(s0,y); ctx.lineTo(s1,y);
+        ctx.moveTo(s0,y-4/z); ctx.lineTo(s0,y+4/z);
+        ctx.moveTo(s1,y-4/z); ctx.lineTo(s1,y+4/z); }
+      else { ctx.moveTo(y,s0); ctx.lineTo(y,s1);
+        ctx.moveTo(y-4/z,s0); ctx.lineTo(y+4/z,s0);
+        ctx.moveTo(y-4/z,s1); ctx.lineTo(y+4/z,s1); }
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
   if(marquee){
     const x=Math.min(marquee.x0,marquee.x1), y=Math.min(marquee.y0,marquee.y1);
     const w=Math.abs(marquee.x1-marquee.x0), h=Math.abs(marquee.y1-marquee.y0);
     ctx.fillStyle='rgba(59,130,246,.08)';
     ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1/z;
     ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  // §6.4 rulers — screen chrome, so they stay pinned while the page moves
+  if(showRulers){
+    const nice=[1,2,5,10,20,25,50,100,200,250,500,1000,2000];
+    let step=nice.find(n=>n*z>=54)||2000;
+    ctx.fillStyle='#f7f8f9';
+    ctx.fillRect(0,0,W,RULER); ctx.fillRect(0,0,RULER,H);
+    ctx.strokeStyle='#e4e4e6'; ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(0,RULER+.5); ctx.lineTo(W,RULER+.5);
+    ctx.moveTo(RULER+.5,0); ctx.lineTo(RULER+.5,H);
+    ctx.stroke();
+    ctx.font='9px '+getComputedStyle(document.body).fontFamily;
+    ctx.textBaseline='top';
+    ctx.fillStyle='#8a8d93'; ctx.strokeStyle='#c9ced6';
+    const from=v=>Math.floor(v/step)*step;
+    ctx.beginPath();
+    for(let u=from(-view.x/z); u<=(W-view.x)/z; u+=step){
+      const sx=Math.round(u*z+view.x)+.5;
+      if(sx<RULER) continue;
+      ctx.moveTo(sx,RULER-5); ctx.lineTo(sx,RULER);
+      ctx.fillText(String(Math.round(u)),sx+2,3);
+    }
+    for(let u=from(-view.y/z); u<=(H-view.y)/z; u+=step){
+      const sy=Math.round(u*z+view.y)+.5;
+      if(sy<RULER) continue;
+      ctx.moveTo(RULER-5,sy); ctx.lineTo(RULER,sy);
+      ctx.save(); ctx.translate(3,sy-2); ctx.rotate(-Math.PI/2);
+      ctx.textBaseline='top'; ctx.fillText(String(Math.round(u)),-18,0);
+      ctx.restore();
+    }
+    ctx.stroke();
+    // page extent highlighted on both rulers
+    ctx.fillStyle='rgba(59,130,246,.14)';
+    ctx.fillRect(Math.max(RULER,view.x),0,Math.max(0,f.w*z),RULER);
+    ctx.fillRect(0,Math.max(RULER,view.y),RULER,Math.max(0,f.h*z));
+    // cursor position marker
+    if(lastPointer){
+      ctx.fillStyle='#3b82f6';
+      ctx.fillRect(lastPointer.x,0,1,RULER);
+      ctx.fillRect(0,lastPointer.y,RULER,1);
+    }
   }
   ctx.setTransform(1,0,0,1,0,0);
   const zi=$('zoomInput');
@@ -1926,7 +2064,7 @@ function paint(){
 function render(){ renderDoc(); paint(); }
 
 /* ================= UI sync ================= */
-function refresh(){ render(); syncLayers(); syncInspector(); syncPageRow(); }
+function refresh(){ computeGapHints(); render(); syncLayers(); syncInspector(); syncPageRow(); }
 // Text measured before the webfont finishes loading renders with fallback
 // metrics; re-render once fonts settle so text is never left stale.
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ if(doc) render(); });
@@ -3028,16 +3166,24 @@ document.querySelectorAll('#alignRow button').forEach(btn=>{
   btn.addEventListener('click',()=>{
     const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
     const f=doc.frame;
+    /* §2.8: what to align RELATIVE TO. With one object selected the artboard
+     * is the only sensible frame; with several, the selection's own bounds is
+     * the expected behaviour, and the PRIMARY object acts as the key object
+     * when alignTo is set to it. */
+    let R;
+    if(alignTo==='artboard'||os.length===1) R={x:0,y:0,w:f.w,h:f.h};
+    else if(alignTo==='key'){ const k=primary(); R=k?aabbOf(k):selBounds(); }
+    else R=selBounds();
     os.forEach(obj=>{
       const b=aabbOf(obj);
       let dx=0, dy=0;
       switch(btn.dataset.align){
-        case 'left': dx=-b.x; break;
-        case 'hcenter': dx=(f.w-b.w)/2-b.x; break;
-        case 'right': dx=f.w-b.w-b.x; break;
-        case 'top': dy=-b.y; break;
-        case 'vcenter': dy=(f.h-b.h)/2-b.y; break;
-        case 'bottom': dy=f.h-b.h-b.y; break;
+        case 'left': dx=R.x-b.x; break;
+        case 'hcenter': dx=R.x+(R.w-b.w)/2-b.x; break;
+        case 'right': dx=R.x+R.w-b.w-b.x; break;
+        case 'top': dy=R.y-b.y; break;
+        case 'vcenter': dy=R.y+(R.h-b.h)/2-b.y; break;
+        case 'bottom': dy=R.y+R.h-b.h-b.y; break;
       }
       translateObj(obj,dx,dy);
     });
@@ -3094,6 +3240,56 @@ $('trScale').addEventListener('change',e=>{
   e.target.value='';
   pushHistory(); refresh();
 });
+
+/* ---- §2.10 snapping glue ---------------------------------------------
+ * The index is rebuilt at the START of a drag (not per move) from everything
+ * EXCEPT what is being dragged — an object must never snap to itself. */
+let snapIndex=null;
+function buildSnapIndex(excludeIds){
+  if(!doc||!window.SnapEngine){ snapIndex=null; return; }
+  const others=[];
+  allObjects().forEach(o=>{
+    if(o.hidden||excludeIds.has(o.id)) return;
+    if(CONTAINER(o)&&o.children&&o.children.some(k=>excludeIds.has(k.id))) return;
+    const b=aabbOf(o);
+    const anchors=[];
+    if(o.type==='path') (o.subpaths||[]).forEach(sp=>sp.points.forEach(p=>anchors.push({x:p.x,y:p.y})));
+    else if(o.type==='line'){ anchors.push({x:o.x,y:o.y},{x:o.x2,y:o.y2}); }
+    others.push({obj:o,box:b,anchors});
+  });
+  snapIndex=SnapEngine.buildIndex({
+    frame:doc.frame, guides:doc.frame.guides, grid:doc.frame.grid,
+    others, settings:snapCfg,
+  });
+}
+/** Apply snapping to a proposed box position. Returns {dx,dy}. */
+function applySnap(box,suppressed){
+  snapLines=[];
+  if(!snapCfg.on||suppressed||!snapIndex||!window.SnapEngine) return {dx:0,dy:0};
+  const tol=snapCfg.radius/view.z;      // screen px -> page units
+  const r=SnapEngine.snapBox(snapIndex,box,tol);
+  snapLines=r.lines;
+  return {dx:r.dx,dy:r.dy};
+}
+function applySnapPoint(x,y,suppressed){
+  snapLines=[];
+  if(!snapCfg.on||suppressed||!snapIndex||!window.SnapEngine) return {dx:0,dy:0};
+  const r=SnapEngine.snapPoint(snapIndex,x,y,snapCfg.radius/view.z);
+  snapLines=r.lines;
+  return {dx:r.dx,dy:r.dy};
+}
+/** §2.11 equal-spacing indicators for the current selection against peers. */
+function computeGapHints(){
+  gapHints=[];
+  if(!snapCfg.on||!window.SnapEngine||!doc) return;
+  const sel=selObjs(); if(!sel.length) return;
+  const ref=selBounds();
+  const peers=activeList().filter(o=>!o.hidden).map(o=>aabbOf(o));
+  if(peers.length<3) return;
+  ['h','v'].forEach(ax=>{
+    SnapEngine.equalGaps(peers,ax,1.2/view.z,ref).forEach(g=>gapHints.push({axis:ax,...g}));
+  });
+}
 
 /* ================= canvas interaction ================= */
 /* §2.6: the eight handle positions of an object's (possibly rotated) frame,
@@ -3296,6 +3492,29 @@ canvas.addEventListener('pointerdown',e=>{
   }
   const s=evtScreen(e), p=evtPage(e);
   const cap=()=>{ try{canvas.setPointerCapture(e.pointerId);}catch(_){} };
+  /* §2.11 / §0 constraint 2: guides are created by DRAGGING OUT OF A RULER.
+   * There is deliberately no tap-to-create path — pressing a ruler and
+   * releasing without moving creates nothing. */
+  if(showRulers&&(s.x<RULER||s.y<RULER)&&e.button===0&&!spaceDown){
+    const axis=s.x<RULER?'v':'h';       // left ruler emits vertical guides
+    doc.frame.guides.push({axis,pos:axis==='v'?p.x:p.y,locked:false});
+    guideDrag={index:doc.frame.guides.length-1,created:true,moved:false};
+    drag={mode:'guide'};
+    cap(); paint(); return;
+  }
+  // grab an existing guide near the pointer
+  if(!spaceDown&&e.button===0&&doc.frame.guides.length){
+    const tol=5/view.z;
+    for(let i=doc.frame.guides.length-1;i>=0;i--){
+      const g=doc.frame.guides[i];
+      if(g.locked) continue;
+      if(Math.abs((g.axis==='v'?p.x:p.y)-g.pos)<=tol){
+        guideDrag={index:i,created:false,moved:false};
+        drag={mode:'guide'};
+        cap(); paint(); return;
+      }
+    }
+  }
   // §1.12: space-hold or middle-mouse pans regardless of the active tool
   if(spaceDown||e.button===1){
     drag={mode:'pan',sx:s.x,sy:s.y,vx:view.x,vy:view.y};
@@ -3344,6 +3563,7 @@ canvas.addEventListener('pointerdown',e=>{
       o.closed=true; penCommit(); return;      // close at the origin
     }
     o.points.push({x:Math.round(nx),y:Math.round(ny),ox:0,oy:0,ix:0,iy:0,m:'corner'});
+    relinkPath(o);
     drag={mode:'penHandle',pi:o.points.length-1};
     cap(); render(); return;
   }
@@ -3408,6 +3628,7 @@ canvas.addEventListener('pointerdown',e=>{
     const obj=makeShape(tool,p);
     activeList().push(obj);
     setSel(activeList().length-1); fxPage=0;
+    buildSnapIndex(new Set([obj.id]));
     drag={mode:'draw',kind:tool,ox:p.x,oy:p.y,obj,moved:false};
     cap(); refresh(); return;
   }
@@ -3419,6 +3640,7 @@ canvas.addEventListener('pointerdown',e=>{
     const grab=handleAt(prim0,p);
     if(grab&&grab.kind==='resize'){
       const b0=boxOf(prim0);
+      buildSnapIndex(new Set([prim0.id]));
       drag={mode:'resize',ix:grab.ix,b0:{...b0},rot:prim0.rot||0,size0:prim0.size,
         pts0:prim0.type==='path'?(prim0.subpaths||[]).map(sp=>sp.points.map(q=>({...q}))):null};
       cap(); return;
@@ -3465,15 +3687,32 @@ canvas.addEventListener('pointerdown',e=>{
   }
   if(!selIds.has(id)){ setSel(i); fxPage=0; }
   else { sel=i; }   // member of a multi-selection: promote to primary, keep the set
+  buildSnapIndex(new Set(selObjs().map(o=>o.id)));
   drag={mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
+    b0:selBounds(),
     offs:selObjs().map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2})),
     // §2.1 alt-drag duplicates: the copies move, the originals stay
     dup:e.altKey};
   cap(); refresh();
 });
 canvas.addEventListener('pointermove',e=>{
+  lastPointer=evtScreen(e);
+  if(drag&&drag.mode==='guide'){
+    const p2=evtPage(e), g=doc.frame.guides[guideDrag.index];
+    guideDrag.moved=true;
+    let v=g.axis==='v'?p2.x:p2.y;
+    if(!(e.metaKey||e.ctrlKey)&&doc.frame.grid&&doc.frame.grid.snap){
+      const st=doc.frame.grid.size/Math.max(1,doc.frame.grid.subdivisions);
+      if(st>0) v=Math.round(v/st)*st;
+    }
+    g.pos=Math.round(v);
+    paint(); return;
+  }
   if(!drag){
     if(tool==='pen'&&penDraft&&doc){ penHover=evtPage(e); paint(); }
+    else if(showRulers&&doc&&(lastPointer.x<RULER||lastPointer.y<RULER)){
+      canvas.style.cursor=lastPointer.x<RULER?'col-resize':'row-resize';
+    }
     else if(tool==='select'&&doc&&selIds.size===1&&!spaceDown){
       const obj=primary();
       if(obj&&obj.type!=='line'&&!obj.locked){
@@ -3566,7 +3805,12 @@ canvas.addEventListener('pointermove',e=>{
   }
   if(drag.mode==='nodeMove'){
     const o=nodeObj(); if(!o){ drag=null; return; }
-    const dx=p.x-drag.px, dy=p.y-drag.py;
+    let dx=p.x-drag.px, dy=p.y-drag.py;
+    if(drag.offs.length===1){
+      const q0=drag.offs[0];
+      const sn=applySnapPoint(q0.ox+dx,q0.oy+dy,e.metaKey||e.ctrlKey);
+      dx+=sn.dx; dy+=sn.dy;
+    }
     drag.offs.forEach(({q,ox,oy})=>{ o.points[q].x=Math.round(ox+dx); o.points[q].y=Math.round(oy+dy); });
     render(); return;
   }
@@ -3584,7 +3828,12 @@ canvas.addEventListener('pointermove',e=>{
       o.x=Math.round(drag.ox); o.y=Math.round(drag.oy);
       o.x2=Math.round(x2); o.y2=Math.round(y2);
     }else{
-      let w=p.x-drag.ox, h=p.y-drag.oy;
+      let px2=p.x, py2=p.y;
+      if(!(e.metaKey||e.ctrlKey)){
+        const sn=applySnapPoint(px2,py2,false);
+        px2+=sn.dx; py2+=sn.dy;
+      }
+      let w=px2-drag.ox, h=py2-drag.oy;
       if(e.shiftKey){
         // square / circle / regular polygon
         const m=Math.max(Math.abs(w),Math.abs(h));
@@ -3634,6 +3883,13 @@ canvas.addEventListener('pointermove',e=>{
     // dominant axis (§2.1).
     let ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
     if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
+    // §2.10: snap the selection's own bounds; the modifier suppresses it
+    if(drag.b0){
+      const prop={x:drag.b0.x+ddx, y:drag.b0.y+ddy, w:drag.b0.w, h:drag.b0.h};
+      const sn=applySnap(prop, e.metaKey||e.ctrlKey||e.altKey);
+      ddx+=Math.round(sn.dx); ddy+=Math.round(sn.dy);
+      if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
+    }
     drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
       if(o.locked) return;
       o.x=ox+ddx; o.y=oy+ddy;
@@ -3655,9 +3911,14 @@ canvas.addEventListener('pointermove',e=>{
     const b0=drag.b0, r=drag.rot*Math.PI/180;
     const c0={x:b0.x+b0.w/2, y:b0.y+b0.h/2};
     // pointer into the unrotated frame of the ORIGINAL box
+    let pxr=p.x, pyr=p.y;
+    if(!drag.rot){                    // axis-aligned only: snap the grabbed edge
+      const sn2=applySnapPoint(pxr,pyr,e.metaKey||e.ctrlKey);
+      pxr+=sn2.dx; pyr+=sn2.dy;
+    }
     const cs=Math.cos(-r), sn=Math.sin(-r);
-    const lp={x:c0.x+(p.x-c0.x)*cs-(p.y-c0.y)*sn,
-              y:c0.y+(p.x-c0.x)*sn+(p.y-c0.y)*cs};
+    const lp={x:c0.x+(pxr-c0.x)*cs-(pyr-c0.y)*sn,
+              y:c0.y+(pxr-c0.x)*sn+(pyr-c0.y)*cs};
     // fixed point: the opposite corner/edge (or the centre with alt)
     const FIX=[[b0.x+b0.w,b0.y+b0.h],[b0.x,b0.y+b0.h],[b0.x,b0.y],[b0.x+b0.w,b0.y],
                [c0.x,b0.y+b0.h],[b0.x,c0.y],[c0.x,b0.y],[b0.x+b0.w,c0.y]][drag.ix];
@@ -3711,7 +3972,19 @@ canvas.addEventListener('pointermove',e=>{
 const endDrag=e=>{
   if(!drag) return;
   const d=drag; drag=null;
+  snapLines=[]; snapIndex=null;
   try{canvas.releasePointerCapture(e.pointerId);}catch(_){}
+  if(d.mode==='guide'){
+    const g=doc.frame.guides[guideDrag.index];
+    const s2=evtScreen(e);
+    // released back over a ruler, or never moved after being created:
+    // discard it rather than leaving a stray guide at the edge
+    const overRuler=showRulers&&(s2.x<RULER||s2.y<RULER);
+    if((guideDrag.created&&!guideDrag.moved)||overRuler)
+      doc.frame.guides.splice(guideDrag.index,1);
+    guideDrag=null;
+    pushHistory(); refresh(); return;
+  }
   if(d.mode==='pan'){ canvas.style.cursor=spaceDown?'grab':cursorForTool(); return; }
   if(d.mode==='zoomRect'){
     marquee=null;
@@ -3739,10 +4012,12 @@ const endDrag=e=>{
     if(!raw||raw.length<3){ paint(); return; }
     const obj=makeShape('path',raw[0]);
     obj.points=fitStroke(raw);
+    obj.subpaths[0].points=obj.points;
     obj.name='Pencil';
     // §1.4 auto-close when the stroke ends near its start
     const f0=obj.points[0], fl=obj.points[obj.points.length-1];
     if(Math.hypot(f0.x-fl.x,f0.y-fl.y)<12/view.z){ obj.points.pop(); obj.closed=true; }
+    obj.subpaths[0].closed=obj.closed;
     activeList().push(obj);
     setSel(activeList().length-1);
     pushHistory(); refresh(); return;
@@ -3817,7 +4092,8 @@ function penObj(){ return penDraft?activeList()[penDraft.oi]:null; }
 /** Keep the `points`/`closed` aliases pointing at subpath 0 after any edit
  *  that replaced the array wholesale. */
 function relinkPath(o){
-  if(!o||o.type!=='path'||!o.subpaths||!o.subpaths.length) return;
+  if(!o||o.type!=='path') return;
+  if(!o.subpaths||!o.subpaths.length) o.subpaths=[{points:o.points,closed:!!o.closed}];
   o.subpaths[0].points=o.points;
   o.subpaths[0].closed=o.closed;
 }
@@ -4128,6 +4404,30 @@ function releaseCompound(){
   pushHistory(); refresh();
 }
 
+/* §2.11 / §0 constraint 2: the OTHER approved creation path — numeric entry.
+ * Ruler-drag and this dialog are the only two ways a guide comes into being. */
+function addGuideNumeric(axis){
+  if(!doc) return;
+  const f=doc.frame;
+  const dflt=Math.round(axis==='v'?f.w/2:f.h/2);
+  const v=prompt(`${axis==='v'?'Vertical':'Horizontal'} guide position (px):`,String(dflt));
+  const n=parseFloat(v);
+  if(!Number.isFinite(n)) return;
+  f.guides.push({axis,pos:Math.round(n),locked:false});
+  pushHistory(); refresh();
+}
+let guidesHidden=false;
+function openGridPanel(){
+  if(!doc) return;
+  const g=doc.frame.grid;
+  const size=parseFloat(prompt('Grid size (px):',String(g.size)));
+  if(Number.isFinite(size)) g.size=clamp(size,1,500);
+  const sub=parseFloat(prompt('Subdivisions:',String(g.subdivisions)));
+  if(Number.isFinite(sub)) g.subdivisions=clamp(Math.round(sub),1,10);
+  g.show=true;
+  pushHistory(); render();
+}
+
 /* ---- §2.9 distribution ---- */
 function distributeSel(axis,mode,spacing){
   const os=selObjs().filter(o=>!o.locked);
@@ -4291,7 +4591,9 @@ function makeShape(kind,p){
     obj={type:'line',name:'Line',x:p.x,y:p.y,x2:p.x,y2:p.y,
       stroke:{width:4,color:'#111111'},arrowStart:'none',arrowEnd:'none',arrowSize:12,opacity:1};
   else if(kind==='path')
-    obj={type:'path',name:'Path',x:0,y:0,points:[],closed:false,fillOn:false,
+    obj={type:'path',name:'Path',x:0,y:0,
+      subpaths:[{points:[],closed:false}],points:[],closed:false,
+      fillRule:'nonzero',fillOn:false,
       stroke:{width:3,color:'#111111'},fill:{kind:'solid',color:'#d9d9d9'},opacity:1};
   else if(kind==='polygon')
     obj={type:'polygon',name:'Polygon',x:p.x,y:p.y,w:1,h:1,sides:5,innerRatio:1,radius:0,opacity:1,
@@ -4300,6 +4602,8 @@ function makeShape(kind,p){
     x:p.x,y:p.y,w:1,h:1,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
+  // keep the alias identity: subpath 0 IS obj.points, not a copy
+  if(obj.type==='path') obj.subpaths[0].points=obj.points;
   if(obj.type!=='text'&&obj.type!=='line'&&obj.type!=='path') obj.pattern=DEFAULT_PATTERN();
   obj.id=newId();
   return obj;
@@ -4443,6 +4747,14 @@ $('btnNewPage').addEventListener('click',openPageModal);
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
+  toggleRulers(){ showRulers=!showRulers; paint(); },
+  toggleGrid(){ if(doc){ doc.frame.grid.show=!doc.frame.grid.show; pushHistory(); render(); } },
+  toggleSnap(){ snapCfg.on=!snapCfg.on; paint(); },
+  toggleGuides(){ if(doc){ guidesHidden=!guidesHidden; paint(); } },
+  clearGuides(){ if(doc){ doc.frame.guides=[]; pushHistory(); refresh(); } },
+  addGuideV(){ addGuideNumeric('v'); },
+  addGuideH(){ addGuideNumeric('h'); },
+  gridSettings:openGridPanel,
   zoomFit(){ view.mode='fit'; paint(); },
   zoomActual(){ zoomTo(1); },
   zoom200(){ zoomTo(2); },
@@ -4542,6 +4854,10 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='r'||e.key==='R') setTool('rect');
   else if(e.key==='o'||e.key==='O') setTool('ellipse');
   else if(e.key==='t'||e.key==='T') setTool('text');
+  else if(meta&&e.key===';'){ e.preventDefault(); CMDS.toggleGuides(); }
+  else if(meta&&e.key==="'"){ e.preventDefault(); CMDS.toggleGrid(); }
+  else if(meta&&e.shiftKey&&e.key.toLowerCase()==='r'){ e.preventDefault(); CMDS.toggleRulers(); }
+  else if(meta&&e.shiftKey&&e.key.toLowerCase()==='s'){ e.preventDefault(); CMDS.toggleSnap(); }
   else if(e.key==='z'||e.key==='Z') setTool('zoom');
   else if(e.key==='P'&&e.shiftKey) setTool('polygon');   // pen took the P key
   else if(e.key==='p') setTool('pen');
@@ -4687,6 +5003,12 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get sel(){return sel;}, set sel(i){setSel(i); fxPage=0; refresh();},
   get selInstance(){return selInstance;},
   get view(){return view;},
+  get snapCfg(){return snapCfg;},
+  get guides(){return doc?doc.frame.guides:[];},
+  get snapLines(){return snapLines;},
+  get gapHints(){return gapHints;},
+  set alignTo(v){alignTo=v;}, get alignTo(){return alignTo;},
+  set showRulers(v){showRulers=v; paint();}, get showRulers(){return showRulers;},
   get enteredId(){return enteredId;},
   setSelIds, selObjs, allObjects, findById, activeList, primary,
   groupSel, ungroupSel, distributeSel, enterContainer, exitContainer,

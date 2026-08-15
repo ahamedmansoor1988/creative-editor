@@ -56,6 +56,14 @@
       <button data-cmd="zoomActual">100% <span>⌘1</span></button>
       <button data-cmd="zoom200">200% <span>⌘2</span></button>
       <button data-cmd="zoomSel">Fit selection <span>⇧2</span></button>
+      <button data-cmd="toggleRulers">Rulers <span>⇧⌘R</span></button>
+      <button data-cmd="toggleGrid">Grid <span>⌘'</span></button>
+      <button data-cmd="gridSettings">Grid settings…</button>
+      <button data-cmd="toggleSnap">Snapping <span>⇧⌘S</span></button>
+      <button data-cmd="toggleGuides">Show guides <span>⌘;</span></button>
+      <button data-cmd="addGuideV">Add vertical guide…</button>
+      <button data-cmd="addGuideH">Add horizontal guide…</button>
+      <button data-cmd="clearGuides">Clear guides</button>
     </div>
   </div>
   <div class="menu" data-menu="effects">Effects
@@ -248,6 +256,7 @@
 <script src="prism.js"></script>
 <script src="capsule.js"></script>
 <script src="boolean.js"></script>
+<script src="snap.js"></script>
 <script type="module">
   /* clipper2.mjs is an ES module and the app is classic scripts, so a tiny
      shim hands it over. Module scripts are deferred, so the boolean engine

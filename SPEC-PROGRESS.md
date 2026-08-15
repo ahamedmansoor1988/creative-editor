@@ -5,9 +5,15 @@ always in context. This file records what is DONE, PARTIAL, or DEFERRED so a
 future session can pick up without re-reading the whole app.
 
 ## §0 compliance state
-- No snapping implemented yet (constraint 1 not yet in play; when built: uniform
-  grid — never angular bins keyed on signed distance).
-- No ruler/guides yet (constraint 2 not yet in play).
+- Constraint 1 (snapping) SATISFIED: public/snap.js uses a UNIFORM SPATIAL
+  GRID — candidates bucketed by floor(coord/CELL), queries read the buckets
+  covering [q-tol, q+tol]. No angular binning, no signed distance from a
+  reference point, no binary search. The file opens with a warning block
+  saying so, because angular binning is the natural-feeling optimisation and
+  is exactly what the patent covers.
+- Constraint 2 (guides) SATISFIED: guides are created ONLY by dragging out of
+  a ruler or by numeric entry. Pressing a ruler and releasing without moving
+  deliberately creates nothing — verified behaviourally in the battery.
 - No raster-to-vector features exist (constraint 3 ✓).
 - All shaders hand-written or ported from the user's own apps — see
   SHADER-PROVENANCE.md (constraint 4 ✓).
@@ -255,6 +261,28 @@ future session can pick up without re-reading the whole app.
   module outright; and paintAppearance gated fills on `obj.closed`, which
   compound paths and boolean results never set (they carry contours in
   subpaths), so correct geometry rendered as nothing.
+
+### Session 8 — snapping, guides, rulers and grid: §2.10, §2.11, §6.4, §2.8
+- §2.10 Snapping: DONE. Targets are object edges, centres, path anchors,
+  guides, grid lines and artboard bounds, each with its own on/off switch.
+  Radius is in SCREEN pixels so it feels identical at every zoom. Cmd/Ctrl
+  suppresses it mid-drag. Applies to moves, axis-aligned resizes, new-shape
+  drawing and single-anchor node drags. Visual indicator drawn on snap.
+  IMPLEMENTATION IS A UNIFORM SPATIAL GRID — see the §0 note above.
+- §2.11 Alignment guides: DONE. Live snap lines during a drag, equal-spacing
+  indicators between three or more objects in a row, and guides created by
+  ruler-drag or numeric entry (never by tapping a ruler). Guides are per page,
+  draggable, snap to the grid, and round-trip through save/undo.
+- §6.4 Canvas: rulers with tick labels, the page extent highlighted, and a
+  live cursor marker; grid with size + subdivisions + show/snap. Remaining:
+  configurable background/checkerboard and multiple simultaneous views.
+- §2.8 Alignment COMPLETE: align relative to the selection, the artboard, or
+  the key (primary) object.
+- §1.2 anchor snapping (deferred in session 3) is now satisfied.
+- ONE bug caught: objects built by makeShape never pass through normalizeDoc,
+  so pen- and pencil-created paths had no `subpaths` array — boxOf reported no
+  bounds for them. Both ends fixed: makeShape builds the structure with the
+  alias identity intact, and boxOf falls back to the single-contour alias.
 
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
