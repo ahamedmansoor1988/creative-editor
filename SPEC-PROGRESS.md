@@ -12,8 +12,16 @@ future session can pick up without re-reading the whole app.
 - All shaders hand-written or ported from the user's own apps — see
   SHADER-PROVENANCE.md (constraint 4 ✓).
 - No GPL dependencies; currently ZERO runtime dependencies (constraints 5 ✓).
-- No licensed color data (constraint 6 ✓). Icons are unicode glyphs, not traced
-  artwork (constraint 7 ✓). Generic names in use (constraint 8 ✓).
+- No licensed color data (constraint 6 ✓). Generic names in use (constraint 8 ✓).
+- Constraint 7 (original icons) — DIRECTION CHANGED BY THE USER. The rail and
+  panel icons are now Lucide (ISC), vendored from lucide-static v1.31.0 with
+  the licence recorded in THIRD-PARTY-NOTICES.md. This is a licensed icon
+  library rather than artwork traced from another product, so the concern the
+  constraint was written against (copying a competitor's icon set) does not
+  apply — but the constraint as literally written is no longer satisfied, and
+  that is a deliberate decision, not an oversight.
+- Typography: Inter (SIL OFL 1.1), loaded from Google Fonts with the platform
+  stack as fallback. Also logged in THIRD-PARTY-NOTICES.md.
 
 ## Session log
 

@@ -1799,12 +1799,15 @@ if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ if(doc)
 function syncLayers(){
   const list=$('layerList'); list.innerHTML='';
   if(!doc) return;
-  const glyph={rect:'▭',ellipse:'◯',text:'T',polygon:'⬠',line:'╱',path:'✒',group:'▣',frame:'⛶'};
+  const ICO={rect:'rect',ellipse:'ellipse',text:'text',polygon:'polygon',
+             line:'line',path:'path',group:'group',frame:'frame'};
+  const gly=t=>`<span class="glyph">${window.Icons?Icons.svg(ICO[t]||'rect',{size:14}):''}</span>`;
   if(enteredId){
     const f=findById(enteredId);
     const bar=document.createElement('div');
     bar.className='isoBar';
-    bar.textContent='↰ '+(f?f.obj.name:'container');
+    bar.innerHTML=(window.Icons?Icons.svg('chevronLeft',{size:12}):'')
+      +'<span>'+(f?f.obj.name:'container')+'</span>';
     bar.title='Leave this container (Esc)';
     bar.addEventListener('click',()=>{ exitContainer(); });
     list.appendChild(bar);
@@ -1819,13 +1822,16 @@ function syncLayers(){
     r.style.paddingLeft=(8+depth*13)+'px';
     if(CONTAINER(c)){
       const tw=document.createElement('span');
-      tw.className='twisty'+(c.collapsed?'':' open');
-      tw.textContent='▸';
+      tw.className='twisty';
+      tw.innerHTML=window.Icons?Icons.svg(c.collapsed?'chevronRight':'chevronDown',{size:12}):'';
       tw.addEventListener('click',ev=>{ ev.stopPropagation(); c.collapsed=!c.collapsed; syncLayers(); });
       r.appendChild(tw);
     }
-    r.insertAdjacentHTML('beforeend',`<span class="glyph">${glyph[c.type]||'▭'}</span>`);
-    r.appendChild(document.createTextNode(c.type==='text'?c.text.slice(0,16):c.name));
+    r.insertAdjacentHTML('beforeend',gly(c.type));
+    const nm=document.createElement('span');
+    nm.className='lname';
+    nm.textContent=c.type==='text'?c.text:c.name;
+    r.appendChild(nm);
     const n=patternInstances(c).length;
     if(n){
       const badge=document.createElement('span');
@@ -1841,8 +1847,9 @@ function syncLayers(){
     const tgl=(kind,on,title,fn)=>{
       const b=document.createElement('button');
       b.type='button'; b.className='layerTgl'+(on?' on':'');
-      b.textContent=kind==='eye'?(on?'◡':'👁'):(on?'🔒':'🔓');
-      b.title=title;
+      const nm=kind==='eye'?(on?'eyeOff':'eye'):(on?'lock':'unlock');
+      b.innerHTML=window.Icons?Icons.svg(nm,{size:14}):'';
+      b.title=title; b.setAttribute('aria-label',title);
       b.addEventListener('click',ev=>{ ev.stopPropagation(); fn(); pushHistory(); refresh(); });
       r.appendChild(b);
     };
@@ -1998,6 +2005,9 @@ $('fxTitle').addEventListener('click',e=>{
 });
 document.addEventListener('click',closeFxMenu);
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFxMenu(); });
+
+/* Inline icon markup for panel templates; empty if icons.js is unavailable. */
+const IC=(n,sz)=>window.Icons?Icons.svg(n,{size:sz||14}):'';
 
 /* ---- engines panel ---- */
 function buildFx(obj){
@@ -2216,7 +2226,7 @@ function buildFx(obj){
     rowA('pHoles','Pattern holes',0,90,1,Math.round(E.holes*100),'%','Omits whole instances. Slots stay put; the parent is never removed.');
     wire('pJX',v=>E.jitterX=v); wire('pJY',v=>E.jitterY=v);
     wire('pHoles',v=>E.holes=v/100);
-    addA(`<button class="rollBtn" id="pRoll">↻ Reroll pattern</button>`);
+    addA(`<button class="rollBtn" id="pRoll">${IC('reset',13)} Reroll pattern</button>`);
     // Math.random is confined to this user action; layout stays pure.
     $('pRoll').addEventListener('click',()=>{ E.seed=Math.floor(Math.random()*99999999)||1; pushHistory(); refresh(); });
 
@@ -2241,9 +2251,9 @@ function buildFx(obj){
         add(`<div class="pSect">${page} ${fi+1}${fi===0?' (bottom)':''}</div>`);
         add(`<div class="apRow">
           <label class="chk" style="flex:1"><input type="checkbox" class="apOn" data-i="${fi}" ${f.on!==false?'checked':''}> Visible</label>
-          <button class="apUp" data-i="${fi}" title="Move up" ${fi===list.length-1?'disabled':''}>↑</button>
-          <button class="apDn" data-i="${fi}" title="Move down" ${fi===0?'disabled':''}>↓</button>
-          <button class="apDel" data-i="${fi}" title="Remove" ${list.length<=1&&(!isFill?obj.type==='path'||obj.type==='line':true)?'disabled':''}>×</button>
+          <button class="apUp" data-i="${fi}" title="Move up" aria-label="Move up" ${fi===list.length-1?'disabled':''}>${IC('chevronUp',13)}</button>
+          <button class="apDn" data-i="${fi}" title="Move down" aria-label="Move down" ${fi===0?'disabled':''}>${IC('chevronDown',13)}</button>
+          <button class="apDel" data-i="${fi}" title="Remove" aria-label="Remove" ${list.length<=1&&(!isFill?obj.type==='path'||obj.type==='line':true)?'disabled':''}>${IC('trash',13)}</button>
         </div>`);
         add(`<label class="slider">Type<select class="apKind" data-i="${fi}">
           <option value="solid">Solid</option><option value="linear">Linear gradient</option>
@@ -2267,7 +2277,7 @@ function buildFx(obj){
             add(`<div class="stopRow">
               <input type="color" class="apSC" data-i="${fi}" data-s="${si}" value="${st.color}">
               <input type="range" class="apSP" data-i="${fi}" data-s="${si}" min="0" max="100" value="${Math.round(st.pos*100)}">
-              <button class="stopDel apSD" data-i="${fi}" data-s="${si}" ${f.stops.length<=2?'disabled':''}>×</button>
+              <button class="stopDel apSD" data-i="${fi}" data-s="${si}" title="Remove stop" aria-label="Remove stop" ${f.stops.length<=2?'disabled':''}>${IC('x',12)}</button>
             </div>
             <div class="row2" style="margin:-4px 0 6px">
               <label class="slider" style="font-size:10px">Stop opacity
@@ -4361,6 +4371,10 @@ window.addEventListener('resize',render);
 setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
 
 /* test hook */
+(function hydrateIcons(){
+  if(window.Icons) Icons.hydrate(document);
+})();
+
 (function wirePencilOpts(){
   const t=$('pcTol'), sm=$('pcSmooth');
   if(!t) return;

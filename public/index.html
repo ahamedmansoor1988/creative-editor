@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Creative Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -73,21 +76,21 @@
 <!-- left: tools + pages/layers -->
 <div id="leftPanel" class="floating">
   <div id="toolsRail">
-    <button class="tool active" data-tool="select" title="Select (V)">➤</button>
-    <button class="tool" data-tool="node" title="Edit nodes (A) — anchors and handles">⊹</button>
-    <button class="tool" data-tool="pen" title="Pen (P) — click corners, drag smooth anchors; Enter/Esc ends, Backspace removes last">✒</button>
-    <button class="tool" data-tool="pencil" title="Pencil (N) — freehand, fitted to a smooth path">✏</button>
-    <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
-    <button class="tool" data-tool="ellipse" title="Ellipse (O)">◯</button>
-    <button class="tool" data-tool="polygon" title="Polygon / Star (⇧P) — drag to draw, shift for regular">⬠</button>
-    <button class="tool" data-tool="line" title="Line (L) — drag to draw, shift for 45°">╱</button>
-    <button class="tool" data-tool="text" title="Text (T)">T</button>
-    <button class="tool" data-tool="eyedrop" title="Eyedropper (I) — click to sample, shift 3×3, ⌘ 5×5, alt copies full appearance">💧</button>
-    <button class="tool" data-tool="crop" title="Crop (C) — drag the region the page should become">⛶</button>
-    <button class="tool" data-tool="zoom" title="Zoom (Z) — click in, alt-click out, drag a region">⌕</button>
+    <button class="tool active" data-tool="select" data-icon="select" aria-label="Select (V)" title="Select (V)"></button>
+    <button class="tool" data-tool="node" data-icon="node" aria-label="Edit nodes (A)" title="Edit nodes (A)"></button>
+    <button class="tool" data-tool="pen" data-icon="pen" aria-label="Pen (P)" title="Pen (P)"></button>
+    <button class="tool" data-tool="pencil" data-icon="pencil" aria-label="Pencil (N)" title="Pencil (N)"></button>
+    <button class="tool" data-tool="rect" data-icon="rect" aria-label="Rectangle (R)" title="Rectangle (R)"></button>
+    <button class="tool" data-tool="ellipse" data-icon="ellipse" aria-label="Ellipse (O)" title="Ellipse (O)"></button>
+    <button class="tool" data-tool="polygon" data-icon="polygon" aria-label="Polygon / Star (shift P)" title="Polygon / Star (shift P)"></button>
+    <button class="tool" data-tool="line" data-icon="line" aria-label="Line (L)" title="Line (L)"></button>
+    <button class="tool" data-tool="text" data-icon="text" aria-label="Text (T)" title="Text (T)"></button>
+    <button class="tool" data-tool="eyedrop" data-icon="eyedrop" aria-label="Eyedropper (I)" title="Eyedropper (I)"></button>
+    <button class="tool" data-tool="crop" data-icon="crop" aria-label="Crop (C)" title="Crop (C)"></button>
+    <button class="tool" data-tool="zoom" data-icon="zoom" aria-label="Zoom (Z)" title="Zoom (Z)"></button>
   </div>
   <div id="sidebar">
-    <div class="sideHead"><span>Pages</span><button id="btnNewPage" title="New page">＋</button></div>
+    <div class="sideHead"><span>Pages</span><button id="btnNewPage" data-icon="plus" aria-label="New page" title="New page"></button></div>
     <div id="pageList"></div>
     <div class="sideHead"><span>Layers</span></div>
     <div id="layerList"></div>
@@ -166,12 +169,12 @@
       <label>H<input type="number" id="pH" step="1"></label>
     </div>
     <div id="alignRow">
-      <button data-align="left" title="Align left">⇤</button>
-      <button data-align="hcenter" title="Center horizontally">⇹</button>
-      <button data-align="right" title="Align right">⇥</button>
-      <button data-align="top" title="Align top">⤒</button>
-      <button data-align="vcenter" title="Center vertically">⇳</button>
-      <button data-align="bottom" title="Align bottom">⤓</button>
+      <button data-align="left" data-icon="alignLeft" aria-label="Align left" title="Align left"></button>
+      <button data-align="hcenter" data-icon="alignHCenter" aria-label="Center horizontally" title="Center horizontally"></button>
+      <button data-align="right" data-icon="alignRight" aria-label="Align right" title="Align right"></button>
+      <button data-align="top" data-icon="alignTop" aria-label="Align top" title="Align top"></button>
+      <button data-align="vcenter" data-icon="alignVCenter" aria-label="Center vertically" title="Center vertically"></button>
+      <button data-align="bottom" data-icon="alignBottom" aria-label="Align bottom" title="Align bottom"></button>
     </div>
     <label class="slider">Opacity <span id="pOpacityV">100%</span>
       <input type="range" id="pOpacity" min="5" max="100" value="100">
@@ -191,10 +194,10 @@
         <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
       </select></label>
     <div id="alignRow" style="margin-top:2px">
-      <button id="trR90L" title="Rotate 90° counter-clockwise">↺</button>
-      <button id="trR90R" title="Rotate 90° clockwise">↻</button>
-      <button id="trFlipH" title="Flip horizontal">⇋</button>
-      <button id="trFlipV" title="Flip vertical">⇵</button>
+      <button id="trR90L" data-icon="rotateCcw" aria-label="Rotate 90 counter-clockwise" title="Rotate 90 counter-clockwise"></button>
+      <button id="trR90R" data-icon="rotateCw" aria-label="Rotate 90 clockwise" title="Rotate 90 clockwise"></button>
+      <button id="trFlipH" data-icon="flipH" aria-label="Flip horizontal" title="Flip horizontal"></button>
+      <button id="trFlipV" data-icon="flipV" aria-label="Flip vertical" title="Flip vertical"></button>
     </div>
   </div>
 
@@ -202,17 +205,19 @@
 
   <div id="engineSection" class="disabled">
     <div id="engineSearchWrap">
-      <input id="engineSearch" type="text" placeholder="🔍 Search engines…">
+      <span id="searchIcon" data-icon="search" aria-hidden="true"></span>
+      <input id="engineSearch" type="text" placeholder="Search engines…" aria-label="Search engines">
       <div id="engineResults"></div>
     </div>
     <div id="fxTitleWrap">
       <button id="fxTitle" aria-haspopup="true" aria-expanded="false">Fill</button>
+      <span id="fxCaret" data-icon="chevronDown" aria-hidden="true"></span>
       <div id="fxMenu" role="menu"></div>
     </div>
     <div id="fxBody"></div>
     <div id="fxPager">
-      <button id="fxPrev" title="Previous engine">‹</button>
-      <button id="fxNext" title="Next engine">›</button>
+      <button id="fxPrev" data-icon="chevronLeft" aria-label="Previous engine" title="Previous engine"></button>
+      <button id="fxNext" data-icon="chevronRight" aria-label="Next engine" title="Next engine"></button>
     </div>
   </div>
   <div id="noSel" class="hint">Select an element to edit it.</div>
@@ -220,8 +225,8 @@
 
 <!-- bottom: agentic bar -->
 <div id="agentBar" class="floating">
-  <button id="attachBtn" title="Attach one reference image (or Ctrl+V)">🖼</button>
-  <div id="attachChip" style="display:none"><img id="attachThumb" alt=""><button id="attachX">×</button></div>
+  <button id="attachBtn" data-icon="image" aria-label="Attach a reference image" title="Attach one reference image (or Ctrl+V)"></button>
+  <div id="attachChip" style="display:none"><img id="attachThumb" alt=""><button id="attachX" data-icon="x" data-icon-size="12" aria-label="Remove attached image" title="Remove image"></button></div>
   <input id="prompt" type="text" placeholder="Describe the creative… e.g. Generate the creative with red purple yellow color shades">
   <span id="agentStatus"></span>
   <button id="generateBtn">Generate</button>
@@ -234,6 +239,7 @@
 <script src="light.js"></script>
 <script src="prism.js"></script>
 <script src="capsule.js"></script>
+<script src="icons.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
