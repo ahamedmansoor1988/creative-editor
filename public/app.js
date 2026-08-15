@@ -41,6 +41,7 @@ let snapCfg={on:true, radius:7,
   edges:true, centers:true, anchors:true, guides:true, grid:true, artboard:true};
 let showRulers=true;
 let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
+let selArtboard=null;      // §6.5 the artboard whose panel is open
 let snapLines=[];        // live indicators, screen chrome only
 let gapHints=[];         // §2.11 equal-spacing indicators
 let guideDrag=null;      // dragging a guide out of a ruler, or moving one
@@ -265,6 +266,22 @@ function normalizeDoc(d){
     pos:clamp(+g.pos||0,-10000,10000),
     locked:!!g.locked,
   }));
+  /* §6.5 artboards. `frame` stays the PAGE canvas — every existing reader of
+   * frame.w/h/children keeps working — and artboards are named regions on it.
+   * Membership is GEOMETRIC (a child belongs to the artboard containing its
+   * centre), so nothing extra has to be stored on the objects and moving a
+   * shape between artboards is just moving it. A document with no artboards
+   * gets one covering the whole page, so old files are unchanged. */
+  f.artboards=(Array.isArray(f.artboards)?f.artboards:[]).slice(0,32).map((a,i)=>({
+    id:typeof a.id==='string'&&a.id?a.id:newId(),
+    name:String(a.name||('Artboard '+(i+1))).slice(0,60),
+    x:Math.round(+a.x||0), y:Math.round(+a.y||0),
+    w:clamp(Math.round(+a.w)||400,20,8000), h:clamp(Math.round(+a.h)||300,20,8000),
+    bg:/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff',
+    clip:a.clip!==false, show:a.show!==false,
+  }));
+  if(!f.artboards.length)
+    f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,clip:false,show:true}];
   // §6.4 grid
   const gr=f.grid||{};
   f.grid={size:clamp(+gr.size||20,1,500),
@@ -601,6 +618,23 @@ function pushHistory(label){
 function undo(){ if(HIST&&HIST.undo()) syncHistoryPanel(); }
 function redo(){ if(HIST&&HIST.redo()) syncHistoryPanel(); }
 function historyJump(i){ if(HIST&&HIST.jump(i)) syncHistoryPanel(); }
+
+/* ---- §6.5 artboards -------------------------------------------------- */
+/** The artboard an object sits in — the one containing its centre. Topmost
+ *  (last in the list) wins where artboards overlap. */
+function artboardOf(o){
+  if(!doc||!doc.frame.artboards) return null;
+  const b=aabbOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
+  const A=doc.frame.artboards;
+  for(let i=A.length-1;i>=0;i--){
+    const a=A[i];
+    if(cx>=a.x&&cx<=a.x+a.w&&cy>=a.y&&cy<=a.y+a.h) return a;
+  }
+  return null;
+}
+function objectsInArtboard(a){
+  return allObjects().filter(o=>artboardOf(o)===a);
+}
 
 /* ================= document tree (§6.9/§6.10) =================
  * Groups and frames hold their own `children`. Child coordinates stay
@@ -1229,8 +1263,29 @@ function isFirstOfGroup(obj){
 
 function drawDoc(c,W,H){
   const f=doc.frame;
-  c.fillStyle=f.bg; c.fillRect(0,0,W,H);
-  drawList(c,W,H,f.children);
+  c.clearRect(0,0,Math.max(W,f.w)+8000,Math.max(H,f.h)+8000);
+  c.fillStyle=f.bg; c.fillRect(0,0,f.w,f.h);
+  // §6.5: each artboard paints its own background before any content
+  (f.artboards||[]).forEach(a=>{
+    if(!a.show) return;
+    c.fillStyle=a.bg;
+    c.fillRect(a.x,a.y,a.w,a.h);
+  });
+  /* Artboards that CLIP need their members drawn inside a clip region, so the
+   * children are bucketed by artboard first. Anything outside every artboard,
+   * or inside a non-clipping one, draws normally in document order. */
+  const clippers=(f.artboards||[]).filter(a=>a.show&&a.clip);
+  if(!clippers.length){ drawList(c,W,H,f.children); return; }
+  f.children.forEach(o=>{
+    if(o.hidden) return;
+    const a=artboardOf(o);
+    if(a&&a.clip){
+      c.save();
+      c.beginPath(); c.rect(a.x,a.y,a.w,a.h); c.clip();
+      drawList(c,W,H,[o]);
+      c.restore();
+    }else drawList(c,W,H,[o]);
+  });
 }
 /* §3.8/§3.9: a container whose maskMode is not 'none' uses its TOP child as
  * the mask for everything beneath it inside that container.
@@ -1914,7 +1969,21 @@ function fitView(){
 function renderDoc(){
   if(!doc||doc.frame.children===undefined) return;
   const f=doc.frame;
-  frameBuf.width=f.w; frameBuf.height=f.h;
+  /* The buffer used to be exactly the page, which meant anything overflowing
+   * the page edge was cut by the BUFFER rather than by an artboard's clip
+   * setting. Now that artboards sit on an open canvas that is wrong, so the
+   * buffer grows to cover the artboards and the content. The origin stays at
+   * (0,0) so buffer coordinates remain page coordinates — the glass-family
+   * engines sample this buffer directly and must not be shifted. */
+  let bw=f.w, bh=f.h;
+  (f.artboards||[]).forEach(a=>{ bw=Math.max(bw,a.x+a.w); bh=Math.max(bh,a.y+a.h); });
+  allObjects().forEach(o=>{
+    if(o.hidden) return;
+    const b=aabbOf(o);
+    bw=Math.max(bw,b.x+b.w); bh=Math.max(bh,b.y+b.h);
+  });
+  frameBuf.width=Math.min(8000,Math.ceil(bw));
+  frameBuf.height=Math.min(8000,Math.ceil(bh));
   // Full frame resolution, no transform: the glass engines sample real pixels.
   drawDoc(frameBuf.getContext('2d'),f.w,f.h);
 }
@@ -2080,6 +2149,20 @@ function paint(){
       ctx.fillText('+',b.x+b.w-r,b.y+b.h-r);
     }
   });
+  // §6.5 artboard outlines and name labels — screen chrome, not content
+  (f.artboards||[]).forEach(a=>{
+    if(!a.show) return;
+    ctx.save();
+    const isSel=selArtboard===a.id;
+    ctx.strokeStyle=isSel?'#3b82f6':'#d6d9de';
+    ctx.lineWidth=(isSel?1.6:1)/z;
+    ctx.strokeRect(a.x,a.y,a.w,a.h);
+    ctx.font=`${11/z}px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.fillStyle=isSel?'#3b82f6':'#8a8d93';
+    ctx.textBaseline='bottom';
+    ctx.fillText(a.name,a.x,a.y-4/z);
+    ctx.restore();
+  });
   // §2.11 guides — full-viewport lines so they read outside the page too
   const vx0=-view.x/z, vy0=-view.y/z, vx1=(W-view.x)/z, vy1=(H-view.y)/z;
   if(!guidesHidden) (f.guides||[]).forEach((g,gi)=>{
@@ -2196,6 +2279,47 @@ function setHistoryLimit(n){
 // metrics; re-render once fonts settle so text is never left stale.
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ if(doc) render(); });
 
+let dragLayerId=null;
+/** §6.1 inline rename, committed on Enter or blur. */
+function startRename(span,obj){
+  const old=obj.type==='text'?obj.text:obj.name;
+  const inp=document.createElement('input');
+  inp.className='lrename'; inp.value=old;
+  span.replaceWith(inp);
+  inp.focus(); inp.select();
+  const done=commit=>{
+    if(commit&&inp.value.trim()){
+      if(obj.type==='text') obj.text=inp.value; else obj.name=inp.value.trim();
+      pushHistory('Rename');
+    }
+    refresh();
+  };
+  inp.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){ e.preventDefault(); done(true); }
+    if(e.key==='Escape'){ e.preventDefault(); done(false); }
+  });
+  inp.addEventListener('blur',()=>done(true));
+}
+/** §6.1 reorder / reparent by drag. `where` is above | below | into. */
+function moveLayer(srcId,dstId,where){
+  if(!srcId||srcId===dstId) return;
+  const S=findById(srcId), D=findById(dstId);
+  if(!S||!D) return;
+  // refuse to drop a container into its own subtree — that detaches the branch
+  let p=D.obj, guard=0;
+  while(p&&guard++<32){ if(p.id===srcId) return; const f=findById(p.id); p=f&&f.parent; }
+  S.list.splice(S.list.indexOf(S.obj),1);
+  if(where==='into'&&CONTAINER(D.obj)){ D.obj.children.push(S.obj); }
+  else{
+    const L=D.list, at=L.indexOf(D.obj);
+    // the panel lists top-of-stack first, so "above" in the UI is a HIGHER index
+    L.splice(where==='above'?at+1:at,0,S.obj);
+  }
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set([srcId]));
+  pushHistory('Reorder layers'); refresh();
+}
 function syncLayers(){
   const list=$('layerList'); list.innerHTML='';
   if(!doc) return;
@@ -2258,6 +2382,9 @@ function syncLayers(){
       c.hidden=!c.hidden;
       if(c.hidden&&selIds.has(c.id)){ selIds.delete(c.id); setSelIds(selIds); }
     });
+    // §6.1 colour label
+    if(c.label){ const dot=document.createElement('span');
+      dot.className='labelDot'; dot.style.background=c.label; r.appendChild(dot); }
     r.addEventListener('click',ev=>{
       selInstance=null; fxPage=0;
       if(ev.shiftKey){
@@ -2268,11 +2395,59 @@ function syncLayers(){
     });
     r.addEventListener('dblclick',ev=>{
       ev.stopPropagation();
-      if(CONTAINER(c)) enterContainer(c.id);
+      // §6.1 inline rename; containers still enter on double-click via
+      // their glyph, so renaming a group stays possible
+      if(CONTAINER(c)&&ev.target.closest('.glyph')){ enterContainer(c.id); return; }
+      startRename(nm,c);
+    });
+    // §6.1 colour label via right-click
+    r.addEventListener('contextmenu',ev=>{
+      ev.preventDefault();
+      const COLS=['','#ef4444','#f59e0b','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899'];
+      const cur=COLS.indexOf(c.label||'');
+      c.label=COLS[(cur+1)%COLS.length]||undefined;
+      pushHistory('Colour label'); refresh();
+    });
+    // §6.1 drag to reorder / reparent
+    r.draggable=true;
+    r.addEventListener('dragstart',ev=>{
+      dragLayerId=c.id;
+      ev.dataTransfer.effectAllowed='move';
+      try{ev.dataTransfer.setData('text/plain',c.id);}catch(_){}
+    });
+    r.addEventListener('dragover',ev=>{
+      if(!dragLayerId||dragLayerId===c.id) return;
+      ev.preventDefault();
+      const bb=r.getBoundingClientRect();
+      const frac=(ev.clientY-bb.top)/bb.height;
+      r.dataset.drop=CONTAINER(c)&&frac>0.3&&frac<0.7?'into':(frac<0.5?'above':'below');
+      r.classList.add('dropTarget');
+    });
+    r.addEventListener('dragleave',()=>{ r.classList.remove('dropTarget'); delete r.dataset.drop; });
+    r.addEventListener('drop',ev=>{
+      ev.preventDefault();
+      r.classList.remove('dropTarget');
+      const where=r.dataset.drop||'above';
+      delete r.dataset.drop;
+      moveLayer(dragLayerId,c.id,where);
+      dragLayerId=null;
     });
     list.appendChild(r);
     if(CONTAINER(c)&&!c.collapsed) [...(c.children||[])].reverse().forEach(k=>row(k,depth+1));
   };
+  const q=(($('layerSearch')||{}).value||'').trim().toLowerCase();
+  if(q){
+    // §6.1 search: a flat list of matches by name or type, hierarchy set aside
+    const hits=allObjects().filter(c=>
+      (c.name||'').toLowerCase().includes(q)||c.type.toLowerCase().includes(q)||
+      (c.type==='text'&&(c.text||'').toLowerCase().includes(q)));
+    if(!hits.length){
+      const d=document.createElement('div');
+      d.className='hint'; d.textContent='No layers match';
+      list.appendChild(d);
+    }else hits.reverse().forEach(c=>row(c,0));
+    return;
+  }
   [...doc.frame.children].reverse().forEach(c=>row(c,0));
 }
 
@@ -4464,6 +4639,143 @@ function rotateSel(delta){
   pushHistory(); refresh();
 }
 
+/* ---- §6.5 artboard commands ---- */
+const AB_PRESETS=[['Landscape',900,600],['Square',1080,1080],['Wide',1600,900],
+  ['Portrait',1080,1350],['Story',1080,1920],['A4 @96dpi',794,1123]];
+function addArtboard(w,h,name){
+  if(!doc) return;
+  const A=doc.frame.artboards;
+  // place it to the RIGHT of everything so far, with a comfortable gutter
+  const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),0);
+  const a={id:newId(),name:name||('Artboard '+(A.length+1)),
+    x:A.length?right+80:0, y:0, w:w||900, h:h||600, bg:'#ffffff', clip:true, show:true};
+  A.push(a);
+  growFrameToArtboards();
+  selArtboard=a.id;
+  pushHistory('Add artboard'); refresh();
+}
+function duplicateArtboard(id){
+  const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
+  if(i<0) return;
+  const src=A[i];
+  const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),0);
+  const dx=right+80-src.x, dy=0;
+  const copy={...src,id:newId(),name:src.name+' copy',x:src.x+dx,y:src.y+dy};
+  // the artboard's CONTENT comes with it
+  const kids=objectsInArtboard(src).filter(o=>listOf(o)===doc.frame.children);
+  const clones=kids.map(o=>{ const c=JSON.parse(JSON.stringify(o)); reid(c);
+    translateObj(c,dx,dy); return c; });
+  A.splice(i+1,0,copy);
+  doc.frame.children.push(...clones);
+  growFrameToArtboards();
+  selArtboard=copy.id;
+  pushHistory('Duplicate artboard'); refresh();
+}
+function removeArtboard(id,withContent){
+  const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
+  if(i<0||A.length<=1) return;
+  const a=A[i];
+  if(withContent){
+    const kill=new Set(objectsInArtboard(a).map(o=>o.id));
+    const prune=list=>{ for(let j=list.length-1;j>=0;j--){
+      if(kill.has(list[j].id)) list.splice(j,1);
+      else if(CONTAINER(list[j])) prune(list[j].children); } };
+    prune(doc.frame.children);
+  }
+  A.splice(i,1);
+  selArtboard=null;
+  pushHistory('Delete artboard'); refresh();
+}
+function moveArtboard(id,dir){
+  const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
+  const j=i+dir;
+  if(i<0||j<0||j>=A.length) return;
+  [A[i],A[j]]=[A[j],A[i]];
+  pushHistory('Reorder artboards'); refresh();
+}
+/** The page canvas has to cover every artboard, or content falls off it. */
+function growFrameToArtboards(){
+  const f=doc.frame;
+  let w=f.w, h=f.h;
+  (f.artboards||[]).forEach(a=>{ w=Math.max(w,a.x+a.w); h=Math.max(h,a.y+a.h); });
+  f.w=clamp(Math.ceil(w),100,8000); f.h=clamp(Math.ceil(h),100,8000);
+}
+/** §6.5: export one artboard on its own. */
+function exportArtboard(id){
+  const a=(doc.frame.artboards||[]).find(x=>x.id===id);
+  if(!a) return;
+  const c=document.createElement('canvas');
+  c.width=Math.round(a.w); c.height=Math.round(a.h);
+  const cx=c.getContext('2d');
+  cx.translate(-a.x,-a.y);
+  drawDoc(cx,doc.frame.w,doc.frame.h);
+  c.toBlob(b=>{
+    const u=URL.createObjectURL(b), el=document.createElement('a');
+    el.href=u; el.download=(a.name||'artboard')+'.png'; el.click();
+    setTimeout(()=>URL.revokeObjectURL(u),2000);
+  },'image/png');
+}
+function exportAllArtboards(){
+  (doc.frame.artboards||[]).forEach((a,i)=>setTimeout(()=>exportArtboard(a.id),i*350));
+}
+
+/* ---- §6.6 page commands ---- */
+function duplicatePage(i){
+  if(i<0||i>=pages.length) return;
+  const copy=JSON.parse(JSON.stringify(pages[i]));
+  copy.frame.name=(copy.frame.name||'Page')+' copy';
+  // fresh ids throughout, or the two pages share identity
+  const reidAll=list=>list.forEach(o=>{ o.id=newId(); if(CONTAINER(o)) reidAll(o.children||[]); });
+  reidAll(copy.frame.children||[]);
+  (copy.frame.artboards||[]).forEach(a=>a.id=newId());
+  pages.splice(i+1,0,copy);
+  setActivePage(i+1);
+  pushHistory('Duplicate page'); refresh();
+}
+function movePage(i,dir){
+  const j=i+dir;
+  if(i<0||j<0||j>=pages.length) return;
+  const cur=pages[pageIdx];
+  [pages[i],pages[j]]=[pages[j],pages[i]];
+  setActivePage(pages.indexOf(cur));
+  pushHistory('Reorder pages'); refresh();
+}
+function renamePage(i){
+  const p=pages[i]; if(!p) return;
+  const n=prompt('Page name:',p.frame.name||'Page');
+  if(n===null) return;
+  p.frame.name=n.trim()||p.frame.name;
+  pushHistory('Rename page'); refresh();
+}
+function deletePage(i){
+  if(pages.length<=1||i<0) return;
+  if(!confirm(`Delete "${pages[i].frame.name}" and everything on it?`)) return;
+  pages.splice(i,1);
+  setActivePage(Math.min(i,pages.length-1));
+  setSel(-1);
+  pushHistory('Delete page'); refresh();
+}
+/** §6.6 cross-page paste, styles intact — the objects are copied whole. */
+let pageClip=null;
+function copySel(){
+  const os=selObjs();
+  if(!os.length) return;
+  pageClip=JSON.parse(JSON.stringify(os));
+  status(`Copied ${os.length} object${os.length===1?'':'s'}`);
+}
+function pasteClip(){
+  if(!pageClip||!doc) return;
+  const made=[];
+  pageClip.forEach(o=>{
+    const c=JSON.parse(JSON.stringify(o));
+    reid(c); translateObj(c,20,20);
+    activeList().push(c); made.push(c.id);
+  });
+  setActiveDoc(normalizeDoc(doc));
+  setSelIds(new Set(made));
+  pushHistory('Paste'); refresh();
+}
+
 /* ---- §6.9 groups / §6.10 frames ---- */
 function groupSel(asFrame){
   const os=selObjs().filter(o=>!o.locked);
@@ -4969,15 +5281,77 @@ function syncHistoryPanel(){
     foot.textContent=`${rows.length} step${rows.length===1?'':'s'} · ${kb} KB · limit ${HIST.limit}`;
   }
 }
+const rowBtn=(row,icon,title,fn,dis)=>{
+  const b=document.createElement('button');
+  b.type='button'; b.className='rowBtn'; b.title=title;
+  b.setAttribute('aria-label',title);
+  b.innerHTML=IC(icon,12);
+  if(dis) b.disabled=true;
+  b.addEventListener('click',ev=>{ ev.stopPropagation(); fn(); });
+  row.appendChild(b); return b;
+};
 function syncPageRow(){
   const list=$('pageList'); list.innerHTML='';
   pages.forEach((pg,i)=>{
     const row=document.createElement('div');
     row.className='pageRow'+(i===pageIdx?' sel':'');
-    row.textContent=pg.frame.name;
-    row.title=`${pg.frame.w}×${pg.frame.h}`;
+    const nm=document.createElement('span');
+    nm.className='pName'; nm.textContent=pg.frame.name;
+    row.appendChild(nm);
+    row.title=`${pg.frame.w}×${pg.frame.h} — double-click to rename`;
+    rowBtn(row,'chevronUp','Move page up',()=>movePage(i,-1),i===0);
+    rowBtn(row,'chevronDown','Move page down',()=>movePage(i,1),i===pages.length-1);
+    rowBtn(row,'duplicate','Duplicate page',()=>duplicatePage(i));
+    rowBtn(row,'trash','Delete page',()=>deletePage(i),pages.length<=1);
     row.addEventListener('click',()=>{
-      setActivePage(i); setSel(-1); selInstance=null; refresh();
+      setActivePage(i); setSel(-1); selInstance=null; selArtboard=null; refresh();
+    });
+    row.addEventListener('dblclick',ev=>{ ev.stopPropagation(); renamePage(i); });
+    list.appendChild(row);
+  });
+  syncArtboardRow();
+}
+/* §6.5 artboard list — the same affordances as pages. */
+function syncArtboardRow(){
+  const list=$('artboardList');
+  if(!list) return;
+  list.innerHTML='';
+  if(!doc) return;
+  (doc.frame.artboards||[]).forEach(a=>{
+    const row=document.createElement('div');
+    row.className='pageRow'+(selArtboard===a.id?' sel':'')+(a.show?'':' isHidden');
+    const nm=document.createElement('span');
+    nm.className='pName'; nm.textContent=a.name;
+    row.appendChild(nm);
+    const cnt=document.createElement('span');
+    cnt.className='linkBadge'; cnt.textContent=String(objectsInArtboard(a).length);
+    cnt.title='objects on this artboard';
+    row.appendChild(cnt);
+    row.title=`${a.w}×${a.h} — double-click to rename`;
+    rowBtn(row,'eye',a.show?'Hide artboard':'Show artboard',()=>{
+      a.show=!a.show; pushHistory('Artboard visibility'); refresh(); });
+    rowBtn(row,'download','Export this artboard',()=>exportArtboard(a.id));
+    rowBtn(row,'duplicate','Duplicate artboard',()=>duplicateArtboard(a.id));
+    rowBtn(row,'trash','Delete artboard',()=>{
+      const n=objectsInArtboard(a).length;
+      const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
+      removeArtboard(a.id,withContent);
+    },(doc.frame.artboards||[]).length<=1);
+    row.addEventListener('click',()=>{
+      selArtboard=a.id;
+      const stage=$('stage'), pad=60;
+      const zz=clamp(Math.min((stage.clientWidth-2*pad)/a.w,(stage.clientHeight-2*pad)/a.h),0.02,4);
+      view.z=zz; view.mode='free';
+      view.x=stage.clientWidth/2-(a.x+a.w/2)*zz;
+      view.y=stage.clientHeight/2-(a.y+a.h/2)*zz;
+      refresh();
+    });
+    row.addEventListener('dblclick',ev=>{
+      ev.stopPropagation();
+      const n=prompt('Artboard name:',a.name);
+      if(n===null) return;
+      a.name=n.trim()||a.name;
+      pushHistory('Rename artboard'); refresh();
     });
     list.appendChild(row);
   });
@@ -5027,10 +5401,32 @@ $('npCreate').addEventListener('click',createPage);
 $('npCancel').addEventListener('click',closePageModal);
 $('pageModal').addEventListener('click',e=>{ if(e.target.id==='pageModal') closePageModal(); });
 $('btnNewPage').addEventListener('click',openPageModal);
+$('btnNewArtboard').addEventListener('click',()=>addArtboard());
+$('layerSearch').addEventListener('input',()=>syncLayers());
+$('layerSearch').addEventListener('keydown',e=>{
+  e.stopPropagation();
+  if(e.key==='Escape'){ e.target.value=''; syncLayers(); e.target.blur(); }
+});
 
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
+  addArtboard(){ addArtboard(); },
+  artboardPreset(){
+    const list=AB_PRESETS.map((p,i)=>`${i+1}. ${p[0]} ${p[1]}×${p[2]}`).join('\n');
+    const v=prompt('New artboard size:\n\n'+list+'\n\nEnter a number, or W×H',
+      '1');
+    if(!v) return;
+    const n=parseInt(v,10);
+    if(n>=1&&n<=AB_PRESETS.length){ const p=AB_PRESETS[n-1]; addArtboard(p[1],p[2],p[0]); return; }
+    const m=v.match(/(\d+)\s*[x×,\s]\s*(\d+)/);
+    if(m) addArtboard(+m[1],+m[2]);
+  },
+  exportArtboards(){ exportAllArtboards(); },
+  copy:copySel, paste:pasteClip,
+  duplicatePage(){ duplicatePage(pageIdx); },
+  renamePage(){ renamePage(pageIdx); },
+  deletePage(){ deletePage(pageIdx); },
   historyLimit(){
     const v=prompt('History depth (10–2000 steps):',String(HIST?HIST.limit:200));
     const n=parseFloat(v); if(Number.isFinite(n)) setHistoryLimit(n);
@@ -5094,6 +5490,8 @@ document.addEventListener('keydown',e=>{
   else if(meta&&e.key.toLowerCase()==='g'&&!e.shiftKey){ e.preventDefault(); groupSel(false); }
   else if(meta&&e.shiftKey&&e.key.toLowerCase()==='g'){ e.preventDefault(); ungroupSel(); }
   else if(meta&&e.altKey&&e.key.toLowerCase()==='f'){ e.preventDefault(); groupSel(true); }
+  else if(meta&&e.key.toLowerCase()==='c'){ e.preventDefault(); copySel(); }
+  else if(meta&&e.key.toLowerCase()==='v'){ e.preventDefault(); pasteClip(); }
   else if(meta&&e.key.toLowerCase()==='a'){ e.preventDefault(); selectAllCmd(); }
   else if(meta&&e.shiftKey&&e.key.toLowerCase()==='i'){ e.preventDefault(); invertSelCmd(); }
   else if(meta&&e.key==='0'){ e.preventDefault(); view.mode='fit'; paint(); }
@@ -5305,6 +5703,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get enteredId(){return enteredId;},
   setSelIds, selObjs, allObjects, findById, activeList, primary,
   groupSel, ungroupSel, distributeSel, enterContainer, exitContainer,
+  artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
+  exportArtboard, duplicatePage, movePage, renamePage, deletePage,
+  copySel, pasteClip, moveLayer,
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,

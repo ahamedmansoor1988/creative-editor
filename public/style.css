@@ -573,3 +573,32 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .histRow .hName{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;}
 .histRow .hOps{flex:0 0 auto; font-size:9px; opacity:.7;}
 #historyFoot{font-size:10px; color:var(--muted); padding:0 8px 4px;}
+
+/* §6.5 artboards + §6.6 page rows + §6.1 layer affordances */
+#artboardList{margin-bottom:12px;}
+.pageRow{display:flex; align-items:center; gap:4px; position:relative; padding-right:4px;}
+.pageRow .pName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
+.pageRow.isHidden{opacity:.45;}
+.rowBtn{
+  flex:0 0 18px; width:18px; height:18px; padding:0; border:0; background:none;
+  border-radius:4px; cursor:pointer; color:var(--muted); opacity:0;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.pageRow:hover .rowBtn, #layerList div:hover .rowBtn{opacity:.75;}
+.rowBtn:hover:not(:disabled){background:#e5e7eb; opacity:1; color:var(--text);}
+.rowBtn:disabled{opacity:0 !important; cursor:default;}
+#layerSearch{
+  width:100%; border:1px solid var(--line); border-radius:7px; padding:5px 8px;
+  font:inherit; font-size:var(--text-xs); background:#fafafa; margin-bottom:6px;
+}
+#layerSearch:focus{outline:0; border-color:var(--accent); background:#fff;}
+.lrename{
+  flex:1 1 auto; min-width:0; border:1px solid var(--accent); border-radius:4px;
+  padding:1px 4px; font:inherit; font-size:var(--text-xs); background:#fff;
+}
+#layerList .labelDot{
+  flex:0 0 6px; width:6px; height:6px; border-radius:50%; margin-left:2px;
+}
+#layerList div.dropTarget{box-shadow:inset 0 2px 0 var(--accent);}
+#layerList div.dropTarget[data-drop="below"]{box-shadow:inset 0 -2px 0 var(--accent);}
+#layerList div.dropTarget[data-drop="into"]{box-shadow:inset 0 0 0 2px var(--accent);}

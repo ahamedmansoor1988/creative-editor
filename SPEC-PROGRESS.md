@@ -345,6 +345,29 @@ future session can pick up without re-reading the whole app.
       normaliser over the object instead of keeping a second, drifting copy of
       the rules.
 
+### Session 11 — artboards, pages, layer panel: §6.5, §6.6, §6.1
+- §6.5 Artboards: DONE. `frame` stays the PAGE canvas so every existing reader
+  of frame.w/h/children is untouched; artboards are named regions on it.
+  Membership is GEOMETRIC — a child belongs to the artboard containing its
+  centre — so nothing extra is stored per object and moving a shape between
+  artboards is just moving it. Multiple per page, size presets plus custom,
+  reorder, rename, per-artboard background, show/hide, content clipping
+  (toggleable), export one or export every artboard. A document with no
+  artboards gets one covering the page, so old files load unchanged.
+- §6.6 Pages COMPLETE: reorder, duplicate (with fresh ids throughout, so the
+  copy shares no identity), rename, delete, and cross-page copy/paste that
+  keeps styles.
+- §6.1 Layers COMPLETE except thumbnails: inline rename, drag to reorder AND
+  reparent (with a guard against dropping a container into its own subtree),
+  search/filter by name, type or text content, and colour labels via
+  right-click. Thumbnails deferred — rendering a preview per row per refresh
+  is the one item here with a real performance cost.
+- Buffer sizing fixed as a consequence: the render buffer was exactly the
+  page, so content overflowing the page edge was cut by the BUFFER rather than
+  by an artboard's clip setting. It now covers the artboards and the content.
+  The origin stays at (0,0) so buffer coordinates remain page coordinates —
+  the glass-family engines sample it directly and must not be shifted.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4
