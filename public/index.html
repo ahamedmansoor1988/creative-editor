@@ -43,6 +43,7 @@
     <div class="dropdown">
       <button data-fx="Pattern">Pattern</button>
       <button data-fx="Fill">Fill</button>
+      <button data-fx="Stroke">Stroke</button>
       <button data-fx="Gradient">Gradient</button>
       <button data-fx="Light">Light</button>
       <button data-fx="Prism">Prism</button>
@@ -52,6 +53,8 @@
       <button data-fx="Glass">Glass</button>
       <button data-fx="Glass 2">Glass 2</button>
       <button data-fx="Shadow">Shadow</button>
+      <button data-fx="Inner Shadow">Inner Shadow</button>
+      <button data-fx="Glow">Glow</button>
       <button data-fx="Grain">Grain</button>
     </div>
   </div>
@@ -169,6 +172,14 @@
       <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
       <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
     </div>
+    <label class="slider" style="margin-top:2px">Blend mode
+      <select id="objBlend">
+        <option>normal</option><option>multiply</option><option>screen</option>
+        <option>overlay</option><option>darken</option><option>lighten</option>
+        <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
+        <option>soft-light</option><option>difference</option><option>exclusion</option>
+        <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
+      </select></label>
     <div id="alignRow" style="margin-top:2px">
       <button id="trR90L" title="Rotate 90° counter-clockwise">↺</button>
       <button id="trR90R" title="Rotate 90° clockwise">↻</button>

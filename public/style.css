@@ -402,3 +402,13 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #pencilOpts label{display:block; margin:4px 0;}
 #pencilOpts span{float:right; color:var(--text);}
 #pencilOpts input{width:100%; accent-color:var(--accent);}
+
+/* stacked fill/stroke entry rows */
+#fxBody .apRow{display:flex; align-items:center; gap:4px; margin:4px 0;}
+#fxBody .apRow button{
+  width:22px; height:22px; padding:0; line-height:1; border:1px solid var(--line);
+  border-radius:5px; background:none; color:var(--muted); cursor:pointer; font-size:12px;
+}
+#fxBody .apRow button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
+#fxBody .apRow button:disabled{opacity:.3; cursor:default;}
+#fxBody .apRow .apDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}

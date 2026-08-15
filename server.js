@@ -41,7 +41,9 @@ Each child is one of:
 {"type":"line","name":string,"x":n,"y":n,"x2":n,"y2":n,"stroke":{"width":1-60,"color":"#hex"},"arrowStart":"none"|"triangle"|"open"|"circle"|"bar","arrowEnd":same,"arrowSize":4-60,"opacity":0..1}
 {"type":"path","name":string,"points":[{"x":n,"y":n,"ox":n,"oy":n,"ix":n,"iy":n}],"closed":bool,"fillOn":bool,"stroke":{"width":0-60,"color":"#hex"},"fill":FILL,"opacity":0..1} (cubic bezier chain; ox/oy = out-handle offset from the anchor, ix/iy = in-handle; zero handles = straight segments)
 {"type":"text","name":string,"x":n,"y":n,"text":string,"size":n,"weight":400|600|800,"color":"#hex","align":"left"|"center"|"right","mode":"point"|"area","w":n,"h":n,"lineHeight":0.7-3,"tracking":px} (area mode wraps into w×h)
-FILL is {"kind":"solid","color":"#hex"} or {"kind":"linear","angle":deg,"stops":[{"pos":0,"color":"#hex"},{"pos":1,"color":"#hex"}]} (2-4 stops) or {"kind":"radial","stops":[...]}.
+FILL is {"kind":"solid","color":"#hex"} or {"kind":"linear","angle":deg,"stops":[{"pos":0,"color":"#hex","opacity":0..1},{"pos":1,"color":"#hex"}]} (2-8 stops) or {"kind":"radial","stops":[...],"fx":-1..1,"fy":-1..1,"aspect":0.2-5}.
+Any rect/ellipse/polygon/path may also use "fills":[FILL,...] for STACKED fills (bottom first) and "strokes":[{...FILL,"width":n,"align":"center"|"inside"|"outside","cap":"butt"|"round"|"square","join":"miter"|"round"|"bevel","dash":[12,6],"dashOffset":n}] for strokes. Each fill/stroke also takes "opacity":0..1 and "blend":BLEND. Objects take "blend":BLEND, "fillOpacity", "strokeOpacity".
+BLEND is one of normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity.
 Rules: coordinates are absolute px inside the frame; 3-10 children; x,y,w,h within bounds; design deliberately - strong palette, clear hierarchy, generous negative space; text must fit its area (size*0.6*chars <= available width).`;
 
 /* Engine/effect registry. Only entries RELEVANT to a request are injected

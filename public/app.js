@@ -38,7 +38,11 @@ let selIds=new Set();
 let fxDraft=false;
 
 const DEFAULT_EFFECTS=()=>({
-  shadow:{on:false,x:0,y:6,blur:18,color:'#000000',alpha:0.25},
+  shadow:{on:false,x:0,y:6,blur:18,spread:0,color:'#000000',alpha:0.25,blend:'normal'},
+  // §4.10 inner shadow — same parameter set, cast inward from the edges
+  innerShadow:{on:false,x:0,y:4,blur:12,spread:0,color:'#000000',alpha:0.35,blend:'normal'},
+  // §4.11 glow — outer or inner, with a falloff curve
+  glow:{on:false,type:'outer',radius:18,spread:0,color:'#ffffff',alpha:0.7,falloff:1,blend:'normal'},
   grain:{amount:0},
   // Clear Glass defaults from the locked standalone glass app
   glass:{on:false,depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -162,6 +166,79 @@ function normalizePattern(raw){
   return out;
 }
 
+const CAPS=['butt','round','square'], JOINS=['miter','round','bevel'];
+const STROKE_ALIGN=['center','inside','outside'];
+/** One fill entry: solid / linear / radial, with its own opacity + blend. */
+function normPaint(f,dflt){
+  f=f&&typeof f==='object'?f:{};
+  const kind=['solid','linear','radial'].includes(f.kind)?f.kind:'solid';
+  const out={kind, on:f.on!==false,
+    opacity:clamp(f.opacity===undefined?1:+f.opacity,0,1),
+    blend:BLEND_MODES.includes(f.blend)?f.blend:'normal'};
+  if(kind==='solid'){
+    out.color=/^#[0-9a-fA-F]{6}$/.test(f.color||'')?f.color:(dflt||'#cccccc');
+  }else{
+    out.stops=(Array.isArray(f.stops)?f.stops:[]).slice(0,8).map(st=>({
+      pos:clamp(+st.pos||0,0,1),
+      color:/^#[0-9a-fA-F]{6}$/.test(st.color||'')?st.color:'#888888',
+      opacity:clamp(st.opacity===undefined?1:+st.opacity,0,1),
+      mid:clamp(st.mid===undefined?0.5:+st.mid,0.05,0.95),
+    }));
+    while(out.stops.length<2) out.stops.push({pos:out.stops.length?1:0,
+      color:out.stops.length?'#333333':(dflt||'#cccccc'),opacity:1,mid:0.5});
+    out.angle=((+f.angle||0)%360+360)%360;
+    out.space=['srgb','linear','oklab'].includes(f.space)?f.space:'srgb';
+    if(kind==='radial'){
+      out.fx=clamp(+f.fx||0,-1,1); out.fy=clamp(+f.fy||0,-1,1);
+      out.aspect=clamp(+f.aspect||1,0.2,5);
+    }
+  }
+  return out;
+}
+/** One stroke entry: a paint plus geometry (§4.2). */
+function normStroke(k,dfltColor){
+  k=k&&typeof k==='object'?k:{};
+  const out=normPaint(k,dfltColor||'#111111');
+  out.width=clamp(+k.width===0?0:(+k.width||1),0,200);
+  out.align=STROKE_ALIGN.includes(k.align)?k.align:'center';
+  out.cap=CAPS.includes(k.cap)?k.cap:'butt';
+  out.join=JOINS.includes(k.join)?k.join:'miter';
+  out.miter=clamp(+k.miter||10,1,50);
+  out.dash=(Array.isArray(k.dash)?k.dash:[]).slice(0,8)
+    .map(v=>clamp(+v||0,0,500)).filter((v,i,a)=>true);
+  out.dashOffset=clamp(+k.dashOffset||0,-1000,1000);
+  out.scaleWith=k.scaleWith!==false;
+  return out;
+}
+/* Migrate the legacy single `fill` / `stroke` into the stacked arrays, and
+ * keep the old field as a LIVE ALIAS of entry 0 so every existing reader
+ * (engines, eyedropper, blob flood) keeps working unchanged. */
+function normAppearance(c){
+  const dflt=(c.fill&&c.fill.color)||'#d9d9d9';
+  let fills=Array.isArray(c.fills)?c.fills:(c.fill?[c.fill]:null);
+  if(c.type==='text'||c.type==='line') fills=null;
+  if(fills){
+    c.fills=fills.slice(0,8).map(f=>normPaint(f,dflt));
+    if(!c.fills.length) c.fills=[normPaint({},dflt)];
+    c.fill=c.fills[0];
+  }else{ delete c.fills; }
+  const needsStroke=['rect','ellipse','polygon','path','line'].includes(c.type);
+  if(needsStroke){
+    let st=Array.isArray(c.strokes)?c.strokes:(c.stroke?[c.stroke]:[]);
+    c.strokes=st.slice(0,8).map(k=>normStroke(k,(c.stroke&&c.stroke.color)||'#111111'));
+    // paths and lines are stroke-defined: they always keep one
+    if(!c.strokes.length&&(c.type==='path'||c.type==='line'))
+      c.strokes=[normStroke({width:c.type==='line'?4:3},'#111111')];
+    c.stroke=c.strokes[0];
+  }else{ delete c.strokes; delete c.stroke; }
+  // §4.3 / §4.4 object-level
+  c.fillOpacity=clamp(c.fillOpacity===undefined?1:+c.fillOpacity,0,1);
+  c.strokeOpacity=clamp(c.strokeOpacity===undefined?1:+c.strokeOpacity,0,1);
+  c.blend=BLEND_MODES.includes(c.blend)?c.blend:'normal';
+  c.isolate=!!c.isolate;
+  c.knockout=!!c.knockout;
+}
+
 function normalizeDoc(d){
   const f=d.frame;
   f.w=clamp(+f.w||900,100,4000); f.h=clamp(+f.h||600,100,4000);
@@ -191,23 +268,16 @@ function normalizeDoc(d){
         m:['corner','smooth','asym','free'].includes(p.m)?p.m:'corner',
       }));
       c.closed=!!c.closed; c.fillOn=!!c.fillOn;
-      const st=c.stroke||{};
-      c.stroke={width:clamp(+st.width===0?0:(+st.width||3),0,100),
-                color:/^#[0-9a-fA-F]{6}$/.test(st.color||'')?st.color:'#111111'};
       c.x=+c.x||0; c.y=+c.y||0;
-      if(!c.fill||!c.fill.kind) c.fill={kind:'solid',color:'#d9d9d9'};
       delete c.pattern;
     }else if(c.type==='line'){
       c.x2=Number.isFinite(+c.x2)?+c.x2:c.x+160;
       c.y2=Number.isFinite(+c.y2)?+c.y2:c.y;
-      const st=c.stroke||{};
-      c.stroke={width:clamp(+st.width||4,1,100),
-                color:/^#[0-9a-fA-F]{6}$/.test(st.color||'')?st.color:'#111111'};
       const HEADS=['none','triangle','open','circle','bar'];
       c.arrowStart=HEADS.includes(c.arrowStart)?c.arrowStart:'none';
       c.arrowEnd=HEADS.includes(c.arrowEnd)?c.arrowEnd:'none';
       c.arrowSize=clamp(+c.arrowSize||12,4,60);
-      delete c.pattern; delete c.fill;
+      delete c.pattern;
     }else{
       c.w=Math.max(4,+c.w||100); c.h=Math.max(4,+c.h||100);
       c.radius=clamp(+c.radius||0,0,300);
@@ -224,13 +294,8 @@ function normalizeDoc(d){
         c.sides=clamp(Math.round(+c.sides)||5,3,24);
         c.innerRatio=c.innerRatio===undefined?1:clamp(+c.innerRatio,0.1,1);
       }
-      if(!c.fill||!c.fill.kind) c.fill={kind:'solid',color:'#cccccc'};
-      if(c.fill.kind!=='solid'){
-        c.fill.stops=(c.fill.stops||[]).slice(0,4).map(s=>({pos:clamp(+s.pos||0,0,1),color:s.color||'#888888'}));
-        while(c.fill.stops.length<2) c.fill.stops.push({pos:1,color:'#333333'});
-        c.fill.angle=+c.fill.angle||0;
-      }
     }
+    normAppearance(c);
     {
       // deep-merge per effect: the model may send partial objects like
       // {"shadow":{"on":true}} and must not wipe the other fields
@@ -238,7 +303,22 @@ function normalizeDoc(d){
       const sh=Object.assign(de.shadow, ce.shadow||{});
       sh.on=!!sh.on; sh.x=clamp(+sh.x||0,-100,100); sh.y=clamp(+sh.y||0,-100,100);
       sh.blur=clamp(+sh.blur||0,0,150); sh.alpha=clamp(+sh.alpha||0,0,1);
+      sh.spread=clamp(+sh.spread||0,0,100);
+      sh.blend=BLEND_MODES.includes(sh.blend)?sh.blend:'normal';
       if(!/^#[0-9a-fA-F]{6}$/.test(sh.color||'')) sh.color='#000000';
+      const ish=Object.assign(de.innerShadow, ce.innerShadow||{});
+      ish.on=!!ish.on&&c.type!=='text'; ish.x=clamp(+ish.x||0,-100,100); ish.y=clamp(+ish.y||0,-100,100);
+      ish.blur=clamp(+ish.blur||0,0,150); ish.alpha=clamp(+ish.alpha||0,0,1);
+      ish.spread=clamp(+ish.spread||0,0,100);
+      ish.blend=BLEND_MODES.includes(ish.blend)?ish.blend:'normal';
+      if(!/^#[0-9a-fA-F]{6}$/.test(ish.color||'')) ish.color='#000000';
+      const glw=Object.assign(de.glow, ce.glow||{});
+      glw.on=!!glw.on&&c.type!=='text';
+      glw.type=glw.type==='inner'?'inner':'outer';
+      glw.radius=clamp(+glw.radius||0,0,200); glw.spread=clamp(+glw.spread||0,0,100);
+      glw.alpha=clamp(+glw.alpha||0,0,1); glw.falloff=clamp(+glw.falloff||1,0.2,4);
+      glw.blend=BLEND_MODES.includes(glw.blend)?glw.blend:'normal';
+      if(!/^#[0-9a-fA-F]{6}$/.test(glw.color||'')) glw.color='#ffffff';
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
       const grd=Object.assign(de.gradient, ce.gradient||{});
@@ -344,7 +424,7 @@ function normalizeDoc(d){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
-      c.effects={shadow:sh, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
+      c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd, glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
     }
     if(c.type!=='line'){
       // §2.2/§2.4/§2.5 transform state. Lines have no rot — their endpoints
@@ -446,19 +526,77 @@ function makeGrain(){
   g.putImageData(img,0,0);
   return c;
 }
-function fillStyleFor(c,obj,b){
-  const f=obj.fill;
+/* §4.4 blend modes: the exact separable + non-separable set from
+ * W3C Compositing and Blending Level 1
+ * (https://www.w3.org/TR/compositing-1/) — that spec carries a royalty-free
+ * patent commitment, and deviating from its list forfeits that protection.
+ * Canvas globalCompositeOperation implements these names directly. */
+const BLEND_MODES=['normal','multiply','screen','overlay','darken','lighten',
+  'color-dodge','color-burn','hard-light','soft-light','difference','exclusion',
+  'hue','saturation','color','luminosity'];
+const blendOp=m=>(m&&m!=='normal'&&BLEND_MODES.includes(m))?m:'source-over';
+
+/* §4.5/§4.6: a paint spec -> a canvas style. Per-stop opacity is baked into
+ * the stop colour (canvas gradients take colour strings), and the
+ * interpolation midpoint is emitted as an extra sampled stop, since canvas
+ * gradients are always linear between stops. */
+function stopColor(s){
+  const a=s.opacity===undefined?1:clamp(+s.opacity,0,1);
+  if(a>=1) return s.color;
+  const n=parseInt(String(s.color).slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function mixHex(c1,c2,t){
+  const a=parseInt(String(c1).slice(1),16), b2=parseInt(String(c2).slice(1),16);
+  const ch=(sh)=>Math.round((((a>>sh)&255)+((((b2>>sh)&255)-((a>>sh)&255))*t)));
+  return '#'+[16,8,0].map(sh=>ch(sh).toString(16).padStart(2,'0')).join('');
+}
+function addStops(g,stops){
+  const S=[...stops].sort((x,y)=>x.pos-y.pos);
+  S.forEach((s,i)=>{
+    g.addColorStop(clamp(s.pos,0,1),stopColor(s));
+    const nx=S[i+1];
+    // midpoint: where the 50% blend between this stop and the next lands
+    const m=s.mid===undefined?0.5:clamp(+s.mid,0.05,0.95);
+    if(nx&&Math.abs(m-0.5)>0.01){
+      const p=clamp(s.pos+(nx.pos-s.pos)*m,0,1);
+      g.addColorStop(p,stopColor({color:mixHex(s.color,nx.color,0.5),
+        opacity:((s.opacity===undefined?1:s.opacity)+(nx.opacity===undefined?1:nx.opacity))/2}));
+    }
+  });
+}
+function paintStyle(c,f,b){
   if(!f||f.kind==='solid') return (f&&f.color)||'#cccccc';
   if(f.kind==='radial'){
-    const g=c.createRadialGradient(b.x+b.w/2,b.y+b.h/2,0,b.x+b.w/2,b.y+b.h/2,Math.max(b.w,b.h)/2);
-    f.stops.forEach(s=>g.addColorStop(s.pos,s.color));
+    // §4.6: focal point offset + elliptical aspect
+    const cx=b.x+b.w/2, cy=b.y+b.h/2;
+    const asp=clamp(+f.aspect||1,0.2,5);
+    const r=Math.max(b.w,b.h)/2;
+    const fx=cx+(+f.fx||0)*b.w/2, fy=cy+(+f.fy||0)*b.h/2;
+    let g;
+    if(Math.abs(asp-1)<0.01){
+      g=c.createRadialGradient(fx,fy,0,cx,cy,r);
+      addStops(g,f.stops); return g;
+    }
+    // elliptical: scale the space about the centre, build a circular gradient
+    c.save();
+    c.translate(cx,cy); c.scale(1,1/asp); c.translate(-cx,-cy);
+    g=c.createRadialGradient(fx,(fy-cy)*asp+cy,0,cx,cy,r);
+    addStops(g,f.stops);
+    c.__ellipticalGrad=true;              // caller restores after painting
     return g;
   }
   const a=(f.angle||0)*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
   const cx=b.x+b.w/2, cy=b.y+b.h/2, ext=Math.abs(dx)*b.w/2+Math.abs(dy)*b.h/2;
   const g=c.createLinearGradient(cx-dx*ext,cy-dy*ext,cx+dx*ext,cy+dy*ext);
-  f.stops.forEach(s=>g.addColorStop(s.pos,s.color));
+  addStops(g,f.stops);
   return g;
+}
+/* Back-compat shim: older code paths (blob flood, engines) still ask for a
+ * single fill style. Returns the bottom-most visible fill. */
+function fillStyleFor(c,obj,b){
+  const F=(obj.fills||[]).filter(f=>f.on!==false);
+  return paintStyle(c,F.length?F[0]:obj.fill,b);
 }
 /* One corner of a rectangle. The path is already at the corner's approach
  * point; this emits the treatment and leaves the path at the exit point.
@@ -567,8 +705,90 @@ function pathPath(c,o){
     c.closePath();
   }
 }
-function pathFor(c,obj){
-  c.beginPath();
+/* §4.1–§4.4 appearance painter. `mk` builds the object's path into ctx.
+ * Fills paint bottom-to-top, then strokes, each with its own opacity and
+ * blend mode. Stroke alignment is done with clipping, since Canvas2D only
+ * strokes centred: inside = clip to the shape and stroke double width;
+ * outside = stroke double width, then knock the interior back out. */
+/* Reusable scratch layer for stroke alignment and any other pass that needs
+ * to composite a shape against itself without touching what is beneath. */
+let _strokeLayer=null;
+function strokeLayer(w,h){
+  if(!_strokeLayer) _strokeLayer=document.createElement('canvas');
+  if(_strokeLayer.width!==w||_strokeLayer.height!==h){ _strokeLayer.width=w; _strokeLayer.height=h; }
+  return _strokeLayer;
+}
+function paintAppearance(c,obj,mk,b,objBlend){
+  // An entry set to 'normal' inherits the object's blend mode; an entry with
+  // its own mode overrides it (§4.4 applies at both levels).
+  const bl=m=>blendOp(m&&m!=='normal'?m:(objBlend||'normal'));
+  const fo=obj.fillOpacity===undefined?1:obj.fillOpacity;
+  const so=obj.strokeOpacity===undefined?1:obj.strokeOpacity;
+  const base=c.globalAlpha;
+  const fills=obj.fills||[];
+  const closedish=obj.type!=='path'||(obj.closed&&obj.fillOn);
+  if(closedish) fills.forEach(f=>{
+    if(f.on===false||f.opacity<=0) return;
+    c.save();
+    c.globalAlpha=base*fo*f.opacity;
+    c.globalCompositeOperation=bl(f.blend);
+    const st=paintStyle(c,f,b);
+    c.beginPath(); mk(c);
+    c.fillStyle=st; c.fill();
+    if(c.__ellipticalGrad){ delete c.__ellipticalGrad; c.restore(); c.restore(); return; }
+    c.restore();
+  });
+  (obj.strokes||[]).forEach(k=>{
+    if(k.on===false||k.width<=0||k.opacity<=0) return;
+    c.save();
+    c.globalAlpha=base*so*k.opacity;
+    c.globalCompositeOperation=bl(k.blend);
+    c.strokeStyle=paintStyle(c,k,b);
+    c.lineCap=k.cap; c.lineJoin=k.join; c.miterLimit=k.miter;
+    if(k.dash&&k.dash.length){ c.setLineDash(k.dash); c.lineDashOffset=k.dashOffset||0; }
+    const inner=k.align==='inside', outer=k.align==='outside';
+    c.lineWidth=(inner||outer)?k.width*2:k.width;
+    if(outer){
+      // Outside alignment needs its OWN layer: knocking the inner half out
+      // with destination-out directly on the target would erase the fill and
+      // the page underneath it, not just the unwanted half of the stroke.
+      const tmp=strokeLayer(c.canvas.width,c.canvas.height);
+      const tc=tmp.getContext('2d');
+      tc.setTransform(1,0,0,1,0,0);
+      // The scratch canvas is REUSED, so its context carries state between
+      // objects. destination-out left over from the previous outside stroke
+      // would composite this one into an empty layer and it would vanish.
+      tc.globalCompositeOperation='source-over';
+      tc.globalAlpha=1;
+      tc.setLineDash([]);
+      tc.clearRect(0,0,tmp.width,tmp.height);
+      tc.setTransform(c.getTransform());
+      tc.strokeStyle=paintStyle(tc,k,b);
+      tc.lineWidth=k.width*2; tc.lineCap=k.cap; tc.lineJoin=k.join; tc.miterLimit=k.miter;
+      if(k.dash&&k.dash.length){ tc.setLineDash(k.dash); tc.lineDashOffset=k.dashOffset||0; }
+      tc.beginPath(); mk(tc); tc.stroke();
+      tc.globalCompositeOperation='destination-out';
+      tc.beginPath(); mk(tc); tc.fillStyle='#000'; tc.fill();
+      if(tc.__ellipticalGrad) delete tc.__ellipticalGrad;
+      c.save();
+      c.setTransform(1,0,0,1,0,0);
+      c.globalAlpha=base*so*k.opacity;
+      c.globalCompositeOperation=bl(k.blend);
+      c.drawImage(tmp,0,0);
+      c.restore();
+    }else{
+      if(inner){ c.beginPath(); mk(c); c.clip(); }
+      c.beginPath(); mk(c); c.stroke();
+    }
+    if(c.__ellipticalGrad) delete c.__ellipticalGrad;
+    c.restore();
+  });
+  c.globalAlpha=base;
+}
+/* Append-only path builder. Callers begin the path themselves, which is what
+ * lets a shape be combined with another subpath (the inverse-region fill that
+ * casts an inner shadow) instead of replacing it. */
+function addPath(c,obj){
   if(obj.type==='path'){ pathPath(c,obj); return; }
   if(obj.type==='ellipse') ellipsePath(c,obj);
   else if(obj.type==='polygon') polygonPath(c,obj);
@@ -577,6 +797,7 @@ function pathFor(c,obj){
   }
   else rectPath(c,obj);
 }
+function pathFor(c,obj){ c.beginPath(); addPath(c,obj); }
 function hexAlpha(hex,a){
   const n=parseInt(hex.slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
@@ -925,8 +1146,47 @@ function drawObject(c,obj,plain){
       c.translate(-cx,-cy);
     }
     c.globalAlpha=plain?1:obj.opacity;
+    // §4.4 object-level blend. Shapes and paths apply it per fill/stroke
+    // inside paintAppearance (so an entry can override it); text and lines
+    // paint in one pass, so it is set here for them.
+    if(!plain&&obj.blend&&obj.blend!=='normal'&&(obj.type==='text'||obj.type==='line'))
+      c.globalCompositeOperation=blendOp(obj.blend);
     const sh=obj.effects.shadow;
-    if(sh.on&&!plain){ c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur; c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y; }
+    const mkPath=cc=>addPath(cc,obj);
+    if(!plain&&obj.type!=='text'){
+      const gl=obj.effects.glow;
+      if(gl&&gl.on&&gl.type==='outer'&&gl.radius>0){
+        // §4.11 outer glow: a zero-offset shadow laid under the object.
+        // Falloff is applied by repeating the pass — each repeat concentrates
+        // the core, which is what a falloff curve does to the profile.
+        c.save();
+        c.globalCompositeOperation=blendOp(gl.blend);
+        const reps=Math.max(1,Math.round(gl.falloff*2));
+        for(let i=0;i<reps;i++){
+          c.shadowColor=hexAlpha(gl.color,gl.alpha/reps*1.4);
+          c.shadowBlur=gl.radius; c.shadowOffsetX=0; c.shadowOffsetY=0;
+          c.beginPath(); mkPath(c);
+          c.fillStyle='#000';
+          if(gl.spread>0){ c.lineWidth=gl.spread*2; c.strokeStyle='#000'; c.stroke(); }
+          c.fill();
+        }
+        c.restore();
+      }
+    }
+    if(sh.on&&!plain){
+      c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur;
+      c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y;
+      if(sh.spread>0&&obj.type!=='text'){
+        // §4.9 spread: thicken the caster so the shadow grows without blurring
+        c.save();
+        c.globalCompositeOperation=blendOp(sh.blend);
+        c.beginPath(); mkPath(c);
+        c.lineWidth=sh.spread*2; c.strokeStyle='#000'; c.fillStyle='#000';
+        c.stroke(); c.fill();
+        c.restore();
+        c.shadowColor='transparent';
+      }
+    }
     if(obj.type==='text'){
       const L=textLayout(obj);
       c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
@@ -950,13 +1210,7 @@ function drawObject(c,obj,plain){
       c.restore(); return;
     }
     if(obj.type==='path'){
-      const st=obj.stroke||{width:3,color:'#111111'};
-      c.beginPath(); pathPath(c,obj);
-      if(obj.fillOn&&obj.closed){ c.fillStyle=fillStyleFor(c,obj,boxOf(obj)); c.fill(); }
-      if(st.width>0){
-        c.strokeStyle=st.color; c.lineWidth=st.width;
-        c.lineJoin='round'; c.lineCap='round'; c.stroke();
-      }
+      paintAppearance(c,obj,cc=>pathPath(cc,obj),boxOf(obj),obj.blend);
       c.restore(); return;
     }
     if(obj.type==='line'){
@@ -995,15 +1249,48 @@ function drawObject(c,obj,plain){
     const b={x:obj.x,y:obj.y,w:obj.w,h:obj.h};
     // A patterned parent still draws its OWN complete fill. Instances are
     // separate complete objects drawn by the caller; nothing is segmented.
-    c.fillStyle=fillStyleFor(c,obj,b);
     if(plain==='flood'){
       // Blob layer: this shape's colour has to exist wherever the blend gives
       // it weight, including the neck outside its own outline.
+      c.fillStyle=fillStyleFor(c,obj,b);
       c.fillRect(0,0,c.canvas.width,c.canvas.height);
     } else {
-      pathFor(c,obj); c.fill();
+      paintAppearance(c,obj,cc=>addPath(cc,obj),b,obj.blend);
     }
     c.shadowColor='transparent';
+    // §4.10 inner shadow / §4.11 inner glow: clip to the shape, then cast a
+    // shadow from the INVERSE region so it falls inward from every edge.
+    if(!plain&&obj.type!=='text'){
+      const ish=obj.effects.innerShadow, gl=obj.effects.glow;
+      const inners=[];
+      if(ish&&ish.on&&(ish.blur>0||ish.spread>0))
+        inners.push({x:ish.x,y:ish.y,blur:ish.blur,spread:ish.spread,
+          color:ish.color,alpha:ish.alpha,blend:ish.blend,reps:1});
+      if(gl&&gl.on&&gl.type==='inner'&&gl.radius>0)
+        inners.push({x:0,y:0,blur:gl.radius,spread:gl.spread,
+          color:gl.color,alpha:gl.alpha,blend:gl.blend,reps:Math.max(1,Math.round(gl.falloff*2))});
+      inners.forEach(S=>{
+        c.save();
+        c.beginPath(); mkPath(c); c.clip();
+        c.globalCompositeOperation=blendOp(S.blend);
+        const R=1e4;
+        for(let i=0;i<S.reps;i++){
+          c.shadowColor=hexAlpha(S.color,S.alpha/S.reps*(S.reps>1?1.4:1));
+          c.shadowBlur=S.blur; c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
+          c.beginPath();
+          c.rect(-R,-R,R*2,R*2);      // everything...
+          mkPath(c);                   // ...minus the shape (even-odd)
+          c.fillStyle='#000'; c.fill('evenodd');
+          if(S.spread>0){
+            c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
+            c.beginPath(); mkPath(c);
+            c.lineWidth=S.spread*2; c.strokeStyle='#000'; c.stroke();
+          }
+        }
+        c.restore();
+      });
+      c.shadowColor='transparent';
+    }
     // Stripe fill paints OVER the flat fill rather than replacing it: the flat
     // fill above is what casts the drop shadow, and a clipped drawImage cannot.
     const grd=obj.effects.gradient;
@@ -1379,12 +1666,12 @@ function syncLayers(){
 
 const FX_PAGES=obj=>{
   if(obj.type==='text') return ['Text','Shadow'];
-  if(obj.type==='line') return ['Line','Shadow'];
-  if(obj.type==='path') return ['Path','Fill','Gradient','Light','Shadow','Grain'];
+  if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Gradient','Light','Shadow','Grain'];
-  return ['Shape','Pattern','Fill','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Grain'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
+  return ['Shape','Pattern','Fill','Stroke','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain'];
 };
 
 function syncInspector(){
@@ -1433,6 +1720,7 @@ function syncInspector(){
   $('trSkX').value=noRot?'':Math.round(obj.skewX||0);
   $('trSkY').value=noRot?'':Math.round(obj.skewY||0);
   $('trScale').value='';
+  $('objBlend').value=obj.blend||'normal';
   buildFx(obj);
 }
 
@@ -1450,7 +1738,10 @@ function fxActive(obj,name){
     case 'Line':     return obj.arrowStart!=='none'||obj.arrowEnd!=='none';
     case 'Path':     return !!(obj.closed||obj.fillOn);
     case 'Pattern':  return !!obj.pattern;
-    case 'Fill':     return obj.fill&&obj.fill.kind!=='solid';
+    case 'Fill':     return (obj.fills||[]).length>1||(obj.fill&&obj.fill.kind!=='solid');
+    case 'Stroke':   return (obj.strokes||[]).some(k=>k.on!==false&&k.width>0);
+    case 'Inner Shadow': return !!(e.innerShadow&&e.innerShadow.on);
+    case 'Glow':     return !!(e.glow&&e.glow.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -1723,259 +2014,193 @@ function buildFx(obj){
     $('pRemove').addEventListener('click',()=>{ delete obj.pattern; pushHistory(); refresh(); });
   }
 
-  if(page==='Fill'){
-    add(`<label class="slider">Type
-      <select id="fKind">
-        <option value="solid">Solid</option>
-        <option value="linear">Linear gradient</option>
-        <option value="radial">Radial gradient</option>
-      </select></label>`);
-    $('fKind').value=obj.fill.kind;
-    $('fKind').addEventListener('change',e=>{
-      const k=e.target.value;
-      if(k==='solid') obj.fill={kind:'solid',color:firstColor(obj.fill)};
-      else obj.fill={kind:k,angle:obj.fill.angle||90,
-        stops:obj.fill.stops||[{pos:0,color:firstColor(obj.fill)},{pos:1,color:'#333333'}]};
-      pushHistory(); refresh();
-    });
-    if(obj.fill.kind==='solid'){
-      add(`<label class="slider">Color <input type="color" id="fColor" value="${obj.fill.color}"></label>`);
-      $('fColor').addEventListener('input',e=>{ obj.fill.color=e.target.value; render(); });
-      $('fColor').addEventListener('change',()=>{ pushHistory(); });
-    } else {
-      if(obj.fill.kind==='linear'){
-        add(`<label class="slider">Angle <span id="fAngV">${obj.fill.angle}°</span>
-          <input type="range" id="fAng" min="0" max="359" value="${obj.fill.angle}"></label>`);
-        $('fAng').addEventListener('input',e=>{ obj.fill.angle=+e.target.value; $('fAngV').textContent=e.target.value+'°'; render(); });
-        $('fAng').addEventListener('change',()=>pushHistory());
+  if(page==='Fill'||page==='Stroke'){
+    const isFill=page==='Fill';
+    const list=isFill?(obj.fills||[]):(obj.strokes||[]);
+    const key=isFill?'fills':'strokes';
+    if(!list){ add(`<div class="fxHint">This object type has no ${page.toLowerCase()}s.</div>`); }
+    else{
+      // §4.3 object-level fill/stroke opacity, independent of layer opacity
+      const opKey=isFill?'fillOpacity':'strokeOpacity';
+      add(`<label class="slider">${page} opacity <span id="apOpV">${Math.round((obj[opKey]??1)*100)}%</span>
+        <input type="range" id="apOp" min="0" max="100" value="${Math.round((obj[opKey]??1)*100)}"></label>`);
+      $('apOp').addEventListener('input',e=>{ obj[opKey]=+e.target.value/100; $('apOpV').textContent=e.target.value+'%'; render(); });
+      $('apOp').addEventListener('change',()=>pushHistory());
+
+      list.forEach((f,fi)=>{
+        add(`<div class="pSect">${page} ${fi+1}${fi===0?' (bottom)':''}</div>`);
+        add(`<div class="apRow">
+          <label class="chk" style="flex:1"><input type="checkbox" class="apOn" data-i="${fi}" ${f.on!==false?'checked':''}> Visible</label>
+          <button class="apUp" data-i="${fi}" title="Move up" ${fi===list.length-1?'disabled':''}>↑</button>
+          <button class="apDn" data-i="${fi}" title="Move down" ${fi===0?'disabled':''}>↓</button>
+          <button class="apDel" data-i="${fi}" title="Remove" ${list.length<=1&&(!isFill?obj.type==='path'||obj.type==='line':true)?'disabled':''}>×</button>
+        </div>`);
+        add(`<label class="slider">Type<select class="apKind" data-i="${fi}">
+          <option value="solid">Solid</option><option value="linear">Linear gradient</option>
+          <option value="radial">Radial gradient</option></select></label>`);
+        body.querySelectorAll('.apKind')[fi].value=f.kind;
+        if(f.kind==='solid'){
+          add(`<label class="slider">Color <input type="color" class="apColor" data-i="${fi}" value="${f.color}"></label>`);
+        }else{
+          if(f.kind==='linear'){
+            add(`<label class="slider">Angle <span id="apAng${fi}">${Math.round(f.angle)}°</span>
+              <input type="range" class="apAngle" data-i="${fi}" min="0" max="359" value="${Math.round(f.angle)}"></label>`);
+          }else{
+            add(`<div class="row2">
+              <label class="slider">Focal X <input type="range" class="apFx" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fx*100)}"></label>
+              <label class="slider">Focal Y <input type="range" class="apFy" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fy*100)}"></label>
+            </div>`);
+            add(`<label class="slider">Aspect <span id="apAsp${fi}">${(+f.aspect).toFixed(2)}</span>
+              <input type="range" class="apAspect" data-i="${fi}" min="0.2" max="5" step="0.05" value="${f.aspect}"></label>`);
+          }
+          f.stops.forEach((st,si)=>{
+            add(`<div class="stopRow">
+              <input type="color" class="apSC" data-i="${fi}" data-s="${si}" value="${st.color}">
+              <input type="range" class="apSP" data-i="${fi}" data-s="${si}" min="0" max="100" value="${Math.round(st.pos*100)}">
+              <button class="stopDel apSD" data-i="${fi}" data-s="${si}" ${f.stops.length<=2?'disabled':''}>×</button>
+            </div>
+            <div class="row2" style="margin:-4px 0 6px">
+              <label class="slider" style="font-size:10px">Stop opacity
+                <input type="range" class="apSO" data-i="${fi}" data-s="${si}" min="0" max="100" value="${Math.round((st.opacity??1)*100)}"></label>
+              <label class="slider" style="font-size:10px">Midpoint
+                <input type="range" class="apSM" data-i="${fi}" data-s="${si}" min="5" max="95" value="${Math.round((st.mid??0.5)*100)}"></label>
+            </div>`);
+          });
+          add(`<div class="gsBtns">
+            <button class="rollBtn apAddStop" data-i="${fi}">+ Stop</button>
+            <button class="rollBtn apRev" data-i="${fi}">Reverse</button></div>`);
+        }
+        if(!isFill){
+          add(`<div class="row2">
+            <label class="slider">Width <input type="number" class="apW" data-i="${fi}" min="0" max="200" step="0.5" value="${f.width}"></label>
+            <label class="slider">Align<select class="apAlign" data-i="${fi}">
+              <option value="center">Center</option><option value="inside">Inside</option>
+              <option value="outside">Outside</option></select></label>
+          </div>`);
+          body.querySelectorAll('.apAlign')[fi].value=f.align;
+          add(`<div class="row2">
+            <label class="slider">Cap<select class="apCap" data-i="${fi}">
+              <option value="butt">Butt</option><option value="round">Round</option>
+              <option value="square">Square</option></select></label>
+            <label class="slider">Join<select class="apJoin" data-i="${fi}">
+              <option value="miter">Miter</option><option value="round">Round</option>
+              <option value="bevel">Bevel</option></select></label>
+          </div>`);
+          body.querySelectorAll('.apCap')[fi].value=f.cap;
+          body.querySelectorAll('.apJoin')[fi].value=f.join;
+          add(`<label class="slider">Dash (px, comma separated)
+            <input type="text" class="apDash" data-i="${fi}" value="${(f.dash||[]).join(', ')}" placeholder="e.g. 12, 6"></label>`);
+          add(`<label class="slider">Dash offset <span id="apDO${fi}">${Math.round(f.dashOffset)}</span>
+            <input type="range" class="apDashOff" data-i="${fi}" min="-100" max="100" value="${Math.round(f.dashOffset)}"></label>`);
+        }
+        add(`<div class="row2">
+          <label class="slider">Opacity <input type="range" class="apEOp" data-i="${fi}" min="0" max="100" value="${Math.round(f.opacity*100)}"></label>
+          <label class="slider">Blend<select class="apBlend" data-i="${fi}">`+
+          BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>
+        </div>`);
+        body.querySelectorAll('.apBlend')[fi].value=f.blend;
+      });
+      add(`<button class="rollBtn" id="apAdd">+ Add ${page.toLowerCase()}</button>`);
+      $('apAdd').addEventListener('click',()=>{
+        const base=list.length?JSON.parse(JSON.stringify(list[list.length-1])):null;
+        obj[key]=[...list, isFill?(base||{kind:'solid',color:'#888888'})
+                              :(base||{kind:'solid',color:'#111111',width:2})];
+        setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+      });
+
+      const I=el=>+el.dataset.i, SI=el=>+el.dataset.s;
+      const live=()=>render(), commit=()=>{ pushHistory(); };
+      const each=(cls,ev,fn,rebuild)=>body.querySelectorAll('.'+cls).forEach(el=>{
+        el.addEventListener(ev,e=>{ fn(list[I(el)],e,el);
+          if(rebuild){ setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh(); } else live(); });
+        if(ev==='input') el.addEventListener('change',commit);
+      });
+      each('apOn','change',(f,e)=>f.on=e.target.checked);
+      each('apKind','change',(f,e)=>{ f.kind=e.target.value; },true);
+      each('apColor','input',(f,e)=>f.color=e.target.value);
+      each('apAngle','input',(f,e,el)=>{ f.angle=+e.target.value; const sp=$('apAng'+I(el)); if(sp) sp.textContent=e.target.value+'°'; });
+      each('apFx','input',(f,e)=>f.fx=+e.target.value/100);
+      each('apFy','input',(f,e)=>f.fy=+e.target.value/100);
+      each('apAspect','input',(f,e,el)=>{ f.aspect=+e.target.value; const sp=$('apAsp'+I(el)); if(sp) sp.textContent=(+e.target.value).toFixed(2); });
+      each('apSC','input',(f,e,el)=>f.stops[SI(el)].color=e.target.value);
+      each('apSP','input',(f,e,el)=>f.stops[SI(el)].pos=+e.target.value/100);
+      each('apSO','input',(f,e,el)=>f.stops[SI(el)].opacity=+e.target.value/100);
+      each('apSM','input',(f,e,el)=>f.stops[SI(el)].mid=+e.target.value/100);
+      each('apSD','click',(f,e,el)=>{ if(f.stops.length>2) f.stops.splice(SI(el),1); },true);
+      each('apAddStop','click',f=>{
+        const last=f.stops[f.stops.length-1];
+        f.stops.push({pos:1,color:last.color,opacity:1,mid:0.5});
+        f.stops.forEach((st,i2)=>st.pos=i2/(f.stops.length-1));
+      },true);
+      each('apRev','click',f=>{
+        const cols=f.stops.map(st=>st.color).reverse();
+        const ops=f.stops.map(st=>st.opacity).reverse();
+        f.stops.forEach((st,i2)=>{ st.color=cols[i2]; st.opacity=ops[i2]; });
+      },true);
+      each('apW','input',(f,e)=>f.width=clamp(+e.target.value||0,0,200));
+      each('apAlign','change',(f,e)=>f.align=e.target.value);
+      each('apCap','change',(f,e)=>f.cap=e.target.value);
+      each('apJoin','change',(f,e)=>f.join=e.target.value);
+      each('apDash','input',(f,e)=>{
+        f.dash=e.target.value.split(/[,\s]+/).map(v=>parseFloat(v)).filter(v=>Number.isFinite(v)&&v>=0);
+      });
+      each('apDashOff','input',(f,e,el)=>{ f.dashOffset=+e.target.value; const sp=$('apDO'+I(el)); if(sp) sp.textContent=e.target.value; });
+      each('apEOp','input',(f,e)=>f.opacity=+e.target.value/100);
+      each('apBlend','change',(f,e)=>f.blend=e.target.value);
+      each('apUp','click',(f,e,el)=>{ const i2=I(el); [obj[key][i2],obj[key][i2+1]]=[obj[key][i2+1],obj[key][i2]]; },true);
+      each('apDn','click',(f,e,el)=>{ const i2=I(el); [obj[key][i2],obj[key][i2-1]]=[obj[key][i2-1],obj[key][i2]]; },true);
+      each('apDel','click',(f,e,el)=>{ obj[key].splice(I(el),1); },true);
+
+      if(isFill&&obj.type==='rect'){
+        add(`<label class="slider">Corner radius <span id="fRadV">${obj.radius}</span>
+          <input type="range" id="fRad" min="0" max="200" value="${obj.radius}"></label>`);
+        $('fRad').addEventListener('input',e=>{ obj.radius=+e.target.value; $('fRadV').textContent=e.target.value; render(); });
+        $('fRad').addEventListener('change',()=>pushHistory());
       }
-      obj.fill.stops.forEach((s,i)=>{
-        add(`<div class="stopRow"><input type="color" data-si="${i}" class="stopC" value="${s.color}">
-             <input type="range" data-si="${i}" class="stopP" min="0" max="100" value="${Math.round(s.pos*100)}"></div>`);
-      });
-      body.querySelectorAll('.stopC').forEach(el=>{
-        el.addEventListener('input',e=>{ obj.fill.stops[+e.target.dataset.si].color=e.target.value; render(); });
-        el.addEventListener('change',()=>pushHistory());
-      });
-      body.querySelectorAll('.stopP').forEach(el=>{
-        el.addEventListener('input',e=>{ obj.fill.stops[+e.target.dataset.si].pos=+e.target.value/100; render(); });
-        el.addEventListener('change',()=>pushHistory());
-      });
-    }
-    if(obj.type==='rect'){
-      add(`<label class="slider">Corner radius <span id="fRadV">${obj.radius}</span>
-        <input type="range" id="fRad" min="0" max="200" value="${obj.radius}"></label>`);
-      $('fRad').addEventListener('input',e=>{ obj.radius=+e.target.value; $('fRadV').textContent=e.target.value; render(); });
-      $('fRad').addEventListener('change',()=>pushHistory());
+      add(`<div class="fxHint">${isFill
+        ? 'Fills paint bottom to top, each with its own opacity and blend mode.'
+        : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.'}</div>`);
     }
   }
 
-  if(page==='Text'){
-    add(`<label class="slider">Content <input type="text" id="tText" value=""></label>`);
-    $('tText').value=obj.text;
-    $('tText').addEventListener('input',e=>{ obj.text=e.target.value; render(); syncLayers(); });
-    $('tText').addEventListener('change',()=>pushHistory());
-    add(`<label class="slider">Size <span id="tSizeV">${obj.size}</span>
-      <input type="range" id="tSize" min="8" max="200" value="${obj.size}"></label>`);
-    $('tSize').addEventListener('input',e=>{ obj.size=+e.target.value; $('tSizeV').textContent=e.target.value; render(); });
-    $('tSize').addEventListener('change',()=>pushHistory());
-    add(`<div class="row2">
-      <label class="slider">Weight
-        <select id="tWeight"><option>400</option><option>600</option><option>800</option></select></label>
-      <label class="slider">Color <input type="color" id="tColor" value="${obj.color}"></label>
-    </div>`);
-    $('tWeight').value=String(obj.weight);
-    $('tWeight').addEventListener('change',e=>{ obj.weight=+e.target.value; pushHistory(); render(); });
-    $('tColor').addEventListener('input',e=>{ obj.color=e.target.value; render(); });
-    $('tColor').addEventListener('change',()=>pushHistory());
-    // §1.9: paragraph + area controls
-    const sel2=(id,label,opts,key)=>{
-      add(`<label class="slider">${label}<select id="${id}">`+
-        opts.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
-      $(id).value=String(obj[key]);
-      $(id).addEventListener('change',e=>{ obj[key]=e.target.value; pushHistory(); refresh(); });
-    };
-    const sl2=(id,label,min,max,step,key,fmt)=>{
-      add(`<label class="slider">${label} <span id="${id}V">${fmt(obj[key])}</span>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${obj[key]}"></label>`);
-      $(id).addEventListener('input',e=>{ obj[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
-      $(id).addEventListener('change',()=>pushHistory());
-    };
-    add(`<div class="pSect">Paragraph</div>`);
-    sel2('tAlign','Alignment',[['left','Left'],['center','Center'],['right','Right']],'align');
-    sl2('tLead','Line height',0.7,3,0.05,'lineHeight',v=>(+v).toFixed(2));
-    sl2('tTrack','Tracking',-10,60,0.5,'tracking',v=>(+v).toFixed(1)+'px');
-    sel2('tCase','Case',[['none','As typed'],['upper','UPPERCASE'],['lower','lowercase'],['title','Title Case']],'caseTf');
-    add(`<div class="pSect">Frame</div>`);
-    sel2('tMode','Mode',[['point','Point text'],['area','Area text (wraps)']],'mode');
-    if(obj.mode==='area'){
-      sel2('tAuto','Sizing',[['fixed','Fixed (clips + overflow badge)'],['height','Auto-height']],'autosize');
-      sel2('tVal','Vertical align',[['top','Top'],['middle','Middle'],['bottom','Bottom']],'valign');
-    }
-    add(`<div class="fxHint">Area text wraps to its frame — drag with the Text tool to create one, or switch mode here. The red badge marks clipped overflow. Text on a path, columns and OpenType features are later §1.9 sessions.</div>`);
-  }
-
-  if(page==='Gradient'){
-    const G=obj.effects.gradient;
-    const GE=window.GradientEngine;
-    add(`<label class="slider"><input type="checkbox" id="gsOn" ${G.on?'checked':''}> Enable gradient stripe</label>`);
-    $('gsOn').addEventListener('change',e=>{
-      G.on=e.target.checked;
-      // First enable adopts the object's own fill, so "add object, pick a
-      // colour, apply the effect" lands on that colour rather than on the
-      // plugin's stock blue/orange. Later toggles leave the user's edits alone.
-      if(G.on&&!G.seeded&&GE){ const s=GE.seedFromFill(obj.fill); G.g1=s.g1; G.g2=s.g2; G.seeded=true; }
-      pushHistory(); refresh();
-    });
-    if(G.on&&GE){
-      const sl=(id,label,min,max,step,key,fmt)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${fmt(G[key])}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${G[key]}"></label>`);
-        $(id).addEventListener('input',e=>{ G[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+  if(page==='Inner Shadow'||page==='Glow'){
+    const isGlow=page==='Glow';
+    const E2=isGlow?obj.effects.glow:obj.effects.innerShadow;
+    add(`<label class="slider"><input type="checkbox" id="fxOn" ${E2.on?'checked':''}> Enable ${page.toLowerCase()}</label>`);
+    $('fxOn').addEventListener('change',e=>{ E2.on=e.target.checked; pushHistory(); refresh(); });
+    if(E2.on){
+      const sl=(id,label,min,max,step,k,fmt)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${fmt(E2[k])}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${E2[k]}"></label>`);
+        $(id).addEventListener('input',e=>{ E2[k]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
         $(id).addEventListener('change',()=>pushHistory());
       };
-      const chk=(id,label,key)=>{
-        add(`<label class="chk"><input type="checkbox" id="${id}" ${G[key]?'checked':''}> ${label}</label>`);
-        $(id).addEventListener('change',e=>{ G[key]=e.target.checked; pushHistory(); render(); });
-      };
-      const int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%', f2=v=>(+v).toFixed(2);
-
-      add(`<label class="slider">Preset<select id="gsPre">
-        <option value="">Custom…</option>`+
-        GE.PRESETS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('')+
-        `</select></label>`);
-      $('gsPre').addEventListener('change',e=>{
-        const p=GE.PRESETS[+e.target.value];
-        if(!p) return;
-        G.g1=p.g1.map(s=>({...s})); G.g2=p.g2.map(s=>({...s})); G.seeded=true;
-        pushHistory(); refresh();
-      });
-      add(`<div class="gsBtns">
-        <button class="rollBtn" id="gsRand">⚄ Randomize</button>
-        <button class="rollBtn" id="gsSeed">Use fill colours</button></div>`);
-      $('gsRand').addEventListener('click',()=>{
-        G.g1=GE.randomStops(G.g1.length); G.g2=GE.randomStops(G.g2.length);
-        G.bandHeight=20+Math.floor(Math.random()*80);
-        G.split=20+Math.floor(Math.random()*60);
-        G.drift=-8+Math.floor(Math.random()*16);
-        G.g1shift=-30+Math.floor(Math.random()*60);
-        G.g2shift=-30+Math.floor(Math.random()*60);
-        G.seeded=true; pushHistory(); refresh();
-      });
-      $('gsSeed').addEventListener('click',()=>{
-        const s=GE.seedFromFill(obj.fill); G.g1=s.g1; G.g2=s.g2; G.seeded=true;
-        pushHistory(); refresh();
-      });
-
-      add(`<div class="pSect">Stripe</div>`);
-      sl('gsBand','Band height',2,200,1,'bandHeight',int);
-      sl('gsSplit','Split',5,95,1,'split',pct);
-      sl('gsDrift','Drift',-20,20,0.5,'drift',f2);
-      sl('gsAng','Angle',0,359,1,'angle',v=>Math.round(v)+'°');
-
-      add(`<div class="pSect">Phase</div>`);
-      sl('gsPhase','Per-band phase',-0.5,0.5,0.01,'phase',f2);
-      chk('gsBounce','Bounce phase (keep cycling on tall shapes)','bounce');
-      sl('gsS1','Gradient 1 shift',-50,50,1,'g1shift',int);
-      sl('gsS2','Gradient 2 shift',-50,50,1,'g2shift',int);
-
-      add(`<div class="pSect">Mirror</div>`);
-      chk('gsMX','Mirror horizontally','mirrorX');
-      chk('gsMY','Mirror vertically','mirrorY');
-
-      [1,2].forEach(n=>{
-        const key='g'+n, stops=G[key];
-        add(`<div class="pSect">Gradient ${n}</div>`);
-        stops.forEach((s,i)=>{
-          add(`<div class="stopRow">
-            <input type="color" class="gsC${n}" data-si="${i}" value="${s.color}">
-            <input type="range" class="gsP${n}" data-si="${i}" min="0" max="100" value="${Math.round(s.pos*100)}">
-            <button class="stopDel" data-si="${i}" data-g="${n}" title="Remove stop" ${stops.length<=2?'disabled':''}>×</button>
-          </div>`);
-        });
-        body.querySelectorAll('.gsC'+n).forEach(el=>{
-          el.addEventListener('input',e=>{ G[key][+e.target.dataset.si].color=e.target.value; render(); });
-          el.addEventListener('change',()=>pushHistory());
-        });
-        body.querySelectorAll('.gsP'+n).forEach(el=>{
-          el.addEventListener('input',e=>{ G[key][+e.target.dataset.si].pos=+e.target.value/100; render(); });
-          el.addEventListener('change',()=>pushHistory());
-        });
-        if(stops.length<GE.MAX_STOPS){
-          add(`<button class="rollBtn" id="gsAdd${n}">+ Add stop to gradient ${n}</button>`);
-          $('gsAdd'+n).addEventListener('click',()=>{
-            G[key]=G[key].concat({color:GE.randomColor(),pos:Math.random()}).sort((a,b)=>a.pos-b.pos);
-            pushHistory(); refresh();
-          });
-        }
-      });
-      body.querySelectorAll('.stopDel').forEach(el=>{
-        el.addEventListener('click',e=>{
-          const k='g'+e.target.dataset.g;
-          if(G[k].length<=2) return;
-          G[k]=G[k].filter((_,i)=>i!==+e.target.dataset.si);
-          pushHistory(); refresh();
-        });
-      });
-      add(`<div class="fxHint">Horizontal bands, split left/right at a drifting point, each side ramping through its own gradient. Ported from the Gradient Stripe plugin.</div>`);
-    }
-  }
-
-  if(page==='Light'){
-    const L=obj.effects.light;
-    if(!(window.LightEngine&&window.LightEngine.available())){
-      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
-    } else {
-      add(`<label class="slider"><input type="checkbox" id="ltOn" ${L.on?'checked':''}> Enable light</label>`);
-      $('ltOn').addEventListener('change',e=>{ L.on=e.target.checked; pushHistory(); refresh(); });
-      if(L.on){
-        add(`<label class="slider">Shape<select id="ltMode">`+
-          window.LightEngine.MODES.map(m=>`<option value="${m.id}">${m.label}</option>`).join('')+
-          `</select></label>`);
-        $('ltMode').value=String(L.mode);
-        $('ltMode').addEventListener('change',e=>{ L.mode=+e.target.value; pushHistory(); render(); });
-        const sl=(id,label,min,max,step,key,fmt)=>{
-          const v=L[key];
-          add(`<label class="slider">${label} <span id="${id}V">${fmt(v)}</span>
-            <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}"></label>`);
-          $(id).addEventListener('input',e=>{ L[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
-          $(id).addEventListener('change',()=>pushHistory());
-        };
-        const f2=v=>(+v).toFixed(2);
-        sl('ltInt','Intensity',0,2.8,0.01,'intensity',f2);
-        sl('ltThroat','Throat',-0.2,0.55,0.01,'throat',f2);
-        sl('ltMouth','Mouth',0.35,1.4,0.01,'mouth',f2);
-        sl('ltCurve','Curve',1,3.2,0.01,'curve',f2);
-        sl('ltDens','Density',2,36,0.1,'density',v=>(+v).toFixed(1));
-        sl('ltGlow','Inner glow',0,2.5,0.01,'innerGlow',f2);
-        sl('ltBloom','Bloom',0,2.5,0.01,'bloom',f2);
-        sl('ltFall','Falloff',0,2.5,0.01,'falloff',f2);
-        sl('ltFade','Left fade',0,1,0.01,'leftFade',f2);
-        sl('ltMesh','Mesh amount',0,2.5,0.01,'meshMix',f2);
-        sl('ltBand','Band shift',0,2,0.01,'bandFlow',f2);
-        sl('ltBeamL','Beam length',0.1,2,0.01,'beamLength',f2);
-        sl('ltBeamG','Beam glow',0,2.5,0.01,'beamGlow',f2);
-        add(`<label class="chk" style="margin-top:6px"><input type="checkbox" id="ltAlpha" ${L.transparent?'checked':''}> Transparent background</label>`);
-        $('ltAlpha').addEventListener('change',e=>{ L.transparent=e.target.checked; pushHistory(); render(); });
-        add(`<div class="row2" style="margin-top:8px">
-          <label class="slider">Core <input type="color" id="ltCore" value="${L.core}"></label>
-          <label class="slider">Inner <input type="color" id="ltInner" value="${L.inner}"></label>
-        </div>
-        <div class="row2">
-          <label class="slider">Deep <input type="color" id="ltDeep" value="${L.deep}"></label>
-          <label class="slider">Mesh <input type="color" id="ltMeshC" value="${L.mesh}"></label>
-        </div>`);
-        if(!L.transparent){
-          add(`<label class="slider">Background <input type="color" id="ltBg" value="${L.bg}"></label>`);
-          $('ltBg').addEventListener('input',e=>{ L.bg=e.target.value; render(); });
-          $('ltBg').addEventListener('change',()=>pushHistory());
-        }
-        [['ltCore','core'],['ltInner','inner'],['ltDeep','deep'],['ltMeshC','mesh']].forEach(([id,key])=>{
-          $(id).addEventListener('input',e=>{ L[key]=e.target.value; render(); });
-          $(id).addEventListener('change',()=>pushHistory());
-        });
-        add(`<div class="fxHint">Volumetric light cone, clipped to this shape. Ported from the Funnel Light plugin.</div>`);
+      const int=v=>String(Math.round(v)), pct=v=>Math.round(v*100)+'%', f2=v=>(+v).toFixed(2);
+      if(isGlow){
+        add(`<label class="slider">Type<select id="glType">
+          <option value="outer">Outer</option><option value="inner">Inner</option></select></label>`);
+        $('glType').value=E2.type;
+        $('glType').addEventListener('change',e=>{ E2.type=e.target.value; pushHistory(); render(); });
+        sl('glR','Radius',0,200,1,'radius',int);
+        sl('glS','Spread',0,100,1,'spread',int);
+        sl('glF','Falloff',0.2,4,0.1,'falloff',f2);
+      }else{
+        sl('isX','Offset X',-100,100,1,'x',int);
+        sl('isY','Offset Y',-100,100,1,'y',int);
+        sl('isB','Blur',0,150,1,'blur',int);
+        sl('isS','Spread',0,100,1,'spread',int);
       }
+      sl(isGlow?'glA':'isA','Opacity',0,1,0.01,'alpha',pct);
+      add(`<label class="slider">Color <input type="color" id="fxCol" value="${E2.color}"></label>`);
+      $('fxCol').addEventListener('input',e=>{ E2.color=e.target.value; render(); });
+      $('fxCol').addEventListener('change',()=>pushHistory());
+      add(`<label class="slider">Blend<select id="fxBlend">`+
+        BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>`);
+      $('fxBlend').value=E2.blend;
+      $('fxBlend').addEventListener('change',e=>{ E2.blend=e.target.value; pushHistory(); render(); });
+      add(`<div class="fxHint">${isGlow
+        ? 'Outer glow lays under the object; inner glow is clipped inside it. Falloff concentrates the core.'
+        : 'Cast inward from every edge by shadowing the inverse region through a clip.'}</div>`);
     }
   }
 
@@ -2395,6 +2620,11 @@ $('trRot').addEventListener('change',e=>{
     os.forEach(o=>o[k]=v);
     pushHistory(); refresh();
   });
+});
+$('objBlend').addEventListener('change',e=>{
+  const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+  os.forEach(o=>o.blend=e.target.value);
+  pushHistory(); refresh();
 });
 $('trR90L').addEventListener('click',()=>rotateSel(-90));
 $('trR90R').addEventListener('click',()=>rotateSel(90));
@@ -3183,8 +3413,8 @@ function applySampledColor(hex,fallbackI){
   os.forEach(o=>{
     if(o.locked) return;
     if(o.type==='text') o.color=hex;
-    else if(o.type==='line') o.stroke.color=hex;
-    else o.fill={kind:'solid',color:hex};
+    else if(o.type==='line'||o.type==='path'){ o.strokes[0].kind='solid'; o.strokes[0].color=hex; }
+    else { o.fills[0].kind='solid'; o.fills[0].color=hex; }
   });
   pushHistory(); refresh();
 }
@@ -3204,7 +3434,8 @@ function eyedrop(p,e){
     const os=selObjs().filter(o=>o!==src&&!o.locked);
     if(!os.length) return;
     os.forEach(o=>{
-      if(src.fill&&o.type!=='text'&&o.type!=='line') o.fill=JSON.parse(JSON.stringify(src.fill));
+      if(src.fills&&o.fills) o.fills=JSON.parse(JSON.stringify(src.fills));
+      if(src.strokes&&o.strokes) o.strokes=JSON.parse(JSON.stringify(src.strokes));
       if(o.type==='text'&&src.type==='text') o.color=src.color;
       if(src.effects&&o.effects) o.effects=JSON.parse(JSON.stringify(src.effects));
     });
@@ -3312,7 +3543,7 @@ function invertSelCmd(){
 function selectSame(kind){
   const ref=doc&&doc.frame.children[sel]; if(!ref) return;
   const key=o=>{
-    if(kind==='fill') return o.type==='text' ? 'text:'+o.color : JSON.stringify(o.fill);
+    if(kind==='fill') return o.type==='text' ? 'text:'+o.color : JSON.stringify(o.fills||o.strokes);
     if(kind==='size'){ const b=boxOf(o); return Math.round(b.w)+'x'+Math.round(b.h); }
     const fx=o.effects||{};
     return ['gradient','light','prism','capsule','strip','blob','glass','glass2','shadow']

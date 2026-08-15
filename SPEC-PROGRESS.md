@@ -134,6 +134,49 @@ future session can pick up without re-reading the whole app.
   by marquee, align, fit-selection and union outlines; hit-testing runs in
   the object's local frame via toLocal().
 
+### Session 5 — appearance: §4.1, §4.2, §4.3, §4.4, §4.10, §4.11
+- MODEL: `fills[]` and `strokes[]` replace the single `fill`/`stroke`. The old
+  field is kept as a LIVE ALIAS of entry 0, so every existing reader (engines,
+  blob flood, eyedropper) works unchanged, and legacy documents + AI output
+  migrate on load. Verified: a doc with the old single `fill` round-trips.
+- §4.1 Fill: DONE except pattern and image fills (no image support yet) and
+  fill-rule (arrives with §3.7 compound paths). Stacked fills bottom-to-top,
+  per-fill opacity + blend + visibility, reorder, delete.
+- §4.2 Stroke: DONE except variable-width profiles (§1.4 pencil pressure still
+  waits on this) and scale-with-object honouring. Strokes now exist on
+  rect/ellipse/polygon at all — previously only paths and lines had one.
+  Width, alignment center/inside/outside, caps, joins, miter limit, dash array
+  + offset, stacked strokes, gradient strokes. Inside/outside are rendered by
+  clipping and by an offscreen layer respectively, since canvas only strokes
+  centred.
+- §4.3 Opacity: DONE except group opacity / knockout / isolate-blending, which
+  need §6.9 groups. Separate fillOpacity and strokeOpacity per object, plus
+  per-entry opacity.
+- §4.4 Blend modes: DONE. All 16 separable + non-separable modes from W3C
+  Compositing and Blending Level 1 (URL cited in source), applied at object
+  level and per fill/stroke — an entry set to 'normal' inherits the object's
+  mode, an explicit entry mode overrides it. Verified numerically against the
+  spec formulas (multiply over grey = 128/68/0, etc).
+- §4.5/§4.6 Gradients: upgraded from partial — per-stop opacity, interpolation
+  midpoint, reverse, up to 8 stops; radial gains focal point offset and
+  elliptical aspect. Still open: on-canvas gradient handles, OKLab/linear
+  interpolation space (the field is stored but sRGB is what canvas gives us),
+  reusable presets.
+- §4.9 Drop shadow: gained spread and a blend mode. Multiple stacked shadows
+  still open.
+- §4.10 Inner shadow: DONE. Clips to the shape and shadows the INVERSE region
+  so it falls inward from every edge; offset, blur, spread, colour, opacity,
+  blend.
+- §4.11 Glow: DONE. Outer (laid under the object) and inner (clipped inside),
+  with radius, spread, falloff, colour, opacity, blend.
+- THREE bugs caught by the battery: (1) `pathFor` calls beginPath, which wiped
+  the outer rect of the inner-shadow inverse fill and painted the whole shape
+  solid black — split into an append-only `addPath`; (2) per-fill blend
+  overrode the object blend instead of falling back to it, so all 16 modes
+  rendered identically; (3) the reused offscreen stroke layer kept
+  `destination-out` between objects, so every outside stroke after the first
+  composited into an empty layer and vanished.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4
