@@ -23,6 +23,8 @@
     <div class="dropdown">
       <button data-cmd="undo">Undo <span>⌘Z</span></button>
       <button data-cmd="redo">Redo <span>⇧⌘Z</span></button>
+      <button data-cmd="historyLimit">History depth…</button>
+      <button data-cmd="clearHistory">Clear history</button>
       <button data-cmd="duplicate">Duplicate <span>⌘D</span></button>
       <button data-cmd="delete">Delete <span>⌫</span></button>
       <button data-cmd="selectAll">Select All <span>⌘A</span></button>
@@ -111,6 +113,9 @@
     <div id="pageList"></div>
     <div class="sideHead"><span>Layers</span></div>
     <div id="layerList"></div>
+    <div class="sideHead"><span>History</span></div>
+    <div id="historyList"></div>
+    <div id="historyFoot"></div>
   </div>
 </div>
 
@@ -259,6 +264,7 @@
 <script src="boolean.js"></script>
 <script src="snap.js"></script>
 <script src="fxstack.js"></script>
+<script src="history.js"></script>
 <script type="module">
   /* clipper2.mjs is an ES module and the app is classic scripts, so a tiny
      shim hands it over. Module scripts are deferred, so the boolean engine

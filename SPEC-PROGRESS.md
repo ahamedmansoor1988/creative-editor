@@ -315,6 +315,36 @@ future session can pick up without re-reading the whole app.
   "won", and its early-return skipped both the normal draw and the drop
   shadow. One wrong operator precedence disabled three separate features.
 
+### Session 10 — undo/redo rewrite: §6.14
+- §6.14 DONE. History is a command pattern over structural diffs. Each entry
+  is an ordered op list where every op carries both `from` and `to`, so the
+  inverse operation is DERIVED rather than hand-written per command and cannot
+  drift out of sync with the forward one.
+- WHY NOW: entries used to be whole-document JSON snapshots, 60 deep. Session
+  9 added flattened image layers carrying PNG data URLs, so sixty snapshots
+  meant hundreds of megabytes of duplicated base64 per undo buffer. Measured
+  after the rewrite: ten edits alongside a 400KB image cost 640 BYTES, against
+  ~3.9 MB under snapshots.
+- Named entries derived from what changed (Move / Resize / Rotate / Add rect /
+  Delete / Appearance / Effects / Guides / Edit path), a history panel in the
+  sidebar with jump-to-any-state, current highlighted and future dimmed,
+  configurable depth (default 200), and a size readout.
+- Coalescing is unchanged: a drag still pushes once on release, arrow-key
+  bursts still debounce into one entry.
+- TWO bugs, both mine, both caught only by pixel probes:
+  (1) The differ emitted per-index ops PLUS a length op for arrays that
+      changed length, and revert applied them forward — splicing while walking
+      the list shifts every later index, so arrays came back corrupted (fills
+      and fx returned EMPTY after an undo). Length changes are now stored
+      wholesale and reverts walk the ops backwards.
+  (2) MUCH bigger, and pre-existing since SESSION 5: makeShape hand-built
+      partial objects — `fill` but no `fills[]`, `points` but no `subpaths[]`,
+      no `fx` stack. Once the renderer moved to the array forms, every shape
+      drawn WITH A TOOL was invisible. Five sessions of tests missed it because
+      they asserted object COUNTS, not pixels. makeShape now runs the real
+      normaliser over the object instead of keeping a second, drifting copy of
+      the rules.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4

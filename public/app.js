@@ -574,18 +574,33 @@ function newDoc(){
 }
 
 /* ================= history ================= */
-const hist={stack:[],i:-1};
-function pushHistory(){
-  hist.stack=hist.stack.slice(0,hist.i+1);
-  hist.stack.push(JSON.stringify({pages,pageIdx}));
-  if(hist.stack.length>60) hist.stack.shift();
-  hist.i=hist.stack.length-1;
+/* §6.14 command-pattern history over structural diffs — see history.js for
+ * why snapshots had to go. The call sites are unchanged: every committed edit
+ * still calls pushHistory(), and a drag still pushes once on release, so
+ * coalescing behaviour is identical. */
+let HIST=null;
+function initHistory(){
+  if(!window.History) return;
+  HIST=new window.History(
+    ()=>({pages,pageIdx}),
+    st=>{
+      pages=st.pages||[];
+      setActivePage(st.pageIdx);
+      // ids can vanish under us on undo; drop any selection that no longer exists
+      setSelIds(new Set([...selIds]));
+      selInstance=null;
+      if(enteredId&&!findById(enteredId)) enteredId=null;
+      refresh();
+    });
 }
-function restoreSnapshot(json){
-  const s=JSON.parse(json);
-  pages=s.pages||[]; setActivePage(s.pageIdx);
-  setSel(-1); selInstance=null; refresh();
+function pushHistory(label){
+  if(!HIST){ initHistory(); if(!HIST) return; }
+  HIST.push(label);
+  syncHistoryPanel();
 }
+function undo(){ if(HIST&&HIST.undo()) syncHistoryPanel(); }
+function redo(){ if(HIST&&HIST.redo()) syncHistoryPanel(); }
+function historyJump(i){ if(HIST&&HIST.jump(i)) syncHistoryPanel(); }
 
 /* ================= document tree (§6.9/§6.10) =================
  * Groups and frames hold their own `children`. Child coordinates stay
@@ -730,8 +745,7 @@ function selBounds(){
   return {x:x0,y:y0,w:x1-x0,h:y1-y0};
 }
 function selectable(o){ return !o.locked&&!o.hidden; }
-function undo(){ if(hist.i>0){ hist.i--; restoreSnapshot(hist.stack[hist.i]); } }
-function redo(){ if(hist.i<hist.stack.length-1){ hist.i++; restoreSnapshot(hist.stack[hist.i]); } }
+
 
 /* ================= render ================= */
 const canvas=$('out'), ctx=canvas.getContext('2d');
@@ -1550,7 +1564,10 @@ function drawObject(c,obj,plain){
     // paint in one pass, so it is set here for them.
     if(!plain&&obj.blend&&obj.blend!=='normal'&&(obj.type==='text'||obj.type==='line'))
       c.globalCompositeOperation=blendOp(obj.blend);
-    const sh=obj.effects.shadow;
+    // Defensive: an object that reached the renderer without passing through
+    // normalizeDoc has no effects dictionary, and an uncaught TypeError here
+    // takes the whole frame down rather than dropping one object's shadow.
+    const sh=(obj.effects&&obj.effects.shadow)||{on:false};
     const mkPath=cc=>addPath(cc,obj);
     // §5.15 behind slot, walked in STACK ORDER — stacking two shadows or a
     // shadow plus a glow now works, and their order is the user's choice.
@@ -2166,6 +2183,15 @@ function render(){ renderDoc(); paint(); }
 
 /* ================= UI sync ================= */
 function refresh(){ computeGapHints(); render(); syncLayers(); syncInspector(); syncPageRow(); }
+/* Depth is configurable per §6.14; kept modest by default because entries are
+ * now diffs, so 200 costs far less than the old 60 snapshots did. */
+function setHistoryLimit(n){
+  if(!HIST) return;
+  HIST.limit=clamp(Math.round(n)||200,10,2000);
+  while(HIST.entries.length>HIST.limit){ HIST.entries.shift(); HIST.i--; }
+  if(HIST.i<-1) HIST.i=-1;
+  syncHistoryPanel();
+}
 // Text measured before the webfont finishes loading renders with fallback
 // metrics; re-render once fonts settle so text is never left stale.
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ if(doc) render(); });
@@ -4801,6 +4827,20 @@ function setTool(t){
   paint();
 }
 document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+/* Objects created by the TOOLS never pass through normalizeDoc, so they were
+ * only PARTLY formed: makeShape wrote `fill` but not `fills[]`, `points` but
+ * not `subpaths[]`, and no `fx` stack at all. Since the renderer moved to the
+ * array forms, that meant a freshly drawn shape had nothing to paint — it was
+ * invisible, and count-based tests never noticed.
+ *
+ * Rather than keep a second, drifting copy of the rules, run the real
+ * normaliser over the one object. It mutates in place, so identity (and the
+ * live aliases it sets up) is preserved. */
+function ensureFx(obj){
+  if(!obj) return;
+  normChildren([obj],0);
+}
+
 const SHAPE_DEFAULT={rect:[160,120],ellipse:[160,120],polygon:[140,140]};
 function makeShape(kind,p){
   let obj;
@@ -4822,6 +4862,7 @@ function makeShape(kind,p){
     x:p.x,y:p.y,w:1,h:1,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
+  ensureFx(obj);
   // keep the alias identity: subpath 0 IS obj.points, not a copy
   if(obj.type==='path') obj.subpaths[0].points=obj.points;
   if(obj.type!=='text'&&obj.type!=='line'&&obj.type!=='path') obj.pattern=DEFAULT_PATTERN();
@@ -4905,6 +4946,29 @@ function openPageModal(){
   $('pageModal').style.display='flex';
 }
 function closePageModal(){ $('pageModal').style.display='none'; }
+/* §6.14 history panel: every entry, named, with a jump to any prior state. */
+function syncHistoryPanel(){
+  const list=$('historyList');
+  if(!list) return;
+  list.innerHTML='';
+  if(!HIST){ return; }
+  const rows=HIST.list();
+  const mk=(label,idx,cur,n)=>{
+    const r=document.createElement('div');
+    r.className='histRow'+(cur?' cur':'')+(idx>HIST.i?' future':'');
+    r.innerHTML=`<span class="hName">${label}</span>`+(n?`<span class="hOps">${n}</span>`:'');
+    r.title=idx<0?'Original state':`Jump to after "${label}"`;
+    r.addEventListener('click',()=>historyJump(idx));
+    list.appendChild(r);
+  };
+  mk('Original',-1,HIST.i===-1,0);
+  rows.forEach(r=>mk(r.name,r.i,r.current,r.ops));
+  const foot=$('historyFoot');
+  if(foot){
+    const kb=Math.round(HIST.size()/1024);
+    foot.textContent=`${rows.length} step${rows.length===1?'':'s'} · ${kb} KB · limit ${HIST.limit}`;
+  }
+}
 function syncPageRow(){
   const list=$('pageList'); list.innerHTML='';
   pages.forEach((pg,i)=>{
@@ -4967,6 +5031,11 @@ $('btnNewPage').addEventListener('click',openPageModal);
 const CMDS={
   new:openPageModal,
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
+  historyLimit(){
+    const v=prompt('History depth (10–2000 steps):',String(HIST?HIST.limit:200));
+    const n=parseFloat(v); if(Number.isFinite(n)) setHistoryLimit(n);
+  },
+  clearHistory(){ if(HIST){ HIST.reset(); syncHistoryPanel(); } },
   toggleRulers(){ showRulers=!showRulers; paint(); },
   toggleGrid(){ if(doc){ doc.frame.grid.show=!doc.frame.grid.show; pushHistory(); render(); } },
   toggleSnap(){ snapCfg.on=!snapCfg.on; paint(); },
@@ -5206,6 +5275,10 @@ window.addEventListener('resize',render);
 setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
 
 /* test hook */
+(function bootHistory(){
+  initHistory();
+})();
+
 (function hydrateIcons(){
   if(window.Icons) Icons.hydrate(document);
 })();
@@ -5232,6 +5305,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get enteredId(){return enteredId;},
   setSelIds, selObjs, allObjects, findById, activeList, primary,
   groupSel, ungroupSel, distributeSel, enterContainer, exitContainer,
+  historySize:()=>HIST?HIST.size():0,
+  historyList:()=>HIST?HIST.list():[],
+  historyJump, setHistoryLimit, pushHistory,
   render, refresh, normalizeDoc,
   patternInstances, allInstances, instanceBounds, normalizePattern,
   duplicateSel, deleteSel,
