@@ -368,6 +368,33 @@ future session can pick up without re-reading the whole app.
   The origin stays at (0,0) so buffer coordinates remain page coordinates —
   the glass-family engines sample it directly and must not be shifted.
 
+### Session 12 — pixel filters: §4.8, §4.12, §5.5, §5.6, §5.10, §5.11, §5.12
+- §5 IS NOW COMPLETE (15/15).
+- All seven read the object's RENDERED PIXELS rather than its geometry, so
+  they share one pipeline and register as a new `pixel` slot: the object is
+  drawn to a PADDED offscreen layer (padding matters — a warp or blur pushes
+  ink outside the object's own box), the filters run in stack order, and the
+  result composites back. Building that once is what made seven sections one
+  session.
+- Order among them is meaningful and the stack honours it: blur-then-warp is
+  not warp-then-blur.
+- All sampling is INVERSE (for each destination pixel, ask where it came from)
+  — forward mapping leaves holes wherever a transform expands.
+- §4.8 Blur: gaussian and directional via the compositor's own blur, zoom by
+  accumulating scaled copies (which a CSS filter cannot express).
+- §4.12 Noise: mono/colour, density, grain scale, seeded.
+- §5.5 Fractal haze: fBm with octaves/lacunarity/gain, accumulated toward the
+  interior so it reads as volume, tint + falloff.
+- §5.6 Slice: count, axis, ramped or seeded-random offset, gaps that are real
+  holes rather than stretched neighbours.
+- §5.10 Distortion: wave, twirl, bulge/pinch (one signed control), ripple.
+- §5.11 Displacement: X/Y scale, channel selection, edge mode; driven by
+  procedural fBm when no source map is chosen, so it is usable standalone.
+- §5.12 Warp: six envelopes (arc, arch, bulge, flag, wave, fisheye), strength,
+  axis. Mesh-warp grid and push-warp brush remain open.
+- Verified numerically rather than by eye: a sharp edge steps 255->71 in one
+  sample, the blurred edge ramps through eleven.
+
 ## Not yet started
 §1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
 (booleans/compound/masks — the path model now exists to build them on), §4

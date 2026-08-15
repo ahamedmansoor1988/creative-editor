@@ -91,6 +91,22 @@ const DEFAULT_EFFECTS=()=>({
   // fluted/reeded glass panel: ribs smear the page behind into bands
   strip:{on:false,bulge:0.34,ribWidth:0.12,angle:0,thickness:0.08,
          ior:1.55,dispersion:0.048,slopeLimit:6,smear:1.6},
+  // §4.8 blur — gaussian / directional / zoom
+  blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
+  // §5.10 distortion — wave / twirl / bulge / pinch / ripple
+  distortion:{mode:'wave',amount:0,wavelength:0.2,phase:0,axis:'both',
+              radius:0.5,cx:0,cy:0,edge:'clamp'},
+  // §5.12 warp — envelope presets
+  warp:{envelope:'arc',strength:0,axis:'horizontal',edge:'clamp'},
+  // §5.11 displacement — procedural when no source map is chosen
+  displacement:{scaleX:0,scaleY:0,channel:'luminance',mapScale:1,seed:1,edge:'clamp'},
+  // §5.5 fractal glass haze
+  haze:{density:0,octaves:4,lacunarity:2,gain:0.5,scale:0.25,falloff:1,
+        color:'#ffffff',seed:1},
+  // §5.6 slice
+  slice:{count:8,axis:'horizontal',offset:0,gap:0,mode:'ramp',seed:1,edge:'clamp'},
+  // §4.12 noise
+  noise:{amount:0,mono:true,scale:1,seed:1},
   // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -497,6 +513,43 @@ function normChildren(list,depth){
         n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.01,0.4);
         n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
       }
+      const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
+      const blur=Object.assign(de.blur, ce.blur||{});
+      blur.kind=['gaussian','directional','zoom'].includes(blur.kind)?blur.kind:'gaussian';
+      fnum(blur,'radius',0,200,0); fnum(blur,'angle',-180,180,0);
+      fnum(blur,'distance',0,400,20); fnum(blur,'amount',0,1,0.2);
+      fnum(blur,'cx',-0.5,0.5,0); fnum(blur,'cy',-0.5,0.5,0);
+      const dis=Object.assign(de.distortion, ce.distortion||{});
+      dis.mode=['wave','twirl','bulge','ripple'].includes(dis.mode)?dis.mode:'wave';
+      dis.axis=['x','y','both'].includes(dis.axis)?dis.axis:'both';
+      dis.edge=['clamp','wrap','mirror'].includes(dis.edge)?dis.edge:'clamp';
+      fnum(dis,'amount',-200,200,0); fnum(dis,'wavelength',0.01,2,0.2);
+      fnum(dis,'phase',-360,360,0); fnum(dis,'radius',0.05,2,0.5);
+      fnum(dis,'cx',-0.5,0.5,0); fnum(dis,'cy',-0.5,0.5,0);
+      const wrp=Object.assign(de.warp, ce.warp||{});
+      wrp.envelope=(window.Filters?Filters.ENVELOPES:['arc']).includes(wrp.envelope)?wrp.envelope:'arc';
+      wrp.axis=wrp.axis==='vertical'?'vertical':'horizontal';
+      wrp.edge=['clamp','wrap','mirror'].includes(wrp.edge)?wrp.edge:'clamp';
+      fnum(wrp,'strength',-100,100,0);
+      const dsp=Object.assign(de.displacement, ce.displacement||{});
+      dsp.channel=['red','green','blue','alpha','luminance'].includes(dsp.channel)?dsp.channel:'luminance';
+      dsp.edge=['clamp','wrap','mirror'].includes(dsp.edge)?dsp.edge:'clamp';
+      fnum(dsp,'scaleX',-300,300,0); fnum(dsp,'scaleY',-300,300,0);
+      fnum(dsp,'mapScale',0.05,10,1); fnum(dsp,'seed',1,99999,1);
+      const hz=Object.assign(de.haze, ce.haze||{});
+      fnum(hz,'density',0,1,0); fnum(hz,'octaves',1,8,4); fnum(hz,'lacunarity',1.1,4,2);
+      fnum(hz,'gain',0.1,0.9,0.5); fnum(hz,'scale',0.02,2,0.25);
+      fnum(hz,'falloff',0.1,4,1); fnum(hz,'seed',1,99999,1);
+      if(!/^#[0-9a-fA-F]{6}$/.test(hz.color||'')) hz.color='#ffffff';
+      const slc=Object.assign(de.slice, ce.slice||{});
+      slc.axis=slc.axis==='vertical'?'vertical':'horizontal';
+      slc.mode=slc.mode==='random'?'random':'ramp';
+      slc.edge=['clamp','wrap','mirror'].includes(slc.edge)?slc.edge:'clamp';
+      fnum(slc,'count',2,200,8); fnum(slc,'offset',-400,400,0);
+      fnum(slc,'gap',0,200,0); fnum(slc,'seed',1,99999,1);
+      const nz=Object.assign(de.noise, ce.noise||{});
+      fnum(nz,'amount',0,1,0); fnum(nz,'scale',1,32,1); fnum(nz,'seed',1,99999,1);
+      nz.mono=nz.mono!==false;
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -510,7 +563,8 @@ function normChildren(list,depth){
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st};
+        glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st,
+        blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
        * used to apply them — nothing moves on screen on first load. Entries
@@ -1455,7 +1509,58 @@ function imageFor(src){
   }
   return im;
 }
+/* §4.8/§5.x pixel pipeline. When an object carries any enabled pixel-slot
+ * effect it cannot be painted straight into the page — its rendered pixels
+ * have to exist somewhere first. So it is drawn to a PADDED offscreen layer
+ * (padding matters: a warp or blur pushes ink outside the object's own box),
+ * the filters run in stack order, and the result is composited back. */
+let _fxLayerA=null;
+function fxLayer(w,h){
+  if(!_fxLayerA) _fxLayerA=document.createElement('canvas');
+  if(_fxLayerA.width!==w||_fxLayerA.height!==h){ _fxLayerA.width=w; _fxLayerA.height=h; }
+  else _fxLayerA.getContext('2d').clearRect(0,0,w,h);
+  return _fxLayerA;
+}
+function pixelPad(entries){
+  let pad=8;
+  entries.forEach(e=>{
+    const p=e.params||{};
+    if(e.type==='blur') pad=Math.max(pad,(+p.radius||0)*3+(+p.distance||0));
+    if(e.type==='distortion') pad=Math.max(pad,Math.abs(+p.amount||0)+12);
+    if(e.type==='warp') pad=Math.max(pad,Math.abs(+p.strength||0)*2);
+    if(e.type==='displacement') pad=Math.max(pad,Math.abs(+p.scaleX||0)+Math.abs(+p.scaleY||0));
+    if(e.type==='slice') pad=Math.max(pad,Math.abs(+p.offset||0));
+  });
+  return Math.min(400,Math.ceil(pad));
+}
 function drawOne(c,W,H,obj){
+  const FS=window.FxStack;
+  const pix=(FS&&obj.fx)?FS.inSlot(obj.fx,'pixel'):[];
+  if(pix.length&&window.Filters&&!obj.__inPixelPass){
+    const b=aabbOf(obj);
+    const pad=pixelPad(pix);
+    const lx=Math.floor(b.x-pad), ly=Math.floor(b.y-pad);
+    const lw=Math.ceil(b.w+pad*2), lh=Math.ceil(b.h+pad*2);
+    if(lw>0&&lh>0&&lw<6000&&lh<6000){
+      let lay=fxLayer(lw,lh);
+      const lc=lay.getContext('2d');
+      lc.setTransform(1,0,0,1,-lx,-ly);
+      obj.__inPixelPass=true;                 // re-entry guard
+      try{ drawOne(lc,W,H,obj); } finally{ delete obj.__inPixelPass; }
+      lc.setTransform(1,0,0,1,0,0);
+      // filters run in STACK ORDER — blur-then-warp differs from warp-then-blur
+      pix.forEach(e=>{ lay=Filters.apply(e.type,lay,e.params); });
+      c.save();
+      c.globalAlpha=obj.opacity===undefined?1:obj.opacity;
+      if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
+      c.drawImage(lay,lx,ly);
+      c.restore();
+      return;
+    }
+  }
+  drawOneInner(c,W,H,obj);
+}
+function drawOneInner(c,W,H,obj){
     const f=doc.frame;
     const fx=obj.effects||{};
     const blobReady=obj.type!=='text'&&window.BlobEngine&&window.BlobEngine.available();
@@ -1613,7 +1718,7 @@ function drawObject(c,obj,plain){
       if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1, obj.mirrorY?-1:1);
       c.translate(-cx,-cy);
     }
-    c.globalAlpha=plain?1:obj.opacity;
+    c.globalAlpha=(plain||obj.__inPixelPass)?1:obj.opacity;
     // §4.4 object-level blend. Shapes and paths apply it per fill/stroke
     // inside paintAppearance (so an entry can override it); text and lines
     // paint in one pass, so it is set here for them.
@@ -2455,14 +2560,14 @@ const FX_PAGES=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Fill','Stroke','Mask','Shadow'];
-  if(obj.type==='image') return ['Image','Effects','Shadow','Glow'];
+  if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 function syncInspector(){
@@ -2538,6 +2643,12 @@ function fxActive(obj,name){
     case 'Stroke':   return (obj.strokes||[]).some(k=>k.on!==false&&k.width>0);
     case 'Inner Shadow': return !!(e.innerShadow&&e.innerShadow.on);
     case 'Glow':     return !!(e.glow&&e.glow.on);
+    case 'Blur': case 'Distortion': case 'Warp': case 'Displacement':
+    case 'Haze': case 'Slice': case 'Noise': {
+      const K={Blur:'blur',Distortion:'distortion',Warp:'warp',
+        Displacement:'displacement',Haze:'haze',Slice:'slice',Noise:'noise'}[name];
+      return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>x.type===K&&FxStack.entryOn(x)));
+    }
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -3124,6 +3235,101 @@ function buildFx(obj){
         Clip uses the shape's coverage; alpha and luminance read the mask's rendered pixels,
         so gradients and effects in the mask carry through.</div>`);
     }
+  }
+
+  const PIXEL_PANELS={
+    Blur:['blur',[
+      ['sel','kind','Type',[['gaussian','Gaussian'],['directional','Directional'],['zoom','Zoom']]],
+      ['num','radius','Radius',0,200,1],
+      ['when','kind','directional',[['num','angle','Angle',-180,180,1],['num','distance','Distance',0,400,1]]],
+      ['when','kind','zoom',[['num','amount','Amount',0,1,0.01],
+        ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01]]],
+    ],'Gaussian and directional use the compositor\'s own blur; zoom accumulates scaled copies, which a CSS filter cannot express.'],
+    Distortion:['distortion',[
+      ['sel','mode','Mode',[['wave','Wave'],['twirl','Twirl'],['bulge','Bulge / pinch'],['ripple','Ripple']]],
+      ['num','amount','Amount',-200,200,1],
+      ['num','wavelength','Wavelength',0.01,2,0.01],
+      ['num','phase','Phase',-360,360,1],
+      ['num','radius','Radius',0.05,2,0.01],
+      ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01],
+      ['sel','axis','Axis',[['both','Both'],['x','X only'],['y','Y only']]],
+      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+    ],'Bulge and pinch are the same control: positive bulges, negative pinches.'],
+    Warp:['warp',[
+      ['sel','envelope','Envelope',[['arc','Arc'],['arch','Arch'],['bulge','Bulge'],
+        ['flag','Flag'],['wave','Wave'],['fisheye','Fisheye']]],
+      ['num','strength','Strength',-100,100,1],
+      ['sel','axis','Axis',[['horizontal','Horizontal'],['vertical','Vertical']]],
+      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+    ],'The whole rendered object bends — its material, stripes and grain together.'],
+    Displacement:['displacement',[
+      ['num','scaleX','X scale',-300,300,1],
+      ['num','scaleY','Y scale',-300,300,1],
+      ['sel','channel','Channel',[['luminance','Luminance'],['red','Red'],['green','Green'],
+        ['blue','Blue'],['alpha','Alpha']]],
+      ['num','mapScale','Map scale',0.05,10,0.05],
+      ['num','seed','Seed',1,9999,1],
+      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+    ],'With no source map chosen the displacement is driven by procedural fBm noise, so it is usable on its own.'],
+    Haze:['haze',[
+      ['num','density','Density',0,1,0.01],
+      ['num','octaves','Octaves',1,8,1],
+      ['num','lacunarity','Lacunarity',1.1,4,0.05],
+      ['num','gain','Gain',0.1,0.9,0.01],
+      ['num','scale','Scale',0.02,2,0.01],
+      ['num','falloff','Falloff',0.1,4,0.05],
+      ['col','color','Tint'],
+      ['num','seed','Seed',1,9999,1],
+    ],'Fractal Brownian motion, accumulated toward the interior so it reads as volume rather than a flat overlay.'],
+    Slice:['slice',[
+      ['num','count','Slices',2,200,1],
+      ['num','offset','Offset',-400,400,1],
+      ['num','gap','Gap',0,200,1],
+      ['sel','axis','Axis',[['horizontal','Horizontal'],['vertical','Vertical']]],
+      ['sel','mode','Pattern',[['ramp','Ramped'],['random','Random']]],
+      ['num','seed','Seed',1,9999,1],
+    ],'Gaps are real holes, not stretched neighbours.'],
+    Noise:['noise',[
+      ['num','amount','Amount',0,1,0.01],
+      ['num','scale','Grain size',1,32,1],
+      ['chk','mono','Monochrome'],
+      ['num','seed','Seed',1,9999,1],
+    ],'Seeded, so a document looks identical on reload.'],
+  };
+  if(PIXEL_PANELS[page]){
+    const [key,rows,hint]=PIXEL_PANELS[page];
+    const E2=obj.effects[key];
+    const put=(r)=>{
+      const [kind,k,label,a,b2,st]=r;
+      const id='px_'+k;
+      if(kind==='num'){
+        const fmt=v=>(st<1?(+v).toFixed(2):String(Math.round(v)));
+        add(`<label class="slider">${label} <span id="${id}V">${fmt(E2[k])}</span>
+          <input type="range" id="${id}" min="${a}" max="${b2}" step="${st}" value="${E2[k]}"></label>`);
+        $(id).addEventListener('input',e=>{ E2[k]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value);
+          fxDraft=true; render(); fxDraft=false; });
+        $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+      }else if(kind==='sel'){
+        add(`<label class="slider">${label}<select id="${id}">`+
+          a.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+        $(id).value=E2[k];
+        $(id).addEventListener('change',e=>{ E2[k]=e.target.value; pushHistory(); refresh(); });
+      }else if(kind==='col'){
+        add(`<label class="slider">${label} <input type="color" id="${id}" value="${E2[k]}"></label>`);
+        $(id).addEventListener('input',e=>{ E2[k]=e.target.value; render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      }else if(kind==='chk'){
+        add(`<label class="chk"><input type="checkbox" id="${id}" ${E2[k]?'checked':''}> ${label}</label>`);
+        $(id).addEventListener('change',e=>{ E2[k]=e.target.checked; pushHistory(); render(); });
+      }else if(kind==='when'){
+        if(E2[k]===label) a.forEach(put);   // label holds the value to match
+      }
+    };
+    rows.forEach(r=>{
+      if(r[0]==='when'){ if(E2[r[1]]===r[2]) r[3].forEach(put); }
+      else put(r);
+    });
+    add(`<div class="fxHint">${hint}</div>`);
   }
 
   if(page==='Inner Shadow'||page==='Glow'){

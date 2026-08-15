@@ -51,12 +51,25 @@ const REG={
   blob:        {slot:'material',label:'Blob',         multi:false},
   glass2:      {slot:'material',label:'Glass 2',      multi:false},
   glass:       {slot:'material',label:'Glass',        multi:false, backdrop:true},
+  /* §4.8/§4.12/§5.5/§5.6/§5.10–5.12 — the PIXEL slot. These read the object's
+   * rendered pixels, so they run last, over the composited result of the
+   * material and the over-slot filters. Order among them matters a great deal
+   * (blur-then-warp is not warp-then-blur), which is exactly what the stack
+   * is for. */
+  blur:        {slot:'pixel', label:'Blur',         multi:true},
+  distortion:  {slot:'pixel', label:'Distortion',   multi:true},
+  warp:        {slot:'pixel', label:'Warp',         multi:true},
+  displacement:{slot:'pixel', label:'Displacement', multi:true},
+  haze:        {slot:'pixel', label:'Fractal haze', multi:false},
+  slice:       {slot:'pixel', label:'Slice',        multi:false},
+  noise:       {slot:'pixel', label:'Noise',        multi:false},
 };
 
 /* The order the renderer used BEFORE the stack existed. Migration lays the
  * array out in exactly this order so no existing document shifts. */
 const LEGACY_ORDER=['shadow','glow','blob','glass2','light','prism','capsule',
-  'strip','glass','gradient','innerShadow','grain'];
+  'strip','glass','gradient','innerShadow','grain',
+  'blur','distortion','warp','displacement','haze','slice','noise'];
 
 function meta(type){ return REG[type]||null; }
 function slotOf(type){ const m=REG[type]; return m?m.slot:'over'; }
@@ -69,7 +82,13 @@ function types(){ return Object.keys(REG); }
 function entryOn(e){
   if(!e||e.on===false) return false;          // stack entry switched off
   const p=e.params||{};
-  if(e.type==='grain') return (p.amount||0)>0;   // grain has no on flag
+  if(e.type==='grain'||e.type==='noise') return (p.amount||0)>0;
+  if(e.type==='blur') return (p.radius||0)>0||p.kind==='zoom';
+  if(e.type==='distortion') return (p.amount||0)!==0;
+  if(e.type==='warp') return (p.strength||0)!==0;
+  if(e.type==='displacement') return (p.scaleX||0)!==0||(p.scaleY||0)!==0;
+  if(e.type==='haze') return (p.density||0)>0;
+  if(e.type==='slice') return (p.count||0)>1&&(p.offset||0)!==0;
   // An explicit boolean wins; anything without one is on by default.
   // (Writing this as a chained ternary inverts on `p.on === false` — it
   // falls to the default branch and reports the effect as ENABLED.)
