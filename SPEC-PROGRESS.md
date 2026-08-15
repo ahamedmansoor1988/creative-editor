@@ -103,6 +103,8 @@ future session can pick up without re-reading the whole app.
 - The AI schema can now emit path and area-text children.
 
 ## Not yet started
-§1.2–§1.11, §2 (except nudge), §3, §4 (fills/strokes exist in primitive form),
-§5 (12 legacy engines exist as a fixed per-object set — §5.15 effect stack will
-absorb them), §6 (pages + flat layer list exist in primitive form).
+§1 is complete (partials noted per session). Remaining: §2 (except nudge), §3
+(booleans/compound/masks — the path model now exists to build them on), §4
+(fills/strokes exist in primitive form), §5 (12 legacy engines exist as a
+fixed per-object set — §5.15 effect stack will absorb them), §6 (pages + flat
+layer list exist in primitive form).
