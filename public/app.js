@@ -170,11 +170,33 @@ function normalizeDoc(d){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
-    if(!['rect','ellipse','text','polygon','line'].includes(c.type)) c.type='rect';
+    if(!['rect','ellipse','text','polygon','line','path'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
-      c.color=c.color||'#111111'; c.align=c.align==='center'?'center':'left';
+      c.color=c.color||'#111111';
+      c.align=['left','center','right'].includes(c.align)?c.align:'left';
       c.text=String(c.text||'Text');
+      // §1.9: area text with wrap, leading, tracking, vertical alignment
+      c.mode=c.mode==='area'?'area':'point';
+      if(c.mode==='area'){ c.w=Math.max(20,+c.w||240); c.h=Math.max(16,+c.h||120); }
+      c.lineHeight=clamp(+c.lineHeight||1.2,0.7,3);
+      c.tracking=clamp(+c.tracking||0,-10,60);
+      c.valign=['top','middle','bottom'].includes(c.valign)?c.valign:'top';
+      c.autosize=['fixed','height'].includes(c.autosize)?c.autosize:'fixed';
+      c.caseTf=['none','upper','lower','title'].includes(c.caseTf)?c.caseTf:'none';
+    }else if(c.type==='path'){
+      c.points=(Array.isArray(c.points)?c.points:[]).slice(0,500).map(p=>({
+        x:+p.x||0, y:+p.y||0,
+        ox:+p.ox||0, oy:+p.oy||0, ix:+p.ix||0, iy:+p.iy||0,
+        m:['corner','smooth','asym','free'].includes(p.m)?p.m:'corner',
+      }));
+      c.closed=!!c.closed; c.fillOn=!!c.fillOn;
+      const st=c.stroke||{};
+      c.stroke={width:clamp(+st.width===0?0:(+st.width||3),0,100),
+                color:/^#[0-9a-fA-F]{6}$/.test(st.color||'')?st.color:'#111111'};
+      c.x=+c.x||0; c.y=+c.y||0;
+      if(!c.fill||!c.fill.kind) c.fill={kind:'solid',color:'#d9d9d9'};
+      delete c.pattern;
     }else if(c.type==='line'){
       c.x2=Number.isFinite(+c.x2)?+c.x2:c.x+160;
       c.y2=Number.isFinite(+c.y2)?+c.y2:c.y;
@@ -220,7 +242,7 @@ function normalizeDoc(d){
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
       const grd=Object.assign(de.gradient, ce.gradient||{});
-      grd.on=!!grd.on && ['rect','ellipse','polygon'].includes(c.type);
+      grd.on=!!grd.on && ['rect','ellipse','polygon','path'].includes(c.type);
       grd.bandHeight=clamp(Math.round(+grd.bandHeight)||60,2,400);
       grd.split=clamp(+grd.split||0,5,95);
       grd.drift=clamp(+grd.drift||0,-20,20);
@@ -311,7 +333,7 @@ function normalizeDoc(d){
         n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
       }
       const li=Object.assign(de.light, ce.light||{});
-      li.on=!!li.on && ['rect','ellipse','polygon'].includes(c.type);
+      li.on=!!li.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
       num('mode',0,34,0); num('throat',-0.2,0.55,0.39); num('mouth',0.35,1.4,0.95);
       num('curve',1,3.2,2.07); num('intensity',0,2.8,0.62); num('density',2,36,2);
@@ -329,7 +351,7 @@ function normalizeDoc(d){
     // §1.1: lock suppresses canvas selectability, hide suppresses render too.
     // Document state, so they round-trip through save/load and history.
     c.locked=!!c.locked; c.hidden=!!c.hidden;
-    if(c.type!=='text'&&c.type!=='line'){
+    if(c.type!=='text'&&c.type!=='line'&&c.type!=='path'){
       // Migrate the legacy bounding-box `engine` field. Deliberate semantic
       // change: same knobs, but they now place linked duplicates outside the
       // parent instead of gradient segments inside it. See the contract doc.
@@ -520,8 +542,26 @@ function polygonPath(c,o){
     c.closePath();
   }
 }
+/* §1.2–1.4 path object: cubic bézier chain. Handles are stored RELATIVE to
+ * their anchor (ox,oy = out, ix,iy = in), so translating a path only touches
+ * anchor coords. Anchor mode m: 'corner' (no handles), 'smooth' (mirrored),
+ * 'asym' (same angle, free lengths), 'free' (disconnected). */
+function pathPath(c,o){
+  const P=o.points; if(!P.length) return;
+  c.moveTo(P[0].x,P[0].y);
+  for(let i=1;i<P.length;i++){
+    const a=P[i-1], b=P[i];
+    c.bezierCurveTo(a.x+a.ox,a.y+a.oy, b.x+b.ix,b.y+b.iy, b.x,b.y);
+  }
+  if(o.closed&&P.length>2){
+    const a=P[P.length-1], b=P[0];
+    c.bezierCurveTo(a.x+a.ox,a.y+a.oy, b.x+b.ix,b.y+b.iy, b.x,b.y);
+    c.closePath();
+  }
+}
 function pathFor(c,obj){
   c.beginPath();
+  if(obj.type==='path'){ pathPath(c,obj); return; }
   if(obj.type==='ellipse') ellipsePath(c,obj);
   else if(obj.type==='polygon') polygonPath(c,obj);
   else if(obj.type==='line'){
@@ -878,10 +918,35 @@ function drawObject(c,obj,plain){
     const sh=obj.effects.shadow;
     if(sh.on&&!plain){ c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur; c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y; }
     if(obj.type==='text'){
+      const L=textLayout(obj);
       c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
+      c.letterSpacing=(obj.tracking||0)+'px';
       c.fillStyle=obj.color; c.textBaseline='top';
-      c.textAlign=obj.align==='center'?'center':'left';
-      c.fillText(obj.text,obj.x,obj.y);
+      c.textAlign=obj.align;
+      const area=obj.mode==='area';
+      let ty=obj.y;
+      if(area&&obj.autosize==='fixed'){
+        if(obj.valign==='middle') ty+=Math.max(0,(obj.h-L.contentH)/2);
+        else if(obj.valign==='bottom') ty+=Math.max(0,obj.h-L.contentH);
+      }
+      const tx=!area?obj.x
+        : obj.align==='center'?obj.x+obj.w/2
+        : obj.align==='right'?obj.x+obj.w
+        : obj.x;
+      if(area&&obj.autosize==='fixed'){ c.save(); c.beginPath(); c.rect(obj.x,obj.y,obj.w,obj.h); c.clip(); }
+      L.lines.forEach((ln,li)=>c.fillText(ln,tx,ty+li*L.lh));
+      if(area&&obj.autosize==='fixed') c.restore();
+      c.letterSpacing='0px';
+      c.restore(); return;
+    }
+    if(obj.type==='path'){
+      const st=obj.stroke||{width:3,color:'#111111'};
+      c.beginPath(); pathPath(c,obj);
+      if(obj.fillOn&&obj.closed){ c.fillStyle=fillStyleFor(c,obj,boxOf(obj)); c.fill(); }
+      if(st.width>0){
+        c.strokeStyle=st.color; c.lineWidth=st.width;
+        c.lineJoin='round'; c.lineCap='round'; c.stroke();
+      }
       c.restore(); return;
     }
     if(obj.type==='line'){
@@ -958,14 +1023,63 @@ function drawObject(c,obj,plain){
     c.restore();
   }
 }
-function textBox(obj){
+function caseText(t,tf){
+  if(tf==='upper') return t.toUpperCase();
+  if(tf==='lower') return t.toLowerCase();
+  if(tf==='title') return t.replace(/\b\w/g,ch=>ch.toUpperCase());
+  return t;
+}
+/* Shared layout for draw + bounds. Point text: one line, natural width.
+ * Area text: word wrap into obj.w; autosize 'height' grows the box to fit;
+ * 'fixed' keeps it and reports overflow (§1.9 overflow indicator). */
+function textLayout(obj){
   ctx.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
-  const w=ctx.measureText(obj.text).width;
-  const x=obj.align==='center'?obj.x-w/2:obj.x;
-  return {x, y:obj.y, w, h:obj.size*1.2};
+  ctx.letterSpacing=(obj.tracking||0)+'px';
+  const text=caseText(String(obj.text),obj.caseTf);
+  const lh=obj.size*(obj.lineHeight||1.2);
+  let lines, width;
+  if(obj.mode!=='area'){
+    lines=text.split('\n');
+    width=Math.max(1,...lines.map(l=>ctx.measureText(l).width));
+  }else{
+    lines=[]; width=obj.w;
+    text.split('\n').forEach(para=>{
+      const words=para.split(/\s+/).filter(Boolean);
+      if(!words.length){ lines.push(''); return; }
+      let cur=words[0];
+      for(let i=1;i<words.length;i++){
+        const t2=cur+' '+words[i];
+        if(ctx.measureText(t2).width<=obj.w) cur=t2;
+        else{ lines.push(cur); cur=words[i]; }
+      }
+      lines.push(cur);
+    });
+  }
+  const contentH=lines.length*lh;
+  const boxH=obj.mode==='area' ? (obj.autosize==='height'?contentH:obj.h) : contentH;
+  const overflow=obj.mode==='area'&&obj.autosize==='fixed'&&contentH>obj.h+0.5;
+  ctx.letterSpacing='0px';
+  return {lines,lh,width,contentH,boxH,overflow};
+}
+function textBox(obj){
+  const L=textLayout(obj);
+  if(obj.mode==='area') return {x:obj.x,y:obj.y,w:obj.w,h:L.boxH};
+  const x=obj.align==='center'?obj.x-L.width/2:obj.align==='right'?obj.x-L.width:obj.x;
+  return {x, y:obj.y, w:L.width, h:L.boxH};
 }
 function boxOf(obj){
   if(obj.type==='text') return textBox(obj);
+  if(obj.type==='path'){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    obj.points.forEach(p=>{
+      [[p.x,p.y],[p.x+p.ox,p.y+p.oy],[p.x+p.ix,p.y+p.iy]].forEach(([X,Y])=>{
+        x0=Math.min(x0,X); y0=Math.min(y0,Y); x1=Math.max(x1,X); y1=Math.max(y1,Y);
+      });
+    });
+    if(x0>x1) return {x:obj.x||0,y:obj.y||0,w:1,h:1};
+    const s=(obj.stroke?obj.stroke.width:3)/2;
+    return {x:x0-s,y:y0-s,w:(x1-x0)+s*2,h:(y1-y0)+s*2};
+  }
   if(obj.type==='line'){
     const x=Math.min(obj.x,obj.x2), y=Math.min(obj.y,obj.y2);
     return {x, y, w:Math.max(1,Math.abs(obj.x2-obj.x)), h:Math.max(1,Math.abs(obj.y2-obj.y))};
@@ -977,6 +1091,16 @@ function boxOf(obj){
 function translateObj(o,dx,dy){
   o.x+=dx; o.y+=dy;
   if(o.type==='line'){ o.x2+=dx; o.y2+=dy; }
+  if(o.type==='path') o.points.forEach(p=>{ p.x+=dx; p.y+=dy; });
+}
+/* Scratch context for exact fill/stroke hit-testing of bézier paths. */
+const hitCtx=document.createElement('canvas').getContext('2d');
+function pathHit(o,px,py,tol){
+  hitCtx.setTransform(1,0,0,1,0,0);
+  hitCtx.beginPath(); pathPath(hitCtx,o);
+  hitCtx.lineWidth=Math.max(tol*2,(o.stroke?o.stroke.width:3)+tol);
+  if(o.fillOn&&o.closed&&hitCtx.isPointInPath(px,py)) return true;
+  return hitCtx.isPointInStroke(px,py);
 }
 function distToSegment(px,py,x1,y1,x2,y2){
   const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy;
@@ -1076,6 +1200,58 @@ function paint(){
     ctx.strokeRect(b.x,b.y,b.w,b.h);
     ctx.restore();
   }
+  // §1.2 node editing overlay
+  const no=nodeObj&&nodeObj();
+  if(tool==='node'&&no){
+    const hs=6/z;
+    ctx.lineWidth=1.2/z;
+    no.points.forEach((a,pi)=>{
+      const on=nodeSel.pts.has(pi);
+      if(on){
+        // handles of selected anchors
+        ctx.strokeStyle='#8b5cf6';
+        [[a.ox,a.oy],[a.ix,a.iy]].forEach(([hx,hy])=>{
+          if(!hx&&!hy) return;
+          ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(a.x+hx,a.y+hy); ctx.stroke();
+          ctx.beginPath(); ctx.arc(a.x+hx,a.y+hy,3.4/z,0,Math.PI*2);
+          ctx.fillStyle='#fff'; ctx.fill(); ctx.stroke();
+        });
+      }
+      ctx.fillStyle=on?'#3b82f6':'#fff';
+      ctx.strokeStyle='#3b82f6';
+      ctx.fillRect(a.x-hs/2,a.y-hs/2,hs,hs);
+      ctx.strokeRect(a.x-hs/2,a.y-hs/2,hs,hs);
+    });
+  }
+  // §1.3 pen: anchors + rubber-band preview of the pending segment
+  const po=penDraft&&doc.frame.children[penDraft.oi];
+  if(po){
+    const hs=6/z;
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.2/z;
+    po.points.forEach(a=>{
+      ctx.fillRect(a.x-hs/2,a.y-hs/2,hs,hs);
+      ctx.strokeRect(a.x-hs/2,a.y-hs/2,hs,hs);
+    });
+    if(penHover&&po.points.length){
+      const a=po.points[po.points.length-1];
+      ctx.strokeStyle='#8b5cf6'; ctx.setLineDash([4/z,3/z]);
+      ctx.beginPath(); ctx.moveTo(a.x,a.y);
+      ctx.bezierCurveTo(a.x+a.ox,a.y+a.oy, penHover.x,penHover.y, penHover.x,penHover.y);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  // §1.9 overflow indicator on fixed-size area text
+  doc.frame.children.forEach(o=>{
+    if(o.type!=='text'||o.mode!=='area'||o.hidden) return;
+    if(textLayout(o).overflow){
+      const b={x:o.x,y:o.y,w:o.w,h:o.h}, r=5/z;
+      ctx.fillStyle='#dc2626';
+      ctx.beginPath(); ctx.arc(b.x+b.w-r,b.y+b.h-r,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff';
+      ctx.font=`${9/z}px Inter,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('+',b.x+b.w-r,b.y+b.h-r);
+    }
+  });
   if(marquee){
     const x=Math.min(marquee.x0,marquee.x1), y=Math.min(marquee.y0,marquee.y1);
     const w=Math.abs(marquee.x1-marquee.x0), h=Math.abs(marquee.y1-marquee.y0);
@@ -1149,6 +1325,7 @@ function syncLayers(){
 const FX_PAGES=obj=>{
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Shadow'];
+  if(obj.type==='path') return ['Path','Fill','Gradient','Light','Shadow','Grain'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
   if(obj.type==='polygon') return ['Shape','Pattern','Fill','Gradient','Light','Shadow','Grain'];
@@ -1191,7 +1368,7 @@ function syncInspector(){
   const b=boxOf(obj);
   $('pX').value=Math.round(obj.x); $('pY').value=Math.round(obj.y);
   $('pW').value=Math.round(b.w); $('pH').value=Math.round(b.h);
-  const tx=obj.type==='text'||obj.type==='line';   // line W/H = derived bounds
+  const tx=(obj.type==='text'&&obj.mode!=='area')||obj.type==='line'||obj.type==='path';
   $('pW').disabled=tx; $('pH').disabled=tx;
   $('pOpacity').value=Math.round(obj.opacity*100);
   $('pOpacityV').textContent=Math.round(obj.opacity*100)+'%';
@@ -1210,6 +1387,7 @@ function fxActive(obj,name){
       if(obj.type==='polygon') return true;
       return false;
     case 'Line':     return obj.arrowStart!=='none'||obj.arrowEnd!=='none';
+    case 'Path':     return !!(obj.closed||obj.fillOn);
     case 'Pattern':  return !!obj.pattern;
     case 'Fill':     return obj.fill&&obj.fill.kind!=='solid';
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
@@ -1315,6 +1493,41 @@ function buildFx(obj){
       sl('shRad','Corner radius',0,120,1,'radius',int);
       add(`<div class="fxHint">Inner ratio 1 is a regular polygon; below 1 the vertices alternate and it becomes a star.</div>`);
     }
+  }
+
+  if(page==='Path'){
+    const P=obj;
+    add(`<div class="fxHint">${P.points.length} anchors · ${P.closed?'closed':'open'} path.
+      Double-click the path with the Select tool (or press A) to edit nodes:
+      drag anchors and handles, double-click an anchor to convert corner/smooth,
+      double-click a segment to add an anchor, Delete removes selected anchors.</div>`);
+    add(`<label class="chk"><input type="checkbox" id="paClosed" ${P.closed?'checked':''}> Closed path</label>`);
+    $('paClosed').addEventListener('change',e=>{ P.closed=e.target.checked; pushHistory(); refresh(); });
+    add(`<label class="chk"><input type="checkbox" id="paFill" ${P.fillOn?'checked':''}> Fill (when closed)</label>`);
+    $('paFill').addEventListener('change',e=>{ P.fillOn=e.target.checked; pushHistory(); refresh(); });
+    add(`<label class="slider">Stroke width <span id="paWV">${P.stroke.width}</span>
+      <input type="range" id="paW" min="0" max="60" step="1" value="${P.stroke.width}"></label>`);
+    $('paW').addEventListener('input',e=>{ P.stroke.width=+e.target.value; $('paWV').textContent=e.target.value; render(); });
+    $('paW').addEventListener('change',()=>pushHistory());
+    add(`<label class="slider">Stroke color <input type="color" id="paC" value="${P.stroke.color}"></label>`);
+    $('paC').addEventListener('input',e=>{ P.stroke.color=e.target.value; render(); });
+    $('paC').addEventListener('change',()=>pushHistory());
+    add(`<div class="gsBtns">
+      <button class="rollBtn" id="paSmooth">Smooth all</button>
+      <button class="rollBtn" id="paCorner">Corner all</button></div>`);
+    $('paSmooth').addEventListener('click',()=>{
+      P.points.forEach((a,i)=>{
+        const prev=P.points[(i-1+P.points.length)%P.points.length];
+        const next=P.points[(i+1)%P.points.length];
+        a.ox=Math.round((next.x-prev.x)/6); a.oy=Math.round((next.y-prev.y)/6);
+        a.ix=-a.ox; a.iy=-a.oy; a.m='smooth';
+      });
+      pushHistory(); refresh();
+    });
+    $('paCorner').addEventListener('click',()=>{
+      P.points.forEach(a=>{ a.ox=a.oy=a.ix=a.iy=0; a.m='corner'; });
+      pushHistory(); refresh();
+    });
   }
 
   if(page==='Line'){
@@ -1514,6 +1727,31 @@ function buildFx(obj){
     $('tWeight').addEventListener('change',e=>{ obj.weight=+e.target.value; pushHistory(); render(); });
     $('tColor').addEventListener('input',e=>{ obj.color=e.target.value; render(); });
     $('tColor').addEventListener('change',()=>pushHistory());
+    // §1.9: paragraph + area controls
+    const sel2=(id,label,opts,key)=>{
+      add(`<label class="slider">${label}<select id="${id}">`+
+        opts.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+      $(id).value=String(obj[key]);
+      $(id).addEventListener('change',e=>{ obj[key]=e.target.value; pushHistory(); refresh(); });
+    };
+    const sl2=(id,label,min,max,step,key,fmt)=>{
+      add(`<label class="slider">${label} <span id="${id}V">${fmt(obj[key])}</span>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${obj[key]}"></label>`);
+      $(id).addEventListener('input',e=>{ obj[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+      $(id).addEventListener('change',()=>pushHistory());
+    };
+    add(`<div class="pSect">Paragraph</div>`);
+    sel2('tAlign','Alignment',[['left','Left'],['center','Center'],['right','Right']],'align');
+    sl2('tLead','Line height',0.7,3,0.05,'lineHeight',v=>(+v).toFixed(2));
+    sl2('tTrack','Tracking',-10,60,0.5,'tracking',v=>(+v).toFixed(1)+'px');
+    sel2('tCase','Case',[['none','As typed'],['upper','UPPERCASE'],['lower','lowercase'],['title','Title Case']],'caseTf');
+    add(`<div class="pSect">Frame</div>`);
+    sel2('tMode','Mode',[['point','Point text'],['area','Area text (wraps)']],'mode');
+    if(obj.mode==='area'){
+      sel2('tAuto','Sizing',[['fixed','Fixed (clips + overflow badge)'],['height','Auto-height']],'autosize');
+      sel2('tVal','Vertical align',[['top','Top'],['middle','Middle'],['bottom','Bottom']],'valign');
+    }
+    add(`<div class="fxHint">Area text wraps to its frame — drag with the Text tool to create one, or switch mode here. The red badge marks clipped overflow. Text on a path, columns and OpenType features are later §1.9 sessions.</div>`);
   }
 
   if(page==='Gradient'){
@@ -2102,6 +2340,10 @@ function hit(px,py){
       if(distToSegment(px,py,o.x,o.y,o.x2,o.y2)<=tol) return i;
       continue;
     }
+    if(o.type==='path'){
+      if(pathHit(o,px,py,Math.max(6/view.z,4))) return i;
+      continue;
+    }
     const b=boxOf(o);
     if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return i;
   }
@@ -2215,7 +2457,100 @@ canvas.addEventListener('pointerdown',e=>{
     cap(); return;
   }
   if(tool==='eyedrop'){ eyedrop(p,e); return; }
-  if(tool==='text'){ addShapeAt('text',p); setTool('select'); return; }
+  if(tool==='pen'){
+    const grip=10/view.z;
+    if(!penDraft){
+      // §1.3: clicking an open path's endpoint continues it
+      for(let oi=doc.frame.children.length-1;oi>=0;oi--){
+        const o=doc.frame.children[oi];
+        if(o.type!=='path'||o.closed||!selectable(o)) continue;
+        const first=o.points[0], last=o.points[o.points.length-1];
+        if(Math.hypot(p.x-last.x,p.y-last.y)<grip){ penDraft={oi}; setSel(oi); refresh(); return; }
+        if(Math.hypot(p.x-first.x,p.y-first.y)<grip){
+          o.points.reverse();
+          o.points.forEach(q=>{ const t=[q.ox,q.oy]; q.ox=q.ix; q.oy=q.iy; q.ix=t[0]; q.iy=t[1]; });
+          penDraft={oi}; setSel(oi); refresh(); return;
+        }
+      }
+      const obj=makeShape('path',p);
+      obj.points=[{x:Math.round(p.x),y:Math.round(p.y),ox:0,oy:0,ix:0,iy:0,m:'corner'}];
+      doc.frame.children.push(obj);
+      penDraft={oi:doc.frame.children.length-1};
+      setSel(penDraft.oi);
+      drag={mode:'penHandle',pi:0};
+      cap(); refresh(); return;
+    }
+    const o=penObj(), first=o.points[0];
+    let nx=p.x, ny=p.y;
+    if(e.shiftKey&&o.points.length){
+      // §1.3: shift constrains the segment to 45° increments
+      const lp=o.points[o.points.length-1];
+      const a=Math.atan2(ny-lp.y,nx-lp.x), sn=Math.round(a/(Math.PI/4))*(Math.PI/4);
+      const dd=Math.hypot(nx-lp.x,ny-lp.y);
+      nx=lp.x+Math.cos(sn)*dd; ny=lp.y+Math.sin(sn)*dd;
+    }
+    if(o.points.length>=2&&Math.hypot(p.x-first.x,p.y-first.y)<grip){
+      o.closed=true; penCommit(); return;      // close at the origin
+    }
+    o.points.push({x:Math.round(nx),y:Math.round(ny),ox:0,oy:0,ix:0,iy:0,m:'corner'});
+    drag={mode:'penHandle',pi:o.points.length-1};
+    cap(); render(); return;
+  }
+  if(tool==='pencil'){
+    pencilRaw=[{x:p.x,y:p.y}];
+    drag={mode:'pencil'};
+    cap(); return;
+  }
+  if(tool==='crop'){
+    drag={mode:'cropRect',x0:p.x,y0:p.y,moved:false};
+    marquee={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
+    cap(); return;
+  }
+  if(tool==='node'){
+    const o=nodeObj();
+    const grip=10/view.z;
+    if(o){
+      // handle grips of selected anchors first
+      for(const pi of nodeSel.pts){
+        const a=o.points[pi];
+        // A retracted handle sits ON its anchor; it must not shadow the
+        // anchor itself, or corner points could never be moved.
+        if((a.ox||a.oy)&&Math.hypot(p.x-(a.x+a.ox),p.y-(a.y+a.oy))<grip){ drag={mode:'nodeHandle',pi,which:'out',alt:e.altKey}; cap(); return; }
+        if((a.ix||a.iy)&&Math.hypot(p.x-(a.x+a.ix),p.y-(a.y+a.iy))<grip){ drag={mode:'nodeHandle',pi,which:'in',alt:e.altKey}; cap(); return; }
+      }
+      // anchors
+      for(let pi=0;pi<o.points.length;pi++){
+        const a=o.points[pi];
+        if(Math.hypot(p.x-a.x,p.y-a.y)<grip){
+          if(e.shiftKey){ nodeSel.pts.has(pi)?nodeSel.pts.delete(pi):nodeSel.pts.add(pi); }
+          else if(!nodeSel.pts.has(pi)) nodeSel.pts=new Set([pi]);
+          drag={mode:'nodeMove',px:p.x,py:p.y,
+            offs:[...nodeSel.pts].map(q=>({q,ox:o.points[q].x,oy:o.points[q].y}))};
+          cap(); paint(); return;
+        }
+      }
+      // segment drag: pull the two adjacent anchors together
+      const near=nearestOnPath(o,p.x,p.y);
+      if(near&&near.d<Math.max(6/view.z,(o.stroke.width/2)+3)){
+        const j=(near.i+1)%o.points.length;
+        drag={mode:'nodeMove',px:p.x,py:p.y,
+          offs:[near.i,j].map(q=>({q,ox:o.points[q].x,oy:o.points[q].y}))};
+        nodeSel.pts=new Set([near.i,j]);
+        cap(); paint(); return;
+      }
+    }
+    // pick a path to edit, or leave node mode over empty space
+    const i2=hit(p.x,p.y);
+    const t2=i2>=0&&doc.frame.children[i2];
+    if(t2&&t2.type==='path'){ nodeSel={oi:i2,pts:new Set()}; setSel(i2); refresh(); }
+    else { nodeSel=null; paint(); }
+    return;
+  }
+  if(tool==='text'){
+    drag={mode:'textDraw',x0:p.x,y0:p.y,moved:false};
+    marquee={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
+    cap(); return;
+  }
   if(tool!=='select'){
     // §1.5–1.8: drag to draw. Modifiers are applied live in pointermove —
     // shift constrains (square / circle / 45°), alt draws from the centre.
@@ -2273,7 +2608,10 @@ canvas.addEventListener('pointerdown',e=>{
   cap(); refresh();
 });
 canvas.addEventListener('pointermove',e=>{
-  if(!drag) return;
+  if(!drag){
+    if(tool==='pen'&&penDraft&&doc){ penHover=evtPage(e); paint(); }
+    return;
+  }
   const s=evtScreen(e);
   if(drag.mode==='pan'){
     view.x=drag.vx+(s.x-drag.sx); view.y=drag.vy+(s.y-drag.sy); view.mode='free';
@@ -2293,6 +2631,67 @@ canvas.addEventListener('pointermove',e=>{
     if(drag.additive) drag.prev.forEach(x=>ids.add(x));
     setSelIds(ids);
     paint(); syncLayers(); return;
+  }
+  if(drag.mode==='penHandle'){
+    const o=penObj(); if(!o){ drag=null; return; }
+    const a=o.points[drag.pi];
+    let dx=p.x-a.x, dy=p.y-a.y;
+    if(e.shiftKey){
+      const an=Math.atan2(dy,dx), sn=Math.round(an/(Math.PI/4))*(Math.PI/4);
+      const dd=Math.hypot(dx,dy);
+      dx=Math.cos(sn)*dd; dy=Math.sin(sn)*dd;
+    }
+    a.ox=Math.round(dx); a.oy=Math.round(dy);
+    if(e.altKey){ a.m='free'; }                 // §1.3 alt breaks symmetry mid-draw
+    else { a.ix=-a.ox; a.iy=-a.oy; a.m='smooth'; }
+    render(); return;
+  }
+  if(drag.mode==='pencil'){
+    const lp=pencilRaw[pencilRaw.length-1];
+    if(Math.hypot(p.x-lp.x,p.y-lp.y)>1.2) pencilRaw.push({x:p.x,y:p.y});
+    marquee=null; paint();
+    // live ink preview in screen space
+    const z=view.z;
+    ctx.save();
+    ctx.setTransform(z*(Math.min(devicePixelRatio||1,2)),0,0,z*(Math.min(devicePixelRatio||1,2)),view.x*(Math.min(devicePixelRatio||1,2)),view.y*(Math.min(devicePixelRatio||1,2)));
+    ctx.strokeStyle='#111'; ctx.lineWidth=2/z; ctx.lineJoin=ctx.lineCap='round';
+    ctx.beginPath();
+    pencilRaw.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));
+    ctx.stroke(); ctx.restore();
+    return;
+  }
+  if(drag.mode==='cropRect'||drag.mode==='textDraw'){
+    drag.moved=true;
+    marquee.x1=p.x; marquee.y1=p.y;
+    paint(); return;
+  }
+  if(drag.mode==='nodeHandle'){
+    const o=nodeObj(); if(!o){ drag=null; return; }
+    const a=o.points[drag.pi];
+    const dx=p.x-a.x, dy=p.y-a.y;
+    if(drag.alt) a.m='free';
+    if(drag.which==='out'){ a.ox=dx; a.oy=dy; }
+    else { a.ix=dx; a.iy=dy; }
+    if(a.m==='smooth'){
+      if(drag.which==='out'){ a.ix=-a.ox; a.iy=-a.oy; }
+      else { a.ox=-a.ix; a.oy=-a.iy; }
+    }else if(a.m==='asym'){
+      // same angle, keep the other side's length (§1.2 asymmetric mode)
+      const src=drag.which==='out'?[a.ox,a.oy]:[a.ix,a.iy];
+      const an=Math.atan2(src[1],src[0]);
+      if(drag.which==='out'){
+        const L=Math.hypot(a.ix,a.iy); a.ix=Math.cos(an+Math.PI)*L; a.iy=Math.sin(an+Math.PI)*L;
+      }else{
+        const L=Math.hypot(a.ox,a.oy); a.ox=Math.cos(an+Math.PI)*L; a.oy=Math.sin(an+Math.PI)*L;
+      }
+    }
+    render(); return;
+  }
+  if(drag.mode==='nodeMove'){
+    const o=nodeObj(); if(!o){ drag=null; return; }
+    const dx=p.x-drag.px, dy=p.y-drag.py;
+    drag.offs.forEach(({q,ox,oy})=>{ o.points[q].x=Math.round(ox+dx); o.points[q].y=Math.round(oy+dy); });
+    render(); return;
   }
   if(drag.mode==='draw'){
     const o=drag.obj; drag.moved=true;
@@ -2380,6 +2779,45 @@ const endDrag=e=>{
     }
     return;
   }
+  if(d.mode==='penHandle'){ render(); return; }   // anchor handled; history at commit
+  if(d.mode==='nodeHandle'||d.mode==='nodeMove'){ pushHistory(); refresh(); return; }
+  if(d.mode==='pencil'){
+    const raw=pencilRaw; pencilRaw=null;
+    if(!raw||raw.length<3){ paint(); return; }
+    const obj=makeShape('path',raw[0]);
+    obj.points=fitStroke(raw);
+    obj.name='Pencil';
+    // §1.4 auto-close when the stroke ends near its start
+    const f0=obj.points[0], fl=obj.points[obj.points.length-1];
+    if(Math.hypot(f0.x-fl.x,f0.y-fl.y)<12/view.z){ obj.points.pop(); obj.closed=true; }
+    doc.frame.children.push(obj);
+    setSel(doc.frame.children.length-1);
+    pushHistory(); refresh(); return;
+  }
+  if(d.mode==='textDraw'){
+    marquee=null;
+    const p2=evtPage(e);
+    const w=Math.abs(p2.x-d.x0), h=Math.abs(p2.y-d.y0);
+    const obj=makeShape('text',{x:Math.min(d.x0,p2.x),y:Math.min(d.y0,p2.y)});
+    if(d.moved&&w>30&&h>20){
+      // §1.9 area text: the dragged box is the frame
+      obj.mode='area'; obj.w=Math.round(w); obj.h=Math.round(h);
+      obj.autosize='fixed';
+    }
+    doc.frame.children.push(obj);
+    setSel(doc.frame.children.length-1); fxPage=0;
+    setTool('select');
+    pushHistory(); refresh(); return;
+  }
+  if(d.mode==='cropRect'){
+    marquee=null;
+    if(d.moved){
+      const p2=evtPage(e);
+      cropPage(Math.min(d.x0,p2.x),Math.min(d.y0,p2.y),Math.abs(p2.x-d.x0),Math.abs(p2.y-d.y0));
+    }
+    setTool('select');
+    return;
+  }
   if(d.mode==='draw'){
     if(!d.moved||Math.max(boxOf(d.obj).w,boxOf(d.obj).h)<4) applyDefaultSize(d.obj,{x:d.ox,y:d.oy});
     setTool('select');
@@ -2396,6 +2834,82 @@ const endDrag=e=>{
 };
 canvas.addEventListener('pointerup',endDrag);
 canvas.addEventListener('pointercancel',endDrag);
+
+/* ---- §1.3 pen ---- */
+let penDraft=null;    // {oi} index of the path being authored
+let penHover=null;    // page point for the rubber-band preview
+function penObj(){ return penDraft?doc.frame.children[penDraft.oi]:null; }
+function penCommit(){
+  const o=penObj();
+  penDraft=null; penHover=null;
+  if(o&&o.points.length<2){ doc.frame.children.splice(doc.frame.children.indexOf(o),1); setSel(-1); }
+  pushHistory(); refresh();
+}
+/* ---- §1.4 pencil ---- */
+let pencilOpts={tolerance:2.5, smoothing:3};
+let pencilRaw=null;
+function fitStroke(raw){
+  // stabilizer: moving average, strength = window size
+  const w=Math.max(1,Math.round(pencilOpts.smoothing));
+  const sm=raw.map((p,i)=>{
+    let x=0,y=0,n=0;
+    for(let j=Math.max(0,i-w);j<=Math.min(raw.length-1,i+w);j++){ x+=raw[j].x; y+=raw[j].y; n++; }
+    return {x:x/n,y:y/n};
+  });
+  // Ramer–Douglas–Peucker simplification at the fitting tolerance
+  const keep=new Array(sm.length).fill(false);
+  keep[0]=keep[sm.length-1]=true;
+  const rdp=(a,b)=>{
+    let mi=-1,md=0;
+    for(let i=a+1;i<b;i++){
+      const d=distToSegment(sm[i].x,sm[i].y,sm[a].x,sm[a].y,sm[b].x,sm[b].y);
+      if(d>md){ md=d; mi=i; }
+    }
+    if(md>pencilOpts.tolerance){ keep[mi]=true; rdp(a,mi); rdp(mi,b); }
+  };
+  if(sm.length>2) rdp(0,sm.length-1);
+  const pts=sm.filter((_,i)=>keep[i]);
+  // Catmull-Rom tangents -> cubic handles, all smooth anchors
+  return pts.map((p,i)=>{
+    const prev=pts[Math.max(0,i-1)], next=pts[Math.min(pts.length-1,i+1)];
+    const tx=(next.x-prev.x)/6, ty=(next.y-prev.y)/6;
+    return {x:Math.round(p.x),y:Math.round(p.y),
+      ox:Math.round(tx),oy:Math.round(ty),ix:Math.round(-tx),iy:Math.round(-ty),m:'smooth'};
+  });
+}
+/* ---- §1.2 node editing ---- */
+let nodeSel=null;     // {oi, pts:Set<anchorIndex>}
+function nodeObj(){ return nodeSel?doc.frame.children[nodeSel.oi]:null; }
+/** Split the segment AFTER anchor i at parameter t, preserving the curve
+ *  exactly (de Casteljau). */
+function splitSegment(o,i,t){
+  const P=o.points, a=P[i], b=P[(i+1)%P.length];
+  const p0=[a.x,a.y], p1=[a.x+a.ox,a.y+a.oy], p2=[b.x+b.ix,b.y+b.iy], p3=[b.x,b.y];
+  const lerp=(u,v)=>[u[0]+(v[0]-u[0])*t, u[1]+(v[1]-u[1])*t];
+  const q0=lerp(p0,p1), q1=lerp(p1,p2), q2=lerp(p2,p3);
+  const r0=lerp(q0,q1), r1=lerp(q1,q2);
+  const sp=lerp(r0,r1);
+  a.ox=q0[0]-a.x; a.oy=q0[1]-a.y;
+  b.ix=q2[0]-b.x; b.iy=q2[1]-b.y;
+  P.splice(i+1,0,{x:sp[0],y:sp[1],
+    ix:r0[0]-sp[0],iy:r0[1]-sp[1], ox:r1[0]-sp[0],oy:r1[1]-sp[1], m:'asym'});
+}
+/** Nearest (segment index, t, distance) on a path to a page point. */
+function nearestOnPath(o,px,py){
+  const P=o.points, nSeg=o.closed?P.length:P.length-1;
+  let best=null;
+  for(let i=0;i<nSeg;i++){
+    const a=P[i], b=P[(i+1)%P.length];
+    for(let k=0;k<=24;k++){
+      const t=k/24, u=1-t;
+      const X=u*u*u*a.x+3*u*u*t*(a.x+a.ox)+3*u*t*t*(b.x+b.ix)+t*t*t*b.x;
+      const Y=u*u*u*a.y+3*u*u*t*(a.y+a.oy)+3*u*t*t*(b.y+b.iy)+t*t*t*b.y;
+      const d=Math.hypot(px-X,py-Y);
+      if(!best||d<best.d) best={i,t,d};
+    }
+  }
+  return best;
+}
 
 /* ---- eyedropper (§1.10) ----
  * Samples the COMPOSITED page raster, so it reads engine output and gradients,
@@ -2451,6 +2965,60 @@ function eyedrop(p,e){
   applySampledColor(samplePage(p.x,p.y,n),under);
 }
 
+/* ---- §1.11 crop: resize the page, translating content ---- */
+function cropPage(x,y,w,h){
+  if(!doc||w<20||h<20) return;
+  const f=doc.frame;
+  x=Math.round(x); y=Math.round(y);
+  w=clamp(Math.round(w),100,4000); h=clamp(Math.round(h),100,4000);
+  f.children.forEach(o=>translateObj(o,-x,-y));
+  f.w=w; f.h=h;
+  view.mode='fit';
+  pushHistory(); refresh();
+}
+function cropToSelection(){
+  const b=selBounds(); if(!b) return;
+  cropPage(b.x,b.y,b.w,b.h);
+}
+
+canvas.addEventListener('dblclick',e=>{
+  if(!doc) return;
+  const p=evtPage(e);
+  if(tool==='node'&&nodeSel){
+    const o=nodeObj(), grip=10/view.z;
+    // §1.2 corner <-> smooth conversion on an anchor
+    for(let pi=0;pi<o.points.length;pi++){
+      const a=o.points[pi];
+      if(Math.hypot(p.x-a.x,p.y-a.y)<grip){
+        if(a.m==='corner'){
+          const prev=o.points[(pi-1+o.points.length)%o.points.length];
+          const next=o.points[(pi+1)%o.points.length];
+          const tx=(next.x-prev.x)/6, ty=(next.y-prev.y)/6;
+          a.ox=Math.round(tx); a.oy=Math.round(ty);
+          a.ix=-a.ox; a.iy=-a.oy; a.m='smooth';
+        }else{
+          a.ox=a.oy=a.ix=a.iy=0; a.m='corner';   // retract to zero = corner
+        }
+        pushHistory(); refresh(); return;
+      }
+    }
+    // §1.2 add an anchor on the segment, preserving the curve exactly
+    const near=nearestOnPath(o,p.x,p.y);
+    if(near&&near.d<Math.max(6/view.z,(o.stroke.width/2)+3)){
+      splitSegment(o,near.i,near.t);
+      pushHistory(); refresh();
+    }
+    return;
+  }
+  // select tool: double-click a path to start editing its nodes
+  if(tool==='select'){
+    const i=hit(p.x,p.y);
+    if(i>=0&&doc.frame.children[i].type==='path'){
+      setTool('node'); nodeSel={oi:i,pts:new Set()}; setSel(i); refresh();
+    }
+  }
+});
+
 /* ---- selection commands (§1.1) ---- */
 function selectAllCmd(){
   if(!doc) return;
@@ -2490,22 +3058,33 @@ function nudgeSel(dx,dy){
 
 /* ================= tools ================= */
 function cursorForTool(){
-  return tool==='select'?'default':tool==='zoom'?'zoom-in':'crosshair';
+  if(tool==='select'||tool==='node') return 'default';
+  if(tool==='zoom') return 'zoom-in';
+  return 'crosshair';
 }
 function setTool(t){
   tool=t;
+  if(t!=='pen'&&penDraft) penCommit();       // switching tools ends the draft
+  if(t!=='node') nodeSel=null;
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
+  const po=$('pencilOpts');
+  if(po) po.style.display=t==='pencil'?'':'none';
   canvas.style.cursor=cursorForTool();
+  paint();
 }
 document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
 const SHAPE_DEFAULT={rect:[160,120],ellipse:[160,120],polygon:[140,140]};
 function makeShape(kind,p){
   let obj;
   if(kind==='text')
-    obj={type:'text',name:'Text',x:p.x,y:p.y,text:'Text',size:36,weight:600,color:'#111111',align:'left',opacity:1};
+    obj={type:'text',name:'Text',x:p.x,y:p.y,text:'Text',size:36,weight:600,color:'#111111',
+      align:'left',mode:'point',lineHeight:1.2,tracking:0,valign:'top',autosize:'fixed',caseTf:'none',opacity:1};
   else if(kind==='line')
     obj={type:'line',name:'Line',x:p.x,y:p.y,x2:p.x,y2:p.y,
       stroke:{width:4,color:'#111111'},arrowStart:'none',arrowEnd:'none',arrowSize:12,opacity:1};
+  else if(kind==='path')
+    obj={type:'path',name:'Path',x:0,y:0,points:[],closed:false,fillOn:false,
+      stroke:{width:3,color:'#111111'},fill:{kind:'solid',color:'#d9d9d9'},opacity:1};
   else if(kind==='polygon')
     obj={type:'polygon',name:'Polygon',x:p.x,y:p.y,w:1,h:1,sides:5,innerRatio:1,radius:0,opacity:1,
       fill:{kind:'solid',color:'#d9d9d9'}};
@@ -2513,7 +3092,7 @@ function makeShape(kind,p){
     x:p.x,y:p.y,w:1,h:1,radius:kind==='rect'?8:0,opacity:1,
     fill:{kind:'solid',color:'#d9d9d9'}};
   obj.effects=DEFAULT_EFFECTS();
-  if(obj.type!=='text'&&obj.type!=='line') obj.pattern=DEFAULT_PATTERN();
+  if(obj.type!=='text'&&obj.type!=='line'&&obj.type!=='path') obj.pattern=DEFAULT_PATTERN();
   obj.id=newId();
   return obj;
 }
@@ -2647,6 +3226,7 @@ const CMDS={
   zoom200(){ zoomTo(2); },
   zoomSel:zoomToSelection,
   selectAll:selectAllCmd, deselect:deselectCmd, invertSel:invertSelCmd,
+  cropSel:cropToSelection,
   sameFill(){ selectSame('fill'); },
   sameEffects(){ selectSame('effects'); },
   sameSize(){ selectSame('size'); },
@@ -2681,8 +3261,37 @@ document.addEventListener('keydown',e=>{
   else if(meta&&e.key==='2'){ e.preventDefault(); zoomTo(2); }
   else if(!meta&&e.shiftKey&&e.code==='Digit2'){ e.preventDefault(); zoomToSelection(); }
   else if(e.key==='Escape'&&$('pageModal').style.display!=='none'){ closePageModal(); }
+  else if((e.key==='Escape'||e.key==='Enter')&&penDraft){ e.preventDefault(); penCommit(); }
+  else if(e.key==='Escape'&&tool==='node'&&nodeSel){ nodeSel=null; setTool('select'); paint(); }
   else if(e.key==='Escape'){ deselectCmd(); }
+  else if(e.key==='Backspace'&&penDraft){
+    // §1.3: backspace deletes the last placed anchor while drawing
+    e.preventDefault();
+    const o=penObj();
+    o.points.pop();
+    if(!o.points.length){ doc.frame.children.splice(penDraft.oi,1); penDraft=null; setSel(-1); }
+    refresh();
+  }
+  else if((e.key==='Delete'||e.key==='Backspace')&&tool==='node'&&nodeSel&&nodeSel.pts.size){
+    // §1.2: delete anchors, reconnecting the neighbours
+    e.preventDefault();
+    const o=nodeObj();
+    o.points=o.points.filter((_,i)=>!nodeSel.pts.has(i));
+    nodeSel.pts=new Set();
+    if(o.points.length<2){ doc.frame.children.splice(nodeSel.oi,1); nodeSel=null; setSel(-1); setTool('select'); }
+    pushHistory(); refresh();
+  }
   else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
+  else if(/^Arrow/.test(e.key)&&tool==='node'&&nodeSel&&nodeSel.pts.size){
+    // §1.2 anchor nudge with the same step rules as objects
+    e.preventDefault();
+    const st=e.shiftKey?10:1, o=nodeObj();
+    const dx=e.key==='ArrowLeft'?-st:e.key==='ArrowRight'?st:0;
+    const dy=e.key==='ArrowUp'?-st:e.key==='ArrowDown'?st:0;
+    nodeSel.pts.forEach(pi=>{ o.points[pi].x+=dx; o.points[pi].y+=dy; });
+    render();
+    clearTimeout(nudgeTimer); nudgeTimer=setTimeout(pushHistory,400);
+  }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); nudgeSel(e.shiftKey?-10:-1,0); }
   else if(e.key==='ArrowRight'){ e.preventDefault(); nudgeSel(e.shiftKey?10:1,0); }
   else if(e.key==='ArrowUp'){ e.preventDefault(); nudgeSel(0,e.shiftKey?-10:-1); }
@@ -2693,7 +3302,11 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='o'||e.key==='O') setTool('ellipse');
   else if(e.key==='t'||e.key==='T') setTool('text');
   else if(e.key==='z'||e.key==='Z') setTool('zoom');
-  else if(e.key==='p'||e.key==='P') setTool('polygon');
+  else if(e.key==='P'&&e.shiftKey) setTool('polygon');   // pen took the P key
+  else if(e.key==='p') setTool('pen');
+  else if(e.key==='a'||e.key==='A') setTool('node');
+  else if(e.key==='n'||e.key==='N') setTool('pencil');
+  else if(e.key==='c'||e.key==='C') setTool('crop');
   else if(e.key==='l'||e.key==='L') setTool('line');
   else if(e.key==='i'||e.key==='I') setTool('eyedrop');
 });
@@ -2816,10 +3429,19 @@ window.addEventListener('resize',render);
 setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
 
 /* test hook */
+(function wirePencilOpts(){
+  const t=$('pcTol'), sm=$('pcSmooth');
+  if(!t) return;
+  t.value=pencilOpts.tolerance; sm.value=pencilOpts.smoothing;
+  t.addEventListener('input',e=>{ pencilOpts.tolerance=+e.target.value; $('pcTolV').textContent=(+e.target.value).toFixed(1); });
+  sm.addEventListener('input',e=>{ pencilOpts.smoothing=+e.target.value; $('pcSmoothV').textContent=e.target.value; });
+})();
+
 window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; pushHistory(); refresh();},
   get pages(){return pages;}, get pageIdx(){return pageIdx;}, setActivePage,
   get sel(){return sel;}, set sel(i){setSel(i); fxPage=0; refresh();},
   get selInstance(){return selInstance;},
+  get view(){return view;},
   render, refresh, normalizeDoc,
   patternInstances, allInstances, instanceBounds, normalizePattern,
   duplicateSel, deleteSel,

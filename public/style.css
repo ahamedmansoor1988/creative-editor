@@ -392,3 +392,13 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   outline: 2px solid #2563eb;
   outline-offset: 1px;
 }
+
+/* pencil tool options */
+#pencilOpts{
+  position:fixed; left:52px; top:76px; z-index:30; width:190px;
+  background:#fff; border:1px solid var(--line); border-radius:9px;
+  padding:9px 12px; box-shadow:0 3px 14px rgba(0,0,0,.10); font-size:11px; color:var(--muted);
+}
+#pencilOpts label{display:block; margin:4px 0;}
+#pencilOpts span{float:right; color:var(--text);}
+#pencilOpts input{width:100%; accent-color:var(--accent);}

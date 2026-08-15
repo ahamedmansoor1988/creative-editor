@@ -68,6 +68,40 @@ future session can pick up without re-reading the whole app.
 - Shortcuts: P polygon, L line, I eyedropper. NOTE: §1.3 Pen will want P —
   when it ships, pen takes P and polygon moves to shift-P.
 
+### Session 3 — path model: §1.2, §1.3, §1.4, §1.9 (partial), §1.11
+- NEW path object type: cubic bézier chain, handles stored relative to their
+  anchor, modes corner/smooth/asym/free. Exact hit-testing via
+  isPointInPath/isPointInStroke on a scratch context. Fill+Gradient+Light+
+  Shadow+Grain engines apply to closed paths through pathFor.
+- §1.3 Pen (P): DONE except curvature mode and hover add/delete (covered by
+  the node tool). Click corners, drag smooth anchors, alt breaks symmetry
+  mid-draw, shift 45°, rubber-band preview, Backspace removes last, click
+  origin closes, Enter/Esc commits, clicking an open path's endpoint
+  continues it (from either end — the points reverse).
+- §1.2 Node editing (A): DONE except align/distribute anchors and
+  anchor snapping (needs §2.10 grid/guides). Select/drag anchors + marquee-free
+  multi via shift, handle drag per symmetry mode (alt = break), double-click
+  anchor converts corner↔smooth, double-click segment inserts an anchor via
+  exact de Casteljau split, segment drag moves both adjacent anchors, Delete
+  removes anchors (reconnecting), arrow nudge. BUG FOUND + FIXED during
+  verification: a corner's retracted (zero-length) handle sits ON the anchor
+  and swallowed anchor clicks — corner points could never be moved.
+- §1.4 Pencil (N): DONE except pressure→width (needs §4.2 variable-width
+  strokes) and redraw-over-to-extend. Moving-average stabilizer (strength
+  slider) → Ramer–Douglas–Peucker simplify (tolerance slider) → Catmull-Rom
+  tangents as bézier handles. Auto-close near origin. Options chip appears
+  with the tool. 61 raw samples fit to ~10 smooth anchors at defaults.
+- §1.9 Text: PARTIAL — point + area text (drag with the Text tool to get a
+  frame), word wrap, line height, tracking (canvas letterSpacing), case
+  transform, right alignment, vertical alignment, fixed/auto-height sizing,
+  clipped-overflow badge. Still open: text on a path, columns, justification,
+  OpenType features, variable fonts, convert-to-outlines.
+- §1.11 Crop (C): DONE for the vector reality of the app — crop tool drags
+  the region the page becomes, "Crop Page to Selection" in Edit, content
+  translates, undo = reveal-all. Image-frame cropping N/A until image fills
+  exist (§4.1).
+- The AI schema can now emit path and area-text children.
+
 ## Not yet started
 §1.2–§1.11, §2 (except nudge), §3, §4 (fills/strokes exist in primitive form),
 §5 (12 legacy engines exist as a fixed per-object set — §5.15 effect stack will

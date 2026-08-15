@@ -28,6 +28,7 @@
       <button data-cmd="sameFill">Select Same Fill</button>
       <button data-cmd="sameEffects">Select Same Effects</button>
       <button data-cmd="sameSize">Select Same Size</button>
+      <button data-cmd="cropSel">Crop Page to Selection</button>
     </div>
   </div>
   <div class="menu" data-menu="view">View
@@ -60,12 +61,16 @@
 <div id="leftPanel" class="floating">
   <div id="toolsRail">
     <button class="tool active" data-tool="select" title="Select (V)">➤</button>
+    <button class="tool" data-tool="node" title="Edit nodes (A) — anchors and handles">⊹</button>
+    <button class="tool" data-tool="pen" title="Pen (P) — click corners, drag smooth anchors; Enter/Esc ends, Backspace removes last">✒</button>
+    <button class="tool" data-tool="pencil" title="Pencil (N) — freehand, fitted to a smooth path">✏</button>
     <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
     <button class="tool" data-tool="ellipse" title="Ellipse (O)">◯</button>
-    <button class="tool" data-tool="polygon" title="Polygon / Star (P) — drag to draw, shift for regular">⬠</button>
+    <button class="tool" data-tool="polygon" title="Polygon / Star (⇧P) — drag to draw, shift for regular">⬠</button>
     <button class="tool" data-tool="line" title="Line (L) — drag to draw, shift for 45°">╱</button>
     <button class="tool" data-tool="text" title="Text (T)">T</button>
     <button class="tool" data-tool="eyedrop" title="Eyedropper (I) — click to sample, shift 3×3, ⌘ 5×5, alt copies full appearance">💧</button>
+    <button class="tool" data-tool="crop" title="Crop (C) — drag the region the page should become">⛶</button>
     <button class="tool" data-tool="zoom" title="Zoom (Z) — click in, alt-click out, drag a region">⌕</button>
   </div>
   <div id="sidebar">
@@ -81,6 +86,10 @@
   <canvas id="out"></canvas>
 </div>
 <div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" title="Zoom — type a percentage"></div>
+<div id="pencilOpts" style="display:none">
+  <label>Tolerance <span id="pcTolV">2.5</span><input type="range" id="pcTol" min="0.5" max="10" step="0.1" value="2.5"></label>
+  <label>Smoothing <span id="pcSmoothV">3</span><input type="range" id="pcSmooth" min="0" max="10" step="1" value="3"></label>
+</div>
 
 <!-- New Page modal -->
 <div id="pageModal" style="display:none">
