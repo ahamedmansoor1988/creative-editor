@@ -1825,6 +1825,13 @@ function paintCacheable(obj){
   const m=FS.activeMaterial(obj.fx);
   if(m&&FS.isBackdrop(m.type)) return false;
   if(window.BlobEngine&&window.BlobEngine.available()&&inBlobGroup(obj)) return false;
+  /* PATTERNED OBJECTS. drawOneUncached paints the parent AND its linked copies,
+   * but the cache bitmap is sized to aabbOf(parent) — the copies land outside
+   * it and are clipped away, so a patterned object with a drop shadow rendered
+   * as a single shape. The signature does not track `pattern` either. Sizing
+   * the bitmap to cover every instance would work and is not worth it: the
+   * pattern path already redraws N copies, which is the expensive part. */
+  if(obj.pattern) return false;
   // only worth it when something expensive is on
   const worth=obj.fx.some(e=>FS.entryOn(e)&&
     (FS.slotOf(e.type)==='behind'||FS.slotOf(e.type)==='pixel'||FS.slotOf(e.type)==='material'));
@@ -6129,7 +6136,17 @@ function makeShape(kind,p){
   ensureFx(obj);
   // keep the alias identity: subpath 0 IS obj.points, not a copy
   if(obj.type==='path') obj.subpaths[0].points=obj.points;
-  if(obj.type!=='text'&&obj.type!=='line'&&obj.type!=='path') obj.pattern=DEFAULT_PATTERN();
+  /* NO PATTERN ON A NEW SHAPE. This used to attach DEFAULT_PATTERN(), whose
+   * `columns` is 4 — so drawing one rectangle with the rect tool immediately
+   * produced FOUR rectangles on the canvas. Pattern is opt-in: the Pattern
+   * panel shows "No pattern on this object" with an "+ Add pattern" button
+   * when the field is absent, which is the intended way in.
+   *
+   * Batteries missed this for the same reason bug #13 hid: they build
+   * documents by assigning to `doc`, which runs normalizeDoc, where
+   * normalizePattern(undefined) is falsy and the field is deleted. Only the
+   * TOOL path attached one, and asserting that a drawn shape paints at its
+   * centre passes just as well with four copies as with one. */
   obj.id=newId();
   return obj;
 }
