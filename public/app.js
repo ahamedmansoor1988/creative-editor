@@ -6508,9 +6508,22 @@ function applyDefaultSize(obj,p){
 }
 
 /* ================= menus / commands ================= */
+function syncMenuChecks(){
+  document.querySelectorAll('.dropdown button[data-check]').forEach(b=>{
+    let on=false;
+    if(b.dataset.check==='rulers') on=showRulers;
+    else if(b.dataset.check==='grid') on=!!(doc&&doc.frame.grid&&doc.frame.grid.show);
+    else if(b.dataset.check==='snap') on=!!snapCfg.on;
+    else if(b.dataset.check==='guides') on=!!(doc&&!guidesHidden);
+    b.classList.toggle('checked',on);
+    b.setAttribute('aria-checked',String(on));
+    b.setAttribute('role','menuitemcheckbox');
+  });
+}
 document.querySelectorAll('.menu').forEach(m=>{
   m.addEventListener('click',e=>{
     document.querySelectorAll('.menu').forEach(o=>{ if(o!==m)o.classList.remove('open'); });
+    syncMenuChecks();
     m.classList.toggle('open');
     e.stopPropagation();
   });
