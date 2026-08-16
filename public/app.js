@@ -6642,7 +6642,18 @@ probeProvider();
 
 /* ================= init ================= */
 window.addEventListener('resize',render);
-setActivePage(-1); pushHistory(); refresh();   // start with NO pages — user creates one
+/* FIRST RUN. This used to be setActivePage(-1) — the app opened with NO
+ * document: a blank grey stage, empty Pages and Layers lists, no canvas, and
+ * the only way forward a small "+" beside the Pages heading. style.css still
+ * carries an #emptyHint block for a proper empty state, but no markup was ever
+ * written to match it, so nothing rendered in its place either.
+ *
+ * An editor should open ready to draw. The default page is an ordinary page —
+ * renamable, deletable, replaceable — and it is what makes the canvas, the
+ * rulers and the side panels mean anything on load. */
+pages.push(normalizeDoc({frame:{name:'Page 1',w:900,h:600,bg:'#ffffff',children:[]}}));
+setActivePage(0);
+pushHistory(); refresh();
 
 /* test hook */
 (function bootHistory(){
