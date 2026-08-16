@@ -7119,15 +7119,6 @@ pushHistory(); refresh();
       collapseLabel:'Collapse pages panel',
       expandLabel:'Expand pages panel',
     },
-    {
-      id:'rightPanelToggle',
-      cls:'panel-right-collapsed',
-      key:'creative-editor.rightPanelCollapsed',
-      collapseIcon:'chevronRight',
-      expandIcon:'chevronLeft',
-      collapseLabel:'Collapse right panel',
-      expandLabel:'Expand right panel',
-    },
   ];
   const apply=c=>{
     const btn=$(c.id);
