@@ -6611,54 +6611,10 @@ function syncPageRow(){
   syncArtboardRow();
 }
 /* §6.5 artboard list — the same affordances as pages. */
-/* The separate artboard list is gone — artboards are headings in the one tree
- * now (see syncLayers). Kept as a no-op so the existing call sites, which fire
- * from artboard add/remove/rename, do not need to change; syncLayers is what
- * redraws them. */
-function syncArtboardRow(){
-  const list=$('artboardList');
-  if(!list) return;
-  list.innerHTML='';
-  if(!doc) return;
-  (doc.frame.artboards||[]).forEach(a=>{
-    const row=document.createElement('div');
-    row.className='pageRow'+(selArtboard===a.id?' sel':'')+(a.show?'':' isHidden');
-    const nm=document.createElement('span');
-    nm.className='pName'; nm.textContent=a.name;
-    row.appendChild(nm);
-    const cnt=document.createElement('span');
-    cnt.className='linkBadge'; cnt.textContent=String(objectsInArtboard(a).length);
-    cnt.title='objects on this artboard';
-    row.appendChild(cnt);
-    row.title=`${a.w}×${a.h} — double-click to rename`;
-    rowBtn(row,'eye',a.show?'Hide artboard':'Show artboard',()=>{
-      a.show=!a.show; pushHistory('Artboard visibility'); refresh(); });
-    rowBtn(row,'download','Export this artboard',()=>exportArtboard(a.id));
-    rowBtn(row,'duplicate','Duplicate artboard',()=>duplicateArtboard(a.id));
-    rowBtn(row,'trash','Delete artboard',()=>{
-      const n=objectsInArtboard(a).length;
-      const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
-      removeArtboard(a.id,withContent);
-    },(doc.frame.artboards||[]).length<=1);
-    row.addEventListener('click',()=>{
-      selArtboard=a.id;
-      const stage=$('stage'), pad=60;
-      const zz=clamp(Math.min((stage.clientWidth-2*pad)/a.w,(stage.clientHeight-2*pad)/a.h),0.02,4);
-      view.z=zz; view.mode='free';
-      view.x=stage.clientWidth/2-(a.x+a.w/2)*zz;
-      view.y=stage.clientHeight/2-(a.y+a.h/2)*zz;
-      refresh();
-    });
-    row.addEventListener('dblclick',ev=>{
-      ev.stopPropagation();
-      const n=prompt('Artboard name:',a.name);
-      if(n===null) return;
-      a.name=n.trim()||a.name;
-      pushHistory('Rename artboard'); refresh();
-    });
-    list.appendChild(row);
-  });
-}
+/* The separate artboard list is gone — artboards are headings inside the one
+ * Artwork tree now, drawn by syncLayers. This stub remains only because artboard
+ * add/remove/rename still call it; it deliberately does nothing. */
+function syncArtboardRow(){}
 function createPage(){
   const w=clamp(Math.round(+$('npW').value)||900,100,4000);
   const h=clamp(Math.round(+$('npH').value)||600,100,4000);

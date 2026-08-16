@@ -141,11 +141,6 @@ body{
   font-size:var(--text-sm); font-weight:var(--weight-medium);
   text-align:center; color:var(--text); outline:none;
 }
-#emptyHint{
-  position:absolute; text-align:center; color:#9aa0a8; font-size:var(--text-base); line-height:1.8;
-  pointer-events:none;
-}
-#emptyHint span{font-size:var(--text-sm);}
 
 /* ---------- right panel ---------- */
 #rightPanel{
@@ -325,8 +320,6 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   width:26px; height:26px; border-radius:50%; border:1px solid var(--line); cursor:pointer;
 }
 #swatches button:hover{transform:scale(1.12);}
-#emptyHint .btn{pointer-events:auto; margin:10px 0;}
-#emptyHint{display:flex; flex-direction:column; align-items:center; gap:2px;}
 
 /* ---------- agent bar ---------- */
 #agentBar{
