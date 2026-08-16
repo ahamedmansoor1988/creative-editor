@@ -637,3 +637,25 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #instOverrides .ovRow input[type=text]{flex:1 1 auto; min-width:0;}
 #instOverrides .ovRow input[type=color]{flex:0 0 26px; padding:0; height:22px;}
 #instOverrides .ovDirty{color:var(--accent); font-weight:var(--weight-semibold);}
+
+/* §6.5 — artboard headings inside the layer tree. A page holds artboards and an
+   artboard holds layers, so the tree shows that nesting directly. The heading
+   is a row, not a section title: it is clickable, countable and collapsible. */
+#layerList .abGroup{
+  display:flex; align-items:center; gap:7px; padding:9px 12px; cursor:pointer;
+  font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
+  white-space:nowrap; overflow:hidden;
+}
+#layerList .abGroup:hover{background:#fafafa;}
+#layerList .abGroup.sel{background:#f1f1f3;}
+#layerList .abGroup svg{flex:0 0 auto; color:var(--muted);}
+#layerList .abName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
+#layerList .abCount{
+  flex:0 0 auto; font-size:var(--text-xs); font-weight:var(--weight-regular);
+  color:var(--muted); font-variant-numeric:tabular-nums;
+}
+#layerList .abEmpty{
+  padding:7px 12px 7px 33px; font-size:var(--text-xs); color:var(--muted);
+  cursor:default;
+}
+#layerList .abEmpty:hover{background:none;}

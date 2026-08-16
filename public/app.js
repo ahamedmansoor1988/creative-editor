@@ -2893,7 +2893,57 @@ function syncLayers(){
     }else hits.reverse().forEach(c=>row(c,0));
     return;
   }
-  [...doc.frame.children].reverse().forEach(c=>row(c,0));
+  /* §6.5/§6.1 — the tree is grouped BY ARTBOARD, because that is the actual
+   * hierarchy: a page holds artboards, an artboard holds layers. Membership is
+   * geometric (artboardOf: the artboard containing the object's centre), so it
+   * follows the artwork rather than a stored parent field, and dragging a shape
+   * from one artboard to another re-homes it in this list with no bookkeeping.
+   *
+   * Objects whose centre is outside every artboard are real and must stay
+   * reachable, so they collect under "Off artboard" — shown only when it has
+   * something in it, so a tidy document never sees it. */
+  const boards=doc.frame.artboards||[];
+  if(!boards.length){
+    [...doc.frame.children].reverse().forEach(c=>row(c,0));
+    return;
+  }
+  const top=[...doc.frame.children].reverse();
+  const homed=new Set();
+  boards.forEach(a=>{
+    const mine=top.filter(c=>{ const hit=artboardOf(c)===a; if(hit) homed.add(c); return hit; });
+    const head=document.createElement('div');
+    head.className='abGroup'+(selArtboard===a.id?' sel':'');
+    head.innerHTML=(window.Icons?Icons.svg(a.collapsed?'chevronRight':'chevronDown',{size:12}):'')
+      +(window.Icons?Icons.svg('frame',{size:14}):'')
+      +'<span class="abName">'+esc(a.name)+'</span>'
+      +'<span class="abCount">'+mine.length+'</span>';
+    head.title=a.w+'×'+a.h+' — click to focus this artboard';
+    head.addEventListener('click',ev=>{
+      if(ev.target.closest('svg')&&head.firstElementChild&&head.firstElementChild.contains(ev.target)){
+        a.collapsed=!a.collapsed; syncLayers(); return;
+      }
+      selArtboard=a.id; refresh();
+    });
+    list.appendChild(head);
+    if(!a.collapsed){
+      if(!mine.length){
+        const d=document.createElement('div');
+        d.className='abEmpty'; d.textContent='No layers yet';
+        list.appendChild(d);
+      }else mine.forEach(c=>row(c,1));
+    }
+  });
+  const loose=top.filter(c=>!homed.has(c));
+  if(loose.length){
+    const head=document.createElement('div');
+    head.className='abGroup';
+    head.innerHTML=(window.Icons?Icons.svg('chevronDown',{size:12}):'')
+      +'<span class="abName">Off artboard</span>'
+      +'<span class="abCount">'+loose.length+'</span>';
+    head.title='These sit outside every artboard and will not appear in an artboard export';
+    list.appendChild(head);
+    loose.forEach(c=>row(c,1));
+  }
 }
 
 const FX_PAGES=obj=>{
