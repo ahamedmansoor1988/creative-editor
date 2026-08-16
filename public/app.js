@@ -6521,10 +6521,9 @@ function syncMenuChecks(){
   });
   const obj=primary();
   const pages=obj?FX_PAGES(obj):[];
-  const cur=pages[fxPage];
   document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
     const name=b.dataset.fx;
-    const on=!!(obj&&pages.includes(name)&&(name===cur||fxActive(obj,name)));
+    const on=!!(obj&&pages.includes(name)&&fxActive(obj,name));
     b.classList.toggle('checked',on);
     b.setAttribute('aria-checked',String(on));
     b.setAttribute('role','menuitemcheckbox');
