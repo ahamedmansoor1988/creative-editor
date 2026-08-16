@@ -60,7 +60,9 @@ body{
 
 /* ---------- left panel ---------- */
 #leftPanel{
-  position:fixed; top:72px; left:14px; bottom:14px; width:208px; z-index:20;
+  /* 208px forced almost every nested layer name to truncate ("Card backgro…").
+     The tree is the panel's job, so it gets the width it needs to do it. */
+  position:fixed; top:72px; left:14px; bottom:14px; width:248px; z-index:20;
   display:flex; overflow:hidden;
 }
 #toolsRail{
@@ -74,30 +76,44 @@ body{
 }
 .tool:hover{background:#f3f4f6;}
 .tool.active{background:#e8f0fe; color:var(--accent);}
-#sidebar{flex:1; padding:12px; overflow-y:auto;}
+/* The list rows BLEED to the panel edges, so the sidebar carries no horizontal
+   padding of its own — each row and heading supplies its own inset. A selected
+   row then reads as a full-width band rather than a floating pill, which is
+   what keeps a dense tree calm. */
+#sidebar{flex:1; padding:10px 0; overflow-y:auto;}
 .sideHead{
   display:flex; align-items:center; justify-content:space-between;
-  font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text); margin:8px 0 7px;
+  font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
+  padding:0 12px; margin:6px 0 6px; min-height:26px;
+}
+/* A hairline separates each section from the list above it. The first heading
+   has nothing above it to separate from. */
+.sideHead:not(:first-child){
+  border-top:1px solid var(--line); padding-top:14px; margin-top:12px;
 }
 .sideHead button{
   width:24px; height:24px; border:0; border-radius:7px; background:#f3f4f6;
-  line-height:1; cursor:pointer; color:var(--text);
+  line-height:1; cursor:pointer; color:var(--text); flex:0 0 24px;
   display:inline-flex; align-items:center; justify-content:center;
 }
 .sideHead button:hover{background:#e8f0fe; color:var(--accent);}
-#pageList{margin-bottom:12px;}
+#pageList{margin-bottom:2px;}
 .pageRow{
-  padding:7px 9px; border-radius:8px; margin-bottom:2px; cursor:pointer;
+  padding:10px 12px; cursor:pointer;
   color:#5c6066; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.pageRow:hover{background:#f3f4f6;}
-.pageRow.sel{background:#f6f7f8; color:var(--text); font-weight:500;}
+.pageRow:hover{background:#fafafa;}
+.pageRow.sel{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
 #layerList div{
-  padding:6px 8px; border-radius:7px; cursor:pointer; display:flex; gap:7px; align-items:center;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#5c6066;
 }
-#layerList div:hover{background:#f3f4f6;}
-#layerList div.sel{background:#e8f0fe; color:#174ea6;}
+#layerList div:hover{background:#fafafa;}
+/* Selection is NEUTRAL, not the accent blue. A layer tree is mostly selection
+   state, and a saturated band on every selected row fights the artwork the
+   panel exists to describe. Hover stays lighter than selected so the two
+   remain distinguishable. */
+#layerList div.sel{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
 #layerList .glyph{color:var(--muted); width:16px; display:inline-flex;
   align-items:center; justify-content:center; flex:0 0 16px;}
 
@@ -466,9 +482,12 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #fxBody .apRow .apDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}
 
 /* layer tree: isolation bar, twisties, entered container */
+/* The isolation bar KEEPS its tint deliberately — it reports a mode you are
+   in, not a selection, and it is the one thing in this panel that should not
+   look like a list row. It only needs to share the gutter. */
 #layerList .isoBar{
   background:#eef2ff; color:#3730a3; font-size:11px; font-weight:600;
-  border-radius:7px; padding:6px 9px; margin-bottom:4px; cursor:pointer;
+  border-radius:7px; padding:6px 9px; margin:0 12px 6px; cursor:pointer;
 }
 #layerList .isoBar:hover{background:#e0e7ff;}
 #layerList .twisty{
@@ -522,17 +541,17 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 /* The lock/visibility toggles only appear on hover, so they should not RESERVE
    width the rest of the time — with icons they were stealing ~50px and forcing
    names to truncate to "Typo...". Float them over the row's tail instead. */
-#layerList div{position:relative; padding-right:8px;}
+#layerList div{position:relative; padding-right:12px;}
 #layerList .layerTgl{
   position:absolute; top:50%; transform:translateY(-50%);
   width:20px; height:20px; padding:0;
 }
-#layerList .layerTgl:nth-last-of-type(2){right:30px;}   /* lock  */
-#layerList .layerTgl:last-of-type{right:8px;}           /* visibility */
+#layerList .layerTgl:nth-last-of-type(2){right:34px;}   /* lock  */
+#layerList .layerTgl:last-of-type{right:12px;}          /* visibility */
 /* fade the name out under the controls only while they are showing */
 #layerList div:hover .lname{
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent 100%);
-  mask-image:linear-gradient(90deg,#000 calc(100% - 62px),transparent 100%);
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 66px),transparent 100%);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 66px),transparent 100%);
 }
 /* a locked or hidden layer keeps its badge visible even without hover */
 #layerList .layerTgl.on{opacity:1;}
@@ -562,21 +581,23 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 
 /* §6.14 history panel */
 #historyList{max-height:180px; overflow-y:auto; margin-bottom:6px;}
+/* Full-bleed and neutral, like the page and layer lists above it — the three
+   lists in this panel should read as one control, not three. */
 .histRow{
-  display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px;
+  display:flex; align-items:center; gap:6px; padding:6px 12px;
   cursor:pointer; font-size:var(--text-xs); color:var(--muted);
   white-space:nowrap; overflow:hidden;
 }
-.histRow:hover{background:#f3f4f6;}
-.histRow.cur{background:#e8f0fe; color:#174ea6; font-weight:var(--weight-medium);}
+.histRow:hover{background:#fafafa;}
+.histRow.cur{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
 .histRow.future{opacity:.42;}
 .histRow .hName{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;}
 .histRow .hOps{flex:0 0 auto; font-size:9px; opacity:.7;}
-#historyFoot{font-size:10px; color:var(--muted); padding:0 8px 4px;}
+#historyFoot{font-size:10px; color:var(--muted); padding:0 12px 4px;}
 
 /* §6.5 artboards + §6.6 page rows + §6.1 layer affordances */
 #artboardList{margin-bottom:12px;}
-.pageRow{display:flex; align-items:center; gap:4px; position:relative; padding-right:4px;}
+.pageRow{display:flex; align-items:center; gap:6px; position:relative; padding-right:8px;}
 .pageRow .pName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
 .pageRow.isHidden{opacity:.45;}
 .rowBtn{
@@ -588,8 +609,11 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .rowBtn:hover:not(:disabled){background:#e5e7eb; opacity:1; color:var(--text);}
 .rowBtn:disabled{opacity:0 !important; cursor:default;}
 #layerSearch{
-  width:100%; border:1px solid var(--line); border-radius:7px; padding:5px 8px;
-  font:inherit; font-size:var(--text-xs); background:#fafafa; margin-bottom:6px;
+  /* sits inside the same 12px gutter the rows use, so its edges line up with
+     the row text rather than with the panel */
+  width:calc(100% - 24px); margin:0 12px 6px; display:block;
+  border:1px solid var(--line); border-radius:7px; padding:6px 9px;
+  font:inherit; font-size:var(--text-xs); background:#fafafa;
 }
 #layerSearch:focus{outline:0; border-color:var(--accent); background:#fff;}
 .lrename{

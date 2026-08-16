@@ -2781,7 +2781,7 @@ function syncLayers(){
       +(c.pattern&&c.pattern.mode!=='none'?' isParent':'')
       +(c.hidden?' isHidden':'')
       +(enteredId&&c.id===enteredId?' isEntered':'');
-    r.style.paddingLeft=(8+depth*13)+'px';
+    r.style.paddingLeft=(12+depth*13)+'px';   // matches the row inset in style.css
     if(CONTAINER(c)){
       const tw=document.createElement('span');
       tw.className='twisty';
