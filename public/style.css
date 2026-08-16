@@ -444,7 +444,7 @@ body.panel-right-collapsed #agentBar{
   bottom:calc(var(--chrome-gap) + 18px);
 }
 body.panel-left-collapsed #leftPanelToggle{
-  left:calc(var(--ruler-gutter) + var(--tools-rail-w) - 12px);
+  left:calc(var(--ruler-gutter) + (var(--tools-rail-w) - 24px) / 2);
 }
 #rightPanelToggle{
   bottom:calc(var(--chrome-gap) + 18px);
