@@ -100,8 +100,10 @@ button:focus{outline:0;}
   flex:0 1 auto; white-space:nowrap; font-size:var(--text-sm); font-weight:var(--weight-medium);}
 .menu:hover{background:var(--surface-hover);}
 .menu .dropdown{
-  display:none; position:absolute; top:100%; left:0; margin-top:6px; min-width:170px;
-  background:var(--panel); border-radius:10px; box-shadow:var(--shadow); padding:5px; z-index:40;
+  display:none; position:absolute; top:100%; left:0; margin-top:8px; min-width:224px;
+  background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 18px 44px rgba(15,23,42,.14), 0 2px 6px rgba(15,23,42,.08);
+  padding:8px; z-index:40;
   /* These menus outgrew the window. Effects carries 27 entries and Edit 35, so
      on a laptop-height window the last items were simply UNREACHABLE — no
      max-height and no scroll meant they rendered past the viewport with nothing
@@ -113,14 +115,22 @@ button:focus{outline:0;}
 .menu .dropdown::-webkit-scrollbar-thumb{background:var(--scroll-thumb); border-radius:5px;}
 .menu .dropdown::-webkit-scrollbar-track{background:transparent;}
 .menu.open .dropdown{display:block;}
-.dropdown button{
-  display:flex; justify-content:space-between; gap:18px; width:100%;
-  background:none; border:0; padding:7px 10px; border-radius:7px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
-  text-align:left; cursor:pointer;
+.menuDivider{
+  height:1px;
+  margin:7px -8px;
+  background:var(--line);
 }
-.dropdown button:hover{background:var(--surface-hover);}
-.dropdown button span{color:var(--muted); font-size:var(--text-xs); font-weight:var(--weight-regular);}
+.dropdown button{
+  display:flex; align-items:center; justify-content:space-between; gap:28px; width:100%;
+  min-height:32px; background:none; border:0; padding:6px 9px; border-radius:7px;
+  font:inherit; font-size:var(--text-base); font-weight:var(--weight-regular);
+  line-height:var(--line-tight); color:var(--text); text-align:left; cursor:pointer;
+}
+.dropdown button:hover{background:var(--surface-accent); color:var(--accent);}
+.dropdown button span{
+  margin-left:auto; color:var(--muted); font-size:var(--text-sm);
+  font-weight:var(--weight-regular); line-height:1;
+}
 
 #appNotch{
   position:fixed;
