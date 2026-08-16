@@ -440,14 +440,14 @@ body.panel-right-collapsed #agentBar{
 }
 .panelToggle:hover{background:var(--surface-hover); color:var(--accent);}
 #leftPanelToggle{
-  top:calc(var(--left-panel-top) + 16px);
-  left:calc(var(--ruler-gutter) + var(--left-panel-w) - 66px);
+  left:calc(var(--ruler-gutter) + var(--left-panel-w) - 36px);
+  bottom:calc(var(--chrome-gap) + 18px);
 }
 body.panel-left-collapsed #leftPanelToggle{
   left:calc(var(--ruler-gutter) + var(--tools-rail-w) - 12px);
 }
 #rightPanelToggle{
-  top:calc(var(--chrome-gap) + 16px);
+  bottom:calc(var(--chrome-gap) + 18px);
   right:calc(var(--chrome-gap) + var(--right-panel-w) - 12px);
 }
 body.panel-right-collapsed #rightPanelToggle{
