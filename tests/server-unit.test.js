@@ -122,13 +122,56 @@ describe("buildSystem", () => {
 });
 
 describe("CAPABILITIES registry", () => {
-  it("exposes the three known capabilities with the expected shape", () => {
-    expect(CAPABILITIES.map((c) => c.id)).toEqual(["pattern-engine", "shadow", "grain"]);
+  /* This used to assert the exact list ["pattern-engine","shadow","grain"].
+   * The registry legitimately grows every time an engine is added, so that
+   * assertion turned every new engine into a test failure — and because it was
+   * a snapshot rather than an invariant, the suite simply sat red instead of
+   * telling anyone something was wrong. These check properties that must hold
+   * no matter how many capabilities exist. */
+  it("gives every capability the shape the prompt builder relies on", () => {
+    expect(CAPABILITIES.length).toBeGreaterThan(0);
     for (const c of CAPABILITIES) {
+      expect(typeof c.id).toBe("string");
+      expect(c.id.length).toBeGreaterThan(0);
       expect(c.match).toBeInstanceOf(RegExp);
       expect(typeof c.inDoc).toBe("function");
       expect(typeof c.doc).toBe("string");
       expect(c.doc.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps ids unique, since they key the injected docs", () => {
+    const ids = CAPABILITIES.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("still carries the core capabilities", () => {
+    const ids = CAPABILITIES.map((c) => c.id);
+    for (const id of ["pattern-engine", "shadow", "grain"]) expect(ids).toContain(id);
+  });
+
+  it("detects the on:true shape it tells the model to emit", () => {
+    /* If inDoc cannot recognise the very thing doc instructs the model to
+     * produce, the capability can never be seen as already present in a
+     * document, and its guidance gets injected on every request forever.
+     *
+     * Scoped to capabilities that actually document an "on":true flag. Some
+     * are switched on by a value instead — grain is live when amount > 0 and
+     * has no flag at all — so a blanket {"on":true} probe would be asserting
+     * something those were never meant to match. */
+    const flagged = CAPABILITIES.filter(
+      (c) => c.doc.includes(`"${c.id}":{`) && c.doc.includes('"on":true'),
+    );
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const c of flagged) {
+      const sample = `{"effects":{"${c.id}":{"on":true}}}`;
+      expect(c.inDoc(sample), `${c.id}.inDoc should match its own documented shape`).toBe(true);
+    }
+  });
+
+  it("does not report a capability as present in an empty document", () => {
+    for (const c of CAPABILITIES) {
+      expect(c.inDoc('{"frame":{"children":[]}}'), `${c.id}.inDoc false-positives`).toBe(false);
     }
   });
 });

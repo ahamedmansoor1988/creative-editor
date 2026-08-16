@@ -15,6 +15,10 @@ module.exports = [
       // not part of the app and are deliberately not held to its lint rules.
       "dither-effects.html",
       "gradient-patterns.html",
+      // Vendored Clipper2 v1.2.4 (BSL-1.0). Third-party and kept byte-for-byte:
+      // linting it reports style choices we must not "fix", and editing it would
+      // break the provenance recorded in THIRD-PARTY-NOTICES.md.
+      "public/clipper2.mjs",
     ],
   },
 
@@ -43,7 +47,30 @@ module.exports = [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "script",
-      globals: { ...globals.browser },
+      globals: {
+        ...globals.browser,
+        /* Each engine publishes itself on window and the others reach it by
+         * bare name. They are loaded by separate <script> tags rather than
+         * imported, so ESLint has no way to see the relationship and reported
+         * 33 no-undef errors that were all noise — which is enough noise to
+         * bury the handful of real defects underneath it. Declared readonly
+         * so an accidental assignment is still an error. */
+        Icons: "readonly",
+        FxStack: "readonly",
+        History: "readonly",
+        SnapEngine: "readonly",
+        Filters: "readonly",
+        Components: "readonly",
+        BooleanEngine: "readonly",
+        GradientEngine: "readonly",
+        GlassEngine: "readonly",
+        BlobEngine: "readonly",
+        LightEngine: "readonly",
+        PrismEngine: "readonly",
+        CapsuleEngine: "readonly",
+        LiquidEngine: "readonly",
+        FlareEngine: "readonly",
+      },
     },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }],

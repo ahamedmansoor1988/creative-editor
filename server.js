@@ -103,6 +103,18 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"strip":{"on":true,"bulge":0-1,"ribWidth":0.02-0.5,"angle":-90-90,"thickness":0.01-0.4,"ior":1-2.2,"dispersion":0-0.15,"slopeLimit":0.2-20,"smear":0.1-6}} which renders the shape as FLUTED/REEDED GLASS: vertical half-cylinder ribs that smear whatever is behind the shape into bands with colour-split edges. ribWidth is the rib pitch as a fraction of the shape's short side; "smear" is how far behind the page reads as (more = stronger banding); "angle" tilts the ribs. Needs colourful content or text layered BEHIND the shape. Replaces the fill.`,
   },
   {
+    id: "liquid",
+    match: /liquid|mesh gradient|blend|wash|aurora|fluid|marble|ink|smooth gradient|colou?r field/i,
+    inDoc: d => /"liquid":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"liquid":{"on":true,"count":2-8,"power":1.2-6,"contrast":0.3-8,"detail":1-6,"grain":0-1,"cols":["#hex",...],"pts":[[0..1,0..1],...],"sizes":[0.2-3,...],"warps":[{"type":"none"|"liquid"|"curl"|"marble"|"wave","amt":0-1.5,"scale":0.2-6}]}} which fills the shape with a WARPED MULTI-POINT COLOUR FIELD. "cols"/"pts"/"sizes" are per colour point (pts are 0..1 inside the shape). Blending happens in OKLab so midpoints stay saturated. "warps" is up to 3 slots applied in order, each evaluated at the position the previous one produced - "liquid" flows, "curl" makes ink-like volume-preserving swirls, "marble" gives stone veining, "wave" a regular ripple. Lower "power" = softer wash, higher "contrast" = harder colour separation. Works on any page background.`,
+  },
+  {
+    id: "flare",
+    match: /flare|lens flare|light rig|spotlight|stage light|concert|laser|searchlight|fan of light/i,
+    inDoc: d => /"flare":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"flare":{"on":true,"preset":"reference"|"burst"|"blades","bg":"#hex","pan":-180-180,"converge":0-180,"spread":0-2.5,"dispersion":0-2.5,"reach":0.1-3,"brightness":0-3,"srcX":0-1,"srcY":0-1,"haze":0-1,"spine":0-4,"curve":-3-3,"exposure":0.1-4,"saturation":0-2,"vignette":0-1.5,"tint":"#hex","transparent":false}} which fills the shape with a SPECTRAL LIGHT RIG: eight wedges radiating from a source point, each splitting into a spectrum across its width. preset "reference" is an angled sweep, "burst" radiates from the centre, "blades" is a tight fan of hard beams. srcX/srcY place the source inside the shape (0,0 is bottom-left). It PAINTS ITS OWN BACKGROUND via "bg", so unlike prism it reads on a light page; set "transparent":true to drop the background and let only the light show over artwork beneath.`,
+  },
+  {
     id: "gradient",
     match: /gradient|stripe|band|ramp|spectrum|risograph|retro|swatch|colou?r ?field|sunset|aurora/i,
     inDoc: d => /"gradient":\{[^}]*"on":true/.test(d),

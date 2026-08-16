@@ -91,13 +91,13 @@ whose licence the ISC grant above carries forward.
 
 ## Approved-if-needed (from the spec, not yet vendored)
 
-| Library  | License  | Status |
-|----------|----------|--------|
-| Skia     | BSD-3    | not used |
-| Clipper2 | BSL-1.0  | **VENDORED** — see above |
-| HarfBuzz | Old MIT  | not used |
-| Yoga     | MIT      | not used — earmarked for §6.12 stack layout |
-| FreeType | FTL      | not used (would require a credit line) |
+| Library  | License | Status                                      |
+| -------- | ------- | ------------------------------------------- |
+| Skia     | BSD-3   | not used                                    |
+| Clipper2 | BSL-1.0 | **VENDORED** — see above                    |
+| HarfBuzz | Old MIT | not used                                    |
+| Yoga     | MIT     | not used — earmarked for §6.12 stack layout |
+| FreeType | FTL     | not used (would require a credit line)      |
 
 ## External services
 

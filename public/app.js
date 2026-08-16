@@ -266,7 +266,7 @@ function normStroke(k,dfltColor){
   out.join=JOINS.includes(k.join)?k.join:'miter';
   out.miter=clamp(+k.miter||10,1,50);
   out.dash=(Array.isArray(k.dash)?k.dash:[]).slice(0,8)
-    .map(v=>clamp(+v||0,0,500)).filter((v,i,a)=>true);
+    .map(v=>clamp(+v||0,0,500));
   out.dashOffset=clamp(+k.dashOffset||0,-1000,1000);
   out.scaleWith=k.scaleWith!==false;
   return out;
@@ -274,9 +274,19 @@ function normStroke(k,dfltColor){
 /* Migrate the legacy single `fill` / `stroke` into the stacked arrays, and
  * keep the old field as a LIVE ALIAS of entry 0 so every existing reader
  * (engines, eyedropper, blob flood) keeps working unchanged. */
+/* Types that ARE their fill: leaving one of these without a paint makes it
+ * invisible, which is never what an author meant. Frames may legitimately be
+ * transparent and paths carry their own fillOn flag, so neither is included. */
+const FILL_DEFINED=['rect','ellipse','polygon','boolean'];
 function normAppearance(c){
   const dflt=(c.fill&&c.fill.color)||'#d9d9d9';
   let fills=Array.isArray(c.fills)?c.fills:(c.fill?[c.fill]:null);
+  /* A MISSING fill used to fall straight through to `delete c.fills`, so a
+   * shape that simply never mentioned one rendered as nothing. A MALFORMED
+   * fill was handled correctly, which is backwards — absent is by far the more
+   * common case in generated or hand-written JSON, and it was the only one
+   * with no path to a default. */
+  if(!fills&&FILL_DEFINED.includes(c.type)) fills=[{}];
   if(c.type==='text'||c.type==='line') fills=null;
   if(fills){
     c.fills=fills.slice(0,8).map(f=>normPaint(f,dflt));
@@ -530,7 +540,7 @@ function normChildren(list,depth){
       gla.dispersion=clamp(+gla.dispersion||0,0,200);
       gla.opacity=clamp(gla.opacity===undefined?100:+gla.opacity,0,100);
       if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
-      const nb=(o,d)=>{
+      const nb=(o,_d)=>{
         o.on=!!o.on && (c.type==='rect'||c.type==='ellipse');
         o.smoothness=clamp(+o.smoothness||0,0,300);
         o.mode=BLOB_MODES.includes(o.mode)?o.mode:'union';
@@ -776,9 +786,6 @@ function normChildren(list,depth){
     return c;
   });
 }
-function newDoc(){
-  return normalizeDoc({frame:{name:'Frame 1',w:900,h:600,bg:'#ffffff',children:[]}});
-}
 
 /* ================= history ================= */
 /* §6.14 command-pattern history over structural diffs — see history.js for
@@ -863,8 +870,8 @@ function compactPages(list){
 
 let HIST=null;
 function initHistory(){
-  if(!window.History) return;
-  HIST=new window.History(
+  if(!window.EditHistory) return;
+  HIST=new window.EditHistory(
     /* The baseline is deep-cloned on every push and diffed on every edit, so
      * it stores the COMPACT form — the 37x effect bloat never enters it. */
     ()=>({pages:compactPages(pages),pageIdx}),
@@ -1066,8 +1073,6 @@ function activeList(){
   if(enteredId){ const f=findById(enteredId); if(f&&CONTAINER(f.obj)) return f.obj.children; }
   return doc?doc.frame.children:[];
 }
-/** True if `o` is inside the container we have entered (or we are at top level). */
-function atActiveLevel(o){ return activeList().includes(o); }
 
 /* ================= selection model ================= */
 /** Single-select: collapses the id-set to one object (or none). */
@@ -1759,11 +1764,6 @@ function fxEntries(obj,slot){
   if(!FS||!obj.fx) return [];
   return FS.inSlot(obj.fx,slot);
 }
-function fxMaterial(obj){
-  const FS=window.FxStack;
-  if(!FS||!obj.fx) return null;
-  return FS.activeMaterial(obj.fx);
-}
 /** True when `type` is BOTH parameter-enabled and its stack entry is on,
  *  and it is the material that actually wins. */
 function fxOn(obj,type){
@@ -1847,7 +1847,7 @@ let _paintCacheOff=false;    // test hook: forces the uncached path for comparis
 /* Same reasoning as the image decode: text cached while the webfont was still
  * loading holds fallback glyphs, and the object's signature never changes. */
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{
-  if(typeof paintCacheClear==='function'){ paintCacheClear(); if(window.__editor&&__editor.doc) render(); }
+  if(typeof paintCacheClear==='function'){ paintCacheClear(); if(window.__editor&&window.__editor.doc) render(); }
 });
 let _paintCachePx=0;
 const PAINT_CACHE_MAX_PX=16e6;          // ~64MB of RGBA at most
@@ -1965,7 +1965,6 @@ function drawOneUncached(c,W,H,obj){
   drawOneInner(c,W,H,obj);
 }
 function drawOneInner(c,W,H,obj){
-    const f=doc.frame;
     const fx=obj.effects||{};
     const blobReady=obj.type!=='text'&&window.BlobEngine&&window.BlobEngine.available();
     // Blob / Glass 2 merge the parent WITH its pattern copies into one field,
@@ -3867,7 +3866,6 @@ function buildFx(obj){
       }
       if(def.kind==='component'){
         // §6.7 per-instance overrides, addressed by name path
-        const tree=instanceTree(obj);
         const rows=[];
         (function walk(o,trail){
           const t=trail.concat(o.name||o.type);
@@ -4322,7 +4320,6 @@ function buildFx(obj){
       add(`<label class="slider"><input type="checkbox" id="bbOn" ${B.on?'checked':''}> Enable ${isG2?'liquid glass':'blob'}</label>`);
       $('bbOn').addEventListener('change',e=>{ B.on=e.target.checked; pushHistory(); refresh(); });
       if(B.on){
-        const key=isG2?'glass2':'blob';
         const n=blobGroup().length;
         const asGlass=!!groupGlassParams();
         add(n<2
@@ -4864,27 +4861,6 @@ function hitLeaf(o,px,py){
 function hit(px,py){
   const o=hitObj(px,py);
   return o?activeList().indexOf(o):-1;
-}
-function hitOld(px,py){
-  const ch=doc.frame.children;
-  for(let i=ch.length-1;i>=0;i--){
-    const o=ch[i];
-    if(!selectable(o)) continue;   // §1.1: lock/hide suppress selectability
-    if(o.type==='line'){
-      // a thin diagonal line must not claim its whole bounding box
-      const tol=Math.max(6/view.z,(o.stroke?o.stroke.width:4)/2+3);
-      if(distToSegment(px,py,o.x,o.y,o.x2,o.y2)<=tol) return i;
-      continue;
-    }
-    const lp=toLocal(o,px,py);
-    if(o.type==='path'){
-      if(pathHit(o,lp.x,lp.y,Math.max(6/view.z,4))) return i;
-      continue;
-    }
-    const b=boxOf(o);
-    if(lp.x>=b.x&&lp.x<=b.x+b.w&&lp.y>=b.y&&lp.y<=b.y+b.h) return i;
-  }
-  return -1;
 }
 /** Every selectable object under the point, topmost first — the alt-click
  *  depth cycle walks this stack. */
@@ -5476,7 +5452,6 @@ const endDrag=e=>{
   snapLines=[]; snapIndex=null;
   try{canvas.releasePointerCapture(e.pointerId);}catch(_){}
   if(d.mode==='guide'){
-    const g=doc.frame.guides[guideDrag.index];
     const s2=evtScreen(e);
     // released back over a ruler, or never moved after being created:
     // discard it rather than leaving a stray guide at the edge
@@ -5776,7 +5751,6 @@ function makeDefinition(kind){
   // the selection is REPLACED by an instance, so the thing on canvas is now
   // driven by the definition rather than being a detached copy of it
   const idxs=os.map(o=>L.indexOf(o)).sort((a,b)=>a-b);
-  const b0=aabbOf(os[0]);
   let bx=1e9,by=1e9;
   os.forEach(o=>{ const b=aabbOf(o); bx=Math.min(bx,b.x); by=Math.min(by,b.y); });
   for(let i=idxs.length-1;i>=0;i--) L.splice(idxs[i],1);
@@ -5929,13 +5903,6 @@ function removeArtboard(id,withContent){
   A.splice(i,1);
   selArtboard=null;
   pushHistory('Delete artboard'); refresh();
-}
-function moveArtboard(id,dir){
-  const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
-  const j=i+dir;
-  if(i<0||j<0||j>=A.length) return;
-  [A[i],A[j]]=[A[j],A[i]];
-  pushHistory('Reorder artboards'); refresh();
 }
 /** The page canvas has to cover every artboard, or content falls off it. */
 function growFrameToArtboards(){
@@ -6434,14 +6401,6 @@ function makeShape(kind,p){
    * centre passes just as well with four copies as with one. */
   obj.id=newId();
   return obj;
-}
-function addShapeAt(kind,p){
-  if(!doc){ openPageModal(); return; }   // no silent premade page
-  const obj=makeShape(kind,p);
-  applyDefaultSize(obj,p);
-  activeList().push(obj);
-  setSel(activeList().length-1); fxPage=0;
-  pushHistory(); refresh();
 }
 /** A click without a drag still yields a usable object at a default size. */
 function applyDefaultSize(obj,p){
@@ -6984,7 +6943,7 @@ function scheduleAutosave(){
   autosaveTimer=setTimeout(autosaveNow,900);
 }
 function restoreAutosave(){
-  let raw=null;
+  let raw;
   try{ raw=localStorage.getItem(AUTOSAVE_KEY); }catch(e){ return false; }
   if(!raw) return false;
   try{
@@ -7123,7 +7082,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
-  render, refresh, normalizeDoc,
+  render, refresh,
   patternInstances, allInstances, instanceBounds, normalizePattern,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR} };

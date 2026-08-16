@@ -5,6 +5,7 @@ always in context. This file records what is DONE, PARTIAL, or DEFERRED so a
 future session can pick up without re-reading the whole app.
 
 ## §0 compliance state
+
 - Constraint 1 (snapping) SATISFIED: public/snap.js uses a UNIFORM SPATIAL
   GRID — candidates bucketed by floor(coord/CELL), queries read the buckets
   covering [q-tol, q+tol]. No angular binning, no signed distance from a
@@ -32,6 +33,7 @@ future session can pick up without re-reading the whole app.
 ## Session log
 
 ### Session 1 — foundation: §1.12, §1.13, §1.1 (+ §2.1 nudge)
+
 - §1.12 Hand/pan: DONE — drag pan (space-hold and middle-mouse), trackpad
   two-finger scroll pans, momentum comes from native wheel events.
 - §1.13 Zoom: DONE — wheel/pinch zoom anchored at cursor (ctrl/cmd+wheel and
@@ -49,7 +51,7 @@ future session can pick up without re-reading the whole app.
   - selection persists across tool switches ✓
   - DEFERRED: deep select (needs §6.9 groups — none exist yet)
   - DEFERRED: lasso select (freeform capture arrives with §1.4 pencil; marquee
-    + shift-click cover the workflows until then)
+    - shift-click cover the workflows until then)
 - §2.1 partial: arrow-key nudge 1px, shift = 10px, history-coalesced.
 - Architecture groundwork: doc raster is cached (renderDoc) and pan/zoom only
   re-blit (paint) — shader engines never re-run on navigation. Multi-select is
@@ -57,6 +59,7 @@ future session can pick up without re-reading the whole app.
   single-object code path still works.
 
 ### Session 2 — drawing tools: §1.5, §1.6, §1.7, §1.8, §1.10
+
 - §1.5 Rectangle: DONE except on-canvas radius handles and live numeric entry
   DURING the draw (numeric via inspector). Drag-to-draw, shift square, alt from
   centre, uniform + independent per-corner radii, corner styles round/bevel/
@@ -83,6 +86,7 @@ future session can pick up without re-reading the whole app.
   when it ships, pen takes P and polygon moves to shift-P.
 
 ### Session 3 — path model: §1.2, §1.3, §1.4, §1.9 (partial), §1.11
+
 - NEW path object type: cubic bézier chain, handles stored relative to their
   anchor, modes corner/smooth/asym/free. Exact hit-testing via
   isPointInPath/isPointInStroke on a scratch context. Fill+Gradient+Light+
@@ -117,6 +121,7 @@ future session can pick up without re-reading the whole app.
 - The AI schema can now emit path and area-text children.
 
 ### Session 4 — transforms: §2.2, §2.3, §2.4, §2.5, §2.6 (+ §2.1 finished)
+
 - §2.6 Transform handles: DONE. Eight handles (corners + edges) drawn in the
   object's ROTATED frame at constant screen size, rotation zones just outside
   the corners, per-region cursor feedback (diagonal pairs swap as the frame
@@ -149,6 +154,7 @@ future session can pick up without re-reading the whole app.
   the object's local frame via toLocal().
 
 ### Session 5 — appearance: §4.1, §4.2, §4.3, §4.4, §4.10, §4.11
+
 - MODEL: `fills[]` and `strokes[]` replace the single `fill`/`stroke`. The old
   field is kept as a LIVE ALIAS of entry 0, so every existing reader (engines,
   blob flood, eyedropper) works unchanged, and legacy documents + AI output
@@ -160,9 +166,9 @@ future session can pick up without re-reading the whole app.
   waits on this) and scale-with-object honouring. Strokes now exist on
   rect/ellipse/polygon at all — previously only paths and lines had one.
   Width, alignment center/inside/outside, caps, joins, miter limit, dash array
-  + offset, stacked strokes, gradient strokes. Inside/outside are rendered by
-  clipping and by an offscreen layer respectively, since canvas only strokes
-  centred.
+  - offset, stacked strokes, gradient strokes. Inside/outside are rendered by
+    clipping and by an offscreen layer respectively, since canvas only strokes
+    centred.
 - §4.3 Opacity: DONE except group opacity / knockout / isolate-blending, which
   need §6.9 groups. Separate fillOpacity and strokeOpacity per object, plus
   per-entry opacity.
@@ -192,6 +198,7 @@ future session can pick up without re-reading the whole app.
   composited into an empty layer and vanished.
 
 ### Session 6 — structure: §6.9, §6.10, §3.8, §3.9, §2.9
+
 - MODEL: the document is now a TREE. Groups and frames carry their own
   `children`; child coordinates stay ABSOLUTE (page space) rather than
   parent-relative, which keeps every existing geometry path — hit tests,
@@ -231,6 +238,7 @@ future session can pick up without re-reading the whole app.
   (artboards in session 11, the other four in session 13).
 
 ### Session 7 — booleans and compound paths: §3.3, §3.4, §3.5, §3.6, §3.7
+
 - §3.7 Compound paths FIRST, because booleans PRODUCE them: a path now holds
   `subpaths[]`, with `points`/`closed` kept as live aliases of subpath 0 so the
   pen, node editor and every existing reader work unchanged on single-contour
@@ -264,6 +272,7 @@ future session can pick up without re-reading the whole app.
   subpaths), so correct geometry rendered as nothing.
 
 ### Session 8 — snapping, guides, rulers and grid: §2.10, §2.11, §6.4, §2.8
+
 - §2.10 Snapping: DONE. Targets are object edges, centres, path anchors,
   guides, grid lines and artboard bounds, each with its own on/off switch.
   Radius is in SCREEN pixels so it feels identical at every zoom. Cmd/Ctrl
@@ -286,6 +295,7 @@ future session can pick up without re-reading the whole app.
   alias identity intact, and boxOf falls back to the single-contour alias.
 
 ### Session 9 — the non-destructive effect stack: §5.15, §6.13 (+ §4.9)
+
 - The twelve engines are no longer a fixed dictionary applied in a hard-coded
   order. Each object carries `fx: [{id,type,on,params}]`, bottom of stack
   first, and the renderer walks it. The old `effects` dictionary is kept as a
@@ -317,6 +327,7 @@ future session can pick up without re-reading the whole app.
   shadow. One wrong operator precedence disabled three separate features.
 
 ### Session 10 — undo/redo rewrite: §6.14
+
 - §6.14 DONE. History is a command pattern over structural diffs. Each entry
   is an ordered op list where every op carries both `from` and `to`, so the
   inverse operation is DERIVED rather than hand-written per command and cannot
@@ -334,19 +345,20 @@ future session can pick up without re-reading the whole app.
   bursts still debounce into one entry.
 - TWO bugs, both mine, both caught only by pixel probes:
   (1) The differ emitted per-index ops PLUS a length op for arrays that
-      changed length, and revert applied them forward — splicing while walking
-      the list shifts every later index, so arrays came back corrupted (fills
-      and fx returned EMPTY after an undo). Length changes are now stored
-      wholesale and reverts walk the ops backwards.
+  changed length, and revert applied them forward — splicing while walking
+  the list shifts every later index, so arrays came back corrupted (fills
+  and fx returned EMPTY after an undo). Length changes are now stored
+  wholesale and reverts walk the ops backwards.
   (2) MUCH bigger, and pre-existing since SESSION 5: makeShape hand-built
-      partial objects — `fill` but no `fills[]`, `points` but no `subpaths[]`,
-      no `fx` stack. Once the renderer moved to the array forms, every shape
-      drawn WITH A TOOL was invisible. Five sessions of tests missed it because
-      they asserted object COUNTS, not pixels. makeShape now runs the real
-      normaliser over the object instead of keeping a second, drifting copy of
-      the rules.
+  partial objects — `fill` but no `fills[]`, `points` but no `subpaths[]`,
+  no `fx` stack. Once the renderer moved to the array forms, every shape
+  drawn WITH A TOOL was invisible. Five sessions of tests missed it because
+  they asserted object COUNTS, not pixels. makeShape now runs the real
+  normaliser over the object instead of keeping a second, drifting copy of
+  the rules.
 
 ### Session 11 — artboards, pages, layer panel: §6.5, §6.6, §6.1
+
 - §6.5 Artboards: DONE. `frame` stays the PAGE canvas so every existing reader
   of frame.w/h/children is untouched; artboards are named regions on it.
   Membership is GEOMETRIC — a child belongs to the artboard containing its
@@ -370,6 +382,7 @@ future session can pick up without re-reading the whole app.
   the glass-family engines sample it directly and must not be shifted.
 
 ### Session 12 — pixel filters: §4.8, §4.12, §5.5, §5.6, §5.10, §5.11, §5.12
+
 - §5 IS NOW COMPLETE (15/15).
 - All seven read the object's RENDERED PIXELS rather than its geometry, so
   they share one pipeline and register as a new `pixel` slot: the object is
@@ -397,6 +410,7 @@ future session can pick up without re-reading the whole app.
   sample, the blurred edge ramps through eleven.
 
 ### Session 13 — components, symbols, constraints, stack layout: §6.7, §6.8, §6.11, §6.12
+
 - These were the last four untouched §6 sections. New file `public/components.js`
   opens with a patent note explaining why the area is clear: §0's four live
   patents cover snap-target lookup, tap-to-create guides and raster-to-vector,
@@ -453,6 +467,7 @@ future session can pick up without re-reading the whole app.
   fill->fixed switch, which is correct behaviour.
 
 ### Session 14 — production defects found by measurement
+
 Not a spec section. Three defects found by measuring rather than guessing, after
 the tool was reported as "heavy and not production ready".
 
@@ -468,6 +483,7 @@ rectangle was 7,565 bytes, of which 204 were the fields that matter — nineteen
 effect types materialised on every object, none of them on. normalizeDoc does
 that so the twelve engine panels can read `obj.effects.<type>` without null
 checks, which is worth keeping in memory and not worth writing anywhere.
+
 - Split: fully materialised IN MEMORY, compact ON THE WIRE. `compactDoc()` keeps
   an effect only if it DIFFERS from its default, so a shadow you tuned and then
   switched off keeps your settings. normalizeDoc is the exact inverse, which is
@@ -486,6 +502,7 @@ checks, which is worth keeping in memory and not worth writing anywhere.
 objects held a cached layer — the fxstack prefix cache was designed but never
 retained anything. Canvas `shadowBlur` is expensive per object, so dragging one
 rectangle re-blurred every other one, every frame.
+
 - Objects are now painted into their own bitmap and blitted, keyed on an
   appearance signature built from ENABLED effects only (a few hundred bytes
   rather than the 7.5KB a materialised object stringifies to).
@@ -508,6 +525,7 @@ forces the uncached path, so the same document renders both ways and the two
 rasters are diffed: 0.48% of pixels differ, worst channel delta 4, ZERO pixels
 off by more than 8 — alpha rounding through a layer, which is inherent to any
 layer-based caching and invisible. Repeat renders are byte-identical.
+
 - A control run mattered here: renders 1 and 2 of a fresh document differ by
   48,136 pixels — with the cache OFF as well as ON, identical bounding box. That
   is pre-existing fit-view settling, not the cache. Measuring the control is what
@@ -520,6 +538,7 @@ white page by ±1, which the comparison read as "destroyed". Nothing was ever
 being erased.
 
 ### Session 15 — prism was never broken; its default was invisible
+
 - Reported as "prism isn't visible". The earlier session-14 note claiming prism
   BLANKED THE PAGE was wrong, and the way it was wrong is worth keeping: that
   test compared pixels for exact equality, so the ±1 shift an additive blend
@@ -529,9 +548,9 @@ being erased.
   composites add-mode with `lighter`. Additive compositing onto 255 saturates,
   so on the default white artboard the effect was mathematically incapable of
   showing anything. Measured contrast against the page background:
-      white page + add    ->   0    (every sample exactly 255,255,255)
-      white page + normal -> 184
-      dark  page + add    -> 231
+  white page + add -> 0 (every sample exactly 255,255,255)
+  white page + normal -> 184
+  dark page + add -> 231
   The 0 holds for every fill colour, so it was not a tuning problem.
 - Fix is one value: the default blend is `normal`. `add` is genuinely the better
   look on a dark page and is still one click away in the panel.
@@ -541,6 +560,7 @@ being erased.
   path.
 
 ### Session 16 — two engines ported: Liquid Gradient and Prism Flare
+
 - Both come from the author's own standalone files, so the shaders are carried
   across essentially verbatim and only the plumbing changed. Logged in
   SHADER-PROVENANCE.md along with the two pieces of published maths each leans
@@ -579,14 +599,15 @@ being erased.
   against a hash of the whole shape region, every control repaints.
 
 ### Session 16b — menus outgrew the window, hiding commands entirely
+
 - Reported as "one effect is missing". It was not missing: the dropdowns had
   `max-height:none` and `overflow-y:visible`, so entries past the bottom of the
   window rendered off-screen with nothing to scroll. Measured on a 760px-tall
   window BEFORE the fix:
-      Effects  27 items, overflowed by 134px ->  5 unreachable
-               (Warp, Displacement, Fractal haze, Slice, Noise)
-      Edit     35 items, overflowed by 414px -> 13 unreachable
-               (every boolean operation, and all four Distribute commands)
+  Effects 27 items, overflowed by 134px -> 5 unreachable
+  (Warp, Displacement, Fractal haze, Slice, Noise)
+  Edit 35 items, overflowed by 414px -> 13 unreachable
+  (every boolean operation, and all four Distribute commands)
   Adding two engines pushed Effects over the edge, but Edit had been broken for
   far longer and nobody had run into it.
 - Menubar dropdowns are now capped at `calc(100vh - 96px)` and scroll.
@@ -600,13 +621,16 @@ being erased.
   control could actually be clicked at a realistic window size.
 
 ## What is left
+
 Every section of the spec has now been built into except §4.7. The list below
 is what remains, and it is partials rather than blank sections.
 
 FULLY UNTOUCHED
+
 - §4.7 Mesh gradient — the only section not started.
 
 PARTIALS, by area
+
 - §1.4 Pencil pressure and §1.6 open arcs — both blocked on §4.2 variable-width
   stroke profiles, which is the shared prerequisite.
 - §1.9 Text — text-on-path, columns, OpenType feature access.
@@ -626,7 +650,9 @@ PARTIALS, by area
 - §6.4 Canvas — transparency checkerboard, multiple views of one document.
 
 KNOWN BUGS
+
 - (none outstanding)
 
 DOCS
+
 - HANDOFF.md is stale: it describes the tree at d70817e, thirteen sessions back.

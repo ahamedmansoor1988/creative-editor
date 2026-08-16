@@ -2,7 +2,7 @@
   "name": "creative-editor",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-assisted graphic design editor \u2014 Node.js server, vanilla JS canvas client, Groq-backed generation.",
+  "description": "AI-assisted graphic design editor — Node.js server, vanilla JS canvas client, Groq-backed generation.",
   "license": "UNLICENSED",
   "type": "commonjs",
   "engines": {
@@ -31,7 +31,7 @@
     "eslint": "10.8.1",
     "eslint-config-prettier": "10.1.8",
     "globals": "17.11.0",
-    "jsdom": "30.0.1",
+    "jsdom": "^26.1.0",
     "prettier": "3.9.6",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

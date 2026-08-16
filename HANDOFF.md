@@ -27,7 +27,7 @@ engines with sliders own the aesthetics.** The document never becomes pixels.
 - **Client**: vanilla JS + Canvas2D in `public/` (index.html, app.js,
   style.css). No framework, no build step.
 - **AI**: Groq. Text → `llama-3.3-70b-versatile` with `response_format:
-  json_object`. Vision (reference image) → `qwen/qwen3.6-27b` with
+json_object`. Vision (reference image) → `qwen/qwen3.6-27b` with
   `reasoning_effort:"none"` (it's a reasoning model; without this it burns the
   output budget thinking and truncates JSON). Models overridable via env.
 - **Key**: `.env` (gitignored) holds `GROQ_API_KEY` (same key as
@@ -75,7 +75,7 @@ effects: {shadow:{on,x,y,blur,color,alpha}, grain:{amount}}
   `hGap/vGap` (true clear space — Stage 1.2 fixed the gap drift bug),
   `rowOffsetX/colOffsetY`, `baseScale`, `lockProportions`,
   `width/heightVariation` (shrink-only), `baseRotation/rotationStep/
-  rotationVariation`, `mirror` (none/h/v/alt-h/alt-v), `jitterX/Y`, `holes`,
+rotationVariation`, `mirror` (none/h/v/alt-h/alt-v), `jitterX/Y`, `holes`,
   `seed`. Randomness is a **hash by (seed, index, channel)** — adding a row
   never reshuffles existing instances.
 - No "off" mode: absence of `pattern` = no pattern ("Remove pattern" button).
@@ -85,7 +85,7 @@ effects: {shadow:{on,x,y,blur,color,alpha}, grain:{amount}}
 ### Capability registry (server)
 
 `CAPABILITIES` in server.js: each entry = keywords + in-doc detector + schema
-doc. Per request only *relevant* entries are injected into the system prompt
+doc. Per request only _relevant_ entries are injected into the system prompt
 (matched from the user's wording, or already present in `currentDoc` so a
 modify can never break what it can't see). This is the scaling answer to
 "1000 engines": swap keyword match for retrieval; prompt cost stays flat.

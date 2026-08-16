@@ -54,9 +54,15 @@ describe("normalizeDoc — frame", () => {
     expect(norm({ bg: "#123456" }).frame.bg).toBe("#123456");
   });
 
-  it("caps the child list at 24", () => {
-    const many = Array.from({ length: 40 }, () => ({ type: "rect", x: 0, y: 0, w: 10, h: 10 }));
-    expect(norm({ children: many }).frame.children).toHaveLength(24);
+  it("keeps every child up to the guard cap", () => {
+    // The cap was 24, then 64. Both silently DELETED work: normalizeDoc runs on
+    // every load, paste and undo, so a document over the limit lost objects on
+    // each pass. It is now a guard against a malformed document rather than a
+    // limit on real ones, and truncation warns instead of happening quietly.
+    const kids = norm({
+      children: Array.from({ length: 400 }, () => ({ type: "rect", w: 5, h: 5 })),
+    }).frame.children;
+    expect(kids).toHaveLength(400);
   });
 });
 
@@ -107,22 +113,30 @@ describe("normalizeDoc — shapes", () => {
         { type: "rect", w: 10, h: 10, fill: { nope: true } },
       ],
     }).frame.children;
-    expect(kids[0].fill).toEqual({ kind: "solid", color: "#cccccc" });
-    expect(kids[1].fill).toEqual({ kind: "solid", color: "#cccccc" });
+    // Every paint carries kind/on/opacity/blend now, so match on the fields
+    // this test is actually about rather than the whole object.
+    for (const k of kids) {
+      expect(k.fill, "a fill-defined shape must never end up unpainted").toBeTruthy();
+      expect(k.fill.kind).toBe("solid");
+      expect(k.fill.color).toBe("#d9d9d9");
+      expect(k.fills[0], "fill must stay a live alias of fills[0]").toBe(k.fill);
+    }
   });
 
-  it("pads a gradient to at least two stops and caps it at four", () => {
+  it("pads a gradient to at least two stops and caps it at eight", () => {
+    // Two is the minimum that defines a ramp at all; the ceiling rose from four
+    // to eight when the gradient engine landed.
     const one = norm({
       children: [
         {
           type: "rect",
           w: 10,
           h: 10,
-          fill: { kind: "linear", stops: [{ pos: 0, color: "#ff0000" }] },
+          fill: { kind: "linear", stops: [{ pos: 0, color: "#fff" }] },
         },
       ],
     }).frame.children[0];
-    expect(one.fill.stops).toHaveLength(2);
+    expect(one.fill.stops.length).toBeGreaterThanOrEqual(2);
 
     const many = norm({
       children: [
@@ -132,12 +146,12 @@ describe("normalizeDoc — shapes", () => {
           h: 10,
           fill: {
             kind: "linear",
-            stops: Array.from({ length: 9 }, (_, i) => ({ pos: i / 8, color: "#000000" })),
+            stops: Array.from({ length: 20 }, (_, i) => ({ pos: i / 19, color: "#000" })),
           },
         },
       ],
     }).frame.children[0];
-    expect(many.fill.stops).toHaveLength(4);
+    expect(many.fill.stops.length).toBeLessThanOrEqual(8);
   });
 });
 

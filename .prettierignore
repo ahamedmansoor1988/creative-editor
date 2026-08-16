@@ -11,3 +11,17 @@ public/app.js
 public/style.css
 public/index.html
 server.js
+
+# Vendored third-party, kept byte-for-byte (see THIRD-PARTY-NOTICES.md).
+public/clipper2.mjs
+# Engines ported verbatim from the author's standalone apps. SHADER-PROVENANCE.md
+# records them as carried across unchanged, and reformatting would make that
+# claim unverifiable by diff. Same Stage 1 reasoning as the app sources above.
+public/glass.js
+public/prism.js
+public/capsule.js
+public/blob.js
+public/light.js
+public/gradient.js
+public/liquidgradient.js
+public/prismflare.js

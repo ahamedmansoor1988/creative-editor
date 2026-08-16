@@ -109,11 +109,49 @@ export function loadEditor() {
   if (!window.URL.createObjectURL) window.URL.createObjectURL = () => "blob:stub";
   if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = () => {};
 
+  // jsdom implements neither of these, and app.js constructs both at load time.
+  // Without them the whole file throws on evaluation and every editor test is
+  // reported as a load failure rather than an assertion failure — which is how
+  // these two suites sat silently unrun. Dumb on purpose: the tests drive
+  // render() directly and never rely on a resize or an animation frame firing.
+  if (!window.ResizeObserver) {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+  if (!window.requestAnimationFrame) {
+    window.requestAnimationFrame = (cb) => window.setTimeout(() => cb(Date.now()), 0);
+    window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+  }
+
   // render() sizes the canvas from #stage's client box, which is 0 in jsdom.
   // Give it a realistic viewport so the scale maths exercises a real path.
   const stage = document.getElementById("stage");
   Object.defineProperty(stage, "clientWidth", { value: 1200, configurable: true });
   Object.defineProperty(stage, "clientHeight", { value: 800, configurable: true });
+
+  /* app.js is not self-contained: it reads window.FxStack for the effect
+   * stack, window.EditHistory for undo, window.Components for instances and
+   * layout, window.SnapEngine for snapping, window.Filters for the pixel slot
+   * and window.Icons for panel markup. Loading app.js alone exercised every
+   * "if the module is missing" fallback instead of the real code paths.
+   *
+   * The WebGL engines and clipper2.mjs are deliberately NOT loaded: the first
+   * need a GPU context jsdom cannot provide, the second is an ES module that
+   * window.eval cannot take. Both are already guarded by available() checks,
+   * so their absence is a supported state rather than a broken one. */
+  for (const dep of [
+    "fxstack.js",
+    "history.js",
+    "snap.js",
+    "components.js",
+    "filters.js",
+    "icons.js",
+  ]) {
+    window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
+  }
 
   const src = fs.readFileSync(path.join(ROOT, "public", "app.js"), "utf8");
   // Evaluate in the jsdom global scope so `document`/`window` resolve there.

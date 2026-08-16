@@ -193,10 +193,16 @@ describe("9-13 — size controls", () => {
 
 describe("14-15 — layout offsets", () => {
   it("14 — row offset X staggers successive rows", () => {
+    /* The parent occupies cell 0 and is NOT among the instances (see test 4),
+     * so instanceIndex starts at 1 and the generated count is columns*rows-1.
+     * These three were written against the opposite assumption and had
+     * contradicted test 4 ever since — invisibly, because the suite could not
+     * load at all. */
     const off = 25;
     const p = withParent({}, { columns: 2, rows: 3, hGap: 0, vGap: 0, rowOffsetX: off });
     const inst = editor.patternInstances(p);
-    const rowX = (r) => inst.find((i) => i.instanceIndex === r * 2).x;
+    // rows 1 and 2 are fully generated; row 0 has only its second cell.
+    const rowX = (r) => inst.find((i) => i.instanceIndex === r * 2 + 1).x;
     expect(rowX(1) - rowX(0)).toBeCloseTo(off, 6);
     expect(rowX(2) - rowX(1)).toBeCloseTo(off, 6);
   });
@@ -205,9 +211,14 @@ describe("14-15 — layout offsets", () => {
     const off = 14;
     const p = withParent({}, { columns: 3, rows: 2, hGap: 0, vGap: 0, colOffsetY: off });
     const inst = editor.patternInstances(p);
-    const colY = (c) => inst.find((i) => i.instanceIndex === c).y;
-    expect(colY(1) - colY(0)).toBeCloseTo(off, 6);
-    expect(colY(2) - colY(1)).toBeCloseTo(off, 6);
+    /* Compare WITHIN one row. Cell 0 is the parent, so row 0 only has two
+     * generated cells; row 1 (indices 3,4,5) is complete and is the only place
+     * three consecutive columns can be measured. Stepping across a row
+     * boundary would fold the row spacing into the difference and measure the
+     * wrong thing entirely. */
+    const y = (i) => inst.find((k) => k.instanceIndex === i).y;
+    expect(y(4) - y(3)).toBeCloseTo(off, 6);
+    expect(y(5) - y(4)).toBeCloseTo(off, 6);
   });
 });
 
@@ -221,8 +232,10 @@ describe("16-19 — transform", () => {
 
   it("17 — rotation progression follows sequence order", () => {
     const p = withParent({}, { columns: 4, rows: 1, baseRotation: 0, rotationStep: 15 });
+    // The parent is cell 0 at rotation 0 and is not an instance, so the
+    // generated ones carry steps 1..3.
     const rots = editor.patternInstances(p).map((i) => i.rot);
-    expect(rots).toEqual([0, 15, 30, 45]);
+    expect(rots).toEqual([15, 30, 45]);
   });
 
   it("18 — rotation variation is deterministic and bounded", () => {
@@ -523,7 +536,8 @@ describe("29/33 — Stage 1.1 guarantees still hold", () => {
 
   it("33 — Remove pattern drops every instance and undo restores them", () => {
     withParent({}, { columns: 4, rows: 1 });
-    expect(editor.allInstances()).toHaveLength(4);
+    // 4 cells, one of which is the parent -> 3 generated instances.
+    expect(editor.allInstances()).toHaveLength(3);
     const p = editor.doc.frame.children[0];
     delete p.pattern;
     // The setter re-normalizes and pushes a history snapshot; a round-trip is
@@ -533,7 +547,7 @@ describe("29/33 — Stage 1.1 guarantees still hold", () => {
     document.dispatchEvent(
       new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
     );
-    expect(editor.allInstances()).toHaveLength(4);
+    expect(editor.allInstances()).toHaveLength(3);
     document.dispatchEvent(
       new window.KeyboardEvent("keydown", {
         key: "z",
