@@ -669,3 +669,10 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   cursor:default;
 }
 #layerList .abEmpty:hover{background:none;}
+
+/* Liquid gradient colour stops — one swatch per active point. */
+#fxBody .lqCols{display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-bottom:6px;}
+#fxBody .lqCols input[type=color]{
+  width:100%; height:26px; padding:0; border:1px solid var(--line);
+  border-radius:6px; background:none; cursor:pointer;
+}

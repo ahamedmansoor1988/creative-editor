@@ -540,6 +540,44 @@ being erased.
   the returned image 100% opaque and sent the first investigation down the wrong
   path.
 
+### Session 16 — two engines ported: Liquid Gradient and Prism Flare
+- Both come from the author's own standalone files, so the shaders are carried
+  across essentially verbatim and only the plumbing changed. Logged in
+  SHADER-PROVENANCE.md along with the two pieces of published maths each leans
+  on (Ottosson's OKLab matrices; the Vogel golden-angle spiral).
+- §4.x LIQUID GRADIENT: N colour points blended by inverse-distance weighting,
+  with the SAMPLE POSITION displaced first by a chain of up to three warps
+  (iterated fBm, curl, marble, wave). The blend runs in OKLab, which is why the
+  midpoint between two saturated colours stays saturated instead of passing
+  through grey. Warps CHAIN rather than sum — each is evaluated at the position
+  the one above produced — so Curl over Liquid curls an already-flowing field.
+- §5.x PRISM FLARE: eight angular wedges from a source point, with wavelength a
+  function of the angle ACROSS each wedge rather than of position in the frame.
+  That is what a prism actually does and why the bands stay parallel to the fan
+  edges however the rig is aimed. Second pass adds bloom, tone map and grain.
+- BOTH ARE MATERIALS THAT GENERATE THEIR OWN COLOUR, never sampling the page.
+  So each renders into the object's own box, clips to its outline, and caches
+  like any other material — unlike glass, prism, capsule and strip, which read
+  the backdrop and cannot be cached.
+- Prism Flare PAINTS ITS OWN BACKGROUND, and that is a direct consequence of
+  session 15: additive light composited onto a white artboard saturates at 255
+  and is mathematically invisible. Rather than repeat that, the flare renders a
+  complete scene, background included, so it reads on any page colour. A
+  "drop the background" toggle returns the additive behaviour for use over
+  existing artwork, where it is the right choice.
+- Neither engine animates. A document is static and must export as what you
+  see, so Liquid's clock became an ordinary `phase` parameter — same maths,
+  reproducible result.
+- One integration bug, and it is the same shape as every other one in this
+  file: normalizeDoc rebuilds `c.effects` from an EXPLICIT list of types, so
+  adding entries to DEFAULT_EFFECTS was not enough — `obj.effects.liquid` was
+  undefined and both draw branches silently skipped. Adding a type to this app
+  means touching the defaults, the normaliser's explicit dictionary, the stack
+  registry, LEGACY_ORDER, the draw path, FX_PAGES and the panel.
+- Two apparent panel failures were single-pixel insensitivity: a swatch far
+  from the probe changes that pixel by less than the test's threshold. Re-run
+  against a hash of the whole shape region, every control repaints.
+
 ## What is left
 Every section of the spec has now been built into except §4.7. The list below
 is what remains, and it is partials rather than blank sections.

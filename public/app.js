@@ -79,6 +79,23 @@ const DEFAULT_EFFECTS=()=>({
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
             g2:[{color:'#ffaa00',pos:0},{color:'#0000ff',pos:0.5},{color:'#999999',pos:1}]},
   // beam traced forward through a glass solid, dispersed per wavelength
+  /* §4.x Liquid Gradient — a warped multi-point field. Points are normalised
+   * 0..1 inside the object's own box, so the effect scales with the shape. */
+  liquid:{on:false,count:5,detail:2,power:2.8,contrast:1.3,grain:0.18,phase:0,
+    pts:[[0.12,0.86],[0.90,0.92],[0.46,0.30],[0.16,0.10],[0.93,0.42],[0.5,0.5],[0.5,0.5],[0.5,0.5]],
+    cols:['#ff0a6c','#1636d4','#fff4ec','#ff5a2d','#9ec2ff','#ffffff','#ffffff','#ffffff'],
+    sizes:[1.0,1.1,2.0,0.85,0.9,1,1,1],
+    warps:[{type:'liquid',amt:0.50,scale:0.50},
+           {type:'none',amt:0.40,scale:1.5},
+           {type:'none',amt:0.30,scale:3.0}]},
+  /* §5.x Prism Flare — a spectral light rig that paints its own background,
+   * so it reads on a white page where an additive-only light cannot. */
+  flare:{on:false,preset:'reference',bg:'#000000',transparent:false,
+    pan:-32,converge:90,spread:1,dispersion:1,reach:1,brightness:1,
+    beamX:0,beamY:0,srcX:0.24,srcY:0.66,haze:0.10,spine:0,spineWidth:120,
+    gap:0,gapFalloff:2.2,width:1,edge:0.12,edgeGrow:0,curve:0,curveRise:2,
+    core:true,coreSize:0.018,halo:2.2,coreColor:'#ffffff',tint:'#ffffff',
+    falloff:0.25,exposure:1,saturation:1.2,grain:0.02,vignette:0.35},
   prism:{on:false,shape:0,thickness:0.25,corner:0.12,wedge:0,yaw:0,pitch:0,roll:0,
          /* blend was 'add'. Additive compositing onto a white page saturates —
           * measured contrast against the page background was exactly 0 for every
@@ -621,8 +638,59 @@ function normChildren(list,depth){
       ['deep','core','inner','mesh','bg'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(li[k]||'')) li[k]='#000000';
       });
+      /* §4.x Liquid gradient. Arrays are normalised to a fixed length so the
+       * engine can upload them without per-frame length checks, and a document
+       * that arrives with a short list is padded rather than rejected. */
+      const lq=Object.assign(de.liquid, ce.liquid||{});
+      lq.on=!!lq.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      const lnum=(k,lo,hi,dv)=>{ const v=+lq[k]; lq[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
+      lnum('count',2,8,5); lq.count=Math.round(lq.count);
+      lnum('detail',1,6,2); lq.detail=Math.round(lq.detail);
+      lnum('power',1.2,6,2.8); lnum('contrast',0.3,8,1.3);
+      lnum('grain',0,1,0.18); lnum('phase',0,20,0);
+      const dl=DEFAULT_EFFECTS().liquid;
+      lq.pts=Array.from({length:8},(_,i)=>{
+        const p=(Array.isArray(lq.pts)&&lq.pts[i])||dl.pts[i];
+        return [clamp(+p[0]||0,0,1), clamp(+p[1]||0,0,1)];
+      });
+      lq.cols=Array.from({length:8},(_,i)=>{
+        const v=(Array.isArray(lq.cols)&&lq.cols[i])||dl.cols[i];
+        return /^#[0-9a-fA-F]{6}$/.test(v)?v:'#ffffff';
+      });
+      lq.sizes=Array.from({length:8},(_,i)=>{
+        const v=+((Array.isArray(lq.sizes)&&lq.sizes[i])||dl.sizes[i]);
+        return Number.isFinite(v)?clamp(v,0.2,3):1;
+      });
+      const WT=(window.LiquidEngine&&LiquidEngine.WARPS)||['none','liquid','curl','marble','wave'];
+      lq.warps=Array.from({length:3},(_,i)=>{
+        const w=(Array.isArray(lq.warps)&&lq.warps[i])||dl.warps[i]||{};
+        return {type:WT.includes(w.type)?w.type:'none',
+                amt:clamp(+w.amt||0,0,1.5), scale:clamp(+w.scale||1,0.2,6)};
+      });
+      /* §5.x Prism flare. */
+      const flr=Object.assign(de.flare, ce.flare||{});
+      flr.on=!!flr.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      const fnum2=(k,lo,hi,dv)=>{ const v=+flr[k]; flr[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
+      fnum2('pan',-180,180,-32); fnum2('converge',0,180,90); fnum2('spread',0,2.5,1);
+      fnum2('dispersion',0,2.5,1); fnum2('reach',0.1,3,1); fnum2('brightness',0,3,1);
+      fnum2('beamX',-1,1,0); fnum2('beamY',-1,1,0);
+      fnum2('srcX',0,1,0.24); fnum2('srcY',0,1,0.66);
+      fnum2('haze',0,1,0.10); fnum2('spine',0,4,0); fnum2('spineWidth',4,600,120);
+      fnum2('gap',0,1,0); fnum2('gapFalloff',0.6,8,2.2);
+      fnum2('width',0.1,4,1); fnum2('edge',0.01,1,0.12); fnum2('edgeGrow',0,6,0);
+      fnum2('curve',-3,3,0); fnum2('curveRise',0.5,5,2);
+      fnum2('coreSize',0.004,0.15,0.018); fnum2('halo',0.3,12,2.2);
+      fnum2('falloff',0.02,1.5,0.25); fnum2('exposure',0.1,4,1);
+      fnum2('saturation',0,2,1.2); fnum2('grain',0,0.1,0.02); fnum2('vignette',0,1.5,0.35);
+      const FP=(window.FlareEngine&&FlareEngine.PRESETS)||['reference','burst','blades'];
+      if(!FP.includes(flr.preset)) flr.preset='reference';
+      flr.core=flr.core!==false; flr.transparent=!!flr.transparent;
+      ['bg','coreColor','tint'].forEach(k=>{
+        if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
+      });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, prism:pr, capsule:cap, strip:st,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr,
+        prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -1976,6 +2044,40 @@ function drawOneInner(c,W,H,obj){
       patternInstances(obj).forEach(draw);
       return;
     }
+    /* §4.x Liquid Gradient and §5.x Prism Flare. Both GENERATE their own
+     * colour rather than sampling the page, so each renders into the object's
+     * own box and is clipped to its outline — the same shape Light uses. That
+     * is also why both cache: nothing beneath them can change their result. */
+    const lq=fx.liquid;
+    if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
+      const draw=o=>{
+        const img=window.LiquidEngine.render(o.w,o.h,lq);
+        if(!img) return;
+        c.save();
+        c.globalAlpha=obj.opacity;
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      draw(obj);
+      patternInstances(obj).forEach(draw);
+      return;
+    }
+    const fl=fx.flare;
+    if(fl&&fxOn(obj,'flare')&&obj.type!=='text'&&window.FlareEngine&&window.FlareEngine.available()){
+      const draw=o=>{
+        const img=window.FlareEngine.render(o.w,o.h,fl);
+        if(!img) return;
+        c.save();
+        c.globalAlpha=obj.opacity;
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      draw(obj);
+      patternInstances(obj).forEach(draw);
+      return;
+    }
     const pr=fx.prism;
     if(pr&&fxOn(obj,'prism')&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
       // FULL CANVAS, deliberately not clipped to the shape: a prism's whole
@@ -2982,11 +3084,11 @@ const FX_PAGES=obj=>{
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 function syncInspector(){
@@ -4322,6 +4424,101 @@ function buildFx(obj){
       add(`<label class="slider">Color <input type="color" id="shC" value="${sh.color}"></label>`);
       $('shC').addEventListener('input',e=>{ sh.color=e.target.value; render(); });
       $('shC').addEventListener('change',()=>pushHistory());
+    }
+  }
+
+  if(page==='Liquid'){
+    const L=obj.effects.liquid;
+    add(`<label class="slider"><input type="checkbox" id="lqOn" ${L.on?'checked':''}> Enable liquid gradient</label>`);
+    $('lqOn').addEventListener('change',e=>{ L.on=e.target.checked; pushHistory(); refresh(); });
+    if(L.on){
+      const sl=(id,label,min,max,step,val,dp)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
+      };
+      const wire=(id,f,dp)=>{
+        $(id).addEventListener('input',e=>{ f(+e.target.value);
+          $(id+'V').textContent=(+e.target.value).toFixed(dp); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      sl('lqCount','Points',2,8,1,L.count,0);      wire('lqCount',v=>L.count=v,0);
+      sl('lqPower','Softness',1.2,6,0.1,L.power,1); wire('lqPower',v=>L.power=v,1);
+      sl('lqContrast','Contrast',0.3,8,0.1,L.contrast,1); wire('lqContrast',v=>L.contrast=v,1);
+      sl('lqDetail','Detail',1,6,1,L.detail,0);    wire('lqDetail',v=>L.detail=v,0);
+      sl('lqGrain','Grain',0,1,0.01,L.grain,2);    wire('lqGrain',v=>L.grain=v,2);
+      sl('lqPhase','Drift',0,20,0.1,L.phase,1);    wire('lqPhase',v=>L.phase=v,1);
+      // colour stops, one swatch per active point
+      add('<div class="secTitle" style="margin-top:8px">Colours</div>');
+      add('<div id="lqCols" class="lqCols"></div>');
+      const box=$('lqCols');
+      for(let i=0;i<L.count;i++){
+        const w=document.createElement('input');
+        w.type='color'; w.value=L.cols[i]||'#ffffff';
+        w.title='Point '+(i+1);
+        w.addEventListener('input',()=>{ L.cols[i]=w.value; render(); });
+        w.addEventListener('change',()=>pushHistory());
+        box.appendChild(w);
+      }
+      // the warp chain
+      add('<div class="secTitle" style="margin-top:10px">Warp stack</div>');
+      L.warps.forEach((wp,i)=>{
+        add(`<label class="slider">Slot ${i+1}
+          <select id="lqT${i}">${window.LiquidEngine.WARPS.map(t=>
+            `<option value="${t}"${wp.type===t?' selected':''}>${t==='none'?'None':t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
+          </select></label>`);
+        $('lqT'+i).addEventListener('change',e=>{ wp.type=e.target.value; pushHistory(); refresh(); });
+        if(wp.type!=='none'){
+          sl('lqA'+i,'  Amount',0,1.5,0.01,wp.amt,2);  wire('lqA'+i,v=>wp.amt=v,2);
+          sl('lqS'+i,'  Scale',0.2,6,0.1,wp.scale,1);  wire('lqS'+i,v=>wp.scale=v,1);
+        }
+      });
+      add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
+    }
+  }
+
+  if(page==='Flare'){
+    const F=obj.effects.flare;
+    add(`<label class="slider"><input type="checkbox" id="flOn" ${F.on?'checked':''}> Enable prism flare</label>`);
+    $('flOn').addEventListener('change',e=>{ F.on=e.target.checked; pushHistory(); refresh(); });
+    if(F.on){
+      const sl=(id,label,min,max,step,val,dp)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
+      };
+      const wire=(id,f,dp)=>{
+        $(id).addEventListener('input',e=>{ f(+e.target.value);
+          $(id+'V').textContent=(+e.target.value).toFixed(dp); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      add(`<label class="slider">Rig
+        <select id="flPreset">${window.FlareEngine.PRESETS.map(p=>
+          `<option value="${p}"${F.preset===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('')}
+        </select></label>`);
+      $('flPreset').addEventListener('change',e=>{ F.preset=e.target.value; pushHistory(); refresh(); });
+      sl('flPan','Pan',-180,180,0.5,F.pan,0);           wire('flPan',v=>F.pan=v,0);
+      sl('flConv','Converge',0,180,0.5,F.converge,0);   wire('flConv',v=>F.converge=v,0);
+      sl('flSpread','Spread',0,2.5,0.01,F.spread,2);    wire('flSpread',v=>F.spread=v,2);
+      sl('flDisp','Dispersion',0,2.5,0.01,F.dispersion,2); wire('flDisp',v=>F.dispersion=v,2);
+      sl('flReach','Reach',0.1,3,0.01,F.reach,2);       wire('flReach',v=>F.reach=v,2);
+      sl('flInt','Brightness',0,3,0.01,F.brightness,2); wire('flInt',v=>F.brightness=v,2);
+      sl('flSrcX','Source X',0,1,0.005,F.srcX,2);       wire('flSrcX',v=>F.srcX=v,2);
+      sl('flSrcY','Source Y',0,1,0.005,F.srcY,2);       wire('flSrcY',v=>F.srcY=v,2);
+      sl('flHaze','Haze',0,1,0.005,F.haze,2);           wire('flHaze',v=>F.haze=v,2);
+      sl('flCurve','Curve',-3,3,0.01,F.curve,2);        wire('flCurve',v=>F.curve=v,2);
+      sl('flSpine','Spine',0,4,0.01,F.spine,2);         wire('flSpine',v=>F.spine=v,2);
+      sl('flExpo','Exposure',0.1,4,0.01,F.exposure,2);  wire('flExpo',v=>F.exposure=v,2);
+      sl('flSat','Saturation',0,2,0.01,F.saturation,2); wire('flSat',v=>F.saturation=v,2);
+      sl('flVig','Vignette',0,1.5,0.01,F.vignette,2);   wire('flVig',v=>F.vignette=v,2);
+      sl('flGrain','Grain',0,0.1,0.001,F.grain,3);      wire('flGrain',v=>F.grain=v,3);
+      add(`<label class="slider">Background <input type="color" id="flBg" value="${F.bg}"></label>`);
+      $('flBg').addEventListener('input',e=>{ F.bg=e.target.value; render(); });
+      $('flBg').addEventListener('change',()=>pushHistory());
+      add(`<label class="slider">Tint <input type="color" id="flTint" value="${F.tint}"></label>`);
+      $('flTint').addEventListener('input',e=>{ F.tint=e.target.value; render(); });
+      $('flTint').addEventListener('change',()=>pushHistory());
+      add(`<label class="chk"><input type="checkbox" id="flTrans" ${F.transparent?'checked':''}> Drop the background</label>`);
+      $('flTrans').addEventListener('change',e=>{ F.transparent=e.target.checked; pushHistory(); refresh(); });
+      add('<div class="hint" style="text-align:left">The flare paints its own background, so it reads on a light page. Drop the background to let only the light carry coverage over artwork beneath.</div>');
     }
   }
 

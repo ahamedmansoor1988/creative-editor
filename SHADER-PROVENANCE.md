@@ -10,6 +10,8 @@ sourced from Shadertoy or any non-permissive source.
 | public/light.js | funnel light cone | ported from the user's own Funnel Light Figma plugin | user-owned |
 | public/prism.js | beam path prepass, volumetric trace, spectral fit | ported from the user's own Glass Prism app (`glass-prism.html`); spectral fit is Zucconi's six-bump approximation to the CIE curves (published blog post, MIT-licensed reference implementation) | user-owned + MIT-attributed technique |
 | public/capsule.js | path-traced capsule glass + inner lens; fluted/reeded strip | ported from the user's own Glass Capsule app (`glass-capsule.html`) | user-owned |
+| public/liquidgradient.js | warped multi-point colour field; OKLab blend; four warp kernels (iterated fBm, curl, marble, wave) | ported from the user's own standalone `liquid-gradient.html`; OKLab matrices are Björn Ottosson's published transform (released public domain); gradient noise is the standard quintic-smoothstep construction | user-owned + public-domain math |
+| public/prismflare.js | angular spectral wedges with 3D-projected fan rig; bloom/tonemap present pass | ported from the user's own standalone `prism-flare.html`; bloom gather uses the Vogel/golden-angle spiral (standard published construction); spectral response is Gaussian lobes fitted to the CIE cone curves | user-owned + public-domain math |
 
 All future shaders: derived from published physics (Snell, Fresnel, Cauchy) and
 written from first principles. Log them here before merging.

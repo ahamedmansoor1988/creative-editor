@@ -45,6 +45,8 @@ const REG={
   innerShadow: {slot:'over',    label:'Inner shadow', multi:true},
   grain:       {slot:'over',    label:'Grain',        multi:false},
   light:       {slot:'material',label:'Light',        multi:false},
+  liquid:      {slot:'material',label:'Liquid gradient', multi:false},
+  flare:       {slot:'material',label:'Prism flare',   multi:false},
   prism:       {slot:'material',label:'Prism',        multi:false, backdrop:true},
   capsule:     {slot:'material',label:'Capsule',      multi:false, backdrop:true},
   strip:       {slot:'material',label:'Strip',        multi:false, backdrop:true},
@@ -67,7 +69,7 @@ const REG={
 
 /* The order the renderer used BEFORE the stack existed. Migration lays the
  * array out in exactly this order so no existing document shifts. */
-const LEGACY_ORDER=['shadow','glow','blob','glass2','light','prism','capsule',
+const LEGACY_ORDER=['shadow','glow','blob','glass2','light','liquid','flare','prism','capsule',
   'strip','glass','gradient','innerShadow','grain',
   'blur','distortion','warp','displacement','haze','slice','noise'];
 
