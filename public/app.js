@@ -885,6 +885,7 @@ function initHistory(){
 function pushHistory(label){
   if(!HIST){ initHistory(); if(!HIST) return; }
   HIST.push(label);
+  scheduleAutosave();
   syncHistoryPanel();
 }
 function undo(){ if(HIST&&HIST.undo()) syncHistoryPanel(); }
@@ -6667,6 +6668,11 @@ $('layerSearch').addEventListener('keydown',e=>{
 
 const CMDS={
   new:openPageModal,
+  save:saveDocument, open:openDocument,
+  clearSaved(){
+    if(!confirm('Discard the autosaved document?\n\nThis cannot be undone.')) return;
+    clearAutosave(); status('Autosave cleared.');
+  },
   exportPng:exportPNG, undo, redo, duplicate:duplicateSel, delete:deleteSel,
   makeComponent(){ makeDefinition('component'); },
   makeSymbol(){ makeDefinition('symbol'); },
@@ -6744,6 +6750,8 @@ document.querySelectorAll('.dropdown button').forEach(b=>{
 document.addEventListener('keydown',e=>{
   if(/input|select|textarea/i.test(e.target.tagName||''))return;
   const meta=e.metaKey||e.ctrlKey;
+  if(meta&&e.key==='s'){ e.preventDefault(); saveDocument(); return; }
+  if(meta&&e.key==='o'){ e.preventDefault(); openDocument(); return; }
   if(meta&&e.key==='z'&&!e.shiftKey){ e.preventDefault(); undo(); }
   else if(meta&&((e.key==='z'&&e.shiftKey)||e.key==='y')){ e.preventDefault(); redo(); }
   else if(meta&&e.key==='d'){ e.preventDefault(); duplicateSel(); }
@@ -6930,6 +6938,129 @@ probeProvider();
 
 /* ================= init ================= */
 window.addEventListener('resize',render);
+/* ================= persistence (§6.x) =================
+ * The app had NONE. localStorage held effect presets and nothing else, so
+ * closing the tab lost every document — no save, no open, no autosave, no
+ * warning. For a design tool that is the whole ballgame, so it comes before
+ * any remaining spec section.
+ *
+ * WHAT IS STORED. The COMPACT form, via compactDoc: a 300-object document is
+ * 180KB rather than 2.27MB, which is the difference between fitting in a
+ * ~5MB localStorage quota and not. normalizeDoc rebuilds the full in-memory
+ * shape on restore, so the round trip is lossless (verified in session 14).
+ *
+ * WHY localStorage AND FILES. Autosave is the safety net — it should never be
+ * something the user has to remember. Files are the escape hatch: work that
+ * only exists in one browser profile is not really the user's. Both, not one.
+ *
+ * QUOTA IS HANDLED, NOT ASSUMED. Flattened image layers carry base64 data
+ * URLs and can blow past the quota on their own. A failed write must never
+ * take down the editor, so it degrades to a warning and autosave switches
+ * off for the session rather than throwing on every subsequent edit.
+ */
+const AUTOSAVE_KEY='ce.autosave.v1';
+let autosaveOff=false, autosaveTimer=null, dirty=false;
+
+function autosaveNow(){
+  if(autosaveOff||!pages.length) return;
+  try{
+    const payload=JSON.stringify({v:1,t:Date.now(),pageIdx,pages:compactPages(pages)});
+    localStorage.setItem(AUTOSAVE_KEY,payload);
+    dirty=false;
+  }catch(e){
+    // QuotaExceededError is the expected failure; anything else is worth the
+    // same treatment because the alternative is throwing on every edit.
+    autosaveOff=true;
+    status('Autosave off — the document is too large for browser storage. Use File ▸ Save.',true);
+    console.warn('autosave disabled:',e.message);
+  }
+}
+/* Debounced: a drag commits one history entry but many renders, and writing
+ * on each one would serialise the document dozens of times a second. */
+function scheduleAutosave(){
+  dirty=true;
+  if(autosaveOff) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer=setTimeout(autosaveNow,900);
+}
+function restoreAutosave(){
+  let raw=null;
+  try{ raw=localStorage.getItem(AUTOSAVE_KEY); }catch(e){ return false; }
+  if(!raw) return false;
+  try{
+    const d=JSON.parse(raw);
+    if(!d||!Array.isArray(d.pages)||!d.pages.length) return false;
+    pages=d.pages.map(p=>normalizeDoc({frame:p.frame||p}));
+    setActivePage(Math.min(Math.max(0,d.pageIdx|0),pages.length-1));
+    return true;
+  }catch(e){
+    // A corrupt entry must not brick the editor into an unopenable state.
+    console.warn('autosave restore failed:',e.message);
+    try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(_){}
+    return false;
+  }
+}
+function clearAutosave(){
+  try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){}
+  dirty=false;
+}
+
+/* ---- document files ---- */
+function saveDocument(){
+  const name=(doc&&doc.frame.name)||'document';
+  const payload=serializeDocument();
+  const blob=new Blob([payload],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name.replace(/[^\w\-. ]+/g,'_')+'.cedoc.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  autosaveNow();
+  status('Saved '+a.download);
+}
+/* Parsing is separate from the file picker so the load path is reachable
+ * without a user gesture — by a test, by a drag-and-drop, or by any future
+ * import route. A picker callback is not a place to keep logic. */
+function loadDocumentFromText(text,sourceName,skipConfirm){
+  const d=JSON.parse(String(text));
+  const list=Array.isArray(d.pages)?d.pages:(d.frame?[d]:null);
+  if(!list||!list.length) throw new Error('no pages in that file');
+  if(!skipConfirm&&dirty&&
+     !confirm('Replace the current document? Unsaved changes will be lost.')) return false;
+  pages=list.map(p=>normalizeDoc({frame:p.frame||p}));
+  setActivePage(Math.min(Math.max(0,d.pageIdx|0),pages.length-1));
+  setSelIds(new Set()); selInstance=null; enteredId=null;
+  if(HIST) HIST.reset();
+  pushHistory(); refresh(); autosaveNow();
+  status('Opened '+(sourceName||'document'));
+  return true;
+}
+function serializeDocument(){
+  return JSON.stringify({app:'creative-editor',v:1,pageIdx,pages:compactPages(pages)});
+}
+function openDocument(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.json,application/json';
+  inp.addEventListener('change',()=>{
+    const f=inp.files&&inp.files[0];
+    if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{ loadDocumentFromText(rd.result,f.name); }
+      catch(e){ status('Could not open that file: '+e.message,true); }
+    };
+    rd.readAsText(f);
+  });
+  inp.click();
+}
+
+/* The guard only fires when there is genuinely unsaved work. Browsers ignore
+ * the custom string, but returnValue is still what arms the dialog. */
+window.addEventListener('beforeunload',e=>{
+  if(!dirty||!pages.length) return;
+  e.preventDefault(); e.returnValue='';
+});
+
 /* FIRST RUN. This used to be setActivePage(-1) — the app opened with NO
  * document: a blank grey stage, empty Pages and Layers lists, no canvas, and
  * the only way forward a small "+" beside the Pages heading. style.css still
@@ -6939,8 +7070,10 @@ window.addEventListener('resize',render);
  * An editor should open ready to draw. The default page is an ordinary page —
  * renamable, deletable, replaceable — and it is what makes the canvas, the
  * rulers and the side panels mean anything on load. */
-pages.push(normalizeDoc({frame:{name:'Page 1',w:900,h:600,bg:'#ffffff',children:[]}}));
-setActivePage(0);
+if(!restoreAutosave()){
+  pages.push(normalizeDoc({frame:{name:'Page 1',w:900,h:600,bg:'#ffffff',children:[]}}));
+  setActivePage(0);
+}
 pushHistory(); refresh();
 
 /* test hook */
@@ -6978,6 +7111,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   updateDefinitionFrom, addVariant, deleteDefinition, defsChanged, instanceTree,
   placeObject, boxOf, translateObj, CHELP, normalizeDoc, setActiveDoc,
   compactDoc, compactPages, paintCacheClear,
+  autosaveNow, restoreAutosave, clearAutosave, saveDocument, openDocument,
+  loadDocumentFromText, serializeDocument,
+  get isDirty(){return dirty;}, AUTOSAVE_KEY,
   get paintCacheSize(){return _paintCache.size;},
   set paintCacheOff(v){ _paintCacheOff=!!v; paintCacheClear(); },
   pushInstanceToSource,
