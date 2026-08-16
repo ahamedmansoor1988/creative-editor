@@ -149,9 +149,9 @@
 
 <!-- canvas -->
 <div id="stage">
-  <canvas id="out"></canvas>
+  <canvas id="out" role="application" aria-label="Design canvas"></canvas>
 </div>
-<div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" title="Zoom — type a percentage"></div>
+<div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" aria-label="Zoom percentage" title="Zoom — type a percentage"></div>
 <div id="pencilOpts" style="display:none">
   <label>Tolerance <span id="pcTolV">2.5</span><input type="range" id="pcTol" min="0.5" max="10" step="0.1" value="2.5"></label>
   <label>Smoothing <span id="pcSmoothV">3</span><input type="range" id="pcSmooth" min="0" max="10" step="1" value="3"></label>
@@ -162,7 +162,7 @@
   <div class="modal">
     <h3>New page</h3>
     <div class="mSec">Name</div>
-    <input type="text" id="npName" value="Page 1">
+    <input type="text" id="npName" value="Page 1" aria-label="Page name">
     <div class="mSec">Size</div>
     <div id="sizeChips">
       <button data-w="900"  data-h="600"  class="on">Landscape<br><em>900×600</em></button>
@@ -181,14 +181,14 @@
       <label><input type="radio" name="bgMode" value="gradient"> Gradient</label>
     </div>
     <div id="bgSolid">
-      <input type="color" id="npBg" value="#ffffff">
+      <input type="color" id="npBg" value="#ffffff" aria-label="Solid background color">
       <div id="swatches">
-        <button data-c="#ffffff" style="background:#ffffff"></button>
-        <button data-c="#f7f3ec" style="background:#f7f3ec"></button>
-        <button data-c="#0b0c0e" style="background:#0b0c0e"></button>
-        <button data-c="#0a1a3a" style="background:#0a1a3a"></button>
-        <button data-c="#e8472a" style="background:#e8472a"></button>
-        <button data-c="#f2dc18" style="background:#f2dc18"></button>
+        <button data-c="#ffffff" style="background:#ffffff" aria-label="White background" title="White background"></button>
+        <button data-c="#f7f3ec" style="background:#f7f3ec" aria-label="Warm paper background" title="Warm paper background"></button>
+        <button data-c="#0b0c0e" style="background:#0b0c0e" aria-label="Black background" title="Black background"></button>
+        <button data-c="#0a1a3a" style="background:#0a1a3a" aria-label="Midnight background" title="Midnight background"></button>
+        <button data-c="#e8472a" style="background:#e8472a" aria-label="Orange background" title="Orange background"></button>
+        <button data-c="#f2dc18" style="background:#f2dc18" aria-label="Yellow background" title="Yellow background"></button>
       </div>
     </div>
     <div id="bgGrad" style="display:none">
@@ -346,7 +346,7 @@
 <div id="agentBar" class="floating">
   <button id="attachBtn" data-icon="image" aria-label="Attach a reference image" title="Attach one reference image (or Ctrl+V)"></button>
   <div id="attachChip" style="display:none"><img id="attachThumb" alt=""><button id="attachX" data-icon="x" data-icon-size="12" aria-label="Remove attached image" title="Remove image"></button></div>
-  <input id="prompt" type="text" placeholder="Describe the creative… e.g. Generate the creative with red purple yellow color shades">
+  <input id="prompt" type="text" aria-label="AI creative prompt" placeholder="Describe the creative… e.g. Generate the creative with red purple yellow color shades">
   <span id="agentStatus"></span>
   <button id="generateBtn">Generate</button>
   <input type="file" id="fileInput" accept="image/*" style="display:none">

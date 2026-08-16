@@ -1,18 +1,51 @@
 :root{
-  --bg:#f2f2f2; --panel:#ffffff; --line:#e4e4e6; --text:#1b1c1f;
-  --muted:#8a8d93; --accent:#3b82f6; --radius:12px;
-  --shadow:0 1px 3px rgba(0,0,0,.07), 0 6px 22px rgba(0,0,0,.05);
+  --bg:#f2f3f5; --panel:#ffffff; --line:#e2e4e9; --text:#1b1d22;
+  --muted:#7b808a; --accent:#2563eb; --radius:12px;
+  --shadow:0 1px 2px rgba(15,23,42,.07), 0 10px 30px rgba(15,23,42,.08);
+
+  --surface-1:var(--panel);
+  --surface-2:#f8f9fb;
+  --surface-3:#f1f3f6;
+  --surface-hover:#f3f5f8;
+  --surface-selected:#ebeef4;
+  --surface-accent:#e9f0ff;
+  --surface-overlay:rgba(15,18,24,.38);
+  --text-strong:#111318;
+  --text-soft:#5d636f;
+  --line-strong:#c9cdd5;
+  --field-bg:#fbfcfd;
+  --field-focus:#ffffff;
+  --icon:#4e5561;
+  --danger:#b42318;
+  --danger-bg:#fff1f0;
+  --danger-line:#ffccc7;
+  --warning-bg:#fff8db;
+  --warning-line:#f4d06f;
+  --warning-text:#8a4b08;
+  --info-bg:#f3f0ff;
+  --info-bg-strong:#ede7ff;
+  --info-line:#d9d0ff;
+  --info-text:#5f35c8;
+  --mode-bg:#edf2ff;
+  --mode-bg-hover:#e0e8ff;
+  --mode-text:#3430a4;
+  --focus-ring:rgba(37,99,235,.72);
+  --selection-ring:var(--accent);
+  --scroll-thumb:#d0d4dc;
+  --canvas-control:#ffffff;
 
   /* Type system — Inter (SIL OFL 1.1), see THIRD-PARTY-NOTICES.md.
      Product-tool scale: compact, neutral, no marketing sizes. */
   --font-ui:"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  --text-xs:11px;    /* helper, status, metadata */
-  --text-sm:12px;    /* controls: labels, buttons, inputs, panel titles */
-  --text-md:13px;
-  --text-base:14px;  /* body / default UI text */
-  --text-lg:16px;    /* app title */
-  --text-xl:20px;
+  --text-micro:9px;  /* tiny glyph metadata */
+  --text-xxs:10px;   /* dense counters */
+  --text-xs:11px;    /* metadata, hints */
+  --text-sm:12px;    /* labels, buttons, compact controls */
+  --text-md:13px;    /* rows and inspector values */
+  --text-base:13px;  /* default UI text */
+  --text-lg:15px;    /* dense panel heads */
+  --text-xl:18px;    /* modal titles */
 
   --weight-regular:400;
   --weight-medium:500;
@@ -20,6 +53,43 @@
 
   --line-tight:1.2;
   --line-normal:1.4;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#111217; --panel:#1a1c22; --line:#2c3038; --text:#f2f4f8;
+    --muted:#9aa1ad; --accent:#8ab4ff;
+    --shadow:0 1px 2px rgba(0,0,0,.38), 0 14px 36px rgba(0,0,0,.38);
+
+    --surface-1:var(--panel);
+    --surface-2:#20232b;
+    --surface-3:#252934;
+    --surface-hover:#252934;
+    --surface-selected:#2b3140;
+    --surface-accent:#263655;
+    --surface-overlay:rgba(0,0,0,.54);
+    --text-strong:#ffffff;
+    --text-soft:#c2c7d0;
+    --line-strong:#3b414d;
+    --field-bg:#15171d;
+    --field-focus:#111319;
+    --icon:#c0c6d0;
+    --danger:#ff8f85;
+    --danger-bg:#351918;
+    --danger-line:#6e2d29;
+    --warning-bg:#312716;
+    --warning-line:#6d551d;
+    --warning-text:#ffd37a;
+    --info-bg:#241f39;
+    --info-bg-strong:#302748;
+    --info-line:#4b3e69;
+    --info-text:#c7b7ff;
+    --mode-bg:#222a44;
+    --mode-bg-hover:#2a3558;
+    --mode-text:#b8c7ff;
+    --focus-ring:rgba(138,180,255,.78);
+    --scroll-thumb:#454b57;
+    --canvas-control:#1d2028;
+  }
 }
 *{box-sizing:border-box;}
 html,body{height:100%;}
@@ -35,6 +105,20 @@ body{
   font-variant-numeric:tabular-nums;   /* numeric fields stop jittering */
 }
 .floating{background:var(--panel); border-radius:var(--radius); box-shadow:var(--shadow);}
+button, input, select, textarea{color:inherit;}
+button:focus{outline:0;}
+:where(button,input,select,textarea,[tabindex]):focus-visible{
+  outline:2px solid var(--focus-ring);
+  outline-offset:2px;
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration:.01ms;
+    animation-iteration-count:1;
+    scroll-behavior:auto;
+    transition-duration:.01ms;
+  }
+}
 
 /* ---------- menubar ---------- */
 #menubar{
@@ -43,7 +127,7 @@ body{
 }
 .menu{position:relative; padding:4px 10px; border-radius:7px; cursor:default;
   font-size:var(--text-sm); font-weight:var(--weight-medium);}
-.menu:hover{background:#f3f4f6;}
+.menu:hover{background:var(--surface-hover);}
 .menu .dropdown{
   display:none; position:absolute; top:100%; left:0; margin-top:6px; min-width:170px;
   background:var(--panel); border-radius:10px; box-shadow:var(--shadow); padding:5px; z-index:40;
@@ -55,7 +139,7 @@ body{
   max-height:calc(100vh - 96px); overflow-y:auto; overscroll-behavior:contain;
 }
 .menu .dropdown::-webkit-scrollbar{width:9px;}
-.menu .dropdown::-webkit-scrollbar-thumb{background:#d5d7dd; border-radius:5px;}
+.menu .dropdown::-webkit-scrollbar-thumb{background:var(--scroll-thumb); border-radius:5px;}
 .menu .dropdown::-webkit-scrollbar-track{background:transparent;}
 .menu.open .dropdown{display:block;}
 .dropdown button{
@@ -64,7 +148,7 @@ body{
   font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
   text-align:left; cursor:pointer;
 }
-.dropdown button:hover{background:#f3f4f6;}
+.dropdown button:hover{background:var(--surface-hover);}
 .dropdown button span{color:var(--muted); font-size:var(--text-xs); font-weight:var(--weight-regular);}
 
 /* ---------- left panel ---------- */
@@ -80,11 +164,11 @@ body{
 }
 .tool{
   width:32px; height:32px; border:0; background:none; border-radius:8px;
-  cursor:pointer; color:#4b4e55;
+  cursor:pointer; color:var(--icon);
   display:inline-flex; align-items:center; justify-content:center;
 }
-.tool:hover{background:#f3f4f6;}
-.tool.active{background:#e8f0fe; color:var(--accent);}
+.tool:hover{background:var(--surface-hover);}
+.tool.active{background:var(--surface-accent); color:var(--accent);}
 /* The list rows BLEED to the panel edges, so the sidebar carries no horizontal
    padding of its own — each row and heading supplies its own inset. A selected
    row then reads as a full-width band rather than a floating pill, which is
@@ -101,28 +185,28 @@ body{
   border-top:1px solid var(--line); padding-top:14px; margin-top:12px;
 }
 .sideHead button{
-  width:24px; height:24px; border:0; border-radius:7px; background:#f3f4f6;
+  width:24px; height:24px; border:0; border-radius:7px; background:var(--surface-3);
   line-height:1; cursor:pointer; color:var(--text); flex:0 0 24px;
   display:inline-flex; align-items:center; justify-content:center;
 }
-.sideHead button:hover{background:#e8f0fe; color:var(--accent);}
+.sideHead button:hover{background:var(--surface-accent); color:var(--accent);}
 #pageList{margin-bottom:2px;}
 .pageRow{
   padding:10px 12px; cursor:pointer;
-  color:#5c6066; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  color:var(--text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.pageRow:hover{background:#fafafa;}
-.pageRow.sel{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
+.pageRow:hover{background:var(--surface-hover);}
+.pageRow.sel{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
 #layerList div{
   padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#5c6066;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-soft);
 }
-#layerList div:hover{background:#fafafa;}
+#layerList div:hover{background:var(--surface-hover);}
 /* Selection is NEUTRAL, not the accent blue. A layer tree is mostly selection
    state, and a saturated band on every selected row fights the artwork the
    panel exists to describe. Hover stays lighter than selected so the two
    remain distinguishable. */
-#layerList div.sel{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
+#layerList div.sel{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
 #layerList .glyph{color:var(--muted); width:16px; display:inline-flex;
   align-items:center; justify-content:center; flex:0 0 16px;}
 
@@ -133,8 +217,8 @@ body{
 #out{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
 #zoomChip{
   position:fixed; left:52px; bottom:12px; z-index:30;
-  background:#fff; border:1px solid var(--line); border-radius:7px;
-  padding:3px 4px; box-shadow:0 2px 10px rgba(0,0,0,.08);
+  background:var(--canvas-control); border:1px solid var(--line); border-radius:7px;
+  padding:3px 4px; box-shadow:var(--shadow);
 }
 #zoomChip input{
   width:52px; border:0; background:none; font:inherit;
@@ -147,9 +231,9 @@ body{
   position:fixed; top:14px; right:14px; bottom:14px; width:224px; z-index:20;
   padding:16px 14px; overflow-y:auto;
 }
-.rp-head{font-weight:600; text-align:center; margin-bottom:12px;}
-.rp-head .sep{color:var(--muted); font-weight:400; padding:0 4px;}
-#rightPanel hr{border:0; border-top:1px solid #2225; margin:16px 0; border-color:var(--line);}
+.rp-head{font-size:var(--text-lg); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:12px;}
+.rp-head .sep{color:var(--muted); font-weight:var(--weight-regular); padding:0 4px;}
+#rightPanel hr{border:0; border-top:1px solid var(--line); margin:16px 0;}
 .grid4{display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:10px;}
 .grid4 label{display:flex; align-items:center; gap:6px;
   font-size:var(--text-xs); font-weight:var(--weight-regular); color:var(--muted);}
@@ -160,10 +244,10 @@ body{
 #alignRow{display:flex; gap:3px; justify-content:space-between; margin-bottom:10px;}
 #alignRow button{
   flex:1; border:1px solid var(--line); background:none; border-radius:6px;
-  padding:4px 0; cursor:pointer; color:#4b4e55;
+  padding:4px 0; cursor:pointer; color:var(--icon);
   display:inline-flex; align-items:center; justify-content:center; min-height:26px;
 }
-#alignRow button:hover{background:#f3f4f6;}
+#alignRow button:hover{background:var(--surface-hover);}
 label.slider{display:block; font-size:var(--text-sm); font-weight:var(--weight-medium);
   color:var(--muted); margin:8px 0;}
 label.slider span{float:right; color:var(--text);}
@@ -177,9 +261,9 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #engineSearch{
   width:100%; border:1px solid var(--line); border-radius:8px;
   padding:7px 9px; font:inherit; font-size:var(--text-sm);
-  font-weight:var(--weight-medium); background:#fafafa;
+  font-weight:var(--weight-medium); background:var(--field-bg);
 }
-#engineSearch:focus{outline:0; border-color:var(--accent); background:#fff;}
+#engineSearch:focus{border-color:var(--accent); background:var(--field-focus);}
 #engineResults{position:absolute; left:0; right:0; top:100%; margin-top:4px; z-index:5;
   background:var(--panel); border-radius:8px; box-shadow:var(--shadow); overflow:hidden;}
 #engineResults:empty{display:none;}
@@ -188,7 +272,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   padding:7px 10px; font:inherit; font-size:var(--text-sm);
   font-weight:var(--weight-medium); cursor:pointer;
 }
-#engineResults button:hover{background:#e8f0fe;}
+#engineResults button:hover{background:var(--surface-accent);}
 #engineResults .noHit{padding:7px 10px; color:var(--muted); font-size:var(--text-xs);}
 /* The engine name is the menu. With ten engines the ‹ › pager alone buried
    everything past the second page below the fold, so the title opens a list. */
@@ -199,13 +283,13 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   background:none; border:1px solid transparent; border-radius:7px;
   padding:5px 22px 5px 10px; cursor:pointer; color:inherit;
 }
-#fxTitle:hover{background:#f3f4f6; border-color:var(--line);}
-#fxTitle::after{content:"▾"; position:absolute; right:9px; color:var(--muted); font-size:11px;}
-#fxTitleWrap.open #fxTitle{background:#f3f4f6; border-color:var(--line);}
+#fxTitle:hover{background:var(--surface-hover); border-color:var(--line);}
+#fxTitle::after{content:"▾"; position:absolute; right:9px; color:var(--muted); font-size:var(--text-xs);}
+#fxTitleWrap.open #fxTitle{background:var(--surface-hover); border-color:var(--line);}
 #fxMenu{
   display:none; position:absolute; top:100%; left:0; right:0; z-index:40;
-  margin-top:3px; background:#fff; border:1px solid var(--line);
-  border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12);
+  margin-top:3px; background:var(--surface-1); border:1px solid var(--line);
+  border-radius:8px; box-shadow:var(--shadow);
   /* Same reasoning as the menubar dropdowns. A fixed cap is not enough here:
      this one opens from a trigger low inside the scrolling right panel, so the
      height has to come from the space actually below it. app.js measures that
@@ -213,7 +297,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   max-height:var(--fxMenuMax,320px); overflow-y:auto; overscroll-behavior:contain;
 }
 #fxMenu::-webkit-scrollbar{width:9px;}
-#fxMenu::-webkit-scrollbar-thumb{background:#d5d7dd; border-radius:5px;}
+#fxMenu::-webkit-scrollbar-thumb{background:var(--scroll-thumb); border-radius:5px;}
 #fxTitleWrap.open #fxMenu{display:block;}
 #fxMenu button{
   display:flex; align-items:center; gap:8px; width:100%;
@@ -221,8 +305,8 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   font-size:var(--text-sm); font-weight:var(--weight-medium);
   text-align:left; cursor:pointer; color:inherit;
 }
-#fxMenu button:hover{background:#f3f4f6;}
-#fxMenu button.cur{font-weight:600;}
+#fxMenu button:hover{background:var(--surface-hover);}
+#fxMenu button.cur{font-weight:var(--weight-semibold);}
 #fxMenu .dot{
   flex:0 0 6px; height:6px; border-radius:50%; background:transparent;
 }
@@ -234,7 +318,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   border-radius:50%; cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
-#fxPager button:hover{background:#f3f4f6;}
+#fxPager button:hover{background:var(--surface-hover);}
 #fxBody .row2{display:grid; grid-template-columns:1fr 1fr; gap:7px;}
 #fxBody select, #fxBody input[type=text]{
   width:100%; border:1px solid var(--line); border-radius:6px; padding:5px 6px;
@@ -253,7 +337,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
   color:var(--muted); cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
-#fxBody .stopRow .stopDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}
+#fxBody .stopRow .stopDel:hover:not(:disabled){border-color:var(--danger); color:var(--danger);}
 #fxBody .stopRow .stopDel:disabled{opacity:.3; cursor:default;}
 
 /* label.slider stretches its input to 100% for range/colour rows, which turns
@@ -279,16 +363,16 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 .fxHint{color:var(--muted); font-size:var(--text-xs); font-weight:var(--weight-regular);
   line-height:1.5; margin-top:8px;}
 .fxWarn{
-  background:#fffbeb; border:1px solid #fde68a; border-radius:7px;
-  padding:8px 10px; margin:8px 0; font-size:var(--text-xs); line-height:1.5; color:#92400e;
+  background:var(--warning-bg); border:1px solid var(--warning-line); border-radius:7px;
+  padding:8px 10px; margin:8px 0; font-size:var(--text-xs); line-height:1.5; color:var(--warning-text);
 }
-.fxWarn .rollBtn{margin-top:7px; border-color:#fcd34d; color:#92400e;}
-.fxWarn .rollBtn:hover{background:#fef3c7; border-color:#f59e0b; color:#92400e;}
+.fxWarn .rollBtn{margin-top:7px; border-color:var(--warning-line); color:var(--warning-text);}
+.fxWarn .rollBtn:hover{background:var(--surface-2); border-color:var(--warning-text); color:var(--warning-text);}
 
 /* ---------- new page modal ---------- */
 #pageModal{
   position:fixed; inset:0; z-index:60; display:flex;
-  align-items:center; justify-content:center; background:rgba(10,11,14,.35);
+  align-items:center; justify-content:center; background:var(--surface-overlay);
 }
 .modal{
   width:340px; background:var(--panel); border-radius:14px; box-shadow:var(--shadow);
@@ -309,9 +393,9 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   padding:7px 2px; font:inherit; font-size:var(--text-xs);
   font-weight:var(--weight-medium); line-height:1.35;
 }
-#sizeChips button em{font-style:normal; color:var(--muted); font-size:10px;
+#sizeChips button em{font-style:normal; color:var(--muted); font-size:var(--text-xxs);
   font-weight:var(--weight-regular);}
-#sizeChips button.on{border-color:var(--accent); background:#e8f0fe;}
+#sizeChips button.on{border-color:var(--accent); background:var(--surface-accent);}
 #bgModeRow{display:flex; gap:16px; margin-bottom:9px; font-size:var(--text-sm);
   font-weight:var(--weight-medium);}
 #bgModeRow input{accent-color:var(--accent);}
@@ -327,7 +411,7 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   display:flex; align-items:center; gap:9px; padding:9px 12px;
 }
 #attachBtn{
-  width:34px; height:34px; border:1px dashed #c9ccd1; background:#fafafa;
+  width:34px; height:34px; border:1px dashed var(--line-strong); background:var(--field-bg);
   border-radius:8px; cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
@@ -336,16 +420,16 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #attachChip img{width:34px; height:34px; object-fit:cover; border-radius:8px; display:block;}
 #attachChip button{
   position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%;
-  border:0; background:#1b1c1f; color:#fff; line-height:1; cursor:pointer;
+  border:0; background:var(--text-strong); color:var(--panel); line-height:1; cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
 #prompt{flex:1; border:0; outline:0; font:inherit; font-size:var(--text-base);
-  font-weight:var(--weight-regular); background:none;}
+  font-weight:var(--weight-regular); background:none; min-width:0;}
 #agentStatus{
   color:var(--muted); font-size:var(--text-xs); white-space:nowrap;
   max-width:280px; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto;
 }
-#agentStatus.err{color:#d33;}
+#agentStatus.err{color:var(--danger);}
 #generateBtn{
   border:1px solid var(--line); background:none; border-radius:999px;
   padding:7px 16px; font:inherit; font-size:var(--text-sm);
@@ -355,41 +439,41 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #generateBtn:disabled{opacity:.5; cursor:default;}
 
 /* --- linked pattern: distinguish a pattern parent in the layer list --- */
-#layerList .isParent { font-weight: 600; }
+#layerList .isParent { font-weight: var(--weight-semibold); }
 #layerList .isHidden { opacity: .45; }
 /* lock/eye toggles: quiet until hovered or active, pushed to the row's end */
 #layerList .layerTgl{
   margin-left:auto; flex:0 0 auto; border:0; background:none; cursor:pointer;
-  font-size:11px; padding:1px 3px; border-radius:4px; opacity:0; color:var(--muted);
+  font-size:var(--text-xs); padding:1px 3px; border-radius:4px; opacity:0; color:var(--muted);
 }
 #layerList .layerTgl + .layerTgl{ margin-left:0; }
 #layerList div:hover .layerTgl{ opacity:.7; }
-#layerList .layerTgl.on{ opacity:1; color:#174ea6; }
-#layerList .layerTgl:hover{ background:#e5e7eb; opacity:1; }
+#layerList .layerTgl.on{ opacity:1; color:var(--accent); }
+#layerList .layerTgl:hover{ background:var(--surface-3); opacity:1; }
 #layerList .linkBadge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-xxs);
   padding: 1px 5px;
   border-radius: 8px;
-  background: #ede9fe;
-  color: #6d28d9;
+  background: var(--info-bg-strong);
+  color: var(--info-text);
 }
 #layerList > div { display: flex; align-items: center; gap: 6px; }
 .instHint {
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: #f5f3ff;
-  color: #5b21b6;
-  font-size: 11px;
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 .instHint button {
   margin-top: 6px;
   font: inherit;
-  color: #6d28d9;
-  background: #ede9fe;
-  border: 1px solid #ddd6fe;
+  color: var(--info-text);
+  background: var(--info-bg-strong);
+  border: 1px solid var(--info-line);
   border-radius: 6px;
   padding: 3px 8px;
   cursor: pointer;
@@ -398,20 +482,20 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 /* --- pattern inspector (Stage 1.2) --- */
 .pSect {
   margin: 12px 0 6px;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--text-xxs);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6b7280;
-  border-top: 1px solid #e5e7eb;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
   padding-top: 9px;
 }
 .pSect:first-child { border-top: 0; margin-top: 2px; }
 .pRow { margin-bottom: 7px; }
 .pRow > label {
   display: block;
-  font-size: 11px;
-  color: #374151;
+  font-size: var(--text-xs);
+  color: var(--text-soft);
   margin-bottom: 3px;
 }
 .pCtl { display: flex; align-items: center; gap: 6px; }
@@ -420,14 +504,14 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   width: 56px;
   flex: 0 0 auto;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 2px 4px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
-  background: #fff;
+  background: var(--field-focus);
 }
-.pCtl select { flex: 1 1 auto; font-size: 11px; }
-.pUnit { font-size: 10px; color: #9ca3af; width: 14px; flex: 0 0 auto; }
+.pCtl select { flex: 1 1 auto; font-size: var(--text-xs); }
+.pUnit { font-size: var(--text-xxs); color: var(--muted); width: 14px; flex: 0 0 auto; }
 .pQ {
   display: inline-block;
   width: 13px;
@@ -435,46 +519,46 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   line-height: 13px;
   text-align: center;
   border-radius: 50%;
-  background: #e5e7eb;
-  color: #6b7280;
-  font-size: 9px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: var(--text-micro);
   cursor: help;
 }
 .pCheck {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: #374151;
+  font-size: var(--text-xs);
+  color: var(--text-soft);
   margin: 6px 0 8px;
 }
-.pAdv { margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+.pAdv { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .pAdv > summary {
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--text-xxs);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--muted);
   list-style: revert;
 }
 .pAdv[open] > summary { margin-bottom: 8px; }
-.rollBtn.danger { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+.rollBtn.danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); }
 /* Keyboard focus must stay obvious on every new control. */
 .pCtl input:focus-visible,
 .pCtl select:focus-visible,
 .pCheck input:focus-visible,
 .pAdv > summary:focus-visible,
 .rollBtn:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
 /* pencil tool options */
 #pencilOpts{
   position:fixed; left:52px; top:76px; z-index:30; width:190px;
-  background:#fff; border:1px solid var(--line); border-radius:9px;
-  padding:9px 12px; box-shadow:0 3px 14px rgba(0,0,0,.10); font-size:11px; color:var(--muted);
+  background:var(--surface-1); border:1px solid var(--line); border-radius:9px;
+  padding:9px 12px; box-shadow:var(--shadow); font-size:var(--text-xs); color:var(--muted);
 }
 #pencilOpts label{display:block; margin:4px 0;}
 #pencilOpts span{float:right; color:var(--text);}
@@ -484,23 +568,23 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 #fxBody .apRow{display:flex; align-items:center; gap:4px; margin:4px 0;}
 #fxBody .apRow button{
   width:22px; height:22px; padding:0; line-height:1; border:1px solid var(--line);
-  border-radius:5px; background:none; color:var(--muted); cursor:pointer; font-size:12px;
+  border-radius:5px; background:none; color:var(--muted); cursor:pointer; font-size:var(--text-sm);
 }
 #fxBody .apRow button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
 #fxBody .apRow button:disabled{opacity:.3; cursor:default;}
-#fxBody .apRow .apDel:hover:not(:disabled){border-color:#b91c1c; color:#b91c1c;}
+#fxBody .apRow .apDel:hover:not(:disabled){border-color:var(--danger); color:var(--danger);}
 
 /* layer tree: isolation bar, twisties, entered container */
 /* The isolation bar KEEPS its tint deliberately — it reports a mode you are
    in, not a selection, and it is the one thing in this panel that should not
    look like a list row. It only needs to share the gutter. */
 #layerList .isoBar{
-  background:#eef2ff; color:#3730a3; font-size:11px; font-weight:600;
+  background:var(--mode-bg); color:var(--mode-text); font-size:var(--text-xs); font-weight:var(--weight-semibold);
   border-radius:7px; padding:6px 9px; margin:0 12px 6px; cursor:pointer;
 }
-#layerList .isoBar:hover{background:#e0e7ff;}
+#layerList .isoBar:hover{background:var(--mode-bg-hover);}
 #layerList .twisty{
-  flex:0 0 10px; color:var(--muted); font-size:9px; transition:transform .12s;
+  flex:0 0 10px; color:var(--muted); font-size:var(--text-micro); transition:transform .12s ease;
   transform:rotate(0deg); cursor:pointer;
 }
 #layerList .twisty.open{transform:rotate(90deg);}
@@ -569,9 +653,9 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #fxBody .fxRow{
   display:flex; align-items:center; gap:4px; margin:3px 0;
   padding:3px 4px; border:1px solid var(--line); border-radius:7px;
-  background:#fafafa; opacity:.55;
+  background:var(--surface-2); opacity:.55;
 }
-#fxBody .fxRow.on{opacity:1; background:#fff;}
+#fxBody .fxRow.on{opacity:1; background:var(--surface-1);}
 #fxBody .fxRow button{
   border:0; background:none; padding:2px; cursor:pointer; color:var(--muted);
   display:inline-flex; align-items:center; justify-content:center;
@@ -583,7 +667,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 }
 #fxBody .fxRow .fxName:hover{color:var(--accent);}
 #fxBody .fxRow .fxSlot{
-  flex:0 0 auto; font-size:9px; color:var(--muted); text-transform:uppercase;
+  flex:0 0 auto; font-size:var(--text-micro); color:var(--muted); text-transform:uppercase;
   letter-spacing:.04em;
 }
 #fxBody .fxRow button:disabled{opacity:.25; cursor:default;}
@@ -597,12 +681,12 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   cursor:pointer; font-size:var(--text-xs); color:var(--muted);
   white-space:nowrap; overflow:hidden;
 }
-.histRow:hover{background:#fafafa;}
-.histRow.cur{background:#f1f1f3; color:var(--text); font-weight:var(--weight-medium);}
+.histRow:hover{background:var(--surface-hover);}
+.histRow.cur{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
 .histRow.future{opacity:.42;}
 .histRow .hName{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;}
-.histRow .hOps{flex:0 0 auto; font-size:9px; opacity:.7;}
-#historyFoot{font-size:10px; color:var(--muted); padding:0 12px 4px;}
+.histRow .hOps{flex:0 0 auto; font-size:var(--text-micro); opacity:.7;}
+#historyFoot{font-size:var(--text-xxs); color:var(--muted); padding:0 12px 4px;}
 
 /* §6.5 artboards + §6.6 page rows + §6.1 layer affordances */
 #artboardList{margin-bottom:12px;}
@@ -615,19 +699,19 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   display:inline-flex; align-items:center; justify-content:center;
 }
 .pageRow:hover .rowBtn, #layerList div:hover .rowBtn{opacity:.75;}
-.rowBtn:hover:not(:disabled){background:#e5e7eb; opacity:1; color:var(--text);}
+.rowBtn:hover:not(:disabled){background:var(--surface-3); opacity:1; color:var(--text);}
 .rowBtn:disabled{opacity:0 !important; cursor:default;}
 #layerSearch{
   /* sits inside the same 12px gutter the rows use, so its edges line up with
      the row text rather than with the panel */
   width:calc(100% - 24px); margin:0 12px 6px; display:block;
   border:1px solid var(--line); border-radius:7px; padding:6px 9px;
-  font:inherit; font-size:var(--text-xs); background:#fafafa;
+  font:inherit; font-size:var(--text-xs); background:var(--field-bg);
 }
-#layerSearch:focus{outline:0; border-color:var(--accent); background:#fff;}
+#layerSearch:focus{border-color:var(--accent); background:var(--field-focus);}
 .lrename{
   flex:1 1 auto; min-width:0; border:1px solid var(--accent); border-radius:4px;
-  padding:1px 4px; font:inherit; font-size:var(--text-xs); background:#fff;
+  padding:1px 4px; font:inherit; font-size:var(--text-xs); background:var(--field-focus);
 }
 #layerList .labelDot{
   flex:0 0 6px; width:6px; height:6px; border-radius:50%; margin-left:2px;
@@ -665,8 +749,8 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList .abGroup .rowBtn:nth-last-of-type(2){right:34px;}   /* duplicate */
 #layerList .abGroup .rowBtn:last-of-type{right:12px;}          /* delete */
 #layerList .abGroup:hover .abCount{opacity:0;}
-#layerList .abGroup:hover{background:#fafafa;}
-#layerList .abGroup.sel{background:#f1f1f3;}
+#layerList .abGroup:hover{background:var(--surface-hover);}
+#layerList .abGroup.sel{background:var(--surface-selected);}
 #layerList .abGroup svg{flex:0 0 auto; color:var(--muted);}
 #layerList .abName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
 #layerList .abCount{
@@ -684,4 +768,24 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #fxBody .lqCols input[type=color]{
   width:100%; height:26px; padding:0; border:1px solid var(--line);
   border-radius:6px; background:none; cursor:pointer;
+}
+
+@media (max-width:760px){
+  #menubar{
+    max-width:calc(100vw - 28px);
+    overflow-x:auto;
+  }
+  #leftPanel{
+    bottom:76px;
+    width:min(248px, calc(100vw - 28px));
+  }
+  #rightPanel{
+    display:none;
+  }
+  #agentBar{
+    display:none;
+  }
+  #zoomChip{
+    bottom:14px;
+  }
 }
