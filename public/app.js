@@ -6582,6 +6582,12 @@ function cursorForTool(){
 function closeToolMenus(){
   document.querySelectorAll('.toolGroup.open').forEach(g=>g.classList.remove('open'));
 }
+function toggleToolMenu(group){
+  if(!group) return;
+  const willOpen=!group.classList.contains('open');
+  closeToolMenus();
+  group.classList.toggle('open',willOpen);
+}
 function updateToolButtons(){
   document.querySelectorAll('.tool').forEach(b=>{
     const group=b.closest('.toolGroup')?.dataset.group;
@@ -6630,17 +6636,18 @@ document.querySelectorAll('.tool').forEach(b=>{
   b.dataset.currentTool=b.dataset.tool;
   b.addEventListener('click',e=>{
     e.stopPropagation();
-    closeToolMenus();
-    setTool(b.dataset.currentTool||b.dataset.tool);
+    const group=b.closest('.toolGroup');
+    if(group) toggleToolMenu(group);
+    else{
+      closeToolMenus();
+      setTool(b.dataset.currentTool||b.dataset.tool);
+    }
   });
 });
 document.querySelectorAll('.toolFlyout').forEach(b=>{
   b.addEventListener('click',e=>{
     e.stopPropagation();
-    const group=b.closest('.toolGroup');
-    const willOpen=!group.classList.contains('open');
-    closeToolMenus();
-    group.classList.toggle('open',willOpen);
+    toggleToolMenu(b.closest('.toolGroup'));
   });
 });
 document.querySelectorAll('.toolMenu button[data-tool]').forEach(b=>{
