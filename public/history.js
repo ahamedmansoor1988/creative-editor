@@ -122,7 +122,13 @@
     return "Change";
   }
 
-  function History(getState, setState) {
+  /**
+ * @param getState must return a FRESH deep copy each call — push() adopts the
+ *   returned value as its baseline instead of copying it again, so handing back
+ *   a live reference would let the baseline drift with the document and every
+ *   subsequent diff would come back empty.
+ */
+function History(getState, setState) {
     this.get = getState;
     this.set = setState;
     this.base = clone(getState());
@@ -141,7 +147,12 @@
       this.entries.shift();
     }
     this.i = this.entries.length - 1;
-    this.base = clone(now);
+    /* getState() contracts to return a FRESH structure that nothing else holds
+     * a reference to — the editor's returns compactPages(), which deep-copies.
+     * `now` is therefore already the private copy this.base needs, and cloning
+     * it again was a second full deep copy of the document on every committed
+     * edit, for nothing. */
+    this.base = now;
     return true;
   };
   History.prototype.canUndo = function () {
