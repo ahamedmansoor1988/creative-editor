@@ -123,12 +123,12 @@
   }
 
   /**
- * @param getState must return a FRESH deep copy each call — push() adopts the
- *   returned value as its baseline instead of copying it again, so handing back
- *   a live reference would let the baseline drift with the document and every
- *   subsequent diff would come back empty.
- */
-function History(getState, setState) {
+   * @param getState must return a FRESH deep copy each call — push() adopts the
+   *   returned value as its baseline instead of copying it again, so handing back
+   *   a live reference would let the baseline drift with the document and every
+   *   subsequent diff would come back empty.
+   */
+  function History(getState, setState) {
     this.get = getState;
     this.set = setState;
     this.base = clone(getState());
