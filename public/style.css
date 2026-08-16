@@ -127,10 +127,12 @@ button:focus{outline:0;}
   line-height:var(--line-tight); color:var(--text); text-align:left; cursor:pointer;
   position:relative;
 }
-.dropdown button[data-check]{
+.dropdown button[data-check],
+.dropdown button[data-fx]{
   padding-left:28px;
 }
-.dropdown button[data-check]::before{
+.dropdown button[data-check]::before,
+.dropdown button[data-fx]::before{
   content:"";
   position:absolute;
   left:9px;
@@ -143,7 +145,8 @@ button:focus{outline:0;}
   line-height:12px;
   font-weight:var(--weight-semibold);
 }
-.dropdown button.checked[data-check]::before{
+.dropdown button.checked[data-check]::before,
+.dropdown button.checked[data-fx]::before{
   content:"✓";
 }
 .dropdown button:hover{background:var(--surface-accent); color:var(--accent);}
