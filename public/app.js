@@ -26,6 +26,7 @@ function setActiveDoc(d){
   // cached bitmaps are keyed by object id; a replaced document leaves every
   // one of them unreachable, so drop them rather than leak
   if(typeof paintCacheClear==='function') paintCacheClear();
+  if(typeof clearDrawFailures==='function') clearDrawFailures();
 }
 let sel=-1;              // index into children
 let selInstance=null;    // derived instance under inspection (never editable)
@@ -1711,11 +1712,58 @@ function drawMasked(c,W,H,cont,depth){
   c.drawImage(contentCv,0,0);
   c.restore();
 }
+/* ---- render error boundary --------------------------------------------
+ * A throw anywhere in an object's draw path used to abort the whole forEach,
+ * so ONE bad object left every object after it unpainted — a blank or
+ * half-drawn canvas with nothing said about why. An engine failing on one
+ * shape is not a reason to lose the document.
+ *
+ * Each object is isolated: the failure is recorded, that object is skipped,
+ * and the rest of the frame draws. Reported ONCE per object, because a render
+ * loop would otherwise turn a single fault into thousands of identical lines.
+ *
+ * Unwinding matters as much as continuing. A throw between save() and
+ * restore() leaves the failed object's transform, clip and alpha applied to
+ * everything drawn after it, which corrupts the frame far more visibly than
+ * the missing shape — so the context is instrumented to count its own save
+ * depth and the catch unwinds back to where it started.
+ */
+const _drawFailed=new Map();
+function instrumentCtx(c){
+  if(!c||c.__depthPatched) return c;
+  const s=c.save.bind(c), r=c.restore.bind(c);
+  c.__saveDepth=0;
+  c.save=function(){ c.__saveDepth++; s(); };
+  c.restore=function(){ if(c.__saveDepth>0) c.__saveDepth--; r(); };
+  c.__depthPatched=true;
+  return c;
+}
+function reportDrawFailure(obj,err){
+  const key=(obj&&obj.id)||'unknown';
+  if(_drawFailed.has(key)) return;
+  _drawFailed.set(key,(err&&err.message)||String(err));
+  const name=(obj&&(obj.name||obj.type))||'an object';
+  console.error('draw failed for "'+name+'" — skipped:',err);
+  try{ status('Could not draw "'+name+'" — skipped it. Console has the detail.',true); }
+  catch(e){/* the status bar may not exist during boot */}
+}
+/** Let a fixed object report again. */
+function clearDrawFailures(){ _drawFailed.clear(); }
 function drawList(c,W,H,list,depth){
   depth=depth||0;
   if(depth>8) return;
   (list||[]).forEach(obj=>{
     if(obj.hidden) return;
+    const _d0=c.__saveDepth|0;
+    try{
+      drawOneGuarded(c,W,H,obj,depth);
+    }catch(err){
+      reportDrawFailure(obj,err);
+      while((c.__saveDepth|0)>_d0) c.restore();
+    }
+  });
+}
+function drawOneGuarded(c,W,H,obj,depth){
     if(CONTAINER(obj)){
       const b=boxOf(obj);
       c.save();
@@ -1785,7 +1833,6 @@ function drawList(c,W,H,list,depth){
       return;
     }
     drawOne(c,W,H,obj);
-  });
 }
 /* §5.15: the stack decides WHICH material renders and in WHAT ORDER the
  * behind/over filters run. `fxOn(obj,type)` replaces the old
@@ -2562,15 +2609,22 @@ function renderDoc(){
    * engines sample this buffer directly and must not be shifted. */
   let bw=f.w, bh=f.h;
   (f.artboards||[]).forEach(a=>{ bw=Math.max(bw,a.x+a.w); bh=Math.max(bh,a.y+a.h); });
+  /* Measuring is guarded for the same reason drawing is: aabbOf reads geometry
+   * off the object, so a malformed one throws HERE, before a single pixel is
+   * drawn — and an unguarded throw at this point loses the entire frame rather
+   * than one shape. An object that cannot be measured simply does not extend
+   * the buffer. */
   allObjects().forEach(o=>{
     if(o.hidden) return;
-    const b=aabbOf(o);
-    bw=Math.max(bw,b.x+b.w); bh=Math.max(bh,b.y+b.h);
+    try{
+      const b=aabbOf(o);
+      bw=Math.max(bw,b.x+b.w); bh=Math.max(bh,b.y+b.h);
+    }catch(err){ reportDrawFailure(o,err); }
   });
   frameBuf.width=Math.min(8000,Math.ceil(bw));
   frameBuf.height=Math.min(8000,Math.ceil(bh));
   // Full frame resolution, no transform: the glass engines sample real pixels.
-  drawDoc(frameBuf.getContext('2d'),f.w,f.h);
+  drawDoc(instrumentCtx(frameBuf.getContext('2d')),f.w,f.h);
 }
 function paint(){
   const has=!!doc && doc.frame.children!==undefined;
@@ -6929,6 +6983,28 @@ probeProvider();
 
 /* ================= init ================= */
 window.addEventListener('resize',render);
+/* ---- global handler ----------------------------------------------------
+ * The render path has its own per-object boundary above. This catches
+ * everything else — an event handler, a panel builder, a rejected promise —
+ * where the failure would otherwise reach the console and nowhere the user
+ * looks. It reports and gets out of the way: it does NOT swallow the error,
+ * because a handler that hides faults is worse than none.
+ */
+(function installGlobalHandler(){
+  let reported=0;
+  const note=(what,err)=>{
+    // A loop can fire these endlessly; say the first few and then stay quiet.
+    if(reported++>4) return;
+    console.error(what,err);
+    try{
+      status('Something went wrong ('+((err&&err.message)||err)+'). '+
+             'Your work is autosaved — reload if the editor stops responding.',true);
+    }catch(e){/* nothing to report to yet */}
+  };
+  window.addEventListener('error',e=>note('unhandled error:',e.error||e.message));
+  window.addEventListener('unhandledrejection',e=>note('unhandled promise rejection:',e.reason));
+})();
+
 /* ================= persistence (§6.x) =================
  * The app had NONE. localStorage held effect presets and nothing else, so
  * closing the tab lost every document — no save, no open, no autosave, no
