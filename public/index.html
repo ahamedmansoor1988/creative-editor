@@ -151,7 +151,6 @@
 <div id="stage">
   <canvas id="out" role="application" aria-label="Design canvas"></canvas>
 </div>
-<div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" aria-label="Zoom percentage" title="Zoom — type a percentage"></div>
 <div id="pencilOpts" style="display:none">
   <label>Tolerance <span id="pcTolV">2.5</span><input type="range" id="pcTol" min="0.5" max="10" step="0.1" value="2.5"></label>
   <label>Smoothing <span id="pcSmoothV">3</span><input type="range" id="pcSmooth" min="0" max="10" step="1" value="3"></label>
@@ -210,6 +209,7 @@
 
 <!-- right: inspector -->
 <div id="rightPanel" class="floating">
+  <div id="zoomChip" style="display:none"><input id="zoomInput" value="100%" aria-label="Zoom percentage" title="Zoom — type a percentage"></div>
   <div class="rp-head">Position <span class="sep">|</span> size</div>
   <div id="posSection" class="disabled">
     <div class="grid4">
