@@ -92,7 +92,7 @@ button:focus{outline:0;}
 
 /* ---------- menubar ---------- */
 #menubar{
-  position:fixed; top:var(--menubar-top); left:var(--ruler-gutter); z-index:30;
+  position:fixed; top:var(--menubar-top); left:var(--ruler-gutter); z-index:45;
   width:var(--left-panel-w);
   display:flex; justify-content:space-between; gap:4px; padding:8px 10px;
 }
@@ -103,7 +103,7 @@ button:focus{outline:0;}
   display:none; position:absolute; top:100%; left:0; margin-top:8px; min-width:224px;
   background:var(--panel); border:1px solid var(--line); border-radius:12px;
   box-shadow:0 18px 44px rgba(15,23,42,.14), 0 2px 6px rgba(15,23,42,.08);
-  padding:8px; z-index:40;
+  padding:8px; z-index:50;
   /* These menus outgrew the window. Effects carries 27 entries and Edit 35, so
      on a laptop-height window the last items were simply UNREACHABLE — no
      max-height and no scroll meant they rendered past the viewport with nothing
@@ -137,7 +137,7 @@ button:focus{outline:0;}
   top:var(--menubar-top);
   right:var(--chrome-gap);
   width:var(--right-panel-w);
-  z-index:30;
+  z-index:45;
   display:flex; align-items:center; justify-content:space-between; gap:4px;
   padding:8px 10px;
 }
