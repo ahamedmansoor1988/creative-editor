@@ -2913,16 +2913,38 @@ function syncLayers(){
     const mine=top.filter(c=>{ const hit=artboardOf(c)===a; if(hit) homed.add(c); return hit; });
     const head=document.createElement('div');
     head.className='abGroup'+(selArtboard===a.id?' sel':'');
-    head.innerHTML=(window.Icons?Icons.svg(a.collapsed?'chevronRight':'chevronDown',{size:12}):'')
+    head.innerHTML='<span class="abTwisty">'
+      +(window.Icons?Icons.svg(a.collapsed?'chevronRight':'chevronDown',{size:12}):'')+'</span>'
       +(window.Icons?Icons.svg('frame',{size:14}):'')
       +'<span class="abName">'+esc(a.name)+'</span>'
       +'<span class="abCount">'+mine.length+'</span>';
-    head.title=a.w+'×'+a.h+' — click to focus this artboard';
+    head.title=a.w+'×'+a.h+' — click to focus, double-click to rename';
+    if(!a.show) head.classList.add('isHidden');
+    // the affordances the separate Artboards list used to carry
+    rowBtn(head,'eye',a.show?'Hide artboard':'Show artboard',()=>{
+      a.show=!a.show; pushHistory('Artboard visibility'); refresh(); });
+    rowBtn(head,'download','Export this artboard',()=>exportArtboard(a.id));
+    rowBtn(head,'duplicate','Duplicate artboard',()=>duplicateArtboard(a.id));
+    rowBtn(head,'trash','Delete artboard',()=>{
+      const n=objectsInArtboard(a).length;
+      const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
+      removeArtboard(a.id,withContent);
+    },boards.length<=1);
     head.addEventListener('click',ev=>{
-      if(ev.target.closest('svg')&&head.firstElementChild&&head.firstElementChild.contains(ev.target)){
-        a.collapsed=!a.collapsed; syncLayers(); return;
-      }
-      selArtboard=a.id; refresh();
+      if(ev.target.closest('.abTwisty')){ a.collapsed=!a.collapsed; syncLayers(); return; }
+      selArtboard=a.id;
+      // focus it, the way the old artboard row did
+      const stage=$('stage'), pad=60;
+      const zz=clamp(Math.min((stage.clientWidth-2*pad)/a.w,(stage.clientHeight-2*pad)/a.h),0.02,4);
+      view.z=zz; view.mode='free';
+      view.x=stage.clientWidth/2-(a.x+a.w/2)*zz;
+      view.y=stage.clientHeight/2-(a.y+a.h/2)*zz;
+      refresh();
+    });
+    head.addEventListener('dblclick',ev=>{
+      ev.stopPropagation();
+      const n=prompt('Artboard name:',a.name);
+      if(n&&n.trim()){ a.name=n.trim().slice(0,60); pushHistory('Rename artboard'); refresh(); }
     });
     list.appendChild(head);
     if(!a.collapsed){
@@ -6331,6 +6353,10 @@ function syncPageRow(){
   syncArtboardRow();
 }
 /* §6.5 artboard list — the same affordances as pages. */
+/* The separate artboard list is gone — artboards are headings in the one tree
+ * now (see syncLayers). Kept as a no-op so the existing call sites, which fire
+ * from artboard add/remove/rename, do not need to change; syncLayers is what
+ * redraws them. */
 function syncArtboardRow(){
   const list=$('artboardList');
   if(!list) return;

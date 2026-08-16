@@ -130,9 +130,10 @@
   <div id="sidebar">
     <div class="sideHead"><span>Pages</span><button id="btnNewPage" data-icon="plus" aria-label="New page" title="New page"></button></div>
     <div id="pageList"></div>
-    <div class="sideHead"><span>Artboards</span><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></div>
-    <div id="artboardList"></div>
-    <div class="sideHead"><span>Layers</span></div>
+    <!-- One tree: a page holds artboards, an artboard holds layers. The old
+         separate "Artboards" list showed the same artboards over again with the
+         same counts, so it was folded into these headings. -->
+    <div class="sideHead"><span>Artwork</span><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></div>
     <input id="layerSearch" type="text" placeholder="Filter layers…" aria-label="Filter layers">
     <div id="layerList"></div>
     <div class="sideHead"><span>History</span></div>

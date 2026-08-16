@@ -644,8 +644,18 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList .abGroup{
   display:flex; align-items:center; gap:7px; padding:9px 12px; cursor:pointer;
   font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
-  white-space:nowrap; overflow:hidden;
+  white-space:nowrap; overflow:hidden; position:relative;
 }
+#layerList .abTwisty{display:inline-flex; align-items:center; flex:0 0 auto;}
+#layerList .abGroup.isHidden{opacity:.45;}
+/* Like the layer rows, the artboard controls float over the tail so they do not
+   reserve width from the name while hidden. */
+#layerList .abGroup .rowBtn{position:absolute; top:50%; transform:translateY(-50%);}
+#layerList .abGroup .rowBtn:nth-last-of-type(4){right:78px;}   /* visibility */
+#layerList .abGroup .rowBtn:nth-last-of-type(3){right:56px;}   /* export */
+#layerList .abGroup .rowBtn:nth-last-of-type(2){right:34px;}   /* duplicate */
+#layerList .abGroup .rowBtn:last-of-type{right:12px;}          /* delete */
+#layerList .abGroup:hover .abCount{opacity:0;}
 #layerList .abGroup:hover{background:#fafafa;}
 #layerList .abGroup.sel{background:#f1f1f3;}
 #layerList .abGroup svg{flex:0 0 auto; color:var(--muted);}
