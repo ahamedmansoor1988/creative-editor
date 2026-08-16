@@ -578,6 +578,27 @@ being erased.
   from the probe changes that pixel by less than the test's threshold. Re-run
   against a hash of the whole shape region, every control repaints.
 
+### Session 16b — menus outgrew the window, hiding commands entirely
+- Reported as "one effect is missing". It was not missing: the dropdowns had
+  `max-height:none` and `overflow-y:visible`, so entries past the bottom of the
+  window rendered off-screen with nothing to scroll. Measured on a 760px-tall
+  window BEFORE the fix:
+      Effects  27 items, overflowed by 134px ->  5 unreachable
+               (Warp, Displacement, Fractal haze, Slice, Noise)
+      Edit     35 items, overflowed by 414px -> 13 unreachable
+               (every boolean operation, and all four Distribute commands)
+  Adding two engines pushed Effects over the edge, but Edit had been broken for
+  far longer and nobody had run into it.
+- Menubar dropdowns are now capped at `calc(100vh - 96px)` and scroll.
+- The in-panel engine dropdown needed a different fix: it opens from a trigger
+  low inside the scrolling right panel, so a fixed cap either wastes space or
+  runs off the bottom. app.js measures the room below the trigger on open and
+  sets `--fxMenuMax`.
+- Worth noting how this was found. Both engines were verified painting pixels
+  and present in every menu's DOM — every assertion passed. Presence in the DOM
+  is not reachability on screen, and no battery had ever measured whether a
+  control could actually be clicked at a realistic window size.
+
 ## What is left
 Every section of the spec has now been built into except §4.7. The list below
 is what remains, and it is partials rather than blank sections.

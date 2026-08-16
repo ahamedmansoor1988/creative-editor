@@ -47,7 +47,16 @@ body{
 .menu .dropdown{
   display:none; position:absolute; top:100%; left:0; margin-top:6px; min-width:170px;
   background:var(--panel); border-radius:10px; box-shadow:var(--shadow); padding:5px; z-index:40;
+  /* These menus outgrew the window. Effects carries 27 entries and Edit 35, so
+     on a laptop-height window the last items were simply UNREACHABLE — no
+     max-height and no scroll meant they rendered past the viewport with nothing
+     to scroll. On a 760px window that hid 5 effects and every boolean
+     operation. The cap leaves room for the menubar and a bottom margin. */
+  max-height:calc(100vh - 96px); overflow-y:auto; overscroll-behavior:contain;
 }
+.menu .dropdown::-webkit-scrollbar{width:9px;}
+.menu .dropdown::-webkit-scrollbar-thumb{background:#d5d7dd; border-radius:5px;}
+.menu .dropdown::-webkit-scrollbar-track{background:transparent;}
 .menu.open .dropdown{display:block;}
 .dropdown button{
   display:flex; justify-content:space-between; gap:18px; width:100%;
@@ -201,8 +210,15 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #fxMenu{
   display:none; position:absolute; top:100%; left:0; right:0; z-index:40;
   margin-top:3px; background:#fff; border:1px solid var(--line);
-  border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); overflow:hidden;
+  border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12);
+  /* Same reasoning as the menubar dropdowns. A fixed cap is not enough here:
+     this one opens from a trigger low inside the scrolling right panel, so the
+     height has to come from the space actually below it. app.js measures that
+     and sets --fxMenuMax when the menu opens. */
+  max-height:var(--fxMenuMax,320px); overflow-y:auto; overscroll-behavior:contain;
 }
+#fxMenu::-webkit-scrollbar{width:9px;}
+#fxMenu::-webkit-scrollbar-thumb{background:#d5d7dd; border-radius:5px;}
 #fxTitleWrap.open #fxMenu{display:block;}
 #fxMenu button{
   display:flex; align-items:center; gap:8px; width:100%;

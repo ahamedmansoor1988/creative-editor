@@ -3333,6 +3333,15 @@ $('fxTitle').addEventListener('click',e=>{
   const w=$('fxTitleWrap'), open=!w.classList.contains('open');
   w.classList.toggle('open',open);
   $('fxTitle').setAttribute('aria-expanded',String(open));
+  /* Size the menu to the room actually BELOW its trigger. This list is 26
+   * entries and the trigger sits low in a scrolling panel, so a fixed cap
+   * either wastes space at the top of the panel or runs off the bottom of the
+   * window — which is how five effects became unreachable in the menubar. */
+  if(open){
+    const r=$('fxTitle').getBoundingClientRect();
+    const room=Math.max(160,Math.round(window.innerHeight-r.bottom-24));
+    $('fxMenu').style.setProperty('--fxMenuMax',room+'px');
+  }
 });
 document.addEventListener('click',closeFxMenu);
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFxMenu(); });
