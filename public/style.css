@@ -6,6 +6,7 @@
   --ruler-gutter:30px;
   --menubar-top:30px;
   --left-panel-top:76px;
+  --tools-rail-w:44px;
   --left-panel-w:248px;
   --right-panel-w:224px;
 
@@ -92,10 +93,11 @@ button:focus{outline:0;}
 /* ---------- menubar ---------- */
 #menubar{
   position:fixed; top:var(--menubar-top); left:var(--ruler-gutter); z-index:30;
-  display:flex; gap:4px; padding:8px 10px;
+  width:var(--left-panel-w);
+  display:flex; justify-content:space-between; gap:4px; padding:8px 10px;
 }
 .menu{position:relative; padding:4px 10px; border-radius:7px; cursor:default;
-  font-size:var(--text-sm); font-weight:var(--weight-medium);}
+  flex:0 1 auto; white-space:nowrap; font-size:var(--text-sm); font-weight:var(--weight-medium);}
 .menu:hover{background:var(--surface-hover);}
 .menu .dropdown{
   display:none; position:absolute; top:100%; left:0; margin-top:6px; min-width:170px;
@@ -127,8 +129,11 @@ button:focus{outline:0;}
   position:fixed; top:var(--left-panel-top); left:var(--ruler-gutter); bottom:var(--chrome-gap); width:var(--left-panel-w); z-index:20;
   display:flex; overflow:hidden;
 }
+body.panel-left-collapsed #leftPanel{
+  width:var(--tools-rail-w);
+}
 #toolsRail{
-  width:44px; border-right:1px solid var(--line);
+  flex:0 0 var(--tools-rail-w); width:var(--tools-rail-w); border-right:1px solid var(--line);
   display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0;
 }
 .tool{
@@ -143,6 +148,9 @@ button:focus{outline:0;}
    row then reads as a full-width band rather than a floating pill, which is
    what keeps a dense tree calm. */
 #sidebar{flex:1; padding:10px 0; overflow-y:auto;}
+body.panel-left-collapsed #sidebar{
+  display:none;
+}
 .sideHead{
   display:flex; align-items:center; justify-content:space-between;
   font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
@@ -201,6 +209,9 @@ button:focus{outline:0;}
 #rightPanel{
   position:fixed; top:var(--chrome-gap); right:var(--chrome-gap); bottom:var(--chrome-gap); width:var(--right-panel-w); z-index:20;
   padding:16px 14px; overflow-y:auto;
+}
+body.panel-right-collapsed #rightPanel{
+  display:none;
 }
 .rp-head{font-size:var(--text-lg); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:12px;}
 .rp-head .sep{color:var(--muted); font-weight:var(--weight-regular); padding:0 4px;}
@@ -385,6 +396,12 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   z-index:25;
   display:flex; align-items:center; gap:9px; padding:9px 12px;
 }
+body.panel-left-collapsed #agentBar{
+  left:calc(var(--ruler-gutter) + var(--tools-rail-w) + var(--chrome-gap));
+}
+body.panel-right-collapsed #agentBar{
+  right:var(--chrome-gap);
+}
 #attachBtn{
   width:34px; height:34px; border:1px dashed var(--line-strong); background:var(--field-bg);
   border-radius:8px; cursor:pointer;
@@ -412,6 +429,30 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 }
 #generateBtn:hover{border-color:var(--accent); color:var(--accent);}
 #generateBtn:disabled{opacity:.5; cursor:default;}
+
+/* ---------- panel toggles ---------- */
+.panelToggle{
+  position:fixed; z-index:35;
+  width:28px; height:28px; padding:0; border:1px solid var(--line);
+  border-radius:8px; background:var(--panel); box-shadow:var(--shadow);
+  color:var(--icon); cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.panelToggle:hover{background:var(--surface-hover); color:var(--accent);}
+#leftPanelToggle{
+  top:calc(var(--left-panel-top) + 16px);
+  left:calc(var(--ruler-gutter) + var(--left-panel-w) - 66px);
+}
+body.panel-left-collapsed #leftPanelToggle{
+  left:calc(var(--ruler-gutter) + var(--tools-rail-w) - 14px);
+}
+#rightPanelToggle{
+  top:calc(var(--chrome-gap) + 16px);
+  right:calc(var(--chrome-gap) + var(--right-panel-w) - 14px);
+}
+body.panel-right-collapsed #rightPanelToggle{
+  right:var(--chrome-gap);
+}
 
 /* --- linked pattern: distinguish a pattern parent in the layer list --- */
 #layerList .isParent { font-weight: var(--weight-semibold); }

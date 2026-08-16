@@ -7108,6 +7108,55 @@ pushHistory(); refresh();
   if(window.Icons) Icons.hydrate(document);
 })();
 
+(function wirePanelToggles(){
+  const configs=[
+    {
+      id:'leftPanelToggle',
+      cls:'panel-left-collapsed',
+      key:'creative-editor.leftPanelCollapsed',
+      collapseIcon:'chevronLeft',
+      expandIcon:'chevronRight',
+      collapseLabel:'Collapse pages panel',
+      expandLabel:'Expand pages panel',
+    },
+    {
+      id:'rightPanelToggle',
+      cls:'panel-right-collapsed',
+      key:'creative-editor.rightPanelCollapsed',
+      collapseIcon:'chevronRight',
+      expandIcon:'chevronLeft',
+      collapseLabel:'Collapse right panel',
+      expandLabel:'Expand right panel',
+    },
+  ];
+  const apply=c=>{
+    const btn=$(c.id);
+    if(!btn) return;
+    const collapsed=document.body.classList.contains(c.cls);
+    const label=collapsed?c.expandLabel:c.collapseLabel;
+    btn.setAttribute('aria-label',label);
+    btn.setAttribute('title',label);
+    btn.setAttribute('aria-expanded',String(!collapsed));
+    btn.setAttribute('data-icon',collapsed?c.expandIcon:c.collapseIcon);
+    if(window.Icons) Icons.set(btn,collapsed?c.expandIcon:c.collapseIcon);
+  };
+  configs.forEach(c=>{
+    const btn=$(c.id);
+    if(!btn) return;
+    try{
+      if(localStorage.getItem(c.key)==='1') document.body.classList.add(c.cls);
+    }catch(_){}
+    apply(c);
+    btn.addEventListener('click',()=>{
+      document.body.classList.toggle(c.cls);
+      const collapsed=document.body.classList.contains(c.cls);
+      try{ localStorage.setItem(c.key,collapsed?'1':'0'); }catch(_){}
+      apply(c);
+      paint();
+    });
+  });
+})();
+
 (function wirePencilOpts(){
   const t=$('pcTol'), sm=$('pcSmooth');
   if(!t) return;
