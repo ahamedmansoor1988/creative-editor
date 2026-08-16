@@ -1627,9 +1627,10 @@ function isFirstOfGroup(obj){
   return allObjects().find(inBlobGroup)===obj;
 }
 
-function drawDoc(c,W,H){
+function drawDoc(c,W,H,opts){
+  opts=opts||{};
   const f=doc.frame;
-  c.clearRect(0,0,Math.max(W,f.w)+8000,Math.max(H,f.h)+8000);
+  if(opts.clear!==false) c.clearRect(0,0,Math.max(W,f.w)+8000,Math.max(H,f.h)+8000);
   c.fillStyle=f.bg; c.fillRect(0,0,f.w,f.h);
   // §6.5: each artboard paints its own background before any content
   (f.artboards||[]).forEach(a=>{
@@ -2634,6 +2635,22 @@ function renderDoc(){
   // Full frame resolution, no transform: the glass engines sample real pixels.
   drawDoc(instrumentCtx(frameBuf.getContext('2d')),f.w,f.h);
 }
+const RASTER_PREVIEW_FX=new Set([
+  'light','liquid','flare','prism','capsule','strip','blob','glass','glass2',
+  'blur','distortion','warp','displacement','haze','slice','noise',
+]);
+function rasterPreviewNeeded(){
+  return allObjects().some(o=>{
+    if(o.hidden) return false;
+    if(CONTAINER(o)){
+      if(o.maskMode&&o.maskMode!=='none'&&o.maskOn!==false) return true;
+      if((o.opacity!==undefined&&o.opacity<1)||(o.blend&&o.blend!=='normal')) return true;
+    }
+    if(o.type==='instance') return true;
+    for(const k of RASTER_PREVIEW_FX) if(fxOn(o,k)) return true;
+    return false;
+  });
+}
 function paint(){
   const has=!!doc && doc.frame.children!==undefined;
   canvas.style.display=has?'':'none';
@@ -2655,10 +2672,15 @@ function paint(){
   ctx.shadowColor='rgba(0,0,0,.13)'; ctx.shadowBlur=18/z; ctx.shadowOffsetY=3/z;
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,f.w,f.h);
   ctx.restore();
-  // §1.13 pixel preview: at high magnification show the actual pixels
-  ctx.imageSmoothingEnabled=z<4;
-  ctx.drawImage(frameBuf,0,0);
-  ctx.imageSmoothingEnabled=true;
+  if(rasterPreviewNeeded()){
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(frameBuf,0,0);
+  }else{
+    // Draw ordinary vector documents at the current transform so zooming stays
+    // crisp. The frame buffer remains available for exports, sampling, and
+    // effects that genuinely need a page-resolution raster.
+    drawDoc(instrumentCtx(ctx),f.w,f.h,{clear:false});
+  }
   // §6.4 grid, drawn OVER the page but under the chrome; skipped when the
   // lines would be denser than a couple of screen pixels
   const G=f.grid;
@@ -2912,7 +2934,10 @@ function paint(){
   const zi=$('zoomInput');
   if(document.activeElement!==zi) zi.value=Math.round(z*100)+'%';
 }
-function render(){ renderDoc(); paint(); }
+function render(){
+  if(rasterPreviewNeeded()) renderDoc();
+  paint();
+}
 
 /* ================= UI sync ================= */
 function refresh(){ computeGapHints(); render(); syncLayers(); syncInspector(); syncPageRow(); }
@@ -5751,6 +5776,7 @@ function nearestOnPath(o,px,py){
  * the cursor onto the selection. Clicking outside the page opens the
  * platform's screen-wide picker where the browser provides one. */
 function samplePage(x,y,n){
+  if(!rasterPreviewNeeded()) renderDoc();
   const g=frameBuf.getContext('2d');
   const x0=clamp(Math.round(x-(n-1)/2),0,Math.max(0,frameBuf.width-n));
   const y0=clamp(Math.round(y-(n-1)/2),0,Math.max(0,frameBuf.height-n));
