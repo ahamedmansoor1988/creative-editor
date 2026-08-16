@@ -5309,7 +5309,7 @@ canvas.addEventListener('pointermove',e=>{
         const g2=handleAt(obj,evtPage(e));
         // §2.6 cursor feedback; the diagonal pairs swap as the frame rotates
         const quad=Math.round(((obj.rot||0)%180)/45)%2===1;
-        canvas.style.cursor=!g2?'default'
+        canvas.style.cursor=!g2?cursorForTool()
           :g2.kind==='rotate'?'alias'
           :g2.ix===4||g2.ix===6?(quad?'ew-resize':'ns-resize')
           :g2.ix===5||g2.ix===7?(quad?'ns-resize':'ew-resize')
@@ -6457,8 +6457,11 @@ function nudgeSel(dx,dy){
 }
 
 /* ================= tools ================= */
+const SELECT_CURSOR_SVG='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/></svg>';
+const SELECT_CURSOR=`url("data:image/svg+xml,${encodeURIComponent(SELECT_CURSOR_SVG)}") 4 4, default`;
 function cursorForTool(){
-  if(tool==='select'||tool==='node') return 'default';
+  if(tool==='select') return SELECT_CURSOR;
+  if(tool==='node') return 'default';
   if(tool==='zoom') return 'zoom-in';
   return 'crosshair';
 }
