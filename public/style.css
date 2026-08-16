@@ -418,7 +418,7 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   left:calc(var(--ruler-gutter) + var(--left-panel-w) + var(--chrome-gap));
   right:calc(var(--right-panel-w) + (var(--chrome-gap) * 2));
   bottom:var(--chrome-gap);
-  max-width:980px;
+  width:min(760px, calc(100vw - var(--ruler-gutter) - var(--left-panel-w) - var(--right-panel-w) - var(--chrome-gap) - var(--chrome-gap) - var(--chrome-gap)));
   margin-left:auto;
   margin-right:auto;
   z-index:25;
@@ -426,6 +426,7 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
 }
 body.panel-left-collapsed #agentBar{
   left:calc(var(--ruler-gutter) + var(--tools-rail-w) + var(--chrome-gap));
+  width:min(760px, calc(100vw - var(--ruler-gutter) - var(--tools-rail-w) - var(--right-panel-w) - var(--chrome-gap) - var(--chrome-gap) - var(--chrome-gap)));
 }
 #attachBtn{
   width:34px; height:34px; border:1px dashed var(--line-strong); background:var(--field-bg);
