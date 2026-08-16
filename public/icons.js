@@ -95,6 +95,8 @@
       '<path d="M12 3v12" /> <path d="m17 8-5-5-5 5" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />',
     x: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
     zoom: '<circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="11" x2="11" y1="8" y2="14" /> <line x1="8" x2="14" y1="11" y2="11" />',
+    zoomOut:
+      '<circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="8" x2="14" y1="11" y2="11" />',
   };
   const DEFAULTS = { size: 16, stroke: 1.75 };
   /** Inline SVG markup for an icon. `title` makes it announced; without one it

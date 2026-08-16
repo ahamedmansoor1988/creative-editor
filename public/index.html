@@ -141,18 +141,48 @@
 <!-- left: tools + pages/layers -->
 <div id="leftPanel" class="floating">
   <div id="toolsRail">
-    <button class="tool active" data-tool="select" data-icon="select" aria-label="Select (V)" title="Select (V)"></button>
-    <button class="tool" data-tool="node" data-icon="node" aria-label="Edit nodes (A)" title="Edit nodes (A)"></button>
-    <button class="tool" data-tool="pen" data-icon="pen" aria-label="Pen (P)" title="Pen (P)"></button>
-    <button class="tool" data-tool="pencil" data-icon="pencil" aria-label="Pencil (N)" title="Pencil (N)"></button>
-    <button class="tool" data-tool="rect" data-icon="rect" aria-label="Rectangle (R)" title="Rectangle (R)"></button>
-    <button class="tool" data-tool="ellipse" data-icon="ellipse" aria-label="Ellipse (O)" title="Ellipse (O)"></button>
-    <button class="tool" data-tool="polygon" data-icon="polygon" aria-label="Polygon / Star (shift P)" title="Polygon / Star (shift P)"></button>
-    <button class="tool" data-tool="line" data-icon="line" aria-label="Line (L)" title="Line (L)"></button>
+    <div class="toolGroup" data-group="select">
+      <button class="tool active" data-tool="select" data-icon="select" aria-label="Select (V)" title="Select (V)"></button>
+      <button class="toolFlyout" type="button" aria-label="Select tools" title="Select tools" data-icon="chevronRight"></button>
+      <div class="toolMenu" role="menu">
+        <button type="button" data-tool="select"><i data-icon="select"></i><span>Select</span><kbd>V</kbd></button>
+        <button type="button" data-tool="node"><i data-icon="node"></i><span>Edit nodes</span><kbd>A</kbd></button>
+      </div>
+    </div>
+    <div class="toolGroup" data-group="pen">
+      <button class="tool" data-tool="pen" data-icon="pen" aria-label="Pen (P)" title="Pen (P)"></button>
+      <button class="toolFlyout" type="button" aria-label="Pen tools" title="Pen tools" data-icon="chevronRight"></button>
+      <div class="toolMenu" role="menu">
+        <button type="button" data-tool="pen"><i data-icon="pen"></i><span>Pen</span><kbd>P</kbd></button>
+        <button type="button" data-tool="pencil"><i data-icon="pencil"></i><span>Pencil</span><kbd>N</kbd></button>
+        <button type="button" data-tool="addAnchor"><i data-icon="plus"></i><span>Add anchor</span></button>
+        <button type="button" data-tool="deleteAnchor"><i data-icon="x"></i><span>Delete anchor</span></button>
+        <button type="button" data-tool="convertAnchor"><i data-icon="node"></i><span>Convert point</span></button>
+      </div>
+    </div>
+    <div class="toolGroup" data-group="shape">
+      <button class="tool" data-tool="rect" data-icon="rect" aria-label="Rectangle (R)" title="Rectangle (R)"></button>
+      <button class="toolFlyout" type="button" aria-label="Shape tools" title="Shape tools" data-icon="chevronRight"></button>
+      <div class="toolMenu" role="menu">
+        <button type="button" data-tool="rect"><i data-icon="rect"></i><span>Rectangle</span><kbd>R</kbd></button>
+        <button type="button" data-tool="ellipse"><i data-icon="ellipse"></i><span>Ellipse</span><kbd>O</kbd></button>
+        <button type="button" data-tool="polygon"><i data-icon="polygon"></i><span>Polygon</span><kbd>⇧P</kbd></button>
+        <button type="button" data-tool="line"><i data-icon="line"></i><span>Line</span><kbd>L</kbd></button>
+      </div>
+    </div>
     <button class="tool" data-tool="text" data-icon="text" aria-label="Text (T)" title="Text (T)"></button>
     <button class="tool" data-tool="eyedrop" data-icon="eyedrop" aria-label="Eyedropper (I)" title="Eyedropper (I)"></button>
     <button class="tool" data-tool="crop" data-icon="crop" aria-label="Crop (C)" title="Crop (C)"></button>
-    <button class="tool" data-tool="zoom" data-icon="zoom" aria-label="Zoom (Z)" title="Zoom (Z)"></button>
+    <div class="toolGroup" data-group="zoom">
+      <button class="tool" data-tool="zoom" data-icon="zoom" aria-label="Zoom in (Z)" title="Zoom in (Z)"></button>
+      <button class="toolFlyout" type="button" aria-label="Zoom tools" title="Zoom tools" data-icon="chevronRight"></button>
+      <div class="toolMenu" role="menu">
+        <button type="button" data-tool="zoom"><i data-icon="zoom"></i><span>Zoom in</span><kbd>Z</kbd></button>
+        <button type="button" data-tool="zoomOut"><i data-icon="zoomOut"></i><span>Zoom out</span></button>
+        <button type="button" data-tool="zoomFit"><i data-icon="expand"></i><span>Fit to screen</span><kbd>⌘0</kbd></button>
+        <button type="button" data-tool="zoomActual"><i data-icon="search"></i><span>Actual size</span><kbd>⌘1</kbd></button>
+      </div>
+    </div>
   </div>
   <div id="sidebar">
     <div class="sideHead"><span>Pages</span><button id="btnNewPage" data-icon="plus" aria-label="New page" title="New page"></button></div>

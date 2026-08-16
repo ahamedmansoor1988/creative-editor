@@ -2768,7 +2768,7 @@ function paint(){
   }
   // §1.2 node editing overlay
   const no=nodeObj&&nodeObj();
-  if(tool==='node'&&no){
+  if(PATH_EDIT_TOOLS.has(tool)&&no){
     const hs=6/z;
     ctx.lineWidth=1.2/z;
     no.points.forEach((a,pi)=>{
@@ -5077,7 +5077,7 @@ canvas.addEventListener('pointerdown',e=>{
   if(!doc){
     // no page yet: a shape tool means the user wants to start — open the
     // New Page flow rather than silently inventing a canvas
-    if(tool!=='select'&&tool!=='zoom') openPageModal();
+    if(!['select','zoom','zoomOut','zoomFit','zoomActual'].includes(tool)) openPageModal();
     return;
   }
   const s=evtScreen(e), p=evtPage(e);
@@ -5111,11 +5111,23 @@ canvas.addEventListener('pointerdown',e=>{
     canvas.style.cursor='grabbing'; cap(); return;
   }
   if(e.button!==0) return;
-  if(tool==='zoom'){
-    drag={mode:'zoomRect',x0:p.x,y0:p.y,x1:p.x,y1:p.y,sx:s.x,sy:s.y,moved:false};
+  if(tool==='zoom'||tool==='zoomOut'){
+    drag={mode:'zoomRect',x0:p.x,y0:p.y,x1:p.x,y1:p.y,sx:s.x,sy:s.y,moved:false,out:tool==='zoomOut'};
     cap(); return;
   }
   if(tool==='eyedrop'){ eyedrop(p,e); return; }
+  if(tool==='addAnchor'){
+    if(addAnchorAt(p)) { pushHistory(); refresh(); }
+    return;
+  }
+  if(tool==='deleteAnchor'){
+    if(deleteAnchorAt(p)) { pushHistory(); refresh(); }
+    return;
+  }
+  if(tool==='convertAnchor'){
+    if(convertAnchorAt(p)) { pushHistory(); refresh(); }
+    return;
+  }
   if(tool==='pen'){
     const grip=10/view.z;
     if(!penDraft){
@@ -5600,7 +5612,7 @@ const endDrag=e=>{
       paint();
     }else{
       const s=evtScreen(e);
-      zoomAt(s.x,s.y,e.altKey?0.5:2);       // click in, alt-click out
+      zoomAt(s.x,s.y,(d.out||e.altKey)?0.5:2);       // click in, alt-click out
     }
     return;
   }
@@ -5767,6 +5779,66 @@ function nearestOnPath(o,px,py){
     }
   }
   return best;
+}
+function pathEditTarget(p){
+  const L=activeList();
+  const selected=primary();
+  if(selected&&selected.type==='path'&&!selected.locked){
+    const oi=L.indexOf(selected);
+    if(oi>=0) return {o:selected,oi};
+  }
+  const o=hitObj(p.x,p.y);
+  const oi=o?L.indexOf(o):-1;
+  return o&&oi>=0&&o.type==='path'&&!o.locked ? {o,oi} : null;
+}
+function nearestAnchor(o,p,grip){
+  let best=null;
+  o.points.forEach((a,i)=>{
+    const d=Math.hypot(p.x-a.x,p.y-a.y);
+    if(d<grip&&(!best||d<best.d)) best={i,d};
+  });
+  return best;
+}
+function addAnchorAt(p){
+  const t=pathEditTarget(p);
+  if(!t) return false;
+  const near=nearestOnPath(t.o,p.x,p.y);
+  if(!near||near.d>=Math.max(6/view.z,(t.o.stroke.width/2)+3)) return false;
+  splitSegment(t.o,near.i,near.t);
+  relinkPath(t.o);
+  setSel(t.oi);
+  nodeSel={oi:t.oi,pts:new Set([near.i+1])};
+  return true;
+}
+function deleteAnchorAt(p){
+  const t=pathEditTarget(p);
+  if(!t||t.o.points.length<=2) return false;
+  const hitAnchor=nearestAnchor(t.o,p,10/view.z);
+  if(!hitAnchor) return false;
+  t.o.points.splice(hitAnchor.i,1);
+  relinkPath(t.o);
+  setSel(t.oi);
+  nodeSel={oi:t.oi,pts:new Set()};
+  return true;
+}
+function convertAnchorAt(p){
+  const t=pathEditTarget(p);
+  if(!t) return false;
+  const hitAnchor=nearestAnchor(t.o,p,10/view.z);
+  if(!hitAnchor) return false;
+  const P=t.o.points, a=P[hitAnchor.i];
+  if(a.m==='corner'||(!a.ox&&!a.oy&&!a.ix&&!a.iy)){
+    const prev=P[(hitAnchor.i-1+P.length)%P.length], next=P[(hitAnchor.i+1)%P.length];
+    const tx=(next.x-prev.x)/6, ty=(next.y-prev.y)/6;
+    a.ox=Math.round(tx); a.oy=Math.round(ty);
+    a.ix=-a.ox; a.iy=-a.oy; a.m='smooth';
+  }else{
+    a.ox=a.oy=a.ix=a.iy=0; a.m='corner';
+  }
+  relinkPath(t.o);
+  setSel(t.oi);
+  nodeSel={oi:t.oi,pts:new Set([hitAnchor.i])};
+  return true;
 }
 
 /* ---- eyedropper (§1.10) ----
@@ -6462,6 +6534,9 @@ const TOOL_CURSOR_PATHS={
   node:'<circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><path d="M5 17A12 12 0 0 1 17 5"/>',
   pen:'<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/>',
   pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  addAnchor:'<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="M12 5v8"/><path d="M8 9h8"/>',
+  deleteAnchor:'<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m8 6 7 7"/><path d="m15 6-7 7"/>',
+  convertAnchor:'<circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><path d="M5 17A12 12 0 0 1 17 5"/><path d="m14 14 5 5"/><path d="m19 14-5 5"/>',
   rect:'<rect width="18" height="18" x="3" y="3" rx="2"/>',
   ellipse:'<circle cx="12" cy="12" r="10"/>',
   polygon:'<path d="M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z"/>',
@@ -6470,7 +6545,28 @@ const TOOL_CURSOR_PATHS={
   eyedrop:'<path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/><path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/><path d="m2 22 .414-.414"/>',
   crop:'<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>',
   zoom:'<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/>',
+  zoomOut:'<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/><line x1="8" x2="14" y1="11" y2="11"/>',
 };
+const TOOL_GROUPS={
+  select:['select','node'],
+  pen:['pen','pencil','addAnchor','deleteAnchor','convertAnchor'],
+  shape:['rect','ellipse','polygon','line'],
+  zoom:['zoom','zoomOut'],
+};
+const TOOL_ICONS={
+  select:'select',node:'node',pen:'pen',pencil:'pencil',
+  addAnchor:'plus',deleteAnchor:'x',convertAnchor:'node',
+  rect:'rect',ellipse:'ellipse',polygon:'polygon',line:'line',
+  text:'text',eyedrop:'eyedrop',crop:'crop',zoom:'zoom',zoomOut:'zoomOut',
+};
+const TOOL_LABELS={
+  select:'Select (V)',node:'Nodes (A)',pen:'Pen (P)',pencil:'Pencil (N)',
+  addAnchor:'Add anchor',deleteAnchor:'Delete anchor',convertAnchor:'Convert point',
+  rect:'Rectangle (R)',ellipse:'Ellipse (O)',polygon:'Polygon (shift P)',line:'Line (L)',
+  text:'Text (T)',eyedrop:'Eyedropper (I)',crop:'Crop (C)',zoom:'Zoom in (Z)',zoomOut:'Zoom out',
+};
+const PATH_EDIT_TOOLS=new Set(['node','addAnchor','deleteAnchor','convertAnchor']);
+const ZOOM_COMMAND_TOOLS=new Set(['zoomFit','zoomActual']);
 const TOOL_CURSORS={};
 function iconCursor(name){
   if(!TOOL_CURSORS[name]){
@@ -6483,17 +6579,78 @@ function iconCursor(name){
 function cursorForTool(){
   return iconCursor(tool);
 }
+function closeToolMenus(){
+  document.querySelectorAll('.toolGroup.open').forEach(g=>g.classList.remove('open'));
+}
+function updateToolButtons(){
+  document.querySelectorAll('.tool').forEach(b=>{
+    const group=b.closest('.toolGroup')?.dataset.group;
+    const tools=group?TOOL_GROUPS[group]:[b.dataset.tool];
+    const active=tools.includes(tool);
+    const shown=active&&group?tool:(b.dataset.defaultTool||b.dataset.tool);
+    b.dataset.currentTool=shown;
+    b.classList.toggle('active',active);
+    b.setAttribute('aria-label',TOOL_LABELS[shown]||TOOL_LABELS[b.dataset.tool]||'Tool');
+    b.title=TOOL_LABELS[shown]||TOOL_LABELS[b.dataset.tool]||'Tool';
+    if(window.Icons){
+      const icon=TOOL_ICONS[shown]||b.dataset.icon;
+      Icons.set(b,icon);
+    }
+  });
+  document.querySelectorAll('.toolMenu button[data-tool]').forEach(b=>{
+    b.classList.toggle('active',b.dataset.tool===tool);
+  });
+}
 function setTool(t){
+  if(ZOOM_COMMAND_TOOLS.has(t)){
+    if(t==='zoomFit') CMDS.zoomFit();
+    else if(t==='zoomActual') CMDS.zoomActual();
+    closeToolMenus();
+    updateToolButtons();
+    return;
+  }
   tool=t;
   if(t!=='pen'&&penDraft) penCommit();       // switching tools ends the draft
-  if(t!=='node') nodeSel=null;
-  document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
+  if(PATH_EDIT_TOOLS.has(t)){
+    const o=primary(), oi=o?activeList().indexOf(o):-1;
+    if(o&&o.type==='path'&&oi>=0){
+      if(!nodeSel||nodeSel.oi!==oi) nodeSel={oi,pts:new Set()};
+    }else nodeSel=null;
+  }else{
+    nodeSel=null;
+  }
+  updateToolButtons();
   const po=$('pencilOpts');
   if(po) po.style.display=t==='pencil'?'':'none';
   canvas.style.cursor=cursorForTool();
   paint();
 }
-document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+document.querySelectorAll('.tool').forEach(b=>{
+  b.dataset.defaultTool=b.dataset.tool;
+  b.dataset.currentTool=b.dataset.tool;
+  b.addEventListener('click',e=>{
+    e.stopPropagation();
+    closeToolMenus();
+    setTool(b.dataset.currentTool||b.dataset.tool);
+  });
+});
+document.querySelectorAll('.toolFlyout').forEach(b=>{
+  b.addEventListener('click',e=>{
+    e.stopPropagation();
+    const group=b.closest('.toolGroup');
+    const willOpen=!group.classList.contains('open');
+    closeToolMenus();
+    group.classList.toggle('open',willOpen);
+  });
+});
+document.querySelectorAll('.toolMenu button[data-tool]').forEach(b=>{
+  b.addEventListener('click',e=>{
+    e.stopPropagation();
+    setTool(b.dataset.tool);
+    closeToolMenus();
+  });
+});
+document.addEventListener('click',closeToolMenus);
 /* Objects created by the TOOLS never pass through normalizeDoc, so they were
  * only PARTLY formed: makeShape wrote `fill` but not `fills[]`, `points` but
  * not `subpaths[]`, and no `fx` stack at all. Since the renderer moved to the
@@ -7186,6 +7343,7 @@ pushHistory(); refresh();
 
 (function hydrateIcons(){
   if(window.Icons) Icons.hydrate(document);
+  updateToolButtons();
 })();
 
 (function wirePanelToggles(){

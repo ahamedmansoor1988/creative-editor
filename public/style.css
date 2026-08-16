@@ -197,6 +197,9 @@ body.panel-left-collapsed #leftPanel{
   flex:0 0 var(--tools-rail-w); width:var(--tools-rail-w); border-right:1px solid var(--line);
   display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0;
 }
+.toolGroup{
+  position:relative; width:32px; height:32px; flex:0 0 32px;
+}
 .tool{
   width:32px; height:32px; border:0; background:none; border-radius:8px;
   cursor:pointer; color:var(--icon);
@@ -204,6 +207,37 @@ body.panel-left-collapsed #leftPanel{
 }
 .tool:hover{background:var(--surface-hover);}
 .tool.active{background:var(--surface-accent); color:var(--accent);}
+.toolFlyout{
+  position:absolute; right:-2px; bottom:-2px;
+  width:12px; height:12px; padding:0; border:0; border-radius:4px;
+  background:transparent; color:var(--muted); cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.toolFlyout .ic{width:9px; height:9px; stroke-width:2.4;}
+.toolGroup:hover .toolFlyout,
+.toolGroup.open .toolFlyout{
+  background:var(--panel); box-shadow:0 1px 4px rgba(15,23,42,.16); color:var(--text);
+}
+.toolMenu{
+  position:absolute; top:-6px; left:42px; min-width:176px; padding:6px;
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:12px; box-shadow:0 14px 34px rgba(15,23,42,.16);
+  display:none; z-index:70;
+}
+.toolGroup.open .toolMenu{display:block;}
+.toolMenu button{
+  width:100%; min-height:34px; padding:0 8px; border:0; border-radius:8px;
+  background:transparent; color:var(--text); cursor:pointer;
+  display:grid; grid-template-columns:20px 1fr auto; align-items:center; gap:8px;
+  font:inherit; font-size:var(--text-sm); text-align:left;
+}
+.toolMenu button:hover{background:var(--surface-hover);}
+.toolMenu button.active{background:var(--surface-accent); color:var(--accent);}
+.toolMenu span{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.toolMenu kbd{
+  font:inherit; color:var(--muted); font-size:12px; background:transparent;
+}
+.toolMenu button.active kbd{color:var(--accent);}
 /* The list rows BLEED to the panel edges, so the sidebar carries no horizontal
    padding of its own — each row and heading supplies its own inset. A selected
    row then reads as a full-width band rather than a floating pill, which is
