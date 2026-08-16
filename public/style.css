@@ -418,6 +418,9 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
   left:calc(var(--ruler-gutter) + var(--left-panel-w) + var(--chrome-gap));
   right:calc(var(--right-panel-w) + (var(--chrome-gap) * 2));
   bottom:var(--chrome-gap);
+  max-width:980px;
+  margin-left:auto;
+  margin-right:auto;
   z-index:25;
   display:flex; align-items:center; gap:9px; padding:9px 12px;
 }
