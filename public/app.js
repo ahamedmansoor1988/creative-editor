@@ -2587,6 +2587,14 @@ function distToSegment(px,py,x1,y1,x2,y2){
  *                 never re-running the shader engines.
  * render() = both, and is what every doc-mutating path already calls. */
 let marquee=null;   // {x0,y0,x1,y1} in page coords while dragging
+function coordOrigin(){
+  const f=doc&&doc.frame;
+  return f?{x:f.w/2,y:f.h/2}:{x:0,y:0};
+}
+function pageToUiX(x){ return x-coordOrigin().x; }
+function pageToUiY(y){ return y-coordOrigin().y; }
+function uiToPageX(x){ return x+coordOrigin().x; }
+function uiToPageY(y){ return y+coordOrigin().y; }
 function fitView(){
   if(!doc) return;
   const f=doc.frame, stage=$('stage');
@@ -2859,6 +2867,7 @@ function paint(){
   if(showRulers){
     const nice=[1,2,5,10,20,25,50,100,200,250,500,1000,2000];
     let step=nice.find(n=>n*z>=54)||2000;
+    const origin=coordOrigin();
     ctx.fillStyle='#f7f8f9';
     ctx.fillRect(0,0,W,RULER); ctx.fillRect(0,0,RULER,H);
     ctx.strokeStyle='#e4e4e6'; ctx.lineWidth=1;
@@ -2870,15 +2879,17 @@ function paint(){
     ctx.textBaseline='top';
     ctx.fillStyle='#8a8d93'; ctx.strokeStyle='#c9ced6';
     const from=v=>Math.floor(v/step)*step;
+    const ux0=(-view.x/z)-origin.x, ux1=((W-view.x)/z)-origin.x;
+    const uy0=(-view.y/z)-origin.y, uy1=((H-view.y)/z)-origin.y;
     ctx.beginPath();
-    for(let u=from(-view.x/z); u<=(W-view.x)/z; u+=step){
-      const sx=Math.round(u*z+view.x)+.5;
+    for(let u=from(ux0); u<=ux1; u+=step){
+      const sx=Math.round((u+origin.x)*z+view.x)+.5;
       if(sx<RULER) continue;
       ctx.moveTo(sx,RULER-5); ctx.lineTo(sx,RULER);
       ctx.fillText(String(Math.round(u)),sx+2,3);
     }
-    for(let u=from(-view.y/z); u<=(H-view.y)/z; u+=step){
-      const sy=Math.round(u*z+view.y)+.5;
+    for(let u=from(uy0); u<=uy1; u+=step){
+      const sy=Math.round((u+origin.y)*z+view.y)+.5;
       if(sy<RULER) continue;
       ctx.moveTo(RULER-5,sy); ctx.lineTo(RULER,sy);
       ctx.save(); ctx.translate(3,sy-2); ctx.rotate(-Math.PI/2);
@@ -3211,7 +3222,7 @@ function syncInspector(){
   $('noSel').style.display=obj?'none':'';
   if(!obj) return;
   const b=boxOf(obj);
-  $('pX').value=Math.round(obj.x); $('pY').value=Math.round(obj.y);
+  $('pX').value=Math.round(pageToUiX(obj.x)); $('pY').value=Math.round(pageToUiY(obj.y));
   $('pW').value=Math.round(b.w); $('pH').value=Math.round(b.h);
   const tx=(obj.type==='text'&&obj.mode!=='area')||obj.type==='line'||obj.type==='path';
   $('pW').disabled=tx; $('pH').disabled=tx;
@@ -4671,7 +4682,8 @@ $('engineSearch').addEventListener('keydown',e=>{
     if(k==='x'||k==='y'){
       // translate (a line carries both endpoints); a multi-selection moves
       // as a set by the delta
-      const dv=v-obj[k];
+      const target=k==='x'?uiToPageX(v):uiToPageY(v);
+      const dv=target-obj[k];
       const os=selIds.size>1?selObjs():[obj];
       os.forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
     }else if(obj.type==='line'){ return; }
@@ -6263,12 +6275,11 @@ function releaseCompound(){
  * Ruler-drag and this dialog are the only two ways a guide comes into being. */
 function addGuideNumeric(axis){
   if(!doc) return;
-  const f=doc.frame;
-  const dflt=Math.round(axis==='v'?f.w/2:f.h/2);
+  const dflt=0;
   const v=prompt(`${axis==='v'?'Vertical':'Horizontal'} guide position (px):`,String(dflt));
   const n=parseFloat(v);
   if(!Number.isFinite(n)) return;
-  f.guides.push({axis,pos:Math.round(n),locked:false});
+  doc.frame.guides.push({axis,pos:Math.round(axis==='v'?uiToPageX(n):uiToPageY(n)),locked:false});
   pushHistory(); refresh();
 }
 let guidesHidden=false;
