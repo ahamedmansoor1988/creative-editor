@@ -433,8 +433,8 @@ body.panel-right-collapsed #agentBar{
 /* ---------- panel toggles ---------- */
 .panelToggle{
   position:fixed; z-index:35;
-  width:28px; height:28px; padding:0; border:1px solid var(--line);
-  border-radius:8px; background:var(--panel); box-shadow:var(--shadow);
+  width:24px; height:24px; padding:0; border:0;
+  border-radius:7px; background:var(--surface-3);
   color:var(--icon); cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
@@ -444,11 +444,11 @@ body.panel-right-collapsed #agentBar{
   left:calc(var(--ruler-gutter) + var(--left-panel-w) - 66px);
 }
 body.panel-left-collapsed #leftPanelToggle{
-  left:calc(var(--ruler-gutter) + var(--tools-rail-w) - 14px);
+  left:calc(var(--ruler-gutter) + var(--tools-rail-w) - 12px);
 }
 #rightPanelToggle{
   top:calc(var(--chrome-gap) + 16px);
-  right:calc(var(--chrome-gap) + var(--right-panel-w) - 14px);
+  right:calc(var(--chrome-gap) + var(--right-panel-w) - 12px);
 }
 body.panel-right-collapsed #rightPanelToggle{
   right:var(--chrome-gap);
