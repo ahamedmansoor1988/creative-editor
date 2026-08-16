@@ -513,10 +513,32 @@ layer-based caching and invisible. Repeat renders are byte-identical.
   is pre-existing fit-view settling, not the cache. Measuring the control is what
   kept it from being attributed to this change.
 
-**Found but NOT fixed, and out of scope for this session:** the prism material
-blanks the entire page — every pixel reads white, including a backdrop rect
-unrelated to the prism object. It reproduces identically with the cache forced
-off, so it is pre-existing. glass, capsule and strip are fine in the same setup.
+**Found but not fixed in this session:** the prism material appeared to blank
+the entire page. That diagnosis was WRONG and is corrected in session 15 — the
+test compared pixels for EXACT equality, and prism's additive blend shifts a
+white page by ±1, which the comparison read as "destroyed". Nothing was ever
+being erased.
+
+### Session 15 — prism was never broken; its default was invisible
+- Reported as "prism isn't visible". The earlier session-14 note claiming prism
+  BLANKED THE PAGE was wrong, and the way it was wrong is worth keeping: that
+  test compared pixels for exact equality, so the ±1 shift an additive blend
+  makes to a white page registered as "the backdrop was destroyed". A test that
+  cannot tell +1 from -255 will invent catastrophes.
+- What was actually happening: prism's default blend was `add`, and the app
+  composites add-mode with `lighter`. Additive compositing onto 255 saturates,
+  so on the default white artboard the effect was mathematically incapable of
+  showing anything. Measured contrast against the page background:
+      white page + add    ->   0    (every sample exactly 255,255,255)
+      white page + normal -> 184
+      dark  page + add    -> 231
+  The 0 holds for every fill colour, so it was not a tuning problem.
+- Fix is one value: the default blend is `normal`. `add` is genuinely the better
+  look on a dark page and is still one click away in the panel.
+- The renderer, the shader and the WebGL setup were all correct the whole time.
+  `uAlphaMode` forcing alpha to 1.0 is right FOR add mode, which is what made
+  the returned image 100% opaque and sent the first investigation down the wrong
+  path.
 
 ## What is left
 Every section of the spec has now been built into except §4.7. The list below
@@ -545,8 +567,7 @@ PARTIALS, by area
 - §6.4 Canvas — transparency checkerboard, multiple views of one document.
 
 KNOWN BUGS
-- The prism material blanks the whole page (see session 14). Pre-existing;
-  glass, capsule and strip are unaffected.
+- (none outstanding)
 
 DOCS
 - HANDOFF.md is stale: it describes the tree at d70817e, thirteen sessions back.

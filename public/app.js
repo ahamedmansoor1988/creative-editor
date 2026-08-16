@@ -80,7 +80,13 @@ const DEFAULT_EFFECTS=()=>({
             g2:[{color:'#ffaa00',pos:0},{color:'#0000ff',pos:0.5},{color:'#999999',pos:1}]},
   // beam traced forward through a glass solid, dispersed per wavelength
   prism:{on:false,shape:0,thickness:0.25,corner:0.12,wedge:0,yaw:0,pitch:0,roll:0,
-         ior:1.52,dispersion:0.145,body:1,blend:'add',
+         /* blend was 'add'. Additive compositing onto a white page saturates —
+          * measured contrast against the page background was exactly 0 for every
+          * sample and every fill colour, so enabling prism on the default white
+          * artboard produced a literally invisible effect. 'normal' measures 184
+          * on the same page. 'add' is still the better look on a dark page (231
+          * there) and remains one click away in the panel. */
+         ior:1.52,dispersion:0.145,body:1,blend:'normal',
          azimuth:126,elevation:30,intensity:1.9,width:0.15,softness:2,distance:14,
          aimX:0,aimY:0,falloff:0.03,inGain:1,outGain:2.9,
          bend:0,fan:26,bands:0,fanRoll:0,spectrum:0,
