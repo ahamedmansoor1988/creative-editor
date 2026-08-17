@@ -655,6 +655,37 @@ being erased.
   registry + LEGACY_ORDER, draw path, FX_PAGES, panel — plus the menubar
   entry, script tag, and a server CAPABILITIES entry so the AI can reach it.
 
+### Session 18 — Prism Flare replaced with the revised standalone
+
+- The author's prism-flare.html evolved past the session-16 port, so the
+  engine was replaced wholesale ("if exists replace it"): the fixed
+  three-preset fan tables became an EDITABLE BEAM LIST (up to 16; per-beam
+  angle, width, dispersion, hue shift, intensity, reach), and the physical
+  spectrum gained seven alternative palettes — Rainbow, Duotone (two chosen
+  colours), Sunset, Ice, Neon, Ember, Aurora — with a blend slider. Palettes
+  BLEND AGAINST the spectrum rather than replacing it, so they inherit its
+  uneven luminance (bright mid band, dim violet tail) instead of reading as
+  flat ramps. Verified: blend 0 collapses every palette to the physical
+  spectrum, byte-identical to palette 0.
+- Documents: `beams:null` means "use the preset table", so every existing
+  saved document renders unchanged; the panel materialises the array on the
+  first per-beam edit, and switching rig preset clears it — otherwise the
+  explicit list keeps winning and the preset control appears dead.
+- "All beams" edits apply the DELTA, not the value (the standalone's own
+  rule): setting every beam to one angle would collapse the fan into a line,
+  nudging moves the built spread as a group.
+- TWO REAL DEFECTS FOUND BY THE BATTERY, one general:
+  1. The fx-stack fold in normalizeDoc assigns a saved stack's RAW params
+     back onto the effects dictionary AFTER the per-effect clamps ran — so a
+     hostile beam list (ang 9999, width -5) passed straight through
+     normalizeDoc for ANY document arriving via the fx path, which is every
+     saved document. Beams are now re-clamped post-fold; the same gap exists
+     for every effect's scalars and is filed as its own task.
+  2. The panel rebuild reset the beam dropdown to "All", so a single-beam
+     edit silently became an all-beams edit. Selection now persists in a
+     __-prefixed field — UI state the history diff, compactDoc and paint
+     signature already strip by convention.
+
 ## What is left
 
 Every section of the spec has now been built into except §4.7. The list below

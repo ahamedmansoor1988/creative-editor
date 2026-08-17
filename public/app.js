@@ -112,7 +112,12 @@ const DEFAULT_EFFECTS=()=>({
     beamX:0,beamY:0,srcX:0.24,srcY:0.66,haze:0.10,spine:0,spineWidth:120,
     gap:0,gapFalloff:2.2,width:1,edge:0.12,edgeGrow:0,curve:0,curveRise:2,
     core:true,coreSize:0.018,halo:2.2,coreColor:'#ffffff',tint:'#ffffff',
-    falloff:0.25,exposure:1,saturation:1.2,grain:0.02,vignette:0.35},
+    falloff:0.25,exposure:1,saturation:1.2,grain:0.02,vignette:0.35,
+    /* Session 18, from the revised standalone: eight palettes blended
+     * against the physical spectrum, and an EDITABLE beam list. beams:null
+     * means "use the preset table"; the panel materialises the array on the
+     * first per-beam edit. */
+    palette:0,paletteBlend:1,colA:'#ff36c8',colB:'#3fe6ff',beams:null},
   prism:{on:false,shape:0,thickness:0.25,corner:0.12,wedge:0,yaw:0,pitch:0,roll:0,
          /* blend was 'add'. Additive compositing onto a white page saturates —
           * measured contrast against the page background was exactly 0 for every
@@ -373,6 +378,23 @@ function normalizeDoc(d){
           color:/^#[0-9a-fA-F]{6}$/.test(gr.color||'')?gr.color:'#c9ced6'};
   f.children=normChildren(f.children||[],0);
   return d;
+}
+/* Flare's beam list is variable-length; each row is clamped field-wise so a
+ * hand-written or generated document cannot smuggle bad numbers in. A helper
+ * because it must run TWICE: once when the effects dictionary is normalised,
+ * and again after the fx-stack fold — the fold Object.assigns a saved stack's
+ * raw params back onto the dictionary AFTER the clamps ran, which is how the
+ * first battery got an unclamped beam list straight through normalizeDoc. */
+function normFlareBeams(list){
+  if(!Array.isArray(list)||!list.length) return null;
+  return list.slice(0,16).map(b=>({
+    ang:clamp(+((b||{}).ang)||0,-180,180),
+    width:clamp(+((b||{}).width)||4,0.2,40),
+    disp:clamp(+((b||{}).disp)||0,0,2),
+    hue:clamp(+((b||{}).hue)||0,-0.5,0.5),
+    inten:clamp((b&&b.inten!==undefined)?+b.inten:0.8,0,2),
+    reach:clamp(+((b||{}).reach)||1.5,0.2,4),
+  }));
 }
 /* Recursive child normalizer — containers normalize their own children. The
  * depth cap stops a malformed or hostile document from recursing forever.
@@ -727,6 +749,10 @@ function normChildren(list,depth){
       fnum2('coreSize',0.004,0.15,0.018); fnum2('halo',0.3,12,2.2);
       fnum2('falloff',0.02,1.5,0.25); fnum2('exposure',0.1,4,1);
       fnum2('saturation',0,2,1.2); fnum2('grain',0,0.1,0.02); fnum2('vignette',0,1.5,0.35);
+      fnum2('palette',0,7,0); flr.palette=Math.round(flr.palette);
+      fnum2('paletteBlend',0,1,1);
+      ['colA','colB'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='colA'?'#ff36c8':'#3fe6ff'; });
+      flr.beams=normFlareBeams(flr.beams);
       const FP=(window.FlareEngine&&FlareEngine.PRESETS)||['reference','burst','blades'];
       if(!FP.includes(flr.preset)) flr.preset='reference';
       flr.core=flr.core!==false; flr.transparent=!!flr.transparent;
@@ -769,6 +795,10 @@ function normChildren(list,depth){
         if(!seen[t]&&EFF[t]){ stack.push({id:newId(),type:t,on:true,params:EFF[t]}); seen[t]=1; }
       });
       c.fx=stack;
+      // The fold above assigned saved params RAW onto the dictionary, after
+      // its clamps ran. Structured fields must be re-normalised here; scalars
+      // share the same gap and are tracked separately.
+      if(EFF.flare) EFF.flare.beams=normFlareBeams(EFF.flare.beams);
       delete c.__fxCache;
     }
     if(c.type!=='line'){
@@ -4744,7 +4774,109 @@ function buildFx(obj){
         <select id="flPreset">${window.FlareEngine.PRESETS.map(p=>
           `<option value="${p}"${F.preset===p?' selected':''}>${p[0].toUpperCase()+p.slice(1)}</option>`).join('')}
         </select></label>`);
-      $('flPreset').addEventListener('change',e=>{ F.preset=e.target.value; pushHistory(); refresh(); });
+      $('flPreset').addEventListener('change',e=>{
+        F.preset=e.target.value;
+        // switching rig discards a hand-edited beam list — otherwise the
+        // explicit list keeps winning and the control appears to do nothing
+        F.beams=null;
+        pushHistory(); refresh(); });
+
+      /* ---- editable beam list (session 18) --------------------------
+       * "All beams" edits apply the DELTA, not the value: setting every
+       * beam to the same angle would collapse the fan into one line, while
+       * nudging keeps the spread you built and moves it as a group. The
+       * per-control last-shown value makes the delta computable. */
+      const beamsNow=()=>{
+        if(!Array.isArray(F.beams)||!F.beams.length){
+          F.beams=window.FlareEngine.fansFor(F.preset||'reference')
+            .map(r=>({ang:r[0],width:r[1],disp:r[2],hue:r[3],inten:r[4],reach:r[5]}));
+        }
+        return F.beams;
+      };
+      /* Which beam is selected is UI state, not document state. It lives in
+       * a __-prefixed field because every layer that must ignore it already
+       * strips that prefix: history diffs, compactDoc, the paint signature.
+       * Reading the <select> directly was wrong — refresh() rebuilds the
+       * panel, the rebuilt select reset to "All", and a single-beam edit
+       * silently became an all-beams edit. */
+      const bSel=()=>{const v=F.__beamSel; return (v===undefined||v===null)?-1:v;};
+      add('<div class="secTitle" style="margin-top:8px">Beams</div>');
+      const beamList=Array.isArray(F.beams)&&F.beams.length
+        ? F.beams
+        : window.FlareEngine.fansFor(F.preset||'reference').map(r=>({inten:r[4]}));
+      if((F.__beamSel|0)>=beamList.length) F.__beamSel=beamList.length-1;
+      add(`<label class="slider">Beam
+        <select id="flBeam"><option value="-1">All beams (${beamList.length})</option>${
+          beamList.map((b,i)=>`<option value="${i}"${bSel()===i?' selected':''}>Beam ${i+1}${b.inten<=0?' — muted':''}</option>`).join('')}
+        </select></label>`);
+      add(`<div class="grid4" style="margin-top:4px">
+        <button id="flAdd" type="button">+ Add</button>
+        <button id="flDup" type="button">Duplicate</button>
+        <button id="flDel" type="button">− Delete</button>
+      </div>`);
+      $('flBeam').addEventListener('change',e=>{ F.__beamSel=+e.target.value; refresh(); });
+      $('flAdd').addEventListener('click',()=>{
+        const bs=beamsNow(); if(bs.length>=16) return;
+        const base=bs[bSel()<0?bs.length-1:bSel()]||{ang:0,width:4,disp:0.7,hue:0,inten:0.8,reach:1.5};
+        bs.push(Object.assign({},base,{ang:base.ang-14}));
+        if(bSel()>=0) F.__beamSel=bs.length-1;
+        pushHistory('Add beam'); refresh();
+      });
+      $('flDup').addEventListener('click',()=>{
+        const bs=beamsNow(); if(bs.length>=16) return;
+        const i=bSel()<0?bs.length-1:bSel();
+        bs.splice(i+1,0,Object.assign({},bs[i],{ang:bs[i].ang-8}));
+        if(bSel()>=0) F.__beamSel=i+1;
+        pushHistory('Duplicate beam'); refresh();
+      });
+      $('flDel').addEventListener('click',()=>{
+        const bs=beamsNow(); if(bs.length<=1) return;   // one beam is the floor
+        bs.splice(bSel()<0?bs.length-1:bSel(),1);
+        if(bSel()>=bs.length) F.__beamSel=bs.length-1;
+        pushHistory('Delete beam'); refresh();
+      });
+      const BKEYS=[['flBAng','ang','Angle',-180,180,0.5,0],
+                   ['flBWid','width','Width',0.2,40,0.1,1],
+                   ['flBDis','disp','Dispersion',0,2,0.01,2],
+                   ['flBHue','hue','Hue shift',-0.5,0.5,0.01,2],
+                   ['flBInt','inten','Intensity',0,2,0.01,2],
+                   ['flBRea','reach','Reach',0.2,4,0.01,2]];
+      const beamShown={};
+      BKEYS.forEach(([id,key,label,mn,mx,st,dp])=>{
+        const bs=Array.isArray(F.beams)&&F.beams.length?F.beams
+          :window.FlareEngine.fansFor(F.preset||'reference')
+            .map(r=>({ang:r[0],width:r[1],disp:r[2],hue:r[3],inten:r[4],reach:r[5]}));
+        const i=bSel();
+        const v=i<0?bs.reduce((a,b)=>a+b[key],0)/bs.length:(bs[i]?bs[i][key]:0);
+        sl(id,'  '+label,mn,mx,st,+v.toFixed(3),dp);
+        beamShown[id]=+$(id).value;
+        $(id).addEventListener('input',e=>{
+          const bs2=beamsNow(), val=+e.target.value, i2=bSel();
+          if(i2<0){ const d=val-(beamShown[id]??val); bs2.forEach(b=>{ b[key]=clamp(b[key]+d,mn,mx); }); }
+          else if(bs2[i2]) bs2[i2][key]=val;
+          beamShown[id]=val;
+          $(id+'V').textContent=val.toFixed(dp);
+          render();
+        });
+        $(id).addEventListener('change',()=>pushHistory('Beam '+label));
+      });
+
+      add('<div class="secTitle" style="margin-top:8px">Palette</div>');
+      add(`<label class="slider">Palette
+        <select id="flPal">${window.FlareEngine.PALETTES.map((n,i)=>
+          `<option value="${i}"${(F.palette|0)===i?' selected':''}>${n}</option>`).join('')}
+        </select></label>`);
+      $('flPal').addEventListener('change',e=>{ F.palette=+e.target.value; pushHistory(); refresh(); });
+      sl('flDuo','Blend',0,1,0.01,F.paletteBlend,2); wire('flDuo',v=>F.paletteBlend=v,2);
+      if((F.palette|0)===2){
+        add(`<label class="slider">Colour A <input type="color" id="flColA" value="${F.colA}"></label>`);
+        $('flColA').addEventListener('input',e=>{ F.colA=e.target.value; render(); });
+        $('flColA').addEventListener('change',()=>pushHistory());
+        add(`<label class="slider">Colour B <input type="color" id="flColB" value="${F.colB}"></label>`);
+        $('flColB').addEventListener('input',e=>{ F.colB=e.target.value; render(); });
+        $('flColB').addEventListener('change',()=>pushHistory());
+      }
+      add('<div class="secTitle" style="margin-top:8px">Rig</div>');
       sl('flPan','Pan',-180,180,0.5,F.pan,0);           wire('flPan',v=>F.pan=v,0);
       sl('flConv','Converge',0,180,0.5,F.converge,0);   wire('flConv',v=>F.converge=v,0);
       sl('flSpread','Spread',0,2.5,0.01,F.spread,2);    wire('flSpread',v=>F.spread=v,2);
