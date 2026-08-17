@@ -3344,7 +3344,26 @@ function syncLayers(){
   }
 }
 
+/* ---- effect QA gate ----------------------------------------------------
+ * Inspector pages for engine effects are filtered through FxStack.isReady, so
+ * a hidden effect is unreachable from the engine dropdown, the Effects menu
+ * and its own panel — but a document that already carries it keeps rendering,
+ * because the gate touches UI surfaces only. PAGE_TYPE maps page titles to
+ * stack types; pages not in the map (Shape, Fill, Stroke, Pattern, the stack
+ * itself, containers) are structural and never gated. */
+const PAGE_TYPE={
+  'Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
+  'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
+  'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
+  'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
+  'Blur':'blur','Distortion':'distortion','Warp':'warp',
+  'Displacement':'displacement','Haze':'haze','Slice':'slice','Noise':'noise',
+};
 const FX_PAGES=obj=>{
+  const FS=window.FxStack;
+  return FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p]));
+};
+const FX_PAGES_RAW=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
@@ -7365,6 +7384,15 @@ const CMDS={
   sameSize(){ selectSame('size'); },
 };
 /* Effects menu: jump the inspector to that engine for the selected object. */
+/* The Effects menubar mirrors the gate: entries for unready effects are
+ * hidden, not removed, so promoting an effect is one Set edit away. */
+(function gateEffectsMenu(){
+  const FS=window.FxStack;
+  document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
+    const t=PAGE_TYPE[b.dataset.fx];
+    if(t&&FS&&!FS.isReady(t)) b.style.display='none';
+  });
+})();
 document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
   b.addEventListener('click',e=>{
     e.stopPropagation();

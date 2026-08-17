@@ -97,6 +97,37 @@
     "noise",
   ];
 
+  /* ---- visibility gate (QA pass) --------------------------------------
+   * Every engine effect is HIDDEN from the UI until it has been through the
+   * one-by-one fix pass and earned its place here. This gates PANELS AND
+   * MENUS ONLY — documents that already carry an effect keep rendering it,
+   * so nothing on an existing page changes appearance.
+   *
+   * To work on an effect without shipping it, open the app with
+   * ?fx=liquid (comma-list allowed): those types become visible for that
+   * session only. Promoting an effect = adding its type string to READY in
+   * a commit, which is the reviewable record of "this one is fixed". */
+  const READY = new Set([
+    // promoted effects go here, one per fix
+  ]);
+  let DEV = new Set();
+  try {
+    DEV = new Set(
+      (
+        new URLSearchParams((typeof location !== "undefined" && location.search) || "").get("fx") ||
+        ""
+      )
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+  } catch (e) {
+    /* no location in exotic environments; the gate just stays closed */
+  }
+  function isReady(type) {
+    return READY.has(type) || DEV.has(type);
+  }
+
   function meta(type) {
     return REG[type] || null;
   }
@@ -177,6 +208,8 @@
   window.FxStack = {
     REG,
     LEGACY_ORDER,
+    READY,
+    isReady,
     meta,
     slotOf,
     isBackdrop,
