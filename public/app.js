@@ -6636,12 +6636,15 @@ document.querySelectorAll('.tool').forEach(b=>{
   b.dataset.currentTool=b.dataset.tool;
   b.addEventListener('click',e=>{
     e.stopPropagation();
-    const group=b.closest('.toolGroup');
-    if(group) toggleToolMenu(group);
-    else{
-      closeToolMenus();
-      setTool(b.dataset.currentTool||b.dataset.tool);
-    }
+    /* A grouped tool's MAIN button activates that tool. It used to only
+     * toggle the flyout, which made the primary click target inert: clicking
+     * the rectangle icon on the rail did nothing, and the only ways to draw
+     * were the keyboard shortcut or opening the flyout and picking the same
+     * tool from inside it. The group already has its own `.toolFlyout` chevron
+     * for opening the menu, so the two jobs stay separate — which is also how
+     * every other editor behaves. */
+    closeToolMenus();
+    setTool(b.dataset.currentTool||b.dataset.defaultTool||b.dataset.tool);
   });
 });
 document.querySelectorAll('.toolFlyout').forEach(b=>{
