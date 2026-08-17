@@ -1089,6 +1089,31 @@ function defsChanged(){ if(doc) doc.__defRev=(doc.__defRev||0)+1; }
 /* ---- §6.5 artboards -------------------------------------------------- */
 /** The artboard an object sits in — the one containing its centre. Topmost
  *  (last in the list) wins where artboards overlap. */
+/** The artboard whose LABEL sits at page point p (labels are drawn just above
+ *  the board, sized in screen units, so the hit box follows the zoom). */
+function artboardLabelAt(p){
+  if(!doc||!doc.frame.artboards) return null;
+  const z=view.z||1;
+  const ctx2=canvas.getContext('2d');
+  ctx2.save();
+  ctx2.font=`${11/z}px ${getComputedStyle(document.body).fontFamily}`;
+  const hit=(doc.frame.artboards||[]).find(a=>{
+    if(!a.show) return false;
+    const w=ctx2.measureText(a.name).width;
+    return p.x>=a.x&&p.x<=a.x+Math.max(w,24)&&p.y>=a.y-18/z&&p.y<=a.y;
+  })||null;
+  ctx2.restore();
+  return hit;
+}
+/** The topmost visible artboard whose SURFACE contains the point. */
+function artboardAt(p){
+  const A=(doc&&doc.frame.artboards)||[];
+  for(let i=A.length-1;i>=0;i--){
+    const a=A[i];
+    if(a.show&&p.x>=a.x&&p.x<=a.x+a.w&&p.y>=a.y&&p.y<=a.y+a.h) return a;
+  }
+  return null;
+}
 function artboardOf(o){
   if(!doc||!doc.frame.artboards) return null;
   const b=aabbOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
@@ -5738,6 +5763,16 @@ canvas.addEventListener('pointerdown',e=>{
   const i=hit(p.x,p.y);
   selInstance = i>=0 ? null : hitInstance(p.x,p.y);
   if(i<0){
+    /* Clicking an artboard's LABEL selects the artboard — the tree heading
+     * was the only way in, and clicking the name you can see on canvas did
+     * nothing. Surface clicks select it too, via the no-move marquee path
+     * below, so a drag over the board still marquees. */
+    const lab=artboardLabelAt(p);
+    if(lab){
+      selArtboard=lab.id;
+      setSelIds(new Set()); selInstance=null;
+      refresh(); return;
+    }
     // empty space: marquee. Plain drag replaces the selection, shift adds.
     if(!selInstance){
       marquee={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
@@ -6136,7 +6171,18 @@ const endDrag=e=>{
     pushHistory(); refresh(); return;
   }
   if(d.mode==='lineEnd'){ pushHistory(); refresh(); return; }
-  if(d.mode==='marquee'){ marquee=null; paint(); syncLayers(); syncInspector(); return; }
+  if(d.mode==='marquee'){
+    /* A click (no travel) on empty canvas: if it landed on an artboard's
+     * surface, select that artboard; off every board, clear the artboard
+     * selection too. A real drag marquees exactly as before. */
+    if(!marquee||((Math.abs(marquee.x1-marquee.x0)<3)&&Math.abs(marquee.y1-marquee.y0)<3)){
+      const p2=evtPage(e);
+      const ab=artboardAt(p2);
+      selArtboard=ab?ab.id:null;
+      syncLayers();
+    }
+    marquee=null; paint(); syncLayers(); syncInspector(); return;
+  }
   if(d.mode==='rotate'){
     // §2.2 rotate-and-copy: alt on release leaves the original behind
     if(e.altKey&&d.copy){
