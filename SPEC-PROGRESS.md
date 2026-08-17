@@ -686,6 +686,38 @@ being erased.
      __-prefixed field — UI state the history diff, compactDoc and paint
      signature already strip by convention.
 
+### Session 19 — Fractal Glass: gradient strips with per-strip offset
+
+- The user described the mechanic (shape -> gradient fill -> repeat H/V ->
+  per-strip gradient offset -> "illusion of fractal glass") and it is exactly
+  the author's glass-ribbons.html, so that standalone was ported rather than
+  reinvented. New effect type `fractal`, label "Fractal glass"; the existing
+  Gradient stripe stays until the user decides to retire it.
+- COLOURS COME FROM THE SHAPE'S OWN GRADIENT FILL, honouring the described
+  order of operations: the six field colours are sampled evenly off the fill's
+  stops with interpolation, so editing the fill re-lights the strips
+  (verified: swapping a stop to green turned the strips green). Solid or
+  missing fill falls back to the standalone's palette, and the panel says so.
+- The illusion in one uniform, per the standalone's own comment: uStep (our
+  "Offset per strip") is how far apart in field space two neighbouring strips
+  sample — that discontinuity keeps the strips reading as separate glass
+  panels instead of one smooth gradient.
+- Plumbing changes from the standalone, each documented at its site: per-axis
+  uv normalisation so the rack fills any box aspect; a direction uniform for
+  horizontal or vertical strips; COVERAGE ALPHA so the gaps between strips are
+  real holes the page shows through ("See-through gaps", default on); uTime
+  became a static phase parameter, and the Motion group (drift/pulse) was
+  deliberately not ported — documents export as what you see.
+- Height presets carried over (Lens/Even/Spiky) plus "Repeat" — the
+  full-height rack that matches "the shape got repeated" most literally, and
+  the default.
+- One finding recorded rather than "fixed": at the default 4.4px gap width,
+  edge AA plus the glow pass's own coverage (glow is light, light carries
+  alpha) keeps gaps from reaching pure page-white; at gap 0.4 they are cleanly
+  transparent, and with transparency off they are exactly the chosen
+  background. Both verified by per-pixel scan; the narrow-gap softness is the
+  standalone's look, not a defect.
+
 ## What is left
 
 Every section of the spec has now been built into except §4.7. The list below

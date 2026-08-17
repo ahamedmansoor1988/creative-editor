@@ -115,6 +115,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"flare":{"on":true,"beams":[{"ang":-180-180,"width":0.2-40,"disp":0-2,"hue":-0.5-0.5,"inten":0-2,"reach":0.2-4}],"palette":0-7,"paletteBlend":0-1,"colA":"#hex","colB":"#hex","preset":"reference"|"burst"|"blades","bg":"#hex","pan":-180-180,"converge":0-180,"spread":0-2.5,"dispersion":0-2.5,"reach":0.1-3,"brightness":0-3,"srcX":0-1,"srcY":0-1,"haze":0-1,"spine":0-4,"curve":-3-3,"exposure":0.1-4,"saturation":0-2,"vignette":0-1.5,"tint":"#hex","transparent":false}} which fills the shape with a SPECTRAL LIGHT RIG: wedge beams radiating from a source, each splitting into a spectrum across its width. "beams" is an explicit list (max 16) — each beam aims at "ang" degrees; omit it to use a preset table instead. palette: 0 physical prism, 1 rainbow, 2 duotone (uses colA/colB), 3 sunset, 4 ice, 5 neon, 6 ember, 7 aurora; "paletteBlend" mixes the palette against the physical spectrum so it keeps real dispersion luminance. srcX/srcY place the source (0,0 bottom-left). It PAINTS ITS OWN BACKGROUND via "bg" so it reads on a light page; "transparent":true drops the background so only the light shows over artwork beneath.`,
   },
   {
+    id: "fractal",
+    match: /fractal glass|fluted|reeded|ribbed|strip|ribbon|repeat.*gradient|gradient.*strip|panel glass/i,
+    inDoc: (d) => /"fractal":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse/polygon/path with a GRADIENT FILL may add "effects":{"fractal":{"on":true,"direction":"v"|"h","count":3-64,"gap":0-0.8,"offset":0-2,"span":0-3,"shift":-2-2,"slant":-45-45,"hMax":0.02-2,"hMin":0-2,"hJit":0-1,"warp":0-2,"vign":0-1,"sheen":0-1.5,"glow":0-2,"exposure":0.05-4,"transparent":true}} which repeats the shape's interior as DISCRETE GRADIENT STRIPS (vertical or horizontal). Colours are sampled from the shape's own gradient fill stops, so set the fill first. "offset" is how far apart neighbouring strips sample the gradient — that per-strip jump creates the fractal-glass / fluted-glass illusion. "transparent":true (default) makes the gaps between strips real holes the page shows through. hMax=hMin=2 is a full-height rack; lower hMin with hShape makes the lens silhouette.`,
+  },
+  {
     id: "glass3d",
     match: /3d|three.?d|sphere|capsule|cylinder|disc|orb|ball|render|glass object/i,
     inDoc: (d) => /"glass3d":\{[^}]*"on":true/.test(d),

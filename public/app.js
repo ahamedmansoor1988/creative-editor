@@ -89,6 +89,19 @@ const DEFAULT_EFFECTS=()=>({
     warps:[{type:'liquid',amt:0.50,scale:0.50},
            {type:'none',amt:0.40,scale:1.5},
            {type:'none',amt:0.30,scale:3.0}]},
+  /* §5.x Fractal Glass — the shape's gradient repeated as discrete strips,
+   * each sampling the gradient at a per-strip offset. The offset
+   * discontinuity between neighbouring strips IS the illusion. Colours come
+   * from the shape's own gradient fill; these params carry only geometry
+   * and shading. */
+  fractal:{on:false,direction:'v',count:11,gap:0.075,spread:2,centerY:0,slant:0,
+    hMax:2,hMin:2,hShape:1.45,hSkew:0,hJit:0,fade:0.02,
+    offset:0.19,span:0.95,shift:0,rampSpan:0.95,
+    warp:0.75,warpScale:1.6,blend:0.3,fieldTilt:0.75,phase:0,
+    topLift:1.16,botDrop:0.3,botHue:12,sat:1.25,
+    vign:0.5,vignPow:2.6,vignY:0.15,sheen:0.28,
+    glow:0.16,glowR:0.032,exposure:1.08,gamma:2.2,grain:0.006,
+    transparent:true,bg:'#000000'},
   /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
    * SDF (circle + extrude + round) is the whole shape library: extrude 0 +
    * round 1 is a sphere, extrude >0 + round 1 a capsule. Transparent by
@@ -716,6 +729,28 @@ function normChildren(list,depth){
         return {type:WT.includes(w.type)?w.type:'none',
                 amt:clamp(+w.amt||0,0,1.5), scale:clamp(+w.scale||1,0.2,6)};
       });
+      /* §5.x Fractal Glass. */
+      const fg=Object.assign(de.fractal, ce.fractal||{});
+      fg.on=!!fg.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      const fgn=(k,lo,hi,dv)=>{ const v=+fg[k]; fg[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
+      fg.direction=fg.direction==='h'?'h':'v';
+      fgn('count',3,64,11); fg.count=Math.round(fg.count);
+      fgn('gap',0,0.8,0.075); fgn('spread',0.1,3,2); fgn('centerY',-1,1,0);
+      fgn('slant',-45,45,0);
+      fgn('hMax',0.02,2,2); fgn('hMin',0,2,2); fgn('hShape',0.2,6,1.45);
+      fgn('hSkew',-1,1,0); fgn('hJit',0,1,0); fgn('fade',0,0.6,0.02);
+      fgn('offset',0,2,0.19); fgn('span',0,3,0.95); fgn('shift',-2,2,0);
+      fgn('rampSpan',0.1,3,0.95);
+      fgn('warp',0,2,0.75); fgn('warpScale',0.1,6,1.6); fgn('blend',0.05,2,0.3);
+      fgn('fieldTilt',0,2,0.75); fgn('phase',0,20,0);
+      fgn('topLift',0,3,1.16); fgn('botDrop',0,2,0.3); fgn('botHue',-90,90,12);
+      fgn('sat',0,2,1.25);
+      fgn('vign',0,1,0.5); fgn('vignPow',0.5,8,2.6); fgn('vignY',0,1,0.15);
+      fgn('sheen',0,1.5,0.28);
+      fgn('glow',0,2,0.16); fgn('glowR',0.005,0.4,0.032);
+      fgn('exposure',0.05,4,1.08); fgn('gamma',1,3,2.2); fgn('grain',0,0.1,0.006);
+      fg.transparent=fg.transparent!==false;
+      if(!/^#[0-9a-fA-F]{6}$/.test(fg.bg||'')) fg.bg='#000000';
       /* §5.x Glass 3D. */
       const g3=Object.assign(de.glass3d, ce.glass3d||{});
       g3.on=!!g3.on && ['rect','ellipse'].includes(c.type);
@@ -760,7 +795,7 @@ function normChildren(list,depth){
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
@@ -2207,6 +2242,28 @@ function drawOneInner(c,W,H,obj){
       patternInstances(obj).forEach(draw);
       return;
     }
+    /* §5.x Fractal Glass. The colours are sampled from the SHAPE'S OWN
+     * gradient fill, honouring the user's flow: draw, apply gradient, apply
+     * repeater. Clipped to the shape's path — it is a flat 2D material, so
+     * the outline is the silhouette (unlike glass3d, which carries its own). */
+    const fgx=fx.fractal;
+    if(fgx&&fxOn(obj,'fractal')&&obj.type!=='text'&&window.FractalGlassEngine&&window.FractalGlassEngine.available()){
+      const f0=obj.fills&&obj.fills[0];
+      const stops=(f0&&f0.kind!=='solid'&&Array.isArray(f0.stops))?f0.stops:null;
+      const img=window.FractalGlassEngine.render(obj.w,obj.h,fgx,stops);
+      if(img){
+        const place=o=>{
+          c.save();
+          c.globalAlpha=obj.opacity;
+          c.beginPath(); pathFor(c,o); c.clip();
+          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.restore();
+        };
+        place(obj);
+        patternInstances(obj).forEach(place);
+        return;
+      }
+    }
     /* §5.x Glass 3D. Self-generating like liquid/flare, but a path trace is
      * the most expensive render in the app — so the object is rendered ONCE
      * and the same canvas is reused for every pattern copy, whose params are
@@ -3295,11 +3352,11 @@ const FX_PAGES=obj=>{
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 function syncInspector(){
@@ -4691,6 +4748,66 @@ function buildFx(obj){
         }
       });
       add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
+    }
+  }
+
+  if(page==='Fractal'){
+    const G=obj.effects.fractal;
+    add(`<label class="slider"><input type="checkbox" id="fgOn" ${G.on?'checked':''}> Enable fractal glass</label>`);
+    $('fgOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
+    if(G.on){
+      const sl=(id,label,min,max,step,val,dp)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
+      };
+      const wire=(id,f,dp)=>{
+        $(id).addEventListener('input',e=>{ f(+e.target.value);
+          $(id+'V').textContent=(+e.target.value).toFixed(dp); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      const f0=obj.fills&&obj.fills[0];
+      if(!f0||f0.kind==='solid')
+        add('<div class="hint" style="text-align:left">Colours follow this shape\'s gradient fill — give it one under Fill and the strips re-light. Using the default palette until then.</div>');
+      add('<div class="secTitle">Repeat</div>');
+      add(`<label class="slider">Direction
+        <select id="fgDir">
+          <option value="v"${G.direction!=='h'?' selected':''}>Vertical strips</option>
+          <option value="h"${G.direction==='h'?' selected':''}>Horizontal strips</option>
+        </select></label>`);
+      $('fgDir').addEventListener('change',e=>{ G.direction=e.target.value; pushHistory(); render(); });
+      sl('fgCount','Count',3,64,1,G.count,0);        wire('fgCount',v=>G.count=v,0);
+      sl('fgGap','Gap',0,0.8,0.005,G.gap,3);         wire('fgGap',v=>G.gap=v,3);
+      sl('fgSlant','Slant',-45,45,0.5,G.slant,1);    wire('fgSlant',v=>G.slant=v,1);
+      add('<div class="secTitle" style="margin-top:8px">Offset</div>');
+      sl('fgOff','Offset per strip',0,2,0.01,G.offset,2); wire('fgOff',v=>G.offset=v,2);
+      sl('fgSpan','Strip span',0,3,0.01,G.span,2);   wire('fgSpan',v=>G.span=v,2);
+      sl('fgShift','Shift',-2,2,0.005,G.shift,2);    wire('fgShift',v=>G.shift=v,2);
+      sl('fgWarp','Organic warp',0,2,0.01,G.warp,2); wire('fgWarp',v=>G.warp=v,2);
+      add('<div class="secTitle" style="margin-top:8px">Height</div>');
+      add(`<label class="slider">Profile
+        <select id="fgPre">${window.FractalGlassEngine.PRESETS.map(p=>
+          `<option value="${p}">${p[0].toUpperCase()+p.slice(1)}</option>`).join('')}
+        </select></label>`);
+      $('fgPre').addEventListener('change',e=>{
+        Object.assign(G,window.FractalGlassEngine.presetValues(e.target.value)||{});
+        pushHistory('Strip profile'); refresh();
+      });
+      sl('fgHMax','Max height',0.02,2,0.005,G.hMax,2); wire('fgHMax',v=>G.hMax=v,2);
+      sl('fgHMin','Min height',0,2,0.005,G.hMin,2);    wire('fgHMin',v=>G.hMin=v,2);
+      sl('fgHJit','Height random',0,1,0.005,G.hJit,2); wire('fgHJit',v=>G.hJit=v,2);
+      add('<div class="secTitle" style="margin-top:8px">Panel</div>');
+      sl('fgVign','Edge vignette',0,1,0.005,G.vign,2); wire('fgVign',v=>G.vign=v,2);
+      sl('fgSheen','Sheen',0,1.5,0.005,G.sheen,2);     wire('fgSheen',v=>G.sheen=v,2);
+      sl('fgGlow','Glow',0,2,0.01,G.glow,2);           wire('fgGlow',v=>G.glow=v,2);
+      sl('fgExpo','Exposure',0.05,4,0.01,G.exposure,2);wire('fgExpo',v=>G.exposure=v,2);
+      add(`<label class="chk"><input type="checkbox" id="fgTrs" ${G.transparent?'checked':''}> See-through gaps</label>`);
+      $('fgTrs').addEventListener('change',e=>{ G.transparent=e.target.checked; pushHistory(); refresh(); });
+      if(!G.transparent){
+        add(`<label class="slider">Background <input type="color" id="fgBg" value="${G.bg}"></label>`);
+        $('fgBg').addEventListener('input',e=>{ G.bg=e.target.value; render(); });
+        $('fgBg').addEventListener('change',()=>pushHistory());
+      }
+      add('<div class="hint" style="text-align:left">Each strip is a window onto the gradient, and Offset per strip is how far apart neighbouring windows sample — that jump is the fractal-glass illusion.</div>');
     }
   }
 
