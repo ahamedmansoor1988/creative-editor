@@ -884,18 +884,19 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 /* Like the layer rows, the artboard controls float over the tail so they do not
    reserve width from the name while hidden. */
 #layerList .abGroup .rowBtn{position:absolute; top:50%; transform:translateY(-50%);}
+#layerList .abGroup .rowBtn.on{opacity:1; color:var(--accent);}
 /* On hover the four controls need ~100px of the row tail, so the row RESERVES
    that width and the name truncates with an ellipsis instead of being sat on.
    The earlier attempt faded the name under the buttons — a fade over a
    collision is still a collision, which the user's screenshot showed:
    "Artboar◯2" with the eye glyph on top of the text. The count keeps hiding
    on hover; the buttons take its place. */
-#layerList .abGroup:hover{padding-right:104px;}
+#layerList .abGroup:hover{padding-right:64px;}   /* two buttons now, not four */
 #layerList .abGroup .abName{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-#layerList .abGroup .rowBtn:nth-last-of-type(4){right:78px;}   /* visibility */
-#layerList .abGroup .rowBtn:nth-last-of-type(3){right:56px;}   /* export */
-#layerList .abGroup .rowBtn:nth-last-of-type(2){right:34px;}   /* duplicate */
-#layerList .abGroup .rowBtn:last-of-type{right:12px;}          /* delete */
+   /* visibility */
+   /* export */
+#layerList .abGroup .rowBtn:nth-last-of-type(2){right:34px;}   /* lock */   /* duplicate */
+#layerList .abGroup .rowBtn:last-of-type{right:12px;}        /* visibility */          /* delete */
 #layerList .abGroup:hover .abCount{opacity:0;}
 #layerList .abGroup:hover{background:var(--surface-hover);}
 #layerList .abGroup.sel{background:var(--surface-accent); color:var(--accent);}
@@ -941,3 +942,15 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
     display:none;
   }
 }
+
+/* Row context menu — same clothes as the menubar dropdowns. */
+.ctxMenu{
+  position:fixed; z-index:60; min-width:150px; padding:5px;
+  background:var(--panel); border-radius:10px; box-shadow:var(--shadow);
+}
+.ctxMenu button{
+  display:block; width:100%; text-align:left; background:none; border:0;
+  padding:7px 10px; border-radius:7px; font:inherit; font-size:var(--text-sm);
+  font-weight:var(--weight-medium); cursor:pointer; color:var(--text);
+}
+.ctxMenu button:hover{background:var(--surface-accent); color:var(--accent);}

@@ -369,7 +369,7 @@ function normalizeDoc(d){
     x:Math.round(+a.x||0), y:Math.round(+a.y||0),
     w:clamp(Math.round(+a.w)||400,20,8000), h:clamp(Math.round(+a.h)||300,20,8000),
     bg:/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff',
-    clip:a.clip!==false, show:a.show!==false,
+    clip:a.clip!==false, show:a.show!==false, locked:!!a.locked,
   }));
   if(!f.artboards.length)
     f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,clip:false,show:true}];
@@ -1243,7 +1243,14 @@ function selBounds(){
     x1=Math.max(x1,b.x+b.w); y1=Math.max(y1,b.y+b.h); });
   return {x:x0,y:y0,w:x1-x0,h:y1-y0};
 }
-function selectable(o){ return !o.locked&&!o.hidden; }
+/* The single canvas-selection gate. A LOCKED ARTBOARD locks its members the
+ * same way a locked object locks itself: unreachable from the canvas, still
+ * reachable from the layer tree — so lock never strands anything. */
+function selectable(o){
+  if(o.locked||o.hidden) return false;
+  const ab=typeof artboardOf==='function'?artboardOf(o):null;
+  return !(ab&&ab.locked);
+}
 
 
 /* ================= render ================= */
@@ -3332,15 +3339,32 @@ function syncLayers(){
     head.title=a.w+'×'+a.h+' — click to focus, double-click to rename';
     if(!a.show) head.classList.add('isHidden');
     // the affordances the separate Artboards list used to carry
+    /* Two controls on the row — lock and visibility, per the user's call.
+     * Export, duplicate and delete moved to right-click so the heading stops
+     * carrying four floating buttons that fought the name for space. */
+    const lockBtn=rowBtn(head,a.locked?'lock':'unlock',a.locked?'Unlock artboard':'Lock artboard',()=>{
+      a.locked=!a.locked;
+      // canvas selection inside may now be stale
+      setSelIds(new Set([...selIds].filter(id=>{
+        const f2=findById(id); return f2&&selectable(f2.obj);
+      })));
+      pushHistory(a.locked?'Lock artboard':'Unlock artboard'); refresh();
+    });
+    if(a.locked) lockBtn.classList.add('on');
     rowBtn(head,'eye',a.show?'Hide artboard':'Show artboard',()=>{
       a.show=!a.show; pushHistory('Artboard visibility'); refresh(); });
-    rowBtn(head,'download','Export this artboard',()=>exportArtboard(a.id));
-    rowBtn(head,'duplicate','Duplicate artboard',()=>duplicateArtboard(a.id));
-    rowBtn(head,'trash','Delete artboard',()=>{
-      const n=objectsInArtboard(a).length;
-      const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
-      removeArtboard(a.id,withContent);
-    },boards.length<=1);
+    head.addEventListener('contextmenu',ev=>{
+      ev.preventDefault();
+      ctxMenu(ev.clientX,ev.clientY,[
+        ['Export PNG',()=>exportArtboard(a.id)],
+        ['Duplicate',()=>duplicateArtboard(a.id)],
+        boards.length>1?['Delete…',()=>{
+          const n=objectsInArtboard(a).length;
+          const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
+          removeArtboard(a.id,withContent);
+        }]:null,
+      ].filter(Boolean));
+    });
     keyboardRow(head);
     head.addEventListener('click',ev=>{
       if(ev.target.closest('.abTwisty')){ a.collapsed=!a.collapsed; syncLayers(); return; }
@@ -7278,6 +7302,30 @@ function keyboardRow(el,role){
     if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
   });
   return el;
+}
+/* One tiny context menu for row-level actions that no longer fit as
+ * floating buttons. Click-away or Escape closes; only one exists at once. */
+function ctxMenu(x,y,items){
+  document.querySelectorAll('.ctxMenu').forEach(m=>m.remove());
+  const m=document.createElement('div');
+  m.className='ctxMenu';
+  items.forEach(([label,fn])=>{
+    const b=document.createElement('button');
+    b.type='button'; b.textContent=label;
+    b.addEventListener('click',()=>{ m.remove(); fn(); });
+    m.appendChild(b);
+  });
+  document.body.appendChild(m);
+  const r=m.getBoundingClientRect();
+  m.style.left=Math.min(x,innerWidth-r.width-8)+'px';
+  m.style.top=Math.min(y,innerHeight-r.height-8)+'px';
+  const close=e=>{ if(!m.contains(e.target)) { m.remove(); cleanup(); } };
+  const esc=e=>{ if(e.key==='Escape'){ m.remove(); cleanup(); } };
+  const cleanup=()=>{ document.removeEventListener('pointerdown',close,true);
+    document.removeEventListener('keydown',esc,true); };
+  setTimeout(()=>{ document.addEventListener('pointerdown',close,true);
+    document.addEventListener('keydown',esc,true); },0);
+  return m;
 }
 const rowBtn=(row,icon,title,fn,dis)=>{
   const b=document.createElement('button');
