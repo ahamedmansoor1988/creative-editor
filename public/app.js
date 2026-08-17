@@ -1730,7 +1730,11 @@ function drawDoc(c,W,H,opts){
   opts=opts||{};
   const f=doc.frame;
   if(opts.clear!==false) c.clearRect(0,0,Math.max(W,f.w)+8000,Math.max(H,f.h)+8000);
-  c.fillStyle=f.bg; c.fillRect(0,0,f.w,f.h);
+  /* The legacy page rect only paints when there are NO artboards. Once
+   * artboards exist they are the canvas surface — painting the old page rect
+   * underneath left a ghost slab of white wherever it outsized or outlived
+   * an artboard ("deleted canvas space" beside the real artboard). */
+  if(!(f.artboards&&f.artboards.length)){ c.fillStyle=f.bg; c.fillRect(0,0,f.w,f.h); }
   // §6.5: each artboard paints its own background before any content
   (f.artboards||[]).forEach(a=>{
     if(!a.show) return;
@@ -2810,10 +2814,17 @@ function paint(){
   ctx.clearRect(0,0,W,H);
   ctx.setTransform(z*dpr,0,0,z*dpr,view.x*dpr,view.y*dpr);
   const f=doc.frame;
-  // page shadow + white surface behind transparent content
+  /* Surface + shadow. With artboards, EACH board is a surface — the single
+   * page-sized slab used to paint underneath them all, leaving a ghost of
+   * white "deleted canvas" wherever it outsized or outlived an artboard. */
   ctx.save();
   ctx.shadowColor='rgba(0,0,0,.13)'; ctx.shadowBlur=18/z; ctx.shadowOffsetY=3/z;
-  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,f.w,f.h);
+  ctx.fillStyle='#ffffff';
+  if(f.artboards&&f.artboards.length){
+    f.artboards.forEach(a=>{ if(a.show) ctx.fillRect(a.x,a.y,a.w,a.h); });
+  }else{
+    ctx.fillRect(0,0,f.w,f.h);
+  }
   ctx.restore();
   if(rasterPreviewNeeded()){
     ctx.imageSmoothingEnabled=true;
@@ -3258,10 +3269,35 @@ function syncLayers(){
   const q=(($('layerSearch')||{}).value||'').trim().toLowerCase();
   if(q){
     // §6.1 search: a flat list of matches by name or type, hierarchy set aside
+    /* Artboards are not objects, so the object filter alone could never
+     * find them — searching "artboard" while looking straight at Artboard 1
+     * returned nothing. Matching boards render as clickable heading rows
+     * above the layer hits and focus their artboard. */
+    const abHits=(doc.frame.artboards||[]).filter(a=>
+      (a.name||'').toLowerCase().includes(q));
+    abHits.forEach(a=>{
+      const head=document.createElement('div');
+      head.className='abGroup'+(selArtboard===a.id?' sel':'');
+      head.innerHTML=(window.Icons?Icons.svg('frame',{size:14}):'')
+        +'<span class="abName">'+esc(a.name)+'</span>'
+        +'<span class="abCount">'+objectsInArtboard(a).length+'</span>';
+      head.title=a.w+'×'+a.h+' — click to focus this artboard';
+      keyboardRow(head);
+      head.addEventListener('click',()=>{
+        selArtboard=a.id;
+        const stage=$('stage'), pad=60;
+        const zz=clamp(Math.min((stage.clientWidth-2*pad)/a.w,(stage.clientHeight-2*pad)/a.h),0.02,4);
+        view.z=zz; view.mode='free';
+        view.x=stage.clientWidth/2-(a.x+a.w/2)*zz;
+        view.y=stage.clientHeight/2-(a.y+a.h/2)*zz;
+        refresh();
+      });
+      list.appendChild(head);
+    });
     const hits=allObjects().filter(c=>
       (c.name||'').toLowerCase().includes(q)||c.type.toLowerCase().includes(q)||
       (c.type==='text'&&(c.text||'').toLowerCase().includes(q)));
-    if(!hits.length){
+    if(!hits.length&&!abHits.length){
       const d=document.createElement('div');
       d.className='hint'; d.textContent='No layers match';
       list.appendChild(d);
@@ -3325,8 +3361,24 @@ function syncLayers(){
     list.appendChild(head);
     if(!a.collapsed){
       if(!mine.length){
+        /* An empty artboard used to SAY "No layers yet" and offer no way to
+         * change that. The row is now the way in: it drops a default
+         * rectangle centred on this artboard, selected and renameable, which
+         * is also undoable — a dead end became a starting point. */
         const d=document.createElement('div');
-        d.className='abEmpty'; d.textContent='No layers yet';
+        d.className='abEmpty abAdd';
+        d.innerHTML=(window.Icons?Icons.svg('plus',{size:12}):'+')+'<span> Add a layer</span>';
+        d.title='Add a rectangle to this artboard';
+        keyboardRow(d);
+        d.addEventListener('click',()=>{
+          const w=160,h=120;
+          const o=normChildren([{type:'rect',name:'Layer 1',
+            x:Math.round(a.x+(a.w-w)/2), y:Math.round(a.y+(a.h-h)/2), w,h, radius:8,
+            fills:[{kind:'solid',color:'#d9d9d9'}]}],0)[0];
+          doc.frame.children.push(o);
+          setSelIds(new Set([o.id]));
+          pushHistory('Add layer'); refresh();
+        });
         list.appendChild(d);
       }else mine.forEach(c=>row(c,1));
     }
