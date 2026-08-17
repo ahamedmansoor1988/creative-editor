@@ -3353,6 +3353,14 @@ function syncLayers(){
     if(a.locked) lockBtn.classList.add('on');
     rowBtn(head,'eye',a.show?'Hide artboard':'Show artboard',()=>{
       a.show=!a.show; pushHistory('Artboard visibility'); refresh(); });
+    wireRowDrag(head,
+      ()=>[...document.querySelectorAll('#layerList .abGroup')],
+      (from,to)=>{
+        const A=doc.frame.artboards;
+        const [moved]=A.splice(from,1);
+        A.splice(to,0,moved);
+        pushHistory('Reorder artboards'); refresh();
+      });
     head.addEventListener('contextmenu',ev=>{
       ev.preventDefault();
       ctxMenu(ev.clientX,ev.clientY,[
@@ -7303,6 +7311,57 @@ function keyboardRow(el,role){
   });
   return el;
 }
+/* Pointer-based vertical reorder for panel rows. Arms after 5px of travel so
+ * a plain click stays a click; while dragging, the row under the pointer
+ * shows an insertion edge and pointerup commits through onDrop(from,to).
+ * Escape cancels. Used by pages and artboard headings; layer rows keep their
+ * richer HTML5 drag, which also supports dropping INTO a container. */
+function wireRowDrag(row,getRows,onDrop){
+  row.addEventListener('pointerdown',e=>{
+    if(e.button!==0) return;
+    if(e.target.closest('.rowBtn,.abTwisty,button,input,select')) return;
+    const rows=getRows();
+    const from=rows.indexOf(row);
+    if(from<0) return;
+    let armed=false, to=from, edgeRow=null;
+    const clearEdge=()=>{ if(edgeRow){ edgeRow.classList.remove('dropAbove','dropBelow'); edgeRow=null; } };
+    const move=ev=>{
+      if(!armed){
+        if(Math.abs(ev.clientY-e.clientY)<5) return;
+        armed=true; row.classList.add('rowDragging');
+      }
+      clearEdge();
+      const list=getRows();
+      let best=null, bestD=1e9;
+      list.forEach((r2,i)=>{
+        if(r2===row) return;
+        const b=r2.getBoundingClientRect();
+        const mid=b.top+b.height/2;
+        const d=Math.abs(ev.clientY-mid);
+        if(d<bestD){ bestD=d; best={r2,i,before:ev.clientY<mid}; }
+      });
+      if(!best) return;
+      edgeRow=best.r2;
+      edgeRow.classList.add(best.before?'dropAbove':'dropBelow');
+      to=best.i+(best.before?0:1);
+      if(to>from) to--;                      // removing first shifts the target
+    };
+    const finish=commit=>{
+      window.removeEventListener('pointermove',move);
+      window.removeEventListener('pointerup',up);
+      window.removeEventListener('keydown',esc,true);
+      row.classList.remove('rowDragging');
+      clearEdge();
+      if(commit&&armed&&to!==from) onDrop(from,to);
+    };
+    const up=()=>finish(true);
+    const esc=ev=>{ if(ev.key==='Escape'){ ev.stopPropagation(); finish(false); } };
+    window.addEventListener('pointermove',move);
+    window.addEventListener('pointerup',up);
+    window.addEventListener('keydown',esc,true);
+  });
+}
+
 /* One tiny context menu for row-level actions that no longer fit as
  * floating buttons. Click-away or Escape closes; only one exists at once. */
 function ctxMenu(x,y,items){
@@ -7347,6 +7406,15 @@ function syncPageRow(){
     row.title=`${pg.frame.w}×${pg.frame.h} — double-click to rename`;
     keyboardRow(row);
     row.setAttribute('aria-current',i===pageIdx?'page':'false');
+    wireRowDrag(row,
+      ()=>[...document.querySelectorAll('#pageList .pageRow')],
+      (from,to)=>{
+        const cur=pages[pageIdx];
+        const [moved]=pages.splice(from,1);
+        pages.splice(to,0,moved);
+        setActivePage(pages.indexOf(cur));
+        pushHistory('Reorder pages'); refresh();
+      });
     rowBtn(row,'chevronUp','Move page up',()=>movePage(i,-1),i===0);
     rowBtn(row,'chevronDown','Move page down',()=>movePage(i,1),i===pages.length-1);
     rowBtn(row,'duplicate','Duplicate page',()=>duplicatePage(i));
@@ -7592,7 +7660,20 @@ document.addEventListener('keydown',e=>{
     if(o.points.length<2){ const L=listOf(o); L.splice(L.indexOf(o),1); nodeSel=null; setSel(-1); setTool('select'); }
     pushHistory(); refresh();
   }
-  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteSel(); }
+  else if(e.key==='Delete'||e.key==='Backspace'){
+    e.preventDefault();
+    /* Object selection wins. With nothing selected, Delete acts on the
+     * artboard picked in the tree — same confirm about contents as the
+     * context menu, and never the last remaining board. */
+    if(selIds.size===0&&selArtboard&&(doc.frame.artboards||[]).length>1){
+      const a=(doc.frame.artboards||[]).find(x=>x.id===selArtboard);
+      if(a){
+        const n=objectsInArtboard(a).length;
+        const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
+        removeArtboard(a.id,withContent);
+      }
+    }else deleteSel();
+  }
   else if(/^Arrow/.test(e.key)&&tool==='node'&&nodeSel&&nodeSel.pts.size){
     // §1.2 anchor nudge with the same step rules as objects
     e.preventDefault();

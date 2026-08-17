@@ -884,7 +884,11 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 /* Like the layer rows, the artboard controls float over the tail so they do not
    reserve width from the name while hidden. */
 #layerList .abGroup .rowBtn{position:absolute; top:50%; transform:translateY(-50%);}
-#layerList .abGroup .rowBtn.on{opacity:1; color:var(--accent);}
+/* Controls are HOVER-ONLY. The locked state used to keep its icon visible at
+   rest — but the padding reserve is hover-only too, so at rest the icon sat
+   on the name ("Artboard 2 cop🔒"). On hover the accent colour still marks
+   which toggle is active. */
+#layerList .abGroup:hover .rowBtn.on{opacity:1; color:var(--accent);}
 /* On hover the four controls need ~100px of the row tail, so the row RESERVES
    that width and the name truncates with an ellipsis instead of being sat on.
    The earlier attempt faded the name under the buttons — a fade over a
@@ -954,3 +958,8 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   font-weight:var(--weight-medium); cursor:pointer; color:var(--text);
 }
 .ctxMenu button:hover{background:var(--surface-accent); color:var(--accent);}
+
+/* Row reorder: the dragged row dims, the target row shows an insertion edge. */
+.rowDragging{opacity:.45;}
+.dropAbove{box-shadow:inset 0 2px 0 var(--accent);}
+.dropBelow{box-shadow:inset 0 -2px 0 var(--accent);}
