@@ -620,6 +620,41 @@ being erased.
   is not reachability on screen, and no battery had ever measured whether a
   control could actually be clicked at a realistic window size.
 
+### Session 17 — Glass 3D: a path-traced solid as a material
+
+- Ported from the author's own `glass-objects.html` (SHADER-PROVENANCE.md
+  updated). The standalone is a SCENE editor — eight objects, layer list, CPU
+  picking, orbit camera, DoF, gradient backgrounds. None of that came across,
+  deliberately: in this app the document object IS the 3D object, so the flow
+  is the same as every other engine — draw a shape, apply the effect.
+- One SDF is the whole shape library: circle + Extrude + Bevel. Extrude 0 +
+  Bevel 1 is a sphere at any size (Bevel is a fraction of the radius, which is
+  what makes that hold); Extrude >0 + Bevel 1 a capsule; Bevel 0 a disc or
+  cylinder. Six material presets (glass, frosted, gradient, metal, matte,
+  glow), six light palettes, full rotation.
+- DETERMINISTIC BY CONSTRUCTION. The standalone converges progressively across
+  animation frames; a document must export as what you see, so render()
+  accumulates a fixed sample count in one call, seeded only by pixel and
+  sample index. Verified: two renders of the same params are probe-identical.
+- Registered as a material that is NOT backdrop-reading, so the paint cache
+  holds it — which matters more here than for any other engine, because a
+  path trace is the most expensive render in the app. Measured cached
+  re-render: ~8ms. Pattern copies reuse ONE rendered canvas rather than
+  re-tracing per instance.
+- Drawn WITHOUT the shape's path clip (same reasoning as prism): with the
+  default transparent background the render carries the solid's own
+  silhouette, and cutting a tilted 3D object with the 2D outline would crop it.
+- Two defaults depart from the standalone, both because its stage is black and
+  this app's pages are light: (1) the default shape is a SPHERE, not the
+  tilted disc — a disc at -25° projects ~30px tall in a 400px box and reads as
+  a dark sliver, found when three of four battery probes missed it; (2) the
+  environment colour is light (#dfe5ee, ambient 0.06) — with the standalone's
+  black env, glass on a white page rendered as near-black blobs, confirmed by
+  screenshot before and after.
+- The seven-places checklist held: defaults, normalizer dictionary, fxstack
+  registry + LEGACY_ORDER, draw path, FX_PAGES, panel — plus the menubar
+  entry, script tag, and a server CAPABILITIES entry so the AI can reach it.
+
 ## What is left
 
 Every section of the spec has now been built into except §4.7. The list below

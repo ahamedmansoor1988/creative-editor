@@ -115,6 +115,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"flare":{"on":true,"preset":"reference"|"burst"|"blades","bg":"#hex","pan":-180-180,"converge":0-180,"spread":0-2.5,"dispersion":0-2.5,"reach":0.1-3,"brightness":0-3,"srcX":0-1,"srcY":0-1,"haze":0-1,"spine":0-4,"curve":-3-3,"exposure":0.1-4,"saturation":0-2,"vignette":0-1.5,"tint":"#hex","transparent":false}} which fills the shape with a SPECTRAL LIGHT RIG: eight wedges radiating from a source point, each splitting into a spectrum across its width. preset "reference" is an angled sweep, "burst" radiates from the centre, "blades" is a tight fan of hard beams. srcX/srcY place the source inside the shape (0,0 is bottom-left). It PAINTS ITS OWN BACKGROUND via "bg", so unlike prism it reads on a light page; set "transparent":true to drop the background and let only the light show over artwork beneath.`,
   },
   {
+    id: "glass3d",
+    match: /3d|three.?d|sphere|capsule|cylinder|disc|orb|ball|render|glass object/i,
+    inDoc: (d) => /"glass3d":\{[^}]*"on":true/.test(d),
+    doc: `A rect/ellipse may add "effects":{"glass3d":{"on":true,"mat":"glass"|"frosted"|"gradient"|"metal"|"matte"|"glow","tint":"#hex","size":0.1-1.6,"ext":0-1.6,"round":0-1,"rx":-180-180,"ry":-180-180,"rz":-180-180,"rough":0-1,"trans":0-1,"dens":0-6,"lightPreset":0-5,"l0int":0-40,"l1int":0-40,"transparent":true,"bg":"#hex","exposure":0.05-6}} which renders a PATH-TRACED 3D SOLID into the shape's box. One shape family: ext 0 + round 0 is a flat disc, ext>0 a cylinder, round 1 + ext 0 a SPHERE, round 1 + ext>0 a CAPSULE. Colour comes from two area lights (lightPreset: 0 blue/pink, 1 warm/cool, 2 studio, 3 sunset, 4 ice, 5 acid), not the surface, so it slides as the object rotates. "transparent":true (default) carries the solid's own silhouette so it sits on the page like an object. Expensive: use for hero objects, not backgrounds.`,
+  },
+  {
     id: "gradient",
     match: /gradient|stripe|band|ramp|spectrum|risograph|retro|swatch|colou?r ?field|sunset|aurora/i,
     inDoc: d => /"gradient":\{[^}]*"on":true/.test(d),

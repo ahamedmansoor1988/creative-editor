@@ -89,6 +89,22 @@ const DEFAULT_EFFECTS=()=>({
     warps:[{type:'liquid',amt:0.50,scale:0.50},
            {type:'none',amt:0.40,scale:1.5},
            {type:'none',amt:0.30,scale:3.0}]},
+  /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
+   * SDF (circle + extrude + round) is the whole shape library: extrude 0 +
+   * round 1 is a sphere, extrude >0 + round 1 a capsule. Transparent by
+   * default so the object sits on the page carrying its own silhouette. */
+  /* Default is a SPHERE (round 1, extrude 0) rather than the standalone's
+   * tilted disc: a disc at -25° projects ~30px tall inside a 400px box and a
+   * first-time user reads it as a dark sliver, not a 3D object. */
+  glass3d:{on:false,mat:'glass',tint:'#c8d8ff',size:0.62,ext:0,round:1,
+    rx:-25,ry:0,rz:0,rough:0.02,trans:1,dens:0.55,
+    lightPreset:0,l0col:'',l1col:'',l2col:'',l0int:9,l1int:8,l2int:4,l2on:false,
+    /* env defaults depart from the standalone deliberately: its stage is
+     * black, so black env + bright panels reads rich there — on this app's
+     * light pages the same settings render near-black blobs. A light env is
+     * what a glass object on a light page would actually be surrounded by. */
+    soft:0.3,amb:0.06,transparent:true,bg:'#dfe5ee',
+    samples:36,bounces:3,steps:110,exposure:1.1},
   /* §5.x Prism Flare — a spectral light rig that paints its own background,
    * so it reads on a white page where an additive-only light cannot. */
   flare:{on:false,preset:'reference',bg:'#000000',transparent:false,
@@ -678,6 +694,24 @@ function normChildren(list,depth){
         return {type:WT.includes(w.type)?w.type:'none',
                 amt:clamp(+w.amt||0,0,1.5), scale:clamp(+w.scale||1,0.2,6)};
       });
+      /* §5.x Glass 3D. */
+      const g3=Object.assign(de.glass3d, ce.glass3d||{});
+      g3.on=!!g3.on && ['rect','ellipse'].includes(c.type);
+      const gnum=(k,lo,hi,dv)=>{ const v=+g3[k]; g3[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
+      gnum('size',0.1,1.6,0.62); gnum('ext',0,1.6,0); gnum('round',0,1,1);
+      gnum('rx',-180,180,-25); gnum('ry',-180,180,0); gnum('rz',-180,180,0);
+      gnum('rough',0,1,0.02); gnum('trans',0,1,1); gnum('dens',0,6,0.55);
+      gnum('lightPreset',0,5,0); g3.lightPreset=Math.round(g3.lightPreset);
+      gnum('l0int',0,40,9); gnum('l1int',0,40,8); gnum('l2int',0,40,4);
+      gnum('soft',0,1,0.3); gnum('amb',0,1,0.06);
+      gnum('samples',4,128,36); g3.samples=Math.round(g3.samples);
+      gnum('bounces',1,8,3); g3.bounces=Math.round(g3.bounces);
+      gnum('steps',24,220,110); g3.steps=Math.round(g3.steps);
+      gnum('exposure',0.05,6,1.1);
+      if(!['glass','frosted','gradient','metal','matte','glow'].includes(g3.mat)) g3.mat='glass';
+      g3.l2on=!!g3.l2on; g3.transparent=g3.transparent!==false;
+      ['tint','bg'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(g3[k]||'')) g3[k]=k==='bg'?'#dfe5ee':'#c8d8ff'; });
+      ['l0col','l1col','l2col'].forEach(k=>{ if(g3[k]&&!/^#[0-9a-fA-F]{6}$/.test(g3[k])) g3[k]=''; });
       /* §5.x Prism flare. */
       const flr=Object.assign(de.flare, ce.flare||{});
       flr.on=!!flr.on && ['rect','ellipse','polygon','path'].includes(c.type);
@@ -700,7 +734,7 @@ function normChildren(list,depth){
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
         prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
@@ -2143,6 +2177,28 @@ function drawOneInner(c,W,H,obj){
       patternInstances(obj).forEach(draw);
       return;
     }
+    /* §5.x Glass 3D. Self-generating like liquid/flare, but a path trace is
+     * the most expensive render in the app — so the object is rendered ONCE
+     * and the same canvas is reused for every pattern copy, whose params are
+     * identical by construction. NOT clipped to the shape's path: with the
+     * default transparent background the render carries the solid's own
+     * silhouette, and cutting a tilted 3D object with the 2D outline would
+     * crop it (same reasoning as prism's full-canvas draw). */
+    const g3=fx.glass3d;
+    if(g3&&fxOn(obj,'glass3d')&&obj.type!=='text'&&window.GlassObjectEngine&&window.GlassObjectEngine.available()){
+      const img=window.GlassObjectEngine.render(obj.w,obj.h,g3);
+      if(img){
+        const place=o=>{
+          c.save();
+          c.globalAlpha=obj.opacity;
+          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.restore();
+        };
+        place(obj);
+        patternInstances(obj).forEach(place);
+        return;
+      }
+    }
     const fl=fx.flare;
     if(fl&&fxOn(obj,'flare')&&obj.type!=='text'&&window.FlareEngine&&window.FlareEngine.available()){
       const draw=o=>{
@@ -3213,7 +3269,7 @@ const FX_PAGES=obj=>{
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
   if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 function syncInspector(){
@@ -4605,6 +4661,68 @@ function buildFx(obj){
         }
       });
       add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
+    }
+  }
+
+  if(page==='Glass 3D'){
+    const G=obj.effects.glass3d;
+    add(`<label class="slider"><input type="checkbox" id="g3On" ${G.on?'checked':''}> Enable glass 3D</label>`);
+    $('g3On').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
+    if(G.on){
+      const sl=(id,label,min,max,step,val,dp)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
+      };
+      const wire=(id,f,dp)=>{
+        $(id).addEventListener('input',e=>{ f(+e.target.value);
+          $(id+'V').textContent=(+e.target.value).toFixed(dp); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      // Shape: extrude 0 + bevel 1 is a sphere; extrude >0 + bevel 1 a capsule.
+      add('<div class="secTitle">Shape</div>');
+      sl('g3Size','Size',0.1,1.6,0.01,G.size,2);    wire('g3Size',v=>G.size=v,2);
+      sl('g3Ext','Extrude',0,1.6,0.005,G.ext,2);    wire('g3Ext',v=>G.ext=v,2);
+      sl('g3Round','Bevel',0,1,0.005,G.round,2);    wire('g3Round',v=>G.round=v,2);
+      sl('g3Rx','Rotate X',-180,180,1,G.rx,0);      wire('g3Rx',v=>G.rx=v,0);
+      sl('g3Ry','Rotate Y',-180,180,1,G.ry,0);      wire('g3Ry',v=>G.ry=v,0);
+      sl('g3Rz','Rotate Z',-180,180,1,G.rz,0);      wire('g3Rz',v=>G.rz=v,0);
+      add('<div class="secTitle" style="margin-top:8px">Material</div>');
+      add(`<label class="slider">Type
+        <select id="g3Mat">${['glass','frosted','gradient','metal','matte','glow'].map(m=>
+          `<option value="${m}"${G.mat===m?' selected':''}>${m[0].toUpperCase()+m.slice(1)}</option>`).join('')}
+        </select></label>`);
+      $('g3Mat').addEventListener('change',e=>{ G.mat=e.target.value; pushHistory(); render(); });
+      add(`<label class="slider">Colour <input type="color" id="g3Tint" value="${G.tint}"></label>`);
+      $('g3Tint').addEventListener('input',e=>{ G.tint=e.target.value; render(); });
+      $('g3Tint').addEventListener('change',()=>pushHistory());
+      sl('g3Rough','Roughness',0,1,0.005,G.rough,2);  wire('g3Rough',v=>G.rough=v,2);
+      sl('g3Trans','Glassiness',0,1,0.01,G.trans,2);  wire('g3Trans',v=>G.trans=v,2);
+      sl('g3Dens','Absorb',0,6,0.01,G.dens,2);        wire('g3Dens',v=>G.dens=v,2);
+      add('<div class="secTitle" style="margin-top:8px">Light</div>');
+      add(`<label class="slider">Palette
+        <select id="g3LP">${['Blue / Pink','Warm / Cool','Studio','Sunset','Ice','Acid'].map((n,i)=>
+          `<option value="${i}"${(G.lightPreset|0)===i?' selected':''}>${n}</option>`).join('')}
+        </select></label>`);
+      $('g3LP').addEventListener('change',e=>{
+        G.lightPreset=+e.target.value;
+        // picking a palette clears any hand-set colours, same as the standalone
+        G.l0col=''; G.l1col=''; G.l2col='';
+        pushHistory(); refresh();
+      });
+      sl('g3L0','Brightness 1',0,40,0.1,G.l0int,1);  wire('g3L0',v=>G.l0int=v,1);
+      sl('g3L1','Brightness 2',0,40,0.1,G.l1int,1);  wire('g3L1',v=>G.l1int=v,1);
+      add('<div class="secTitle" style="margin-top:8px">Scene</div>');
+      add(`<label class="chk"><input type="checkbox" id="g3Trs" ${G.transparent?'checked':''}> Transparent background</label>`);
+      $('g3Trs').addEventListener('change',e=>{ G.transparent=e.target.checked; pushHistory(); refresh(); });
+      if(!G.transparent){
+        add(`<label class="slider">Background <input type="color" id="g3Bg" value="${G.bg}"></label>`);
+        $('g3Bg').addEventListener('input',e=>{ G.bg=e.target.value; render(); });
+        $('g3Bg').addEventListener('change',()=>pushHistory());
+      }
+      sl('g3Expo','Exposure',0.05,6,0.01,G.exposure,2); wire('g3Expo',v=>G.exposure=v,2);
+      sl('g3Smp','Quality',4,128,1,G.samples,0);        wire('g3Smp',v=>G.samples=v,0);
+      sl('g3Bnc','Bounces',1,8,1,G.bounces,0);          wire('g3Bnc',v=>G.bounces=v,0);
+      add('<div class="hint" style="text-align:left">A path-traced solid. Extrude 0 with Bevel 1 is a sphere; raise Extrude for a capsule. Transparent background lets it sit on the page like an object.</div>');
     }
   }
 
