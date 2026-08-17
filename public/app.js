@@ -7025,15 +7025,12 @@ document.querySelectorAll('.tool').forEach(b=>{
   b.dataset.currentTool=b.dataset.tool;
   b.addEventListener('click',e=>{
     e.stopPropagation();
-    /* A grouped tool's MAIN button activates that tool. It used to only
-     * toggle the flyout, which made the primary click target inert: clicking
-     * the rectangle icon on the rail did nothing, and the only ways to draw
-     * were the keyboard shortcut or opening the flyout and picking the same
-     * tool from inside it. The group already has its own `.toolFlyout` chevron
-     * for opening the menu, so the two jobs stay separate — which is also how
-     * every other editor behaves. */
-    closeToolMenus();
-    setTool(b.dataset.currentTool||b.dataset.defaultTool||b.dataset.tool);
+    const group=b.closest('.toolGroup');
+    if(group) toggleToolMenu(group);
+    else{
+      closeToolMenus();
+      setTool(b.dataset.currentTool||b.dataset.defaultTool||b.dataset.tool);
+    }
   });
 });
 document.querySelectorAll('.toolFlyout').forEach(b=>{
@@ -7384,14 +7381,58 @@ const CMDS={
   sameSize(){ selectSame('size'); },
 };
 /* Effects menu: jump the inspector to that engine for the selected object. */
+/* Search folds behind its header icon: click opens and focuses, Esc or
+ * leaving it empty folds it back. The filter itself is unchanged. */
+(function wireSearchToggle(){
+  const btn=$('layerSearchBtn'), inp=$('layerSearch');
+  if(!btn||!inp) return;
+  const setOpen=open=>{
+    inp.classList.toggle('open',open);
+    btn.setAttribute('aria-expanded',String(open));
+    if(open) inp.focus();
+  };
+  btn.addEventListener('click',()=>setOpen(!inp.classList.contains('open')));
+  inp.addEventListener('blur',()=>{ if(!inp.value.trim()) setOpen(false); });
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ inp.value=''; syncLayers(); setOpen(false); }
+  });
+})();
+
+/* History folds shut by default — Undo/Redo live in the Edit menu and on
+ * ⌘Z regardless, so the collapsed section costs nothing. */
+(function wireHistoryToggle(){
+  const sec=$('historySec'), head=$('historyHead'), tog=$('historyTog');
+  if(!sec||!head) return;
+  const set=open=>{
+    sec.classList.toggle('open',open);
+    if(tog){ tog.setAttribute('aria-expanded',String(open));
+      tog.title=open?'Hide history':'Show history';
+      tog.setAttribute('aria-label',tog.title); }
+  };
+  head.addEventListener('click',()=>set(!sec.classList.contains('open')));
+  set(false);
+})();
+
 /* The Effects menubar mirrors the gate: entries for unready effects are
  * hidden, not removed, so promoting an effect is one Set edit away. */
 (function gateEffectsMenu(){
   const FS=window.FxStack;
+  /* The structural entries (Pattern, Group, Mask, the stack, Fill, Stroke)
+   * are gated too, per the QA pass — they go through review like everything
+   * else. The dev door accepts their page names: ?fx=Pattern. When nothing
+   * at all is visible, the Effects MENU itself hides — an empty dropdown is
+   * worse than no menu. */
+  let visible=0;
   document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
-    const t=PAGE_TYPE[b.dataset.fx];
-    if(t&&FS&&!FS.isReady(t)) b.style.display='none';
+    const name=b.dataset.fx;
+    const t=PAGE_TYPE[name]||name;
+    if(FS&&!FS.isReady(t)) b.style.display='none';
+    else visible++;
   });
+  if(!visible){
+    const m=document.querySelector('[data-menu="effects"]');
+    if(m) m.style.display='none';
+  }
 })();
 document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
   b.addEventListener('click',e=>{

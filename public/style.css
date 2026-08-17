@@ -256,13 +256,25 @@ body.panel-left-collapsed #leftPanel{
    padding of its own — each row and heading supplies its own inset. A selected
    row then reads as a full-width band rather than a floating pill, which is
    what keeps a dense tree calm. */
-#sidebar{flex:1; padding:10px 0; overflow-y:auto;}
+#sidebar{flex:1; padding:10px 0; overflow-y:auto; display:flex; flex-direction:column;}
+#sidebar > *{flex:0 0 auto;}
+/* History lives at the BOTTOM edge and folds shut; the spacer above it is
+   what pins it down when the lists are short. */
+#historySec{margin-top:auto;}
+#historyBody{display:none;}
+#historySec.open #historyBody{display:block;}
+#historySec.open #historyTog svg{transform:rotate(180deg);}
+#historyTog svg{transition:transform .12s;}
+@media (prefers-reduced-motion: reduce){ #historyTog svg{transition:none;} }
 body.panel-left-collapsed #sidebar{
   display:none;
 }
 .sideHead{
   display:flex; align-items:center; justify-content:space-between;
-  font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
+  /* Headings LEAD: rows sit at the same 13px but regular weight, so the
+     heading is never outweighed by its own contents — the inversion the
+     user circled ("Page 1" larger than "Pages"). */
+  font-size:var(--text-md); font-weight:var(--weight-semibold); color:var(--text);
   padding:0 12px; margin:6px 0 6px; min-height:26px;
 }
 /* A hairline separates each section from the list above it. The first heading
@@ -278,13 +290,20 @@ body.panel-left-collapsed #sidebar{
 .sideHead button:hover{background:var(--surface-accent); color:var(--accent);}
 #pageList{margin-bottom:2px;}
 .pageRow{
-  padding:10px 12px; cursor:pointer;
+  font-size:var(--text-md); font-weight:var(--weight-regular);
+  padding:8px 10px; cursor:pointer;
   color:var(--text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .pageRow:hover{background:var(--surface-hover);}
-.pageRow.sel{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
+/* Selection matches the menus: the same --surface-accent tint and accent
+   text the dropdown highlight uses, as an INSET rounded pill rather than an
+   edge-to-edge band — rows carry side margins so the radius has room. */
+.pageRow{margin:0 8px; border-radius:7px;}
+.pageRow:hover{background:var(--surface-hover);}
+.pageRow.sel{background:var(--surface-accent); color:var(--accent); font-weight:var(--weight-medium);}
 #layerList div{
-  padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center;
+  font-size:var(--text-md); font-weight:var(--weight-regular);
+  padding:8px 10px; cursor:pointer; display:flex; gap:8px; align-items:center;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-soft);
 }
 #layerList div:hover{background:var(--surface-hover);}
@@ -292,7 +311,9 @@ body.panel-left-collapsed #sidebar{
    state, and a saturated band on every selected row fights the artwork the
    panel exists to describe. Hover stays lighter than selected so the two
    remain distinguishable. */
-#layerList div.sel{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
+#layerList div{margin:0 8px; border-radius:7px;}
+#layerList div:hover{background:var(--surface-hover);}
+#layerList div.sel{background:var(--surface-accent); color:var(--accent); font-weight:var(--weight-medium);}
 #layerList .glyph{color:var(--muted); width:16px; display:inline-flex;
   align-items:center; justify-content:center; flex:0 0 16px;}
 
@@ -797,7 +818,8 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   white-space:nowrap; overflow:hidden;
 }
 .histRow:hover{background:var(--surface-hover);}
-.histRow.cur{background:var(--surface-selected); color:var(--text); font-weight:var(--weight-medium);}
+.histRow{margin:0 8px; border-radius:7px;}
+.histRow.cur{background:var(--surface-accent); color:var(--accent); font-weight:var(--weight-medium);}
 .histRow.future{opacity:.42;}
 .histRow .hName{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;}
 .histRow .hOps{flex:0 0 auto; font-size:var(--text-micro); opacity:.7;}
@@ -817,12 +839,15 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .rowBtn:hover:not(:disabled){background:var(--surface-3); opacity:1; color:var(--text);}
 .rowBtn:disabled{opacity:0 !important; cursor:default;}
 #layerSearch{
-  /* sits inside the same 12px gutter the rows use, so its edges line up with
-     the row text rather than with the panel */
-  width:calc(100% - 24px); margin:0 12px 6px; display:block;
+  /* hidden until the header icon opens it — the resting panel shows an icon,
+     not an empty input */
+  display:none;
+  width:calc(100% - 24px); margin:0 12px 6px;
   border:1px solid var(--line); border-radius:7px; padding:6px 9px;
-  font:inherit; font-size:var(--text-xs); background:var(--field-bg);
+  font:inherit; font-size:var(--text-sm); background:var(--field-bg,#fafafa);
 }
+#layerSearch.open{display:block;}
+.headBtns{display:inline-flex; gap:4px; align-items:center;}
 #layerSearch:focus{border-color:var(--accent); background:var(--field-focus);}
 .lrename{
   flex:1 1 auto; min-width:0; border:1px solid var(--accent); border-radius:4px;
@@ -865,7 +890,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList .abGroup .rowBtn:last-of-type{right:12px;}          /* delete */
 #layerList .abGroup:hover .abCount{opacity:0;}
 #layerList .abGroup:hover{background:var(--surface-hover);}
-#layerList .abGroup.sel{background:var(--surface-selected);}
+#layerList .abGroup.sel{background:var(--surface-accent); color:var(--accent);}
 #layerList .abGroup svg{flex:0 0 auto; color:var(--muted);}
 #layerList .abName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
 #layerList .abCount{

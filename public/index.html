@@ -192,12 +192,16 @@
     <!-- One tree: a page holds artboards, an artboard holds layers. The old
          separate "Artboards" list showed the same artboards over again with the
          same counts, so it was folded into these headings. -->
-    <div class="sideHead"><span>Artwork</span><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></div>
-    <input id="layerSearch" type="text" placeholder="Filter layers…" aria-label="Filter layers">
+    <div class="sideHead"><span>Artwork</span><span class="headBtns"><button id="layerSearchBtn" data-icon="search" aria-label="Search layers" title="Search layers" aria-expanded="false"></button><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></span></div>
+    <input id="layerSearch" type="text" placeholder="Search layers…" aria-label="Search layers">
     <div id="layerList"></div>
-    <div class="sideHead"><span>History</span></div>
-    <div id="historyList"></div>
-    <div id="historyFoot"></div>
+    <div id="historySec">
+      <div class="sideHead" id="historyHead"><span>History</span><button id="historyTog" data-icon="chevronDown" aria-label="Show history" title="Show history" aria-expanded="false"></button></div>
+      <div id="historyBody">
+        <div id="historyList"></div>
+        <div id="historyFoot"></div>
+      </div>
+    </div>
   </div>
 </div>
 <button id="leftPanelToggle" class="panelToggle" data-icon="chevronLeft" aria-label="Collapse pages panel" aria-expanded="true" title="Collapse pages panel"></button>
