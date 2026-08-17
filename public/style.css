@@ -1,6 +1,9 @@
 :root{
   --bg:#f2f3f5; --panel:#ffffff; --line:#e2e4e9; --text:#1b1d22;
-  --muted:#7b808a; --accent:#2563eb; --radius:12px;
+  /* --muted was #7b808a: 3.96:1 on white, under the 4.5:1 AA floor. All 14
+   failing text elements in the contrast audit traced to this one token — the
+   History panel, step counts, every hint. #6a6d75 measures 5.18:1. */
+  --muted:#6a6d75; --accent:#2563eb; --radius:12px;
   --shadow:0 1px 2px rgba(15,23,42,.07), 0 10px 30px rgba(15,23,42,.08);
   --chrome-gap:14px;
   --ruler-gutter:30px;
@@ -76,8 +79,19 @@ body{
 }
 .floating{background:var(--panel); border-radius:var(--radius); box-shadow:var(--shadow);}
 button, input, select, textarea{color:inherit;}
-button:focus{outline:0;}
-:where(button,input,select,textarea,[tabindex]):focus-visible{
+/* Mouse focus stays quiet; keyboard focus must always show. The reset is
+ * scoped with :not(:focus-visible) because the previous form —
+ * `button:focus{outline:0}` at specificity (0,1,1) against a `:where()`-wrapped
+ * focus-visible rule at (0,1,0) — meant BOTH matched on keyboard focus and the
+ * reset won. The ring rule below existed and never painted on a single button.
+ * The :where() is gone for the same reason: politeness about specificity is
+ * what disabled the feature. */
+button:focus:not(:focus-visible){outline:0;}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible{
   outline:2px solid var(--focus-ring);
   outline-offset:2px;
 }

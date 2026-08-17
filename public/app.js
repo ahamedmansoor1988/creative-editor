@@ -3008,6 +3008,7 @@ function syncLayers(){
     bar.innerHTML=(window.Icons?Icons.svg('chevronLeft',{size:12}):'')
       +'<span>'+(f?f.obj.name:'container')+'</span>';
     bar.title='Leave this container (Esc)';
+    keyboardRow(bar);
     bar.addEventListener('click',()=>{ exitContainer(); });
     list.appendChild(bar);
   }
@@ -3060,6 +3061,7 @@ function syncLayers(){
     // §6.1 colour label
     if(c.label){ const dot=document.createElement('span');
       dot.className='labelDot'; dot.style.background=c.label; r.appendChild(dot); }
+    keyboardRow(r);
     r.addEventListener('click',ev=>{
       selInstance=null; fxPage=0;
       if(ev.shiftKey){
@@ -3160,6 +3162,7 @@ function syncLayers(){
       const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
       removeArtboard(a.id,withContent);
     },boards.length<=1);
+    keyboardRow(head);
     head.addEventListener('click',ev=>{
       if(ev.target.closest('.abTwisty')){ a.collapsed=!a.collapsed; syncLayers(); return; }
       selArtboard=a.id;
@@ -6816,6 +6819,7 @@ function syncHistoryPanel(){
     r.className='histRow'+(cur?' cur':'')+(idx>HIST.i?' future':'');
     r.innerHTML=`<span class="hName">${label}</span>`+(n?`<span class="hOps">${n}</span>`:'');
     r.title=idx<0?'Original state':`Jump to after "${label}"`;
+    keyboardRow(r);
     r.addEventListener('click',()=>historyJump(idx));
     list.appendChild(r);
   };
@@ -6826,6 +6830,19 @@ function syncHistoryPanel(){
     const kb=Math.round(HIST.size()/1024);
     foot.textContent=`${rows.length} step${rows.length===1?'':'s'} · ${kb} KB · limit ${HIST.limit}`;
   }
+}
+/* Rows built as <div>s with click handlers — pages, history, layers, artboard
+ * headings — were mouse-only: no tabindex, no role, no key handling, so
+ * switching page or jumping history could not be done from the keyboard at
+ * all. This makes a row a first-class keyboard citizen. Enter and Space both
+ * activate, matching native buttons; Space also suppresses page scroll. */
+function keyboardRow(el,role){
+  el.tabIndex=0;
+  el.setAttribute('role',role||'button');
+  el.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
+  });
+  return el;
 }
 const rowBtn=(row,icon,title,fn,dis)=>{
   const b=document.createElement('button');
@@ -6845,6 +6862,8 @@ function syncPageRow(){
     nm.className='pName'; nm.textContent=pg.frame.name;
     row.appendChild(nm);
     row.title=`${pg.frame.w}×${pg.frame.h} — double-click to rename`;
+    keyboardRow(row);
+    row.setAttribute('aria-current',i===pageIdx?'page':'false');
     rowBtn(row,'chevronUp','Move page up',()=>movePage(i,-1),i===0);
     rowBtn(row,'chevronDown','Move page down',()=>movePage(i,1),i===pages.length-1);
     rowBtn(row,'duplicate','Duplicate page',()=>duplicatePage(i));
