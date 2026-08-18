@@ -9,11 +9,9 @@ Node.js server + vanilla-JS canvas client. Generation is backed by
 [Groq](https://groq.com); the API key stays on the server and is never sent to
 the browser.
 
-> **Status: prototype undergoing production hardening.**
-> Stage 1 (reproducible setup, quality gates, characterization tests) and
-> Stage 1.1 (linked parent/instance patterns, provider capability gate) are
-> complete. It is **not** production-ready yet — see
-> [Known limitations](#known-limitations).
+> **Status:** see [STATUS.md](STATUS.md) — kept current as the app moves.
+> Short version: a working single-user editor, mid-way through an
+> effect-by-effect QA pass; not yet deployable as a multi-user product.
 
 ---
 
