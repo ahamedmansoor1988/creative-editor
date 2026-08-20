@@ -369,7 +369,7 @@ body.panel-left-collapsed #sidebar{
 }
 .fieldChip:hover{background:var(--surface-hover);}
 .fieldChip.open{background:var(--surface-accent); color:var(--accent); border-color:transparent;}
-.fieldChip .chipIcon{font-size:13px; line-height:1;}
+.fieldChip .chipIcon{display:inline-flex; flex:0 0 auto;}
 .fieldChip .chipVal{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 label.slider{display:block; font-size:var(--text-sm); font-weight:var(--weight-medium);
   color:var(--muted); margin:8px 0;}
