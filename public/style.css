@@ -357,6 +357,20 @@ body.panel-left-collapsed #sidebar{
   display:inline-flex; align-items:center; justify-content:center; min-height:26px;
 }
 #alignRow button:hover{background:var(--surface-hover);}
+/* Compact value chips: collapsed-by-default alternative to a full-width
+   slider row. Click toggles the matching *Row element's display, so the
+   panel only spends vertical space on the fields currently in use. */
+.chipRow{display:flex; gap:4px; margin-bottom:10px; flex-wrap:wrap;}
+.fieldChip{
+  flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:4px;
+  border:1px solid var(--line); background:none; border-radius:6px;
+  padding:5px 4px; cursor:pointer; color:var(--muted);
+  font-size:var(--text-sm); font-weight:var(--weight-medium);
+}
+.fieldChip:hover{background:var(--surface-hover);}
+.fieldChip.open{background:var(--surface-accent); color:var(--accent); border-color:transparent;}
+.fieldChip .chipIcon{font-size:13px; line-height:1;}
+.fieldChip .chipVal{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 label.slider{display:block; font-size:var(--text-sm); font-weight:var(--weight-medium);
   color:var(--muted); margin:8px 0;}
 label.slider span{float:right; color:var(--text);}

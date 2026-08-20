@@ -287,6 +287,42 @@
          these apply to an artboard, so this block is hidden (not the whole
          Position section) when the selection is an artboard. -->
     <div id="objectOnlyFields">
+      <!-- Collapsed by default: a compact row of value chips instead of four
+           full-width rows. Each chip toggles its own control open in place
+           (inline expand — the panel grows, nothing floats or overlaps).
+           Chip visibility/labels are driven entirely from syncInspector(); the
+           open/closed state itself lives in openFields (a plain Set) so it
+           persists as you click through different objects in the session. -->
+      <div class="chipRow" id="fieldChips">
+        <button type="button" class="fieldChip" id="chipRad" data-field="rad" title="Corner radius">
+          <span class="chipIcon">⌒</span><span class="chipVal" id="chipRadV">0</span></button>
+        <button type="button" class="fieldChip" id="chipOpacity" data-field="opacity" title="Opacity">
+          <span class="chipIcon">◐</span><span class="chipVal" id="chipOpacityV">100%</span></button>
+        <button type="button" class="fieldChip" id="chipTransform" data-field="transform" title="Rotation, scale, skew">
+          <span class="chipIcon">⟳</span><span class="chipVal" id="chipTransformV">0°</span></button>
+        <button type="button" class="fieldChip" id="chipBlend" data-field="blend" title="Blend mode">
+          <span class="chipIcon">◧</span><span class="chipVal" id="chipBlendV">Normal</span></button>
+      </div>
+      <label class="slider" id="cornerRow" style="display:none">Corner radius <span id="pRadV">0</span>
+        <input type="range" id="pRad" min="0" max="300" value="0">
+      </label>
+      <label class="slider" id="opacityRow" style="display:none">Opacity <span id="pOpacityV">100%</span>
+        <input type="range" id="pOpacity" min="5" max="100" value="100">
+      </label>
+      <div class="grid4" id="transformRow" style="display:none">
+        <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
+        <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
+        <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
+        <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
+      </div>
+      <label class="slider" id="blendRow" style="display:none">Blend mode
+        <select id="objBlend">
+          <option>normal</option><option>multiply</option><option>screen</option>
+          <option>overlay</option><option>darken</option><option>lighten</option>
+          <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
+          <option>soft-light</option><option>difference</option><option>exclusion</option>
+          <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
+        </select></label>
       <div id="alignRow">
         <button data-align="left" data-icon="alignLeft" aria-label="Align left" title="Align left"></button>
         <button data-align="hcenter" data-icon="alignHCenter" aria-label="Center horizontally" title="Center horizontally"></button>
@@ -294,15 +330,6 @@
         <button data-align="top" data-icon="alignTop" aria-label="Align top" title="Align top"></button>
         <button data-align="vcenter" data-icon="alignVCenter" aria-label="Center vertically" title="Center vertically"></button>
         <button data-align="bottom" data-icon="alignBottom" aria-label="Align bottom" title="Align bottom"></button>
-      </div>
-      <label class="slider">Opacity <span id="pOpacityV">100%</span>
-        <input type="range" id="pOpacity" min="5" max="100" value="100">
-      </label>
-      <div class="grid4" style="margin-top:6px">
-        <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
-        <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
-        <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
-        <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
       </div>
       <div id="constraintRow" style="display:none">
         <div class="grid4" style="margin-top:6px">
@@ -322,14 +349,6 @@
           <label class="chk" style="margin:0"><input type="checkbox" id="cAbs"> Absolute</label>
         </div>
       </div>
-      <label class="slider" style="margin-top:2px">Blend mode
-        <select id="objBlend">
-          <option>normal</option><option>multiply</option><option>screen</option>
-          <option>overlay</option><option>darken</option><option>lighten</option>
-          <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
-          <option>soft-light</option><option>difference</option><option>exclusion</option>
-          <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
-        </select></label>
       <div id="alignRow" style="margin-top:2px">
         <button id="trR90L" data-icon="rotateCcw" aria-label="Rotate 90 counter-clockwise" title="Rotate 90 counter-clockwise"></button>
         <button id="trR90R" data-icon="rotateCw" aria-label="Rotate 90 clockwise" title="Rotate 90 clockwise"></button>
