@@ -3803,6 +3803,35 @@ $('fxTitle').addEventListener('click',e=>{
 });
 document.addEventListener('click',closeFxMenu);
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFxMenu(); });
+/* A click into any numeric field places the cursor, it doesn't select the
+ * value — so typing a fresh number (position, size, opacity, rotation…)
+ * inserts into whatever was already there instead of replacing it, e.g.
+ * "-1067" + typed "0" becomes "-10607". Auto-selecting on focus, like Figma
+ * and every other numeric-input-heavy tool, makes click-then-type always
+ * replace cleanly.
+ * Two quirks fought this: (1) a mouse click places its own caret AFTER
+ * 'focusin' fires, so calling select() synchronously gets silently
+ * overwritten — deferring one tick lets it run after the click finishes.
+ * (2) Chrome's <input type=number> doesn't support text selection at all
+ * (select()/setSelectionRange are no-ops on it) — flipping to type=text for
+ * the duration of the edit, then back to number on blur, is the standard
+ * workaround. Reverting immediately after select() instead of on blur loses
+ * the selection again, right back to the original bug. The one cost is the
+ * native up/down stepper is inactive while a field is focused this way.
+ * (3) The click that focused the field still hasn't placed its own caret at
+ * this point — that happens on the matching 'mouseup', which fires AFTER
+ * this handler and silently collapses the selection right back to a single
+ * point. Suppressing that one mouseup's default action is the documented
+ * fix; it only affects the click that caused focus, so clicking again inside
+ * an already-focused field still positions the caret normally. */
+document.addEventListener('focusin',e=>{
+  const el=e.target;
+  if(el.tagName!=='INPUT'||el.type!=='number') return;
+  el.type='text';
+  el.select();
+  el.addEventListener('mouseup',ev=>ev.preventDefault(),{once:true});
+  el.addEventListener('blur',()=>{ el.type='number'; },{once:true});
+});
 
 /* Inline icon markup for panel templates; empty if icons.js is unavailable. */
 const IC=(n,sz)=>window.Icons?Icons.svg(n,{size:sz||14}):'';
@@ -5286,9 +5315,15 @@ function posArtboard(){
       growFrameToArtboards();
       // growFrameToArtboards() can grow doc.frame.w/h, which moves
       // coordOrigin() (page-center) and therefore the ruler-relative X/Y this
-      // very panel shows — resync those two fields so they never display a
-      // stale value after an edit that shifted the origin out from under them.
-      $('pX').value=Math.round(pageToUiX(ab.x)); $('pY').value=Math.round(pageToUiY(ab.y));
+      // panel shows. frame.w only ever grows from x/w (never y/h), and vice
+      // versa, so only the OTHER axis's field can have gone stale as a side
+      // effect — resync just that one. Resyncing the field being typed into
+      // would fight the user's own keystrokes: growing the frame mid-edit
+      // shifts its origin too, so echoing it back would visibly rewrite the
+      // very number they're still typing (typing "0" would redisplay as
+      // something else on the same keystroke).
+      if(k==='x'||k==='w') $('pY').value=Math.round(pageToUiY(ab.y));
+      else $('pX').value=Math.round(pageToUiX(ab.x));
       render();
       return;
     }
