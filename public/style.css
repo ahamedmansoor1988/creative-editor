@@ -770,6 +770,35 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList .linkBadge{flex:0 0 auto;}
 #layerList .isoBar{display:flex; align-items:center; gap:5px;}
 
+/* Styles panel: same row language as #layerList (self-contained rather than
+   extending #layerList's scattered selectors, to keep this addition a clean,
+   reviewable diff instead of touching six existing rule blocks). */
+#styleList{display:flex; flex-direction:column;}
+#styleList .sRow{
+  font-size:var(--text-md); font-weight:var(--weight-regular);
+  padding:8px 10px; margin:0 8px; border-radius:7px; cursor:pointer;
+  display:flex; align-items:center; gap:8px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-soft);
+}
+#styleList .sRow:hover{background:var(--surface-hover);}
+#styleList .sSwatch{
+  flex:0 0 16px; width:16px; height:16px; border-radius:50%;
+  border:1px solid var(--border); box-shadow:inset 0 0 0 1px rgba(0,0,0,.05);
+}
+#styleList .sName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
+#styleList .layerTgl{
+  margin-left:auto; flex:0 0 20px; width:20px; height:20px; padding:0;
+  border:0; background:none; cursor:pointer; border-radius:4px;
+  opacity:0; color:var(--muted);
+}
+#styleList .sRow:hover .layerTgl{opacity:.7;}
+#styleList .layerTgl:hover{background:var(--surface-3); opacity:1;}
+#styleList .linkBadge{
+  flex:0 0 auto; margin-left:auto; font-size:var(--text-xxs);
+  padding:1px 5px; border-radius:8px;
+  background:var(--info-bg-strong); color:var(--info-text);
+}
+
 /* The lock/visibility toggles only appear on hover, so they should not RESERVE
    width the rest of the time — with icons they were stealing ~50px and forcing
    names to truncate to "Typo...". Float them over the row's tail instead. */

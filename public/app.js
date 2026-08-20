@@ -345,6 +345,35 @@ function normAppearance(c){
   c.knockout=!!c.knockout;
 }
 
+/* A reusable appearance ("Style"): fills/strokes/effects only — no geometry,
+ * no children. Applying one COPIES these fields onto an object (see
+ * saveStyle/applyStyle/pushStyleToSource); nothing at render time ever reads
+ * doc.frame.styles, so unlike a component definition this needs no revision
+ * counter. Validation here is intentionally lighter than normChildren's fx
+ * fold (id/type/on/params shape only) — the full fold, including re-linking
+ * fx params to the effects dictionary, happens for free the moment a style
+ * is actually applied to a real object and the doc renormalizes. */
+function normStyleDef(s,i){
+  s=s&&typeof s==='object'?s:{};
+  const out={
+    id:typeof s.id==='string'&&s.id?s.id:newId(),
+    name:String(s.name||('Style '+(i+1))).slice(0,60),
+  };
+  out.fills=(Array.isArray(s.fills)?s.fills:[]).slice(0,8).map(f=>normPaint(f,'#d9d9d9'));
+  out.strokes=(Array.isArray(s.strokes)?s.strokes:[]).slice(0,8).map(k=>normStroke(k,'#111111'));
+  out.fillOpacity=clamp(s.fillOpacity===undefined?1:+s.fillOpacity,0,1);
+  out.strokeOpacity=clamp(s.strokeOpacity===undefined?1:+s.strokeOpacity,0,1);
+  out.blend=BLEND_MODES.includes(s.blend)?s.blend:'normal';
+  out.fx=(Array.isArray(s.fx)?s.fx:[]).slice(0,32)
+    .filter(e=>e&&typeof e==='object'&&typeof e.type==='string')
+    .map(e=>({
+      id:typeof e.id==='string'&&e.id?e.id:newId(),
+      type:e.type, on:e.on!==false,
+      params:(e.params&&typeof e.params==='object')?e.params:{},
+    }));
+  return out;
+}
+
 function normalizeDoc(d){
   const f=d.frame;
   f.w=clamp(+f.w||900,100,4000); f.h=clamp(+f.h||600,100,4000);
@@ -383,6 +412,10 @@ function normalizeDoc(d){
     d.root=normChildren([d.root],1)[0];
     (d.variants||[]).forEach(v=>{ v.root=normChildren([v.root],1)[0]; });
   });
+  // Reusable styles — flat appearance records, same id/name/cap convention
+  // as components (§6.7/§6.8 above), but page-scoped and never resolved at
+  // render time (see normStyleDef).
+  f.styles=(Array.isArray(f.styles)?f.styles:[]).slice(0,200).map(normStyleDef);
   // §6.4 grid
   const gr=f.grid||{};
   f.grid={size:clamp(+gr.size||20,1,500),
@@ -863,6 +896,21 @@ function normChildren(list,depth){
     // §1.1: lock suppresses canvas selectability, hide suppresses render too.
     // Document state, so they round-trip through save/load and history.
     c.locked=!!c.locked; c.hidden=!!c.hidden;
+    // Reusable style link (see normStyleDef) — a plain id, resolved only when
+    // the user acts (apply/push/detach), never at render time.
+    c.styleId=typeof c.styleId==='string'?c.styleId:'';
+    // Per-object export presets (format/scale/suffix), rasterized in
+    // isolation via renderObjectToBlob/exportObject.
+    c.exportPresets=(Array.isArray(c.exportPresets)?c.exportPresets:[]).slice(0,20).map((p,pi)=>{
+      p=p&&typeof p==='object'?p:{};
+      return {
+        id:typeof p.id==='string'&&p.id?p.id:newId(),
+        name:String(p.name||('Export '+(pi+1))).slice(0,40),
+        format:p.format==='jpeg'?'jpeg':'png',
+        scale:clamp(+p.scale||1,0.5,4),
+        suffix:String(p.suffix||'').slice(0,20),
+      };
+    });
     if(c.type!=='text'&&c.type!=='line'&&c.type!=='path'&&!CONTAINER(c)){
       // Migrate the legacy bounding-box `engine` field. Deliberate semantic
       // change: same knobs, but they now place linked duplicates outside the
@@ -3149,7 +3197,7 @@ function render(){
 }
 
 /* ================= UI sync ================= */
-function refresh(){ computeGapHints(); render(); syncLayers(); syncInspector(); syncPageRow(); }
+function refresh(){ computeGapHints(); render(); syncLayers(); syncStyles(); syncInspector(); syncPageRow(); }
 /* Depth is configurable per §6.14; kept modest by default because entries are
  * now diffs, so 200 costs far less than the old 60 snapshots did. */
 function setHistoryLimit(n){
@@ -3476,6 +3524,55 @@ function syncLayers(){
   }
 }
 
+/** Document-level list of reusable styles (see saveStyle/applyStyle above).
+ *  Click a row to apply it to the current selection; double-click to rename. */
+function syncStyles(){
+  const list=$('styleList'); if(!list) return;
+  list.innerHTML='';
+  if(!doc) return;
+  const styles=doc.frame.styles||[];
+  if(!styles.length){
+    const hint=document.createElement('div');
+    hint.className='fxHint'; hint.style.margin='8px 12px';
+    hint.textContent="Save a shape's Fill page as a style to reuse it here.";
+    list.appendChild(hint);
+    return;
+  }
+  styles.forEach(s=>{
+    const r=document.createElement('div');
+    r.className='sRow';
+    const sw=document.createElement('span');
+    sw.className='sSwatch';
+    const f=s.fills&&s.fills[0];
+    sw.style.background=f?(f.kind==='solid'?f.color:
+      `linear-gradient(90deg, ${f.stops.map(st=>st.color).join(',')})`):'transparent';
+    r.appendChild(sw);
+    const nm=document.createElement('span');
+    nm.className='sName'; nm.textContent=s.name;
+    r.appendChild(nm);
+    const used=allObjects().filter(o=>o.styleId===s.id).length;
+    if(used){
+      const badge=document.createElement('span');
+      badge.className='linkBadge'; badge.textContent=`⇢ ${used}`;
+      r.appendChild(badge);
+    }
+    const del=document.createElement('button');
+    del.type='button'; del.className='layerTgl';
+    del.innerHTML=window.Icons?Icons.svg('x',{size:13}):'';
+    del.title='Delete style'; del.setAttribute('aria-label','Delete style');
+    del.addEventListener('click',ev=>{ ev.stopPropagation(); deleteStyle(s.id); });
+    r.appendChild(del);
+    keyboardRow(r);
+    r.title='Click to apply to the selection · double-click to rename';
+    r.addEventListener('click',()=>applyStyle(s.id));
+    r.addEventListener('dblclick',()=>{
+      const n=prompt('Style name:',s.name);
+      if(n&&n.trim()) renameStyle(s.id,n.trim());
+    });
+    list.appendChild(r);
+  });
+}
+
 /* ---- effect QA gate ----------------------------------------------------
  * Inspector pages for engine effects are filtered through FxStack.isReady, so
  * a hidden effect is unreachable from the engine dropdown, the Effects menu
@@ -3493,7 +3590,9 @@ const PAGE_TYPE={
 };
 const FX_PAGES=obj=>{
   const FS=window.FxStack;
-  return FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p]));
+  // Export applies to every type — boxOf always returns real bounds — so it
+  // is appended unconditionally rather than added to each FX_PAGES_RAW list.
+  return FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p])).concat('Export');
 };
 const FX_PAGES_RAW=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
@@ -3758,6 +3857,7 @@ function fxActive(obj,name){
     case 'Glass 2':  return !!(e.glass2&&e.glass2.on);
     case 'Shadow':   return !!(e.shadow&&e.shadow.on);
     case 'Grain':    return !!(e.grain&&e.grain.amount>0);
+    case 'Export':   return !!(obj.exportPresets&&obj.exportPresets.length);
     default:         return false;
   }
 }
@@ -4071,6 +4171,44 @@ function buildFx(obj){
     $('pRemove').addEventListener('click',()=>{ delete obj.pattern; pushHistory(); refresh(); });
   }
 
+  if(page==='Export'){
+    const list=obj.exportPresets||[];
+    if(!list.length) add(`<div class="fxHint">No export presets yet. Add one to rasterize just this shape.</div>`);
+    list.forEach((p,pi)=>{
+      add(`<div class="pSect">${esc(p.name)}</div>`);
+      add(`<div class="apRow">
+        <button class="expDo" data-i="${pi}" style="flex:1">${IC('download',13)} Export</button>
+        <button class="expDel" data-i="${pi}" title="Remove" aria-label="Remove">${IC('trash',13)}</button>
+      </div>`);
+      add(`<div class="row2">
+        <label class="slider">Format<select class="expFmt" data-i="${pi}">
+          <option value="png">PNG</option><option value="jpeg">JPG</option></select></label>
+        <label class="slider">Scale<select class="expScale" data-i="${pi}">
+          <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option></select></label>
+      </div>`);
+      body.querySelectorAll('.expFmt')[pi].value=p.format;
+      body.querySelectorAll('.expScale')[pi].value=String(p.scale);
+      add(`<label class="slider">Suffix <input type="text" class="expSuffix" data-i="${pi}" value="${esc(p.suffix)}" placeholder="e.g. @2x"></label>`);
+    });
+    add(`<button class="rollBtn" id="expAdd">+ Add export preset</button>`);
+    $('expAdd').addEventListener('click',()=>{
+      obj.exportPresets=[...(obj.exportPresets||[]),{format:'png',scale:1,suffix:''}];
+      setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+    });
+    const I=el=>+el.dataset.i;
+    body.querySelectorAll('.expDo').forEach(el=>el.addEventListener('click',()=>exportObject(obj.id,list[I(el)].id)));
+    body.querySelectorAll('.expDel').forEach(el=>el.addEventListener('click',()=>{
+      obj.exportPresets.splice(I(el),1);
+      setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+    }));
+    body.querySelectorAll('.expFmt').forEach(el=>el.addEventListener('change',()=>{ list[I(el)].format=el.value; pushHistory(); }));
+    body.querySelectorAll('.expScale').forEach(el=>el.addEventListener('change',()=>{ list[I(el)].scale=+el.value; pushHistory(); }));
+    body.querySelectorAll('.expSuffix').forEach(el=>{
+      el.addEventListener('input',()=>{ list[I(el)].suffix=el.value.slice(0,20); });
+      el.addEventListener('change',()=>pushHistory());
+    });
+  }
+
   if(page==='Fill'||page==='Stroke'){
     const isFill=page==='Fill';
     const list=isFill?(obj.fills||[]):(obj.strokes||[]);
@@ -4083,6 +4221,28 @@ function buildFx(obj){
         <input type="range" id="apOp" min="0" max="100" value="${Math.round((obj[opKey]??1)*100)}"></label>`);
       $('apOp').addEventListener('input',e=>{ obj[opKey]=+e.target.value/100; $('apOpV').textContent=e.target.value+'%'; render(); });
       $('apOp').addEventListener('change',()=>pushHistory());
+
+      // Reusable style status — shown once, on the Fill page, since a style
+      // covers the whole appearance (fill+stroke+effects) not just this tab.
+      if(isFill){
+        const linkedStyle=(doc.frame.styles||[]).find(s=>s.id===obj.styleId);
+        add(`<div class="pSect">Style</div>`);
+        if(linkedStyle){
+          add(`<div class="fxHint">Linked to style "${esc(linkedStyle.name)}".</div>`);
+          add(`<div class="gsBtns">
+            <button class="rollBtn" id="stUpdate">Update style</button>
+            <button class="rollBtn" id="stDetach">Detach</button></div>`);
+          $('stUpdate').addEventListener('click',pushStyleToSource);
+          $('stDetach').addEventListener('click',detachStyle);
+        }else{
+          add(`<button class="rollBtn" id="stSave">Save as style</button>`);
+          $('stSave').addEventListener('click',()=>{
+            const nm=prompt('Style name:','Style '+((doc.frame.styles||[]).length+1));
+            if(nm===null) return;
+            saveStyle(nm.trim());
+          });
+        }
+      }
 
       list.forEach((f,fi)=>{
         add(`<div class="pSect">${page} ${fi+1}${fi===0?' (bottom)':''}</div>`);
@@ -6775,6 +6935,68 @@ function deleteDefinition(defId){
   pushHistory('Delete component'); refresh();
 }
 
+/* ---- Reusable styles: fill/stroke/effects only, no geometry, no children.
+ * Deliberately NOT the components/instances model — applying a style COPIES
+ * these fields onto the object; nothing at render time ever reads
+ * doc.frame.styles, so there is no revision counter to maintain (contrast
+ * defsChanged() above). "Update style" is the one place state flows the
+ * other way, mirroring pushInstanceToSource. Every mutator below ends with
+ * setActiveDoc(normalizeDoc(doc)) so a style's fx array gets properly
+ * re-linked to the target object's effects dictionary (see the comment on
+ * the fx fold in normChildren) — copying fx without renormalizing leaves
+ * obj.effects stale even though the canvas paints correctly. */
+const STYLE_FIELDS=['fills','strokes','fillOpacity','strokeOpacity','blend','fx'];
+function copyStyleFields(dst,src){
+  STYLE_FIELDS.forEach(k=>{ dst[k]=JSON.parse(JSON.stringify(src[k])); });
+}
+function saveStyle(name){
+  const obj=primary(); if(!obj) return;
+  doc.frame.styles=doc.frame.styles||[];
+  const s=normStyleDef({name,fills:obj.fills,strokes:obj.strokes,
+    fillOpacity:obj.fillOpacity,strokeOpacity:obj.strokeOpacity,
+    blend:obj.blend,fx:obj.fx},doc.frame.styles.length);
+  doc.frame.styles.push(s);
+  obj.styleId=s.id;
+  setActiveDoc(normalizeDoc(doc));
+  pushHistory('Save style'); refresh();
+}
+function applyStyle(styleId,objs){
+  const s=(doc.frame.styles||[]).find(x=>x.id===styleId); if(!s) return;
+  (objs||selObjs()).forEach(obj=>{
+    if(!obj||obj.locked) return;
+    copyStyleFields(obj,s);
+    obj.styleId=s.id;
+  });
+  setActiveDoc(normalizeDoc(doc));
+  pushHistory('Apply style'); refresh();
+}
+function pushStyleToSource(){
+  const obj=primary(); if(!obj||!obj.styleId) return;
+  const s=(doc.frame.styles||[]).find(x=>x.id===obj.styleId); if(!s) return;
+  copyStyleFields(s,obj);
+  allObjects().forEach(o=>{ if(o!==obj&&o.styleId===s.id) copyStyleFields(o,s); });
+  setActiveDoc(normalizeDoc(doc));
+  pushHistory('Update style'); refresh();
+}
+function detachStyle(){
+  const obj=primary(); if(!obj) return;
+  obj.styleId='';
+  pushHistory('Detach style'); refresh();
+}
+function deleteStyle(id){
+  const A=doc.frame.styles||[], i=A.findIndex(s=>s.id===id);
+  if(i<0) return;
+  const used=allObjects().filter(o=>o.styleId===id).length;
+  if(used&&!confirm(`${used} shape${used===1?'':'s'} use this style. Delete anyway?\nTheir current appearance is kept — only the link is removed.`)) return;
+  A.splice(i,1);
+  pushHistory('Delete style'); refresh();
+}
+function renameStyle(id,name){
+  const s=(doc.frame.styles||[]).find(x=>x.id===id); if(!s) return;
+  s.name=String(name||'').slice(0,60)||s.name;
+  pushHistory('Rename style'); refresh();
+}
+
 /* ---- §6.5 artboard commands ---- */
 const AB_PRESETS=[['Landscape',900,600],['Square',1080,1080],['Wide',1600,900],
   ['Portrait',1080,1350],['Story',1080,1920],['A4 @96dpi',794,1123]];
@@ -6846,6 +7068,33 @@ function exportArtboard(id){
 }
 function exportAllArtboards(){
   (doc.frame.artboards||[]).forEach((a,i)=>setTimeout(()=>exportArtboard(a.id),i*350));
+}
+/** Rasterizes ONE object in isolation (§export). drawDoc paints the whole
+ *  scene — artboard background and every sibling — so cropping it to a small
+ *  canvas the way exportArtboard does would leak both into a single shape's
+ *  export. drawList([obj]) draws just that object's own subtree instead.
+ *  doc.frame.w/h are still passed as W,H (not the small canvas size) because
+ *  mask/shadow effect layers size their own offscreen buffers off them. */
+function renderObjectToBlob(obj,preset,cb){
+  const b=aabbOf(obj);
+  const scale=preset.scale||1;
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(b.w*scale)); c.height=Math.max(1,Math.round(b.h*scale));
+  const cx=c.getContext('2d');
+  cx.scale(scale,scale);
+  cx.translate(-b.x,-b.y);
+  drawList(cx,doc.frame.w,doc.frame.h,[obj]);
+  c.toBlob(cb,preset.format==='jpeg'?'image/jpeg':'image/png');
+}
+function exportObject(objId,presetId){
+  const f=findById(objId); const obj=f&&f.obj; if(!obj) return;
+  const preset=(obj.exportPresets||[]).find(p=>p.id===presetId); if(!preset) return;
+  renderObjectToBlob(obj,preset,b=>{
+    const u=URL.createObjectURL(b), el=document.createElement('a');
+    const ext=preset.format==='jpeg'?'.jpg':'.png';
+    el.href=u; el.download=(obj.name||'shape')+(preset.suffix||'')+ext; el.click();
+    setTimeout(()=>URL.revokeObjectURL(u),2000);
+  });
 }
 
 /* ---- §6.6 page commands ---- */
@@ -8316,6 +8565,8 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,
+  saveStyle, applyStyle, pushStyleToSource, detachStyle, deleteStyle, renameStyle,
+  renderObjectToBlob, exportObject,
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
