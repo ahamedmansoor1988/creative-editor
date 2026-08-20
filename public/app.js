@@ -35,11 +35,6 @@ let tool='select';
  * the user pans or zooms, which flips it to 'free'. */
 let view={z:1,x:0,y:0,mode:'fit'};
 let fxPage=0;            // engines pager
-/* Which of the collapsible Position-panel fields (corner radius, opacity,
- * transform, blend mode — see the chip row in index.html) are currently
- * expanded. Session state, not per-object or per-document: stays open as
- * you click through different shapes, same as leaving a drawer pulled out. */
-const openFields=new Set();
 /* Multi-select: selIds is the source of truth; `sel` stays the PRIMARY
  * selected index so every single-object code path (inspector, engines,
  * duplicate) keeps working unchanged. Invariant: sel>=0 implies
@@ -3614,23 +3609,6 @@ const FX_PAGES_RAW=obj=>{
   return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
-/** One collapsible Position-panel field: shows/hides its chip (based on
- *  whether the field applies to this object type), reflects its live value
- *  on the chip, and shows/hides the full control based on openFields. The
- *  field's own inputs still get their values set by the caller regardless of
- *  whether the row is currently visible, so opening it later shows the
- *  current value immediately rather than a stale one from the last object. */
-function syncFieldChip(key,rowId,applicable,valueText){
-  const cap=key[0].toUpperCase()+key.slice(1);
-  const chip=$('chip'+cap), row=$(rowId);
-  chip.style.display=applicable?'':'none';
-  if(!applicable){ row.style.display='none'; return; }
-  const open=openFields.has(key);
-  chip.classList.toggle('open',open);
-  $('chip'+cap+'V').textContent=valueText;
-  row.style.display=open?'':'none';
-}
-
 function syncInspector(){
   const obj=primary();
   // A derived instance is inspectable but never editable: showing the parent's
@@ -3693,24 +3671,26 @@ function syncInspector(){
   const tx=(obj.type==='text'&&obj.mode!=='area')||obj.type==='line'||obj.type==='path';
   $('pW').disabled=tx; $('pH').disabled=tx;
   $('pOpacity').value=Math.round(obj.opacity*100);
-  $('pOpacityV').textContent=Math.round(obj.opacity*100)+'%';
-  // Corner radius, surfaced here too (not just the Shape fx page) — only
-  // rect/polygon read obj.radius when drawing. Independent per-corner radii
-  // (rect only) have no single value to show, so the field disables rather
-  // than guessing which corner to reflect.
+  // Opacity + Corner radius sit side by side, matching Figma's "Appearance"
+  // row — permanent compact fields, not hidden behind a click-to-reveal
+  // control. Only rect/polygon read obj.radius when drawing. Independent
+  // per-corner radii (rect only) replace the single field with four, toggled
+  // via the expand button; obj.radii is the same data the Shape fx page used
+  // to own exclusively before this moved to the top level.
   const hasRadius=obj.type==='rect'||obj.type==='polygon';
   const mixedRadius=Array.isArray(obj.radii);
-  $('cornerRow').title=mixedRadius?'Corners vary — edit them individually on the Shape page.':'';
-  if(hasRadius){
+  $('cornerField').style.display=hasRadius&&!mixedRadius?'':'none';
+  $('cornerExpand').style.display=hasRadius?'':'none';
+  $('cornerExpand').classList.toggle('on',mixedRadius);
+  $('cornerExpand').title=mixedRadius?'Merge into one corner radius':'Independent corners';
+  if(hasRadius&&!mixedRadius){
     $('pRad').max=obj.type==='polygon'?120:200; // matches each type's old Shape-page slider range
-    $('pRad').disabled=mixedRadius;
-    $('pRad').value=mixedRadius?0:obj.radius||0;
-    $('pRadV').textContent=mixedRadius?'—':Math.round(obj.radius||0);
+    $('pRad').value=Math.round(obj.radius||0);
   }
-  syncFieldChip('rad','cornerRow',hasRadius,mixedRadius?'—':String(Math.round(obj.radius||0)));
-  syncFieldChip('opacity','opacityRow',true,Math.round(obj.opacity*100)+'%');
-  syncFieldChip('transform','transformRow',true,Math.round(obj.rot||0)+'°');
-  syncFieldChip('blend','blendRow',true,obj.blend||'normal');
+  $('cornerIndRow').style.display=(hasRadius&&mixedRadius)?'':'none';
+  if(hasRadius&&mixedRadius){
+    ['pRadTL','pRadTR','pRadBR','pRadBL'].forEach((id,i)=>{ $(id).value=Math.round(obj.radii[i]); });
+  }
   // §6.11/§6.12 — only meaningful for a child of a frame
   const par=(findById(obj.id)||{}).parent;
   const inFrame=par&&par.type==='frame';
@@ -4000,25 +3980,10 @@ function buildFx(obj){
         <option value="scoop">Scoop (inverted)</option></select></label>`);
       $('shSt').value=obj.cornerStyle||'round';
       $('shSt').addEventListener('change',e=>{ obj.cornerStyle=e.target.value; pushHistory(); render(); });
-      const per=Array.isArray(obj.radii);
-      add(`<label class="chk"><input type="checkbox" id="shPer" ${per?'checked':''}> Independent corners</label>`);
-      $('shPer').addEventListener('change',e=>{
-        if(e.target.checked){ const u=obj.radius||0; obj.radii=[u,u,u,u]; }
-        else delete obj.radii;
-        pushHistory(); refresh();
-      });
-      if(per){
-        ['Top left','Top right','Bottom right','Bottom left'].forEach((lab,ci)=>{
-          add(`<label class="slider">${lab} <span id="shR${ci}V">${Math.round(obj.radii[ci])}</span>
-            <input type="range" id="shR${ci}" min="0" max="200" value="${obj.radii[ci]}"></label>`);
-          $('shR'+ci).addEventListener('input',e=>{ obj.radii[ci]=+e.target.value; $(`shR${ci}V`).textContent=e.target.value; render(); });
-          $('shR'+ci).addEventListener('change',()=>pushHistory());
-        });
-      }
-      // The uniform case has no separate control here — it's the "Corner
-      // radius" field at the top of the Position panel (matches Figma: one
-      // field, with independent per-corner values expanding in place rather
-      // than living on a second, easy-to-miss tab).
+      // Radius editing (uniform or independent per-corner) lives at the top
+      // of the Position panel now, not here — matches Figma: one field, with
+      // an expand button revealing the four corners in place, rather than a
+      // second, easy-to-miss tab.
       add(`<div class="fxHint">Radii clamp to the box automatically, so non-uniform scaling never breaks a corner.</div>`);
     }
     if(obj.type==='ellipse'){
@@ -5596,22 +5561,30 @@ $('abDelete').addEventListener('click',()=>{
 });
 $('pOpacity').addEventListener('input',e=>{
   const obj=primary(); if(!obj)return;
-  obj.opacity=+e.target.value/100; $('pOpacityV').textContent=e.target.value+'%'; $('chipOpacityV').textContent=e.target.value+'%'; render();
+  obj.opacity=clamp(+e.target.value||0,5,100)/100; render();
 });
-$('pOpacity').addEventListener('change',()=>pushHistory());
+$('pOpacity').addEventListener('change',e=>{ e.target.value=Math.round(primary().opacity*100); pushHistory(); });
 $('pRad').addEventListener('input',e=>{
   const obj=primary(); if(!obj)return;
-  obj.radius=+e.target.value; $('pRadV').textContent=e.target.value; $('chipRadV').textContent=e.target.value; render();
+  const max=obj.type==='polygon'?120:200;
+  obj.radius=clamp(+e.target.value||0,0,max); render();
 });
-$('pRad').addEventListener('change',()=>pushHistory());
-// Chip row: click toggles that field's row open/closed. openFields is a
-// small Set, not per-object state, so a full syncInspector() re-derives
-// every chip/row correctly without needing bespoke show/hide logic here.
-$('fieldChips').addEventListener('click',e=>{
-  const chip=e.target.closest('.fieldChip'); if(!chip)return;
-  const key=chip.dataset.field;
-  if(openFields.has(key)) openFields.delete(key); else openFields.add(key);
-  syncInspector();
+$('pRad').addEventListener('change',e=>{ e.target.value=Math.round(primary().radius||0); pushHistory(); });
+$('cornerExpand').addEventListener('click',()=>{
+  const obj=primary(); if(!obj)return;
+  if(Array.isArray(obj.radii)) delete obj.radii;
+  else{ const u=obj.radius||0; obj.radii=[u,u,u,u]; }
+  pushHistory(); refresh();
+});
+['pRadTL','pRadTR','pRadBR','pRadBL'].forEach((id,i)=>{
+  $(id).addEventListener('input',e=>{
+    const obj=primary(); if(!obj||!Array.isArray(obj.radii))return;
+    obj.radii[i]=clamp(+e.target.value||0,0,300); render();
+  });
+  $(id).addEventListener('change',e=>{
+    const obj=primary(); if(!obj||!Array.isArray(obj.radii))return;
+    e.target.value=Math.round(obj.radii[i]); pushHistory();
+  });
 });
 document.querySelectorAll('#alignRow button').forEach(btn=>{
   btn.addEventListener('click',()=>{

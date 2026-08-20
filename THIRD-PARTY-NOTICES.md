@@ -63,7 +63,7 @@ DEALINGS IN THE SOFTWARE.
 
 - Licence: ISC
 - Copyright: Copyright (c) 2026 Lucide Icons and Contributors
-- Used for: every UI icon. 61 icons are vendored into `public/icons.js` from
+- Used for: every UI icon. 59 icons are vendored into `public/icons.js` from
   `lucide-static` v1.31.0; the path data is the icons' own source, unmodified
   apart from collapsed whitespace.
 - Full licence text:
