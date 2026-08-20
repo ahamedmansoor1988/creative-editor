@@ -46,20 +46,16 @@
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-cmd="selectAll">Select All <span>⌘A</span></button>
       <button data-cmd="deselect">Deselect <span>Esc</span></button>
-      <button data-cmd="invertSel">Invert Selection <span>⇧⌘I</span></button>
-      <button data-cmd="sameFill">Select Same Fill</button>
-      <button data-cmd="sameEffects">Select Same Effects</button>
-      <button data-cmd="sameSize">Select Same Size</button>
-      <button data-cmd="cropSel">Crop Page to Selection</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <button data-cmd="makeComponent">Create Component…</button>
-      <button data-cmd="makeSymbol">Create Symbol…</button>
-      <button data-cmd="detach">Detach Instance</button>
-      <button data-cmd="resetInstance">Reset Instance</button>
+      <!-- Hidden for now: Invert Selection, Select Same Fill/Effects/Size,
+           Crop Page to Selection, Create Component/Symbol, Detach/Reset
+           Instance, Wrap in Frame, and the compound-path pair below. The
+           commands themselves are untouched — only these menu entry points
+           are withheld, so existing documents and the panel-level buttons
+           (Instance panel's Detach/Reset, Path panel's Release compound
+           path) keep working. -->
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-cmd="group">Group <span>⌘G</span></button>
       <button data-cmd="ungroup">Ungroup <span>⇧⌘G</span></button>
-      <button data-cmd="frame">Wrap in Frame <span>⌥⌘F</span></button>
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-cmd="boolUnion">Union</button>
       <button data-cmd="boolSubtract">Subtract</button>
@@ -67,8 +63,6 @@
       <button data-cmd="boolExclude">Exclude</button>
       <button data-cmd="boolFlatten">Flatten Boolean</button>
       <button data-cmd="boolRelease">Release Boolean</button>
-      <button data-cmd="compound">Make Compound Path</button>
-      <button data-cmd="releaseCompound">Release Compound Path</button>
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-cmd="distH">Distribute Centers ⇢</button>
       <button data-cmd="distV">Distribute Centers ⇣</button>
