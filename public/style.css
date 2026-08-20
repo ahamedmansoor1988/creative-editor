@@ -453,12 +453,15 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
    an enable checkbox into a full-width bar floating above its own text. */
 label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:middle;}
 
-/* checkbox rows read as one clickable line, not a floating box + stray label */
-#fxBody label.chk{
+/* checkbox rows read as one clickable line, not a floating box + stray label.
+   Was scoped to #fxBody only; every other .chk row (artboard panel, layout
+   panel, constraints) fell back to raw inline flow, which let the checkbox
+   and its own label text land on different lines when the row got tight. */
+label.chk{
   display:flex; align-items:center; gap:7px; margin:8px 0;
   font-size:var(--text-sm); font-weight:var(--weight-medium); color:var(--muted); cursor:pointer;
 }
-#fxBody label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);}
+label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);}
 
 .gsBtns{display:flex; gap:6px;}
 .gsBtns .rollBtn{margin-top:6px;}

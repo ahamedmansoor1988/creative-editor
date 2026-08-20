@@ -277,54 +277,103 @@
       <label>W<input type="number" id="pW" step="1"></label>
       <label>H<input type="number" id="pH" step="1"></label>
     </div>
-    <div id="alignRow">
-      <button data-align="left" data-icon="alignLeft" aria-label="Align left" title="Align left"></button>
-      <button data-align="hcenter" data-icon="alignHCenter" aria-label="Center horizontally" title="Center horizontally"></button>
-      <button data-align="right" data-icon="alignRight" aria-label="Align right" title="Align right"></button>
-      <button data-align="top" data-icon="alignTop" aria-label="Align top" title="Align top"></button>
-      <button data-align="vcenter" data-icon="alignVCenter" aria-label="Center vertically" title="Center vertically"></button>
-      <button data-align="bottom" data-icon="alignBottom" aria-label="Align bottom" title="Align bottom"></button>
-    </div>
-    <label class="slider">Opacity <span id="pOpacityV">100%</span>
-      <input type="range" id="pOpacity" min="5" max="100" value="100">
-    </label>
-    <div class="grid4" style="margin-top:6px">
-      <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
-      <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
-      <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
-      <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
-    </div>
-    <div id="constraintRow" style="display:none">
+    <!-- object-only: rotation, opacity, blend, constraints, flip — none of
+         these apply to an artboard, so this block is hidden (not the whole
+         Position section) when the selection is an artboard. -->
+    <div id="objectOnlyFields">
+      <div id="alignRow">
+        <button data-align="left" data-icon="alignLeft" aria-label="Align left" title="Align left"></button>
+        <button data-align="hcenter" data-icon="alignHCenter" aria-label="Center horizontally" title="Center horizontally"></button>
+        <button data-align="right" data-icon="alignRight" aria-label="Align right" title="Align right"></button>
+        <button data-align="top" data-icon="alignTop" aria-label="Align top" title="Align top"></button>
+        <button data-align="vcenter" data-icon="alignVCenter" aria-label="Center vertically" title="Center vertically"></button>
+        <button data-align="bottom" data-icon="alignBottom" aria-label="Align bottom" title="Align bottom"></button>
+      </div>
+      <label class="slider">Opacity <span id="pOpacityV">100%</span>
+        <input type="range" id="pOpacity" min="5" max="100" value="100">
+      </label>
       <div class="grid4" style="margin-top:6px">
-        <label title="Horizontal constraint">↔<select id="cH">
-          <option value="left">Left</option><option value="right">Right</option>
-          <option value="both">Both</option><option value="center">Center</option>
-          <option value="scale">Scale</option></select></label>
-        <label title="Vertical constraint">↕<select id="cV">
-          <option value="top">Top</option><option value="bottom">Bottom</option>
-          <option value="both">Both</option><option value="center">Center</option>
-          <option value="scale">Scale</option></select></label>
+        <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
+        <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
+        <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
+        <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
       </div>
-      <div class="grid4">
-        <label title="Sizing inside a stack">⤢<select id="cSize">
-          <option value="fixed">Fixed</option><option value="hug">Hug</option>
-          <option value="fill">Fill</option></select></label>
-        <label class="chk" style="margin:0"><input type="checkbox" id="cAbs"> Absolute</label>
+      <div id="constraintRow" style="display:none">
+        <div class="grid4" style="margin-top:6px">
+          <label title="Horizontal constraint">↔<select id="cH">
+            <option value="left">Left</option><option value="right">Right</option>
+            <option value="both">Both</option><option value="center">Center</option>
+            <option value="scale">Scale</option></select></label>
+          <label title="Vertical constraint">↕<select id="cV">
+            <option value="top">Top</option><option value="bottom">Bottom</option>
+            <option value="both">Both</option><option value="center">Center</option>
+            <option value="scale">Scale</option></select></label>
+        </div>
+        <div class="grid4">
+          <label title="Sizing inside a stack">⤢<select id="cSize">
+            <option value="fixed">Fixed</option><option value="hug">Hug</option>
+            <option value="fill">Fill</option></select></label>
+          <label class="chk" style="margin:0"><input type="checkbox" id="cAbs"> Absolute</label>
+        </div>
+      </div>
+      <label class="slider" style="margin-top:2px">Blend mode
+        <select id="objBlend">
+          <option>normal</option><option>multiply</option><option>screen</option>
+          <option>overlay</option><option>darken</option><option>lighten</option>
+          <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
+          <option>soft-light</option><option>difference</option><option>exclusion</option>
+          <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
+        </select></label>
+      <div id="alignRow" style="margin-top:2px">
+        <button id="trR90L" data-icon="rotateCcw" aria-label="Rotate 90 counter-clockwise" title="Rotate 90 counter-clockwise"></button>
+        <button id="trR90R" data-icon="rotateCw" aria-label="Rotate 90 clockwise" title="Rotate 90 clockwise"></button>
+        <button id="trFlipH" data-icon="flipH" aria-label="Flip horizontal" title="Flip horizontal"></button>
+        <button id="trFlipV" data-icon="flipV" aria-label="Flip vertical" title="Flip vertical"></button>
       </div>
     </div>
-    <label class="slider" style="margin-top:2px">Blend mode
-      <select id="objBlend">
-        <option>normal</option><option>multiply</option><option>screen</option>
-        <option>overlay</option><option>darken</option><option>lighten</option>
-        <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
-        <option>soft-light</option><option>difference</option><option>exclusion</option>
-        <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
+  </div>
+
+  <!-- shown only when the selection is an artboard (no object selected) -->
+  <div id="artboardPanel" style="display:none">
+    <hr>
+    <div class="secTitle">Artboard</div>
+    <label class="slider">Name<input type="text" id="abName" maxlength="60" aria-label="Artboard name"></label>
+    <div class="grid4" style="margin-top:6px">
+      <label title="Size preset" style="grid-column:span 3">⤢<select id="abPreset" aria-label="Size preset">
+        <option value="">Custom size…</option>
+        <optgroup label="Desktop">
+          <option value="1440x1024">Desktop — 1440×1024</option>
+          <option value="1920x1080">Desktop HD — 1920×1080</option>
+        </optgroup>
+        <optgroup label="Mobile">
+          <option value="375x812">iPhone — 375×812</option>
+          <option value="390x844">iPhone 14/15 — 390×844</option>
+          <option value="360x800">Android — 360×800</option>
+        </optgroup>
+        <optgroup label="Tablet">
+          <option value="768x1024">iPad — 768×1024</option>
+          <option value="834x1194">iPad Pro 11″ — 834×1194</option>
+        </optgroup>
+        <optgroup label="Social">
+          <option value="1080x1080">Square post — 1080×1080</option>
+          <option value="1080x1920">Story/Reel — 1080×1920</option>
+          <option value="1200x630">Link preview — 1200×630</option>
+        </optgroup>
+        <optgroup label="Print">
+          <option value="2480x3508">A4 @300dpi — 2480×3508</option>
+        </optgroup>
       </select></label>
-    <div id="alignRow" style="margin-top:2px">
-      <button id="trR90L" data-icon="rotateCcw" aria-label="Rotate 90 counter-clockwise" title="Rotate 90 counter-clockwise"></button>
-      <button id="trR90R" data-icon="rotateCw" aria-label="Rotate 90 clockwise" title="Rotate 90 clockwise"></button>
-      <button id="trFlipH" data-icon="flipH" aria-label="Flip horizontal" title="Flip horizontal"></button>
-      <button id="trFlipV" data-icon="flipV" aria-label="Flip vertical" title="Flip vertical"></button>
+      <button id="abSwap" data-icon="shuffle" aria-label="Swap width and height" title="Swap width and height"></button>
+    </div>
+    <label class="slider" style="margin-top:6px">Background
+      <input type="color" id="abBg" aria-label="Artboard background color">
+    </label>
+    <label class="chk"><input type="checkbox" id="abClip"> Clip content</label>
+    <label class="chk"><input type="checkbox" id="abLocked"> Locked</label>
+    <label class="chk"><input type="checkbox" id="abShow"> Visible</label>
+    <div class="grid4" style="margin-top:8px">
+      <button id="abDuplicate" style="grid-column:span 2">Duplicate</button>
+      <button id="abDelete" style="grid-column:span 2">Delete</button>
     </div>
   </div>
 

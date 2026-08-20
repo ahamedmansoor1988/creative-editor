@@ -1099,7 +1099,7 @@ function artboardLabelAt(p){
   ctx2.font=`${11/z}px ${getComputedStyle(document.body).fontFamily}`;
   const hit=(doc.frame.artboards||[]).find(a=>{
     if(!a.show) return false;
-    const w=ctx2.measureText(a.name).width;
+    const w=ctx2.measureText(a.name).width+(a.locked?13/z:0);   // room for the lock glyph
     return p.x>=a.x&&p.x<=a.x+Math.max(w,24)&&p.y>=a.y-18/z&&p.y<=a.y;
   })||null;
   ctx2.restore();
@@ -2775,6 +2775,14 @@ function pageToUiX(x){ return x-coordOrigin().x; }
 function pageToUiY(y){ return y-coordOrigin().y; }
 function uiToPageX(x){ return x+coordOrigin().x; }
 function uiToPageY(y){ return y+coordOrigin().y; }
+/* An object's Position panel reads relative to the artboard it sits in (its
+ * top-left is 0,0), matching Figma/Illustrator frame-relative coordinates —
+ * not the page-center origin the ruler itself uses. Loose objects outside
+ * any artboard fall back to that page-center origin, same as before. */
+function objPosOrigin(obj){
+  const ab=artboardOf(obj);
+  return ab?{x:ab.x,y:ab.y}:coordOrigin();
+}
 function fitView(){
   if(!doc) return;
   const f=doc.frame, stage=$('stage');
@@ -3013,9 +3021,24 @@ function paint(){
     ctx.lineWidth=(isSel?1.6:1)/z;
     ctx.strokeRect(a.x,a.y,a.w,a.h);
     ctx.font=`${11/z}px ${getComputedStyle(document.body).fontFamily}`;
-    ctx.fillStyle=isSel?'#3b82f6':'#8a8d93';
+    const labelColor=isSel?'#3b82f6':'#8a8d93';
+    ctx.fillStyle=labelColor;
     ctx.textBaseline='bottom';
-    ctx.fillText(a.name,a.x,a.y-4/z);
+    let tx=a.x;
+    if(a.locked){
+      // Same silhouette as the layers-panel lock icon (icons.js), drawn directly
+      // since canvas text can't pull in the SVG icon set — so a locked board is
+      // visible from the label alone, not just the panel, the moment you look at it.
+      const s=9/z, cy=a.y-4/z-s*0.5;
+      ctx.save();
+      ctx.strokeStyle=labelColor; ctx.fillStyle=labelColor;
+      ctx.lineWidth=1.3/z;
+      ctx.beginPath(); ctx.arc(a.x+s*0.5,cy-s*0.14,s*0.3,Math.PI,0,false); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(a.x,cy-s*0.14,s,s*0.62,1/z); ctx.fill();
+      ctx.restore();
+      tx+=s+4/z;
+    }
+    ctx.fillText(a.name,tx,a.y-4/z);
     ctx.restore();
   });
   // §2.11 guides — full-viewport lines so they read outside the page too
@@ -3498,6 +3521,7 @@ function syncInspector(){
     $('posSection').classList.add('disabled');
     $('engineSection').classList.add('disabled');
     $('engineSection').style.display='none';
+    $('artboardPanel').style.display='none';
     const hint=$('noSel');
     hint.style.display='';
     hint.innerHTML='';
@@ -3515,13 +3539,35 @@ function syncInspector(){
     return;
   }
   if($('noSel').firstChild&&$('noSel').querySelector('.instHint')) $('noSel').textContent='Select an element to edit it.';
+  // An artboard is not an object (no opacity/rotation/blend/constraints), but
+  // the user's own ask was specific: selecting or creating an artboard should
+  // open Position — X/Y/W/H — rather than leave the whole panel greyed out.
+  // So posSection stays enabled and reuses those four fields; everything
+  // object-only collapses, and a dedicated Artboard section carries the
+  // properties that only make sense for a board (name, background, clip,
+  // lock/visibility, size presets, duplicate/delete).
+  const ab=(!obj&&selArtboard)?(doc.frame.artboards||[]).find(a=>a.id===selArtboard):null;
+  $('objectOnlyFields').style.display=(obj&&!ab)?'':'none';
+  $('artboardPanel').style.display=ab?'':'none';
+  if(ab){
+    $('posSection').classList.remove('disabled');
+    $('engineSection').classList.add('disabled');
+    $('engineSection').style.display='none';
+    $('noSel').style.display='none';
+    $('pX').value=Math.round(pageToUiX(ab.x)); $('pY').value=Math.round(pageToUiY(ab.y));
+    $('pW').value=Math.round(ab.w); $('pH').value=Math.round(ab.h);
+    $('pW').disabled=false; $('pH').disabled=false;
+    syncArtboardPanel(ab);
+    return;
+  }
   $('posSection').classList.toggle('disabled',!obj);
   $('engineSection').classList.toggle('disabled',!obj);
   $('engineSection').style.display=obj?'':'none';
   $('noSel').style.display=obj?'none':'';
   if(!obj) return;
   const b=boxOf(obj);
-  $('pX').value=Math.round(pageToUiX(obj.x)); $('pY').value=Math.round(pageToUiY(obj.y));
+  const orig=objPosOrigin(obj);
+  $('pX').value=Math.round(obj.x-orig.x); $('pY').value=Math.round(obj.y-orig.y);
   $('pW').value=Math.round(b.w); $('pH').value=Math.round(b.h);
   const tx=(obj.type==='text'&&obj.mode!=='area')||obj.type==='line'||obj.type==='path';
   $('pW').disabled=tx; $('pH').disabled=tx;
@@ -3652,6 +3698,22 @@ function syncLayoutPanel(obj){
   $('lyPB').value=pad.b||0; $('lyPL').value=pad.l||0;
   $('lyAlign').value=L.align||'start';
   $('lyJustify').value=L.justify||'start';
+}
+
+/** Populates the Artboard section. X/Y/W/H live in the shared Position
+ *  fields (see syncInspector) so this only covers what is artboard-specific. */
+function syncArtboardPanel(ab){
+  $('abName').value=ab.name||'';
+  $('abBg').value=/^#[0-9a-fA-F]{6}$/.test(ab.bg||'')?ab.bg:'#ffffff';
+  $('abClip').checked=ab.clip!==false;
+  $('abLocked').checked=!!ab.locked;
+  $('abShow').checked=ab.show!==false;
+  // Reflects the CURRENT size as a preset when it happens to match one
+  // exactly; otherwise "Custom size…". Never overwrites W/H itself — this is
+  // read-only reflection, so typing into W/H can't fight the dropdown.
+  const key=Math.round(ab.w)+'x'+Math.round(ab.h);
+  const preset=$('abPreset');
+  preset.value=[...preset.options].some(o=>o.value===key)?key:'';
 }
 
 /* Is this engine doing anything on this object? Drives the dot in the engine
@@ -5197,15 +5259,47 @@ $('engineSearch').addEventListener('keydown',e=>{
 });
 
 /* ---- position inputs ---- */
+/** The artboard currently backing the Position fields, or null when an
+ *  ordinary object owns them. One helper so every X/Y/W/H input agrees on
+ *  which artboard is live without re-deriving it four times. */
+function posArtboard(){
+  return (!primary()&&selArtboard)?(doc.frame.artboards||[]).find(a=>a.id===selArtboard):null;
+}
 [['pX','x'],['pY','y'],['pW','w'],['pH','h']].forEach(([id,k])=>{
   $(id).addEventListener('input',e=>{
-    const obj=primary(); if(!obj)return;
     const v=parseFloat(e.target.value); if(isNaN(v))return;
+    const ab=posArtboard();
+    if(ab){
+      if(k==='x'||k==='y'){
+        // The board's CONTENT moves with it — objects are placed in absolute
+        // page coordinates, so leaving them behind would visually strand
+        // everything the user just dragged the board away from.
+        const target=k==='x'?uiToPageX(v):uiToPageY(v);
+        const dv=target-ab[k];
+        if(!ab.locked){
+          ab[k]=target;
+          objectsInArtboard(ab).forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
+        }
+      }else if(!ab.locked){
+        ab[k]=clamp(Math.round(v),20,8000);
+      }
+      growFrameToArtboards();
+      // growFrameToArtboards() can grow doc.frame.w/h, which moves
+      // coordOrigin() (page-center) and therefore the ruler-relative X/Y this
+      // very panel shows — resync those two fields so they never display a
+      // stale value after an edit that shifted the origin out from under them.
+      $('pX').value=Math.round(pageToUiX(ab.x)); $('pY').value=Math.round(pageToUiY(ab.y));
+      render();
+      return;
+    }
+    const obj=primary(); if(!obj)return;
     if(obj.type==='text'&&(k==='w'||k==='h'))return;
     if(k==='x'||k==='y'){
       // translate (a line carries both endpoints); a multi-selection moves
-      // as a set by the delta
-      const target=k==='x'?uiToPageX(v):uiToPageY(v);
+      // as a set by the delta. Typed X/Y is relative to the PRIMARY object's
+      // own artboard (objPosOrigin), matching what the panel now displays.
+      const orig=objPosOrigin(obj);
+      const target=k==='x'?(v+orig.x):(v+orig.y);
       const dv=target-obj[k];
       const os=selIds.size>1?selObjs():[obj];
       os.forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
@@ -5213,7 +5307,56 @@ $('engineSearch').addEventListener('keydown',e=>{
     else obj[k]=v;
     render();
   });
-  $(id).addEventListener('change',()=>pushHistory());
+  $(id).addEventListener('change',()=>pushHistory(posArtboard()?'Edit artboard':undefined));
+});
+
+/* ---- artboard panel ---- */
+$('abName').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  ab.name=e.target.value.slice(0,60);
+  syncLayers();
+});
+$('abName').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Rename artboard'); });
+$('abBg').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  ab.bg=e.target.value; render();
+});
+$('abBg').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Artboard background'); });
+[['abClip','clip','Clip content'],['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
+  .forEach(([id,key,label])=>{
+    $(id).addEventListener('change',e=>{
+      const ab=posArtboard(); if(!ab)return;
+      ab[key]=e.target.checked;
+      if(key==='locked'){
+        // mirrors the layer-panel lock button: a selection stuck inside a
+        // freshly-locked board must not silently keep editing it
+        setSelIds(new Set([...selIds].filter(id2=>{
+          const f=findById(id2); return f&&selectable(f.obj);
+        })));
+      }
+      pushHistory(label); refresh();
+    });
+  });
+$('abPreset').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab||!e.target.value)return;
+  const [w,h]=e.target.value.split('x').map(Number);
+  ab.w=clamp(w,20,8000); ab.h=clamp(h,20,8000);
+  growFrameToArtboards();
+  pushHistory('Resize artboard'); refresh();
+});
+$('abSwap').addEventListener('click',()=>{
+  const ab=posArtboard(); if(!ab)return;
+  [ab.w,ab.h]=[ab.h,ab.w];
+  growFrameToArtboards();
+  pushHistory('Swap artboard dimensions'); refresh();
+});
+$('abDuplicate').addEventListener('click',()=>{ const ab=posArtboard(); if(ab) duplicateArtboard(ab.id); });
+$('abDelete').addEventListener('click',()=>{
+  const ab=posArtboard(); if(!ab)return;
+  if((doc.frame.artboards||[]).length<=1){ alert('The document needs at least one artboard.'); return; }
+  const n=objectsInArtboard(ab).length;
+  const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
+  removeArtboard(ab.id,withContent);
 });
 $('pOpacity').addEventListener('input',e=>{
   const obj=primary(); if(!obj)return;
@@ -5771,6 +5914,12 @@ canvas.addEventListener('pointerdown',e=>{
     if(lab){
       selArtboard=lab.id;
       setSelIds(new Set()); selInstance=null;
+      // Dragging the label repositions the board (Figma/Illustrator convention).
+      // Content follows: capture every contained object's start position too,
+      // same as a multi-object move, so it translates live with the board.
+      drag={mode:'abMove',moved:false,ab:lab,ox:lab.x,oy:lab.y,px:p.x,py:p.y,
+        offs:objectsInArtboard(lab).map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2}))};
+      cap();
       refresh(); return;
     }
     // empty space: marquee. Plain drag replaces the selection, shift adds.
@@ -5973,6 +6122,23 @@ canvas.addEventListener('pointermove',e=>{
     }
     if(drag.end===1){ o.x=Math.round(nx); o.y=Math.round(ny); }
     else{ o.x2=Math.round(nx); o.y2=Math.round(ny); }
+    render(); syncInspector(); return;
+  }
+  if(drag.mode==='abMove'){
+    drag.moved=true;
+    let ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
+    if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
+    const ab=drag.ab;
+    if(!ab.locked){
+      ab.x=drag.ox+ddx; ab.y=drag.oy+ddy;
+      // content follows the board, exactly like the panel's X/Y inputs
+      drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
+        if(o.locked) return;
+        o.x=ox+ddx; o.y=oy+ddy;
+        if(o.type==='line'){ o.x2=ox2+ddx; o.y2=oy2+ddy; }
+      });
+      growFrameToArtboards();
+    }
     render(); syncInspector(); return;
   }
   if(drag.mode==='move'){
@@ -6195,6 +6361,8 @@ const endDrag=e=>{
     pushHistory(); refresh(); return;
   }
   if(d.mode==='resize'){ pushHistory(); refresh(); return; }
+  if(d.mode==='abMove'&&!d.moved) return;    // plain click on the label: already selected, nothing changed
+  if(d.mode==='abMove'){ pushHistory('Move artboard'); return; }
   if(d.mode==='move'&&!d.moved){
     if(d.dup){
       // §1.1 alt-CLICK (no drag) cycles depth through overlapping objects
