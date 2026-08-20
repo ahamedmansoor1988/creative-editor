@@ -3823,9 +3823,16 @@ function syncLayoutPanel(obj){
 function syncArtboardPanel(ab){
   $('abName').value=ab.name||'';
   $('abBg').value=/^#[0-9a-fA-F]{6}$/.test(ab.bg||'')?ab.bg:'#ffffff';
-  $('abClip').checked=ab.clip!==false;
-  $('abLocked').checked=!!ab.locked;
-  $('abShow').checked=ab.show!==false;
+  // Icon toggles, not checkboxes — state lives on aria-pressed, and lock and
+  // visibility swap their glyph the way the layer list's own toggles do.
+  const tgl=(id,on,icon)=>{
+    const b=$(id);
+    b.setAttribute('aria-pressed',on?'true':'false');
+    if(icon&&window.Icons) b.innerHTML=Icons.svg(icon);
+  };
+  tgl('abClip',ab.clip!==false);
+  tgl('abLocked',!!ab.locked,ab.locked?'lock':'unlock');
+  tgl('abShow',ab.show!==false,ab.show!==false?'eye':'eyeOff');
   // Reflects the CURRENT size as a preset when it happens to match one
   // exactly; otherwise "Custom size…". Never overwrites W/H itself — this is
   // read-only reflection, so typing into W/H can't fight the dropdown.
@@ -5525,9 +5532,13 @@ $('abBg').addEventListener('input',e=>{
 $('abBg').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Artboard background'); });
 [['abClip','clip','Clip content'],['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
   .forEach(([id,key,label])=>{
-    $(id).addEventListener('change',e=>{
+    // icon toggles: click flips the flag, aria-pressed is resynced by
+    // syncArtboardPanel on the refresh below
+    $(id).addEventListener('click',()=>{
       const ab=posArtboard(); if(!ab)return;
-      ab[key]=e.target.checked;
+      ab[key]=key==='clip'?!(ab.clip!==false)
+             :key==='show'?!(ab.show!==false)
+             :!ab.locked;
       if(key==='locked'){
         // mirrors the layer-panel lock button: a selection stuck inside a
         // freshly-locked board must not silently keep editing it

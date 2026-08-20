@@ -373,6 +373,30 @@ body.panel-left-collapsed #sidebar{
   display:inline-flex; align-items:center; justify-content:center; min-height:26px;
 }
 #alignRow button:hover{background:var(--surface-hover);}
+/* An icon standing in for a text label, followed by its control — lets a
+   panel row carry its meaning without a word of prose above it. */
+.iconField{display:flex; align-items:center; gap:6px; margin-bottom:10px; color:var(--muted);}
+.iconField > i{flex:0 0 auto; display:inline-flex;}
+.iconField input, .iconField select{
+  flex:1 1 auto; min-width:0; width:100%;
+  border:1px solid var(--line); border-radius:6px; padding:5px 6px;
+  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
+}
+.iconField input[type=color]{padding:2px; height:28px; cursor:pointer;}
+/* Icon toggles for on/off state (clip, lock, visibility) — pressed state is
+   the same accent treatment the layer list's lock/eye toggles use. */
+.iconToggleRow{display:flex; gap:3px; margin-bottom:10px;}
+.iconToggleRow button{
+  flex:1; border:1px solid var(--line); background:none; border-radius:6px;
+  padding:4px 0; cursor:pointer; color:var(--icon);
+  display:inline-flex; align-items:center; justify-content:center; min-height:26px;
+}
+.iconToggleRow button:hover{background:var(--surface-hover);}
+.iconToggleRow button[aria-pressed="true"]{
+  background:var(--surface-accent); color:var(--accent); border-color:transparent;
+}
+/* A button carrying both an icon and its label. */
+.iconBtn{display:inline-flex; align-items:center; justify-content:center; gap:6px;}
 label.slider{display:block; font-size:var(--text-sm); font-weight:var(--weight-medium);
   color:var(--muted); margin:8px 0;}
 label.slider span{float:right; color:var(--text);}

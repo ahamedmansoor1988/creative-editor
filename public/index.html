@@ -351,9 +351,9 @@
   <div id="artboardPanel" style="display:none">
     <hr>
     <div class="secTitle">Artboard</div>
-    <label class="slider">Name<input type="text" id="abName" maxlength="60" aria-label="Artboard name"></label>
+    <label class="iconField" title="Artboard name"><i data-icon="text"></i><input type="text" id="abName" maxlength="60" placeholder="Name" aria-label="Artboard name"></label>
     <div class="grid4" style="margin-top:6px">
-      <label title="Size preset" style="grid-column:span 3">⤢<select id="abPreset" aria-label="Size preset">
+      <label class="iconField" title="Size preset" style="grid-column:span 3"><i data-icon="frame"></i><select id="abPreset" aria-label="Size preset">
         <option value="">Custom size…</option>
         <optgroup label="Desktop">
           <option value="1440x1024">Desktop — 1440×1024</option>
@@ -379,15 +379,21 @@
       </select></label>
       <button id="abSwap" data-icon="shuffle" aria-label="Swap width and height" title="Swap width and height"></button>
     </div>
-    <label class="slider" style="margin-top:6px">Background
+    <label class="iconField" title="Background colour" style="margin-top:6px"><i data-icon="palette"></i>
       <input type="color" id="abBg" aria-label="Artboard background color">
     </label>
-    <label class="chk"><input type="checkbox" id="abClip"> Clip content</label>
-    <label class="chk"><input type="checkbox" id="abLocked"> Locked</label>
-    <label class="chk"><input type="checkbox" id="abShow"> Visible</label>
+    <!-- Clip / lock / visibility as icon toggles rather than three labelled
+         checkbox rows — the same affordance Figma and Photoshop use for these
+         exact three, and the layer list already uses for lock and eye. State
+         is carried on aria-pressed (see syncArtboardPanel), not .checked. -->
+    <div id="abToggles" class="iconToggleRow">
+      <button type="button" id="abClip" data-icon="crop" aria-pressed="false" aria-label="Clip content" title="Clip content"></button>
+      <button type="button" id="abLocked" data-icon="unlock" aria-pressed="false" aria-label="Lock artboard" title="Lock artboard"></button>
+      <button type="button" id="abShow" data-icon="eye" aria-pressed="true" aria-label="Artboard visibility" title="Artboard visibility"></button>
+    </div>
     <div class="grid4" style="margin-top:8px">
-      <button id="abDuplicate" style="grid-column:span 2">Duplicate</button>
-      <button id="abDelete" style="grid-column:span 2">Delete</button>
+      <button id="abDuplicate" class="iconBtn" style="grid-column:span 2"><i data-icon="duplicate"></i>Duplicate</button>
+      <button id="abDelete" class="iconBtn" style="grid-column:span 2"><i data-icon="trash"></i>Delete</button>
     </div>
   </div>
 
