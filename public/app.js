@@ -8177,11 +8177,13 @@ document.addEventListener('keydown',e=>{
   else if(meta&&e.key==='d'){ e.preventDefault(); duplicateSel(); }
   else if(meta&&e.key.toLowerCase()==='g'&&!e.shiftKey){ e.preventDefault(); groupSel(false); }
   else if(meta&&e.shiftKey&&e.key.toLowerCase()==='g'){ e.preventDefault(); ungroupSel(); }
-  else if(meta&&e.altKey&&e.key.toLowerCase()==='f'){ e.preventDefault(); groupSel(true); }
+  /* ⌥⌘F (Wrap in Frame) and ⇧⌘I (Invert Selection) are deliberately absent:
+   * both commands are withheld from the Edit menu, and a shortcut for a
+   * command with no visible entry point is unreachable by discovery but still
+   * firable by accident. The commands themselves stay in CMDS. */
   else if(meta&&e.key.toLowerCase()==='c'){ e.preventDefault(); copySel(); }
   else if(meta&&e.key.toLowerCase()==='v'){ e.preventDefault(); pasteClip(); }
   else if(meta&&e.key.toLowerCase()==='a'){ e.preventDefault(); selectAllCmd(); }
-  else if(meta&&e.shiftKey&&e.key.toLowerCase()==='i'){ e.preventDefault(); invertSelCmd(); }
   else if(meta&&e.key==='0'){ e.preventDefault(); view.mode='fit'; paint(); }
   else if(meta&&e.key==='1'){ e.preventDefault(); zoomTo(1); }
   else if(meta&&e.key==='2'){ e.preventDefault(); zoomTo(2); }

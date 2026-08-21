@@ -27,7 +27,7 @@ non-destructive effect stack) exists so the first two have somewhere to live.
 
 ```bash
 npm start          # http://localhost:8470
-npm run verify     # prettier + eslint + tsc + vitest, 121 tests
+npm run verify     # prettier + eslint + tsc + vitest, 136 tests
 ```
 
 `.env` holds `GROQ_API_KEY`; it is gitignored and has never been committed. The
@@ -39,7 +39,7 @@ works fully — only the Generate bar is unavailable.
 | File                                                                            | Role                                                                                                                               |
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `server.js`                                                                     | Static server + `/api/generate`. Holds `BASE_SCHEMA` and the `CAPABILITIES` registry that injects per-engine docs into the prompt. |
-| `public/app.js`                                                                 | The editor. ~7,100 lines: document model, normalizer, renderer, tools, panels, persistence.                                        |
+| `public/app.js`                                                                 | The editor. ~8,600 lines: document model, normalizer, renderer, tools, panels, persistence.                                        |
 | `public/fxstack.js`                                                             | Effect-stack registry — which effects exist, what slot each composites in.                                                         |
 | `public/history.js`                                                             | Undo/redo as structural diffs. Exposes `window.EditHistory`.                                                                       |
 | `public/components.js`                                                          | Components, symbols, constraints, stack layout.                                                                                    |
@@ -82,11 +82,25 @@ Also: shaders are original or the author's own, logged in
 
 ## Where it stands
 
-Green: `npm run verify` passes, 121 tests across 4 files.
+Green: `npm run verify` passes, 136 tests across 5 files.
 
-Done recently: document persistence (autosave + save/open + unload guard), a
-per-object render error boundary, a ~4x cut in the cost of committing an edit,
-and the paint cache that made dragging viable at scale.
+Done recently: an artboard properties panel (select a board and Position plus
+name/preset/background/clip/lock/visibility open) and drag-to-move for
+artboards by their canvas label; per-shape export presets (format, scale,
+suffix) that rasterise one object in isolation; reusable appearance styles —
+save a shape's fill/stroke/effects as a named style, apply it elsewhere, push
+edits back out to every linked shape; Align and Distribute moved into View as
+flyout submenus. Before that: document persistence (autosave + save/open +
+unload guard), a per-object render error boundary, a ~4x cut in the cost of
+committing an edit, and the paint cache that made dragging viable at scale.
+
+Some commands are deliberately withheld from the menus while unfinished —
+Invert Selection, Select Same Fill/Effects/Size, Crop Page to Selection,
+Create Component/Symbol, Detach/Reset Instance, Wrap in Frame, and
+Make/Release Compound Path. The commands remain in `CMDS` and the panel-level
+buttons (Instance panel's Detach/Reset, Path panel's Release compound path)
+still work; only the menu entry points and the two matching keyboard
+shortcuts are gone. Restoring one is re-adding its `<button data-cmd>`.
 
 Open work is tracked in `SPEC-PROGRESS.md` under "What is left". The headline
 items: §4.2 variable-width stroke profiles (which alone unblocks §1.4 and §1.6),
@@ -94,6 +108,6 @@ items: §4.2 variable-width stroke profiles (which alone unblocks §1.4 and §1.
 absent, and the single biggest reason a team would not adopt this. Competitive
 position is written up separately.
 
-`public/app.js` at ~7,100 lines is the main drag on velocity. Splitting it is
+`public/app.js` at ~8,600 lines is the main drag on velocity. Splitting it is
 the highest-value refactor available and has been deliberately deferred as
 invisible to users.

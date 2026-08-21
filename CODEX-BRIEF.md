@@ -10,7 +10,7 @@ Repo: `~/Desktop/creative-editor` — `github.com/ahamedmansoor1988/creative-edi
 
 ```bash
 npm start        # http://localhost:8470
-npm run verify   # prettier + eslint + tsc + vitest — currently GREEN at 121 tests
+npm run verify   # prettier + eslint + tsc + vitest — currently GREEN at 136 tests
 ```
 
 Read `HANDOFF.md` first. It is current and covers the architecture, the traps,
@@ -96,7 +96,7 @@ deployed for real users?"_, not _"does it run?"_.
 - **Performance**: per-object paint cache; committing an edit went 108ms → 16ms
   on a 600-object document; ~56fps dragging at 600 objects.
 - **Test suite**: was silently only running 45 of 121 tests — two files never
-  loaded at all. Now 121 pass, and `npm run verify` exits 0.
+  loaded at all. Now all 136 pass, and `npm run verify` exits 0.
 
 ### Known gaps I would want your judgement on
 
@@ -104,7 +104,7 @@ deployed for real users?"_, not _"does it run?"_.
   Groq API key. `server.listen(PORT)` binds `0.0.0.0`, not localhost.
 - **No telemetry**: client errors reach the console and the status bar, i.e.
   only someone sitting at the machine.
-- **`public/app.js` is ~7,100 lines.** The single biggest drag on velocity.
+- **`public/app.js` is ~8,600 lines.** The single biggest drag on velocity.
   Splitting it is the highest-value refactor available and has been deferred as
   invisible to users. Tell me if you disagree.
 - **No minification**: ~647KB of unminified JS.

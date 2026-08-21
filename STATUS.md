@@ -46,7 +46,7 @@ working session. This is intentional curation, not breakage.
 ## Quality gates
 
 `npm run verify` — prettier, eslint, tsc, vitest — exits 0.
-121 tests across 4 files, including editor-document characterization tests
+136 tests across 5 files, including editor-document characterization tests
 that run the real `app.js` under jsdom.
 
 ## Known gaps (the honest list)
