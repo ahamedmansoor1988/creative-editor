@@ -63,16 +63,35 @@
       <button data-cmd="boolExclude">Exclude</button>
       <button data-cmd="boolFlatten">Flatten Boolean</button>
       <button data-cmd="boolRelease">Release Boolean</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <button data-cmd="distH">Distribute Centers ⇢</button>
-      <button data-cmd="distV">Distribute Centers ⇣</button>
-      <button data-cmd="distHGap">Distribute Gaps ⇢</button>
-      <button data-cmd="distVGap">Distribute Gaps ⇣</button>
-      <button data-cmd="distExact">Distribute Exact Spacing…</button>
     </div>
   </div>
   <div class="menu" data-menu="view">View
-    <div class="dropdown">
+    <!-- hasSub drops the scroll cap: a submenu flies out sideways, and an
+         overflow-y container would clip it. Safe here because View is short
+         enough to fit without scrolling. -->
+    <div class="dropdown hasSub">
+      <div class="submenu">
+        <button type="button" class="subLabel">Align <span>›</span></button>
+        <div class="subItems">
+          <button data-cmd="alignLeft">Align left</button>
+          <button data-cmd="alignHCenter">Center horizontally</button>
+          <button data-cmd="alignRight">Align right</button>
+          <button data-cmd="alignTop">Align top</button>
+          <button data-cmd="alignVCenter">Center vertically</button>
+          <button data-cmd="alignBottom">Align bottom</button>
+        </div>
+      </div>
+      <div class="submenu">
+        <button type="button" class="subLabel">Distribute <span>›</span></button>
+        <div class="subItems">
+          <button data-cmd="distH">Distribute Centers ⇢</button>
+          <button data-cmd="distV">Distribute Centers ⇣</button>
+          <button data-cmd="distHGap">Distribute Gaps ⇢</button>
+          <button data-cmd="distVGap">Distribute Gaps ⇣</button>
+          <button data-cmd="distExact">Distribute Exact Spacing…</button>
+        </div>
+      </div>
+      <div class="menuDivider" aria-hidden="true"></div>
       <button data-cmd="zoomFit">Fit page <span>⌘0</span></button>
       <button data-cmd="zoomActual">100% <span>⌘1</span></button>
       <button data-cmd="zoom200">200% <span>⌘2</span></button>

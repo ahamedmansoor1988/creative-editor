@@ -164,6 +164,24 @@ textarea:focus-visible,
   content:"✓";
 }
 .dropdown button:hover{background:var(--surface-accent); color:var(--accent);}
+/* Nested submenu: a labelled row that flies its items out to the side.
+   The parent dropdown must not clip, hence .hasSub above. */
+.dropdown.hasSub{max-height:none; overflow:visible;}
+.submenu{position:relative;}
+.submenu > .subLabel > span{
+  margin-left:auto; color:var(--muted); font-size:var(--text-base); line-height:1;
+}
+.submenu > .subItems{
+  display:none; position:absolute; left:100%; top:-8px; margin-left:2px;
+  min-width:210px; background:var(--panel); border:1px solid var(--line);
+  border-radius:12px; padding:8px; z-index:60;
+  box-shadow:0 18px 44px rgba(15,23,42,.14), 0 2px 6px rgba(15,23,42,.08);
+}
+/* Hover keeps it open while the pointer travels; focus-within keeps keyboard
+   users in, since tabbing into a display:none subtree is impossible. */
+.submenu:hover > .subItems,
+.submenu:focus-within > .subItems{display:block;}
+.submenu:hover > .subLabel{background:var(--surface-accent); color:var(--accent);}
 .dropdown button span{
   margin-left:auto; color:var(--muted); font-size:var(--text-sm);
   font-weight:var(--weight-regular); line-height:1;

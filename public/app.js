@@ -5597,33 +5597,36 @@ $('cornerExpand').addEventListener('click',()=>{
     e.target.value=Math.round(obj.radii[i]); pushHistory();
   });
 });
-document.querySelectorAll('#alignRow button').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
-    const f=doc.frame;
-    /* §2.8: what to align RELATIVE TO. With one object selected the artboard
-     * is the only sensible frame; with several, the selection's own bounds is
-     * the expected behaviour, and the PRIMARY object acts as the key object
-     * when alignTo is set to it. */
-    let R;
-    if(alignTo==='artboard'||os.length===1) R={x:0,y:0,w:f.w,h:f.h};
-    else if(alignTo==='key'){ const k=primary(); R=k?aabbOf(k):selBounds(); }
-    else R=selBounds();
-    os.forEach(obj=>{
-      const b=aabbOf(obj);
-      let dx=0, dy=0;
-      switch(btn.dataset.align){
-        case 'left': dx=R.x-b.x; break;
-        case 'hcenter': dx=R.x+(R.w-b.w)/2-b.x; break;
-        case 'right': dx=R.x+R.w-b.w-b.x; break;
-        case 'top': dy=R.y-b.y; break;
-        case 'vcenter': dy=R.y+(R.h-b.h)/2-b.y; break;
-        case 'bottom': dy=R.y+R.h-b.h-b.y; break;
-      }
-      translateObj(obj,dx,dy);
-    });
-    pushHistory(); refresh();
+/** §2.8 align the selection. Shared by the panel's icon row and the
+ *  View ▸ Align menu, so both stay in step by construction. */
+function alignSel(mode){
+  const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+  const f=doc.frame;
+  /* §2.8: what to align RELATIVE TO. With one object selected the artboard
+   * is the only sensible frame; with several, the selection's own bounds is
+   * the expected behaviour, and the PRIMARY object acts as the key object
+   * when alignTo is set to it. */
+  let R;
+  if(alignTo==='artboard'||os.length===1) R={x:0,y:0,w:f.w,h:f.h};
+  else if(alignTo==='key'){ const k=primary(); R=k?aabbOf(k):selBounds(); }
+  else R=selBounds();
+  os.forEach(obj=>{
+    const b=aabbOf(obj);
+    let dx=0, dy=0;
+    switch(mode){
+      case 'left': dx=R.x-b.x; break;
+      case 'hcenter': dx=R.x+(R.w-b.w)/2-b.x; break;
+      case 'right': dx=R.x+R.w-b.w-b.x; break;
+      case 'top': dy=R.y-b.y; break;
+      case 'vcenter': dy=R.y+(R.h-b.h)/2-b.y; break;
+      case 'bottom': dy=R.y+R.h-b.h-b.y; break;
+    }
+    translateObj(obj,dx,dy);
   });
+  pushHistory(); refresh();
+}
+document.querySelectorAll('#alignRow button').forEach(btn=>{
+  btn.addEventListener('click',()=>alignSel(btn.dataset.align));
 });
 
 /* ---- Transform section (§2.2–2.5 numeric) ---- */
@@ -8067,6 +8070,12 @@ const CMDS={
   zoomSel:zoomToSelection,
   selectAll:selectAllCmd, deselect:deselectCmd, invertSel:invertSelCmd,
   cropSel:cropToSelection,
+  alignLeft(){ alignSel('left'); },
+  alignHCenter(){ alignSel('hcenter'); },
+  alignRight(){ alignSel('right'); },
+  alignTop(){ alignSel('top'); },
+  alignVCenter(){ alignSel('vcenter'); },
+  alignBottom(){ alignSel('bottom'); },
   group(){ groupSel(false); }, frame(){ groupSel(true); }, ungroup:ungroupSel,
   boolUnion(){ booleanSel('union'); }, boolSubtract(){ booleanSel('subtract'); },
   boolIntersect(){ booleanSel('intersect'); }, boolExclude(){ booleanSel('exclude'); },
@@ -8151,6 +8160,9 @@ document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
 });
 document.querySelectorAll('.dropdown button').forEach(b=>{
   b.addEventListener('click',e=>{ e.stopPropagation();
+    // A submenu's own label opens its flyout (hover/focus, via CSS) and
+    // carries no command — clicking it must not dismiss the whole menu.
+    if(b.classList.contains('subLabel')) return;
     document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
     CMDS[b.dataset.cmd]&&CMDS[b.dataset.cmd]();
   });
