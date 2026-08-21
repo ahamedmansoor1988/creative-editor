@@ -3609,6 +3609,26 @@ const FX_PAGES_RAW=obj=>{
   return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
+/* A multi-selection whose objects disagree on a field must not be shown one
+ * object's value as if it spoke for all of them — a panel reading "250" when
+ * half the selection is 60 is simply false. These two helpers put "Mixed" in
+ * the field instead, the way Figma/Illustrator/Sketch do. Typing into a mixed
+ * field still applies to the whole selection, so it stays a way OUT of the
+ * mixed state rather than a dead end. */
+const MIXED=Symbol('mixed');
+/** The value `read` gives for every object, or MIXED when they disagree. */
+function sharedValue(objs,read){
+  if(!objs.length) return undefined;
+  const first=read(objs[0]);
+  return objs.every(o=>read(o)===first)?first:MIXED;
+}
+/** Puts a value — or the Mixed placeholder — into a numeric field. */
+function setNumField(id,v){
+  const el=$(id);
+  if(v===MIXED){ el.value=''; el.placeholder='Mixed'; }
+  else { el.value=v; el.placeholder=''; }
+}
+
 function syncInspector(){
   const obj=primary();
   // A derived instance is inspectable but never editable: showing the parent's
@@ -3664,13 +3684,23 @@ function syncInspector(){
   $('engineSection').style.display=obj?'':'none';
   $('noSel').style.display=obj?'none':'';
   if(!obj) return;
-  const b=boxOf(obj);
-  const orig=objPosOrigin(obj);
-  $('pX').value=Math.round(obj.x-orig.x); $('pY').value=Math.round(obj.y-orig.y);
-  $('pW').value=Math.round(b.w); $('pH').value=Math.round(b.h);
+  // Every field below reports across the WHOLE selection, not just the
+  // primary — see sharedValue/setNumField.
+  const S=selIds.size>1?selObjs():[obj];
+  /* X/Y are deliberately NOT mixed-aware: for several objects the selection's
+   * bounding box is a real, useful position, and typing moves the group by the
+   * delta (below) rather than collapsing everything onto one coordinate.
+   * Figma draws the same distinction — position reads as a box, per-object
+   * properties read as Mixed. */
+  const orig0=objPosOrigin(obj);
+  const sb=S.length>1?selBounds():boxOf(obj);
+  setNumField('pX',Math.round(sb.x-orig0.x));
+  setNumField('pY',Math.round(sb.y-orig0.y));
+  setNumField('pW',sharedValue(S,o=>Math.round(boxOf(o).w)));
+  setNumField('pH',sharedValue(S,o=>Math.round(boxOf(o).h)));
   const tx=(obj.type==='text'&&obj.mode!=='area')||obj.type==='line'||obj.type==='path';
   $('pW').disabled=tx; $('pH').disabled=tx;
-  $('pOpacity').value=Math.round(obj.opacity*100);
+  setNumField('pOpacity',sharedValue(S,o=>Math.round(o.opacity*100)));
   // Opacity + Corner radius sit side by side, matching Figma's "Appearance"
   // row — permanent compact fields, not hidden behind a click-to-reveal
   // control. Only rect/polygon read obj.radius when drawing. Independent
@@ -3685,7 +3715,7 @@ function syncInspector(){
   $('cornerExpand').title=mixedRadius?'Merge into one corner radius':'Independent corners';
   if(hasRadius&&!mixedRadius){
     $('pRad').max=obj.type==='polygon'?120:200; // matches each type's old Shape-page slider range
-    $('pRad').value=Math.round(obj.radius||0);
+    setNumField('pRad',sharedValue(S.filter(o=>!Array.isArray(o.radii)),o=>Math.round(o.radius||0)));
   }
   $('cornerIndRow').style.display=(hasRadius&&mixedRadius)?'':'none';
   if(hasRadius&&mixedRadius){
@@ -3706,11 +3736,29 @@ function syncInspector(){
   }
   const noRot=obj.type==='line';
   $('trRot').disabled=noRot; $('trSkX').disabled=noRot; $('trSkY').disabled=noRot;
-  $('trRot').value=noRot?'':Math.round(obj.rot||0);
-  $('trSkX').value=noRot?'':Math.round(obj.skewX||0);
-  $('trSkY').value=noRot?'':Math.round(obj.skewY||0);
+  if(noRot){ ['trRot','trSkX','trSkY'].forEach(id=>setNumField(id,'')); }
+  else{
+    setNumField('trRot',sharedValue(S,o=>Math.round(o.rot||0)));
+    setNumField('trSkX',sharedValue(S,o=>Math.round(o.skewX||0)));
+    setNumField('trSkY',sharedValue(S,o=>Math.round(o.skewY||0)));
+  }
   $('trScale').value='';
-  $('objBlend').value=obj.blend||'normal';
+  // A <select> has no placeholder; a blank "Mixed" option is added on demand
+  // and removed again once the selection agrees, so it can never be chosen.
+  const blend=sharedValue(S,o=>o.blend||'normal');
+  const bs=$('objBlend');
+  const mixOpt=bs.querySelector('option[value="__mixed"]');
+  if(blend===MIXED){
+    if(!mixOpt){
+      const o=document.createElement('option');
+      o.value='__mixed'; o.textContent='Mixed'; o.disabled=true;
+      bs.insertBefore(o,bs.firstChild);
+    }
+    bs.value='__mixed';
+  }else{
+    if(mixOpt) mixOpt.remove();
+    bs.value=blend;
+  }
   syncInstancePanel(obj);
   syncLayoutPanel(obj);
   buildFx(obj);
@@ -5502,17 +5550,23 @@ function posArtboard(){
     }
     const obj=primary(); if(!obj)return;
     if(obj.type==='text'&&(k==='w'||k==='h'))return;
+    const os=(selIds.size>1?selObjs():[obj]).filter(o=>!o.locked);
     if(k==='x'||k==='y'){
-      // translate (a line carries both endpoints); a multi-selection moves
-      // as a set by the delta. Typed X/Y is relative to the PRIMARY object's
-      // own artboard (objPosOrigin), matching what the panel now displays.
+      /* Translate (a line carries both endpoints). The delta is measured from
+       * whatever the panel SHOWS — the selection's bounding box for several
+       * objects, the object's own box for one — so typing a number lands that
+       * edge exactly there instead of overshooting by the gap between the
+       * primary and the box. Relative spacing inside the group is preserved. */
       const orig=objPosOrigin(obj);
+      const from=os.length>1?selBounds():boxOf(obj);
       const target=k==='x'?(v+orig.x):(v+orig.y);
-      const dv=target-obj[k];
-      const os=selIds.size>1?selObjs():[obj];
-      os.forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
+      const dv=target-from[k];
+      os.forEach(o=>translateObj(o,k==='x'?dv:0,k==='y'?dv:0));
     }else if(obj.type==='line'){ return; }
-    else obj[k]=v;
+    // W/H apply to the WHOLE selection: the field reports across all of them
+    // (showing Mixed when they disagree), so typing must be the way out of
+    // that state rather than an edit to the primary alone.
+    else os.forEach(o=>{ if(!(o.type==='text'&&o.mode!=='area')) o[k]=v; });
     render();
   });
   $(id).addEventListener('change',()=>pushHistory(posArtboard()?'Edit artboard':undefined));
@@ -5570,17 +5624,20 @@ $('abDelete').addEventListener('click',()=>{
   const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
   removeArtboard(ab.id,withContent);
 });
+// Opacity and radius apply across the selection, for the same reason W/H do:
+// the field reports on all of them, so an edit has to reach all of them.
 $('pOpacity').addEventListener('input',e=>{
-  const obj=primary(); if(!obj)return;
-  obj.opacity=clamp(+e.target.value||0,5,100)/100; render();
+  const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+  const v=clamp(+e.target.value||0,5,100)/100;
+  os.forEach(o=>o.opacity=v); render();
 });
-$('pOpacity').addEventListener('change',e=>{ e.target.value=Math.round(primary().opacity*100); pushHistory(); });
+$('pOpacity').addEventListener('change',()=>{ pushHistory(); refresh(); });
 $('pRad').addEventListener('input',e=>{
-  const obj=primary(); if(!obj)return;
-  const max=obj.type==='polygon'?120:200;
-  obj.radius=clamp(+e.target.value||0,0,max); render();
+  const os=selObjs().filter(o=>!o.locked&&!Array.isArray(o.radii)); if(!os.length)return;
+  os.forEach(o=>{ o.radius=clamp(+e.target.value||0,0,o.type==='polygon'?120:200); });
+  render();
 });
-$('pRad').addEventListener('change',e=>{ e.target.value=Math.round(primary().radius||0); pushHistory(); });
+$('pRad').addEventListener('change',()=>{ pushHistory(); refresh(); });
 $('cornerExpand').addEventListener('click',()=>{
   const obj=primary(); if(!obj)return;
   if(Array.isArray(obj.radii)) delete obj.radii;

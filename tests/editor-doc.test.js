@@ -397,3 +397,79 @@ describe("render smoke", () => {
     }).not.toThrow();
   });
 });
+
+/* A multi-selection whose objects disagree on a field must not be shown one
+ * object's value as if it applied to all of them. */
+describe("inspector — mixed values across a multi-selection", () => {
+  /** Load two rects and select both; returns them. */
+  function twoSelected(a, b) {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        children: [
+          { type: "rect", name: "A", x: 100, y: 100, w: 60, h: 60, ...a },
+          { type: "rect", name: "B", x: 300, y: 100, w: 60, h: 60, ...b },
+        ],
+      },
+    };
+    const kids = editor.doc.frame.children;
+    editor.setSelIds(kids.map((o) => o.id));
+    editor.refresh();
+    return kids;
+  }
+  const field = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
+
+  it("shows the Mixed placeholder, not one object's value, when they differ", () => {
+    twoSelected({ w: 60, opacity: 1, radius: 0 }, { w: 250, opacity: 0.5, radius: 40 });
+    for (const id of ["pW", "pOpacity", "pRad"]) {
+      expect(field(id).value).toBe("");
+      expect(field(id).placeholder).toBe("Mixed");
+    }
+  });
+
+  it("shows the real value when every object agrees", () => {
+    twoSelected({ w: 80, opacity: 0.4, radius: 5 }, { w: 80, opacity: 0.4, radius: 5 });
+    expect(field("pW").value).toBe("80");
+    expect(field("pOpacity").value).toBe("40");
+    expect(field("pRad").value).toBe("5");
+    expect(field("pW").placeholder).toBe("");
+  });
+
+  it("marks a mixed blend mode and clears the marker once they agree", () => {
+    const sel = /** @type {HTMLSelectElement} */ (document.getElementById("objBlend"));
+    twoSelected({ blend: "normal" }, { blend: "multiply" });
+    expect(sel.value).toBe("__mixed");
+    twoSelected({ blend: "screen" }, { blend: "screen" });
+    expect(sel.value).toBe("screen");
+    expect(sel.querySelector('option[value="__mixed"]')).toBeNull();
+  });
+
+  it("typing into a mixed field applies to every selected object", () => {
+    const kids = twoSelected({ w: 60, opacity: 1 }, { w: 250, opacity: 0.5 });
+    const type = (id, v) => {
+      const el = field(id);
+      el.value = String(v);
+      el.dispatchEvent(new window.Event("input", { bubbles: true }));
+      el.dispatchEvent(new window.Event("change", { bubbles: true }));
+    };
+    type("pW", 120);
+    type("pOpacity", 80);
+    expect(kids.map((o) => o.w)).toEqual([120, 120]);
+    expect(kids.map((o) => o.opacity)).toEqual([0.8, 0.8]);
+  });
+
+  it("reports X/Y as the selection's bounding box, and moves the group as a set", () => {
+    const kids = twoSelected({ x: 100 }, { x: 300 });
+    const shown = Number(field("pX").value);
+    expect(field("pX").placeholder).toBe(""); // a box position, never Mixed
+    const el = field("pX");
+    el.value = String(shown + 50);
+    el.dispatchEvent(new window.Event("input", { bubbles: true }));
+    el.dispatchEvent(new window.Event("change", { bubbles: true }));
+    // both move by the same delta, so relative spacing survives
+    expect(kids.map((o) => o.x)).toEqual([150, 350]);
+  });
+});

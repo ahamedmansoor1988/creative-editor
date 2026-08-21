@@ -66,6 +66,11 @@ export function makeCtxStub() {
     rotate: noop("rotate"),
     drawImage: noop("drawImage"),
     putImageData: noop("putImageData"),
+    // Dashed strokes: selection chrome, guides and snap lines all call these.
+    // Missing setLineDash surfaced the first time a test rendered a real
+    // multi-selection, as a TypeError from deep inside paint().
+    setLineDash: noop("setLineDash"),
+    getLineDash: () => [],
     // measuring / factories — must return plausible objects, not undefined
     measureText: (t) => ({ width: String(t).length * 8 }),
     createLinearGradient: () => ({ addColorStop() {} }),
