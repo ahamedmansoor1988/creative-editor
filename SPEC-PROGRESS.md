@@ -753,4 +753,6 @@ KNOWN BUGS
 
 DOCS
 
-- HANDOFF.md is stale: it describes the tree at d70817e, thirteen sessions back.
+- (none outstanding) — HANDOFF.md, CODEX-BRIEF.md and STATUS.md were refreshed
+  against the current tree: test count, `app.js` size, recent work, and the
+  list of commands deliberately withheld from the menus.
