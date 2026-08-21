@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lab — prompt the selection</title>
+    <style>
+      :root {
+        --bg: #f2f2f2;
+        --panel: #ffffff;
+        --line: #e4e4e6;
+        --text: #1b1d22;
+        --muted: #6a6d75;
+        --accent: #2563eb;
+        --accent-soft: #e9f0ff;
+        --good: #1b7a52;
+        --warn: #b07a12;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        gap: 14px;
+        padding: 14px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        overflow: hidden;
+      }
+      #left {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 0;
+      }
+      #stage {
+        flex: 1;
+        background: var(--panel);
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+        position: relative;
+        overflow: hidden;
+      }
+      #cv {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+      }
+      #bar {
+        display: flex;
+        gap: 8px;
+        background: var(--panel);
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+        padding: 10px;
+        align-items: center;
+      }
+      #prompt {
+        flex: 1;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 12px;
+        font: inherit;
+        outline: none;
+      }
+      #prompt:focus {
+        border-color: var(--accent);
+      }
+      #go {
+        border: 0;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 9px 18px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #go:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding: 0 2px;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 99px;
+        padding: 4px 12px;
+        font-size: 12.5px;
+        cursor: pointer;
+        color: var(--muted);
+      }
+      .chip:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      #right {
+        width: 360px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+      }
+      .card {
+        background: var(--panel);
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+      }
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      pre {
+        margin: 0;
+        font:
+          12px/1.5 ui-monospace,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--text);
+      }
+      .diff {
+        font:
+          12.5px/1.7 ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .diff b {
+        color: var(--good);
+        font-weight: 600;
+      }
+      .diff s {
+        color: var(--muted);
+      }
+      .note {
+        font-size: 12.5px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .warn {
+        color: var(--warn);
+      }
+      #status {
+        font-size: 12.5px;
+        color: var(--muted);
+        min-width: 80px;
+        text-align: right;
+      }
+      .hist {
+        border-top: 1px solid var(--line);
+        padding-top: 8px;
+        margin-top: 8px;
+      }
+      .hist:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+        margin-top: 0;
+      }
+      .hist .q {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .hist .a {
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="left">
+      <div id="stage"><canvas id="cv"></canvas></div>
+      <div id="chips">
+        <button class="chip">make it red</button>
+        <button class="chip">tilt it 15 degrees</button>
+        <button class="chip">give it a soft shadow</button>
+        <button class="chip">twice as wide</button>
+        <button class="chip">rounder corners, a bit transparent</button>
+        <button class="chip">move it to the top right corner</button>
+      </div>
+      <div id="bar">
+        <input id="prompt" placeholder="Click a shape, then tell it what to become…" />
+        <span id="status"></span>
+        <button id="go">Apply to selection</button>
+      </div>
+    </div>
+    <div id="right">
+      <div class="card">
+        <h2>What this lab is</h2>
+        <p class="note">
+          The mechanic under test: <b>selection is context</b>. Your click picks the object; the
+          prompt is sent with the whole little document plus an instruction to modify
+          <i>only that object</i>; the model returns parameters, and this page applies them
+          deterministically — the AI never paints a pixel. A client-side guard enforces the scope
+          even if the model ignores the instruction, and the panel below shows you exactly what came
+          back.
+        </p>
+      </div>
+      <div class="card">
+        <h2>Selected object</h2>
+        <pre id="selJson">— click a shape —</pre>
+      </div>
+      <div class="card">
+        <h2>Last patch from the model</h2>
+        <div class="diff" id="patch">—</div>
+        <div class="note" id="scopeNote"></div>
+      </div>
+      <div class="card">
+        <h2>History</h2>
+        <div id="hist" class="note">—</div>
+      </div>
+    </div>
+
+    <script>
+      /* Lab: prompt-the-selection. Deliberately tiny — three shapes, one canvas,
+       * no dependency on the editor. The point is to understand the interaction
+       * before wiring it into the real app:
+       *
+       *   1. selection supplies CONTEXT (the object's current parameters)
+       *   2. the model returns STRUCTURE (a parameter patch), not pixels
+       *   3. the page applies the patch DETERMINISTICALLY, clamped, and only to
+       *      the selected object — the trust boundary is client-side, not a
+       *      polite request in the prompt.
+       *
+       * It rides the app's existing /api/generate endpoint unchanged: that path
+       * already supports "here is the current document, modify it".
+       */
+      const cv = document.getElementById("cv"),
+        ctx = cv.getContext("2d");
+      const $ = (id) => document.getElementById(id);
+
+      /* The document: same shape language the real app speaks, so the server's
+       * BASE_SCHEMA already describes it to the model. */
+      let DOC = {
+        frame: {
+          name: "lab",
+          w: 900,
+          h: 560,
+          bg: "#ffffff",
+          children: [
+            {
+              id: "a",
+              type: "rect",
+              name: "Card",
+              x: 90,
+              y: 120,
+              w: 220,
+              h: 160,
+              radius: 14,
+              rot: 0,
+              opacity: 1,
+              fill: { kind: "solid", color: "#3b6df0" },
+              effects: {
+                shadow: { on: false, x: 0, y: 8, blur: 18, color: "#000000", alpha: 0.25 },
+              },
+            },
+            {
+              id: "b",
+              type: "ellipse",
+              name: "Dot",
+              x: 400,
+              y: 140,
+              w: 150,
+              h: 150,
+              radius: 0,
+              rot: 0,
+              opacity: 1,
+              fill: { kind: "solid", color: "#12a37a" },
+              effects: {
+                shadow: { on: false, x: 0, y: 8, blur: 18, color: "#000000", alpha: 0.25 },
+              },
+            },
+            {
+              id: "c",
+              type: "rect",
+              name: "Tag",
+              x: 640,
+              y: 300,
+              w: 170,
+              h: 90,
+              radius: 45,
+              rot: -8,
+              opacity: 1,
+              fill: { kind: "solid", color: "#e0552f" },
+              effects: {
+                shadow: { on: false, x: 0, y: 8, blur: 18, color: "#000000", alpha: 0.25 },
+              },
+            },
+          ],
+        },
+      };
+      let sel = "a";
+
+      /* ---- deterministic renderer (the "engine" stand-in) ------------------- */
+      function draw() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        const r = cv.getBoundingClientRect();
+        cv.width = r.width * dpr;
+        cv.height = r.height * dpr;
+        const sx = r.width / DOC.frame.w,
+          sy = r.height / DOC.frame.h,
+          s = Math.min(sx, sy);
+        ctx.setTransform(
+          dpr * s,
+          0,
+          0,
+          dpr * s,
+          (dpr * (r.width - DOC.frame.w * s)) / 2,
+          (dpr * (r.height - DOC.frame.h * s)) / 2,
+        );
+        ctx.clearRect(-2000, -2000, 6000, 6000);
+        ctx.fillStyle = DOC.frame.bg;
+        ctx.fillRect(0, 0, DOC.frame.w, DOC.frame.h);
+        for (const o of DOC.frame.children) {
+          ctx.save();
+          ctx.globalAlpha = o.opacity;
+          ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+          ctx.rotate(((o.rot || 0) * Math.PI) / 180);
+          const sh = o.effects && o.effects.shadow;
+          if (sh && sh.on) {
+            ctx.shadowColor = hexA(sh.color, sh.alpha);
+            ctx.shadowBlur = sh.blur;
+            ctx.shadowOffsetX = sh.x;
+            ctx.shadowOffsetY = sh.y;
+          }
+          ctx.fillStyle = (o.fill && o.fill.color) || "#ccc";
+          ctx.beginPath();
+          if (o.type === "ellipse") ctx.ellipse(0, 0, o.w / 2, o.h / 2, 0, 0, Math.PI * 2);
+          else
+            roundRect(ctx, -o.w / 2, -o.h / 2, o.w, o.h, Math.min(o.radius || 0, o.w / 2, o.h / 2));
+          ctx.fill();
+          ctx.restore();
+          if (o.id === sel) {
+            ctx.save();
+            ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+            ctx.rotate(((o.rot || 0) * Math.PI) / 180);
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 2 / s;
+            ctx.setLineDash([6 / s, 4 / s]);
+            ctx.strokeRect(-o.w / 2 - 6, -o.h / 2 - 6, o.w + 12, o.h + 12);
+            ctx.restore();
+          }
+        }
+        $("selJson").textContent = JSON.stringify(
+          DOC.frame.children.find((o) => o.id === sel),
+          null,
+          1,
+        );
+      }
+      function roundRect(c, x, y, w, h, r) {
+        c.moveTo(x + r, y);
+        c.arcTo(x + w, y, x + w, y + h, r);
+        c.arcTo(x + w, y + h, x, y + h, r);
+        c.arcTo(x, y + h, x, y, r);
+        c.arcTo(x, y, x + w, y, r);
+        c.closePath();
+      }
+      const hexA = (h, a) => {
+        const n = parseInt(h.slice(1), 16);
+        return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+      };
+
+      cv.addEventListener("pointerdown", (e) => {
+        const r = cv.getBoundingClientRect();
+        const s = Math.min(r.width / DOC.frame.w, r.height / DOC.frame.h);
+        const px = (e.clientX - r.left - (r.width - DOC.frame.w * s) / 2) / s;
+        const py = (e.clientY - r.top - (r.height - DOC.frame.h * s) / 2) / s;
+        for (let i = DOC.frame.children.length - 1; i >= 0; i--) {
+          const o = DOC.frame.children[i];
+          if (px >= o.x && px <= o.x + o.w && py >= o.y && py <= o.y + o.h) {
+            sel = o.id;
+            draw();
+            return;
+          }
+        }
+      });
+      new ResizeObserver(draw).observe(cv);
+
+      /* ---- the round trip --------------------------------------------------- */
+      /* What the model may change, with clamps. This whitelist IS the trust
+       * boundary: anything outside it is discarded no matter what comes back. */
+      const ALLOW = {
+        x: [(v) => clamp(v, -200, 1100)],
+        y: [(v) => clamp(v, -200, 800)],
+        w: [(v) => clamp(v, 10, 900)],
+        h: [(v) => clamp(v, 10, 700)],
+        radius: [(v) => clamp(v, 0, 300)],
+        rot: [(v) => clamp(v, -180, 180)],
+        opacity: [(v) => clamp(v, 0.05, 1)],
+        "fill.color": [hex],
+        "effects.shadow.on": [(v) => !!v],
+        "effects.shadow.x": [(v) => clamp(v, -100, 100)],
+        "effects.shadow.y": [(v) => clamp(v, -100, 100)],
+        "effects.shadow.blur": [(v) => clamp(v, 0, 150)],
+        "effects.shadow.alpha": [(v) => clamp(v, 0, 1)],
+        "effects.shadow.color": [hex],
+      };
+      function clamp(v, a, b) {
+        v = +v;
+        return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : null;
+      }
+      function hex(v) {
+        return /^#[0-9a-fA-F]{6}$/.test(v) ? v : null;
+      }
+      const get = (o, p) => p.split(".").reduce((a, k) => a && a[k], o);
+      const set = (o, p, v) => {
+        const ks = p.split(".");
+        const last = ks.pop();
+        const t = ks.reduce((a, k) => (a[k] = a[k] || {}), o);
+        t[last] = v;
+      };
+
+      async function run() {
+        const q = $("prompt").value.trim();
+        if (!q) return;
+        const target = DOC.frame.children.find((o) => o.id === sel);
+        if (!target) {
+          $("status").textContent = "select a shape first";
+          return;
+        }
+        $("go").disabled = true;
+        $("status").textContent = "thinking…";
+        const t0 = performance.now();
+        try {
+          const instruction =
+            `Modify ONLY the object with id "${sel}" (named "${target.name}") in the ` +
+            `current document, according to this request: "${q}". Keep every other ` +
+            `object byte-identical. Keep all ids. Return the full document.`;
+          const res = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: instruction, currentDoc: DOC }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.message || "HTTP " + res.status);
+          const doc = out.doc || out;
+          const kids = (doc.frame && doc.frame.children) || [];
+          const cand = kids.find((o) => o.id === sel) || kids[DOC.frame.children.indexOf(target)];
+          if (!cand) throw new Error("the model returned no matching object");
+
+          /* apply ONLY whitelisted, clamped changes to ONLY the selection */
+          const changes = [];
+          for (const path in ALLOW) {
+            const nv = get(cand, path),
+              ov = get(target, path);
+            if (nv === undefined || JSON.stringify(nv) === JSON.stringify(ov)) continue;
+            const cleaned = ALLOW[path][0](nv);
+            if (cleaned === null) continue;
+            changes.push({ path, from: ov, to: cleaned });
+            set(target, path, cleaned);
+          }
+          /* the guard, made visible: how much did the model touch out of scope? */
+          let strays = 0;
+          kids.forEach((k) => {
+            const mine = DOC.frame.children.find((o) => o.id === k.id);
+            if (mine && k.id !== sel && JSON.stringify(k) !== JSON.stringify(mine)) strays++;
+          });
+          const ms = Math.round(performance.now() - t0);
+          $("patch").innerHTML = changes.length
+            ? changes
+                .map(
+                  (c) =>
+                    `${c.path}: <s>${JSON.stringify(c.from)}</s> → <b>${JSON.stringify(c.to)}</b>`,
+                )
+                .join("<br>")
+            : '<span class="note">model returned no applicable change</span>';
+          $("scopeNote").innerHTML =
+            (strays
+              ? `<span class="warn">⚠ model modified ${strays} unselected object${strays > 1 ? "s" : ""} — discarded by the guard.</span> `
+              : "✓ model respected the selection scope. ") + `(${ms}ms)`;
+          const h = document.createElement("div");
+          h.className = "hist";
+          h.innerHTML =
+            `<div class="q">${q}</div><div class="a">${changes.length} change${changes.length === 1 ? "" : "s"}` +
+            (strays ? `, ${strays} out-of-scope discarded` : "") +
+            ` · ${ms}ms</div>`;
+          const hist = $("hist");
+          if (hist.textContent === "—") hist.textContent = "";
+          hist.prepend(h);
+          $("status").textContent = "";
+          $("prompt").value = "";
+          draw();
+        } catch (err) {
+          $("status").textContent = "";
+          $("patch").innerHTML = `<span class="warn">${err.message}</span>`;
+        } finally {
+          $("go").disabled = false;
+        }
+      }
+      $("go").addEventListener("click", run);
+      $("prompt").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") run();
+      });
+      document.querySelectorAll(".chip").forEach((c) =>
+        c.addEventListener("click", () => {
+          $("prompt").value = c.textContent;
+          run();
+        }),
+      );
+      draw();
+    </script>
+  </body>
+</html>
