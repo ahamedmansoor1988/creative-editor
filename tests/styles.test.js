@@ -267,3 +267,122 @@ describe("per-shape export", () => {
     }
   });
 });
+
+/* §4.2 variable-width stroke profiles. Canvas cannot stroke a varying width,
+ * so the outline is built as a polygon and filled — these assert that
+ * geometry directly rather than sampling pixels. */
+describe("variable-width stroke profiles", () => {
+  /** Perpendicular thickness of a ribbon at fraction `f` along a horizontal
+   *  polyline: the ribbon is [left…, right reversed], so the point at index i
+   *  pairs with the one at (n-1-i). */
+  function thicknessAt(poly, f) {
+    const half = poly.length / 2;
+    const i = Math.min(half - 1, Math.max(0, Math.round((half - 1) * f)));
+    const a = poly[i];
+    const b = poly[poly.length - 1 - i];
+    return Math.hypot(a[0] - b[0], a[1] - b[1]);
+  }
+  const horizontal = [
+    [0, 0],
+    [100, 0],
+  ];
+
+  it("uniform is the default, and unknown names fall back to it", () => {
+    loadDoc([
+      {
+        type: "line",
+        name: "L",
+        x: 0,
+        y: 0,
+        x2: 100,
+        y2: 0,
+        strokes: [{ kind: "solid", color: "#000000", width: 10, profile: "nonsense" }],
+      },
+    ]);
+    expect(editor.doc.frame.children[0].strokes[0].profile).toBe("uniform");
+  });
+
+  it("keeps a known profile through normalizeDoc", () => {
+    loadDoc([
+      {
+        type: "line",
+        name: "L",
+        x: 0,
+        y: 0,
+        x2: 100,
+        y2: 0,
+        strokes: [{ kind: "solid", color: "#000000", width: 10, profile: "taper-both" }],
+      },
+    ]);
+    expect(editor.doc.frame.children[0].strokes[0].profile).toBe("taper-both");
+  });
+
+  /* Thickness at every sample, start to end. Asserting the SHAPE of this
+   * series beats pinning individual samples: the resampler chooses its own
+   * count, so no given index lands exactly on t=0.5. */
+  function series(poly) {
+    const half = poly.length / 2;
+    const out = [];
+    for (let i = 0; i < half; i++) {
+      const a = poly[i];
+      const b = poly[poly.length - 1 - i];
+      out.push(Math.hypot(a[0] - b[0], a[1] - b[1]));
+    }
+    return out;
+  }
+
+  it("taper-out runs full width at the start and falls monotonically to nothing", () => {
+    const p = editor.STROKE_PROFILES["taper-out"];
+    const s = series(editor.ribbonPolygon(horizontal, (t) => 20 * p(t)));
+    expect(s[0]).toBeCloseTo(20, 5);
+    expect(s[s.length - 1]).toBeCloseTo(0, 5);
+    for (let i = 1; i < s.length; i++) expect(s[i]).toBeLessThan(s[i - 1] + 1e-9);
+  });
+
+  it("taper-both is pinched at both ends and peaks at full width mid-run", () => {
+    const p = editor.STROKE_PROFILES["taper-both"];
+    const s = series(editor.ribbonPolygon(horizontal, (t) => 20 * p(t)));
+    expect(s[0]).toBeCloseTo(0, 5);
+    expect(s[s.length - 1]).toBeCloseTo(0, 5);
+    const peak = Math.max(...s);
+    expect(peak).toBeGreaterThan(19.9); // reaches full width
+    expect(peak).toBeLessThanOrEqual(20 + 1e-9); // and never exceeds it
+    // the widest point sits in the middle third of the run
+    const at = s.indexOf(peak) / (s.length - 1);
+    expect(at).toBeGreaterThan(0.33);
+    expect(at).toBeLessThan(0.67);
+  });
+
+  it("a uniform width gives a constant-thickness ribbon", () => {
+    const poly = editor.ribbonPolygon(horizontal, () => 12);
+    for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(thicknessAt(poly, f)).toBeCloseTo(12, 5);
+    }
+  });
+
+  it("returns null for a zero-length path, which has no direction to offset from", () => {
+    expect(
+      editor.ribbonPolygon(
+        [
+          [5, 5],
+          [5, 5],
+        ],
+        () => 10,
+      ),
+    ).toBeNull();
+  });
+
+  it("samples a line into a polyline, and leaves closed shapes to the uniform stroker", () => {
+    const [line, rect] = loadDoc([
+      { type: "line", name: "L", x: 0, y: 0, x2: 100, y2: 0 },
+      { type: "rect", name: "R", x: 0, y: 0, w: 50, h: 50 },
+    ]);
+    expect(editor.strokePolylines(line, 1)).toEqual([
+      [
+        [0, 0],
+        [100, 0],
+      ],
+    ]);
+    expect(editor.strokePolylines(rect, 1)).toEqual([]);
+  });
+});

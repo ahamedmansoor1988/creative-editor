@@ -162,8 +162,14 @@ future session can pick up without re-reading the whole app.
 - §4.1 Fill: DONE except pattern and image fills (no image support yet) and
   fill-rule (arrives with §3.7 compound paths). Stacked fills bottom-to-top,
   per-fill opacity + blend + visibility, reorder, delete.
-- §4.2 Stroke: DONE except variable-width profiles (§1.4 pencil pressure still
-  waits on this) and scale-with-object honouring. Strokes now exist on
+- §4.2 Stroke: DONE except scale-with-object honouring. Variable-width
+  profiles landed (uniform, taper in/out, taper both ends, thick ends): the
+  outline is built as a polygon and FILLED, since canvas strokes at one
+  lineWidth only, and it is resampled by arc length so the profile reads the
+  same however the anchors fall. Open geometry only — on a closed shape a
+  taper has no ends to run between. A profiled stroke bypasses alignment,
+  caps, joins and dashes, which have no meaning once the edge is a polygon.
+  This unblocks §1.4 and §1.6, neither of which is built yet. Strokes now exist on
   rect/ellipse/polygon at all — previously only paths and lines had one.
   Width, alignment center/inside/outside, caps, joins, miter limit, dash array
   - offset, stacked strokes, gradient strokes. Inside/outside are rendered by
@@ -729,14 +735,15 @@ FULLY UNTOUCHED
 
 PARTIALS, by area
 
-- §1.4 Pencil pressure and §1.6 open arcs — both blocked on §4.2 variable-width
-  stroke profiles, which is the shared prerequisite.
+- §1.4 Pencil pressure and §1.6 open arcs — no longer blocked: §4.2
+  variable-width profiles shipped. Both still need building (pencil must
+  capture pressure per sample; the arc needs an open contour).
 - §1.9 Text — text-on-path, columns, OpenType feature access.
 - §2.4 Skew by dragging an edge handle (numeric skew works).
 - §2.7 Visual vs geometric bounding boxes (stroke and effect extents).
 - §3.1 Anchor points — join, split, average.
 - §4.1 Fill — pattern and image fills.
-- §4.2 Stroke — variable-width profiles.
+- §4.2 Stroke — scale-with-object honouring (profiles shipped).
 - §4.3 Opacity — knockout and isolate groups.
 - §4.5/§4.6 Gradients — on-canvas handles, OKLab interpolation.
 - §4.9 Shadow knockout.

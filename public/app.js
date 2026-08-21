@@ -304,6 +304,9 @@ function normStroke(k,dfltColor){
     .map(v=>clamp(+v||0,0,500));
   out.dashOffset=clamp(+k.dashOffset||0,-1000,1000);
   out.scaleWith=k.scaleWith!==false;
+  // §4.2 width profile. Unknown names fall back to uniform rather than
+  // throwing at paint time on a hand-written or generated document.
+  out.profile=Object.prototype.hasOwnProperty.call(STROKE_PROFILES,k.profile)?k.profile:'uniform';
   return out;
 }
 /* Migrate the legacy single `fill` / `stroke` into the stacked arrays, and
@@ -1520,6 +1523,104 @@ function subPath(c,sp){
   }
 }
 function pathPath(c,o){ (o.subpaths||[{points:o.points,closed:o.closed}]).forEach(sp=>subPath(c,sp)); }
+
+/* §4.2 variable-width stroke profiles.
+ *
+ * Canvas strokes at exactly ONE lineWidth, so a width that varies along the
+ * path cannot be a stroke at all: the outline is built as a polygon and
+ * FILLED. Profiles are sampled against arc length rather than anchor index,
+ * so the shape reads the same whether a curve carries two anchors or twenty.
+ *
+ * Open geometry only (path, line). On a closed shape "the ends" have no
+ * meaning — where would a taper start? — so those keep the uniform stroke
+ * rather than being given a silently arbitrary seam. */
+const STROKE_PROFILES={
+  uniform:1,
+  'taper-out':t=>1-t,
+  'taper-in':t=>t,
+  'taper-both':t=>Math.sin(Math.PI*t),
+  'bulge-ends':t=>1-0.85*Math.sin(Math.PI*t),
+};
+const PROFILEABLE=o=>o&&(o.type==='path'||o.type==='line');
+/** Flatten one subpath's bézier chain to a polyline. */
+function flattenSubpath(sp,tol){
+  const P=sp&&sp.points; if(!P||P.length<2) return [];
+  const out=[[P[0].x,P[0].y]];
+  const seg=(a,b)=>{
+    const x0=a.x,y0=a.y,x1=a.x+(a.ox||0),y1=a.y+(a.oy||0),
+          x2=b.x+(b.ix||0),y2=b.y+(b.iy||0),x3=b.x,y3=b.y;
+    // step count from the control polygon's length — a flat segment needs one
+    const d=Math.hypot(x1-x0,y1-y0)+Math.hypot(x2-x1,y2-y1)+Math.hypot(x3-x2,y3-y2);
+    const n=clamp(Math.ceil(d/Math.max(tol||1,0.5)),1,160);
+    for(let i=1;i<=n;i++){
+      const t=i/n,u=1-t;
+      out.push([u*u*u*x0+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x3,
+                u*u*u*y0+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3]);
+    }
+  };
+  for(let i=1;i<P.length;i++) seg(P[i-1],P[i]);
+  if(sp.closed&&P.length>2) seg(P[P.length-1],P[0]);
+  return out;
+}
+/** Every polyline making up an object's outline, for profiled stroking. */
+function strokePolylines(o,tol){
+  if(o.type==='line') return [[[o.x,o.y],[o.x2,o.y2]]];
+  if(o.type==='path')
+    return (o.subpaths||[{points:o.points,closed:o.closed}])
+      .map(sp=>flattenSubpath(sp,tol)).filter(p=>p.length>1);
+  return [];
+}
+/** Even-arc-length resample, so a profile is expressed along the whole run
+ *  rather than only wherever the source happened to put a vertex. */
+function resamplePolyline(pts,step){
+  const n=pts.length; if(n<2) return pts;
+  const cum=[0];
+  for(let i=1;i<n;i++)
+    cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]));
+  const total=cum[n-1];
+  if(!(total>0)) return pts;
+  const count=clamp(Math.ceil(total/Math.max(step,1)),24,400);
+  const out=[]; let j=0;
+  for(let k=0;k<=count;k++){
+    const d=total*k/count;
+    while(j<n-2&&cum[j+1]<d) j++;
+    const seg=(cum[j+1]-cum[j])||1;
+    const f=(d-cum[j])/seg;
+    out.push([pts[j][0]+(pts[j+1][0]-pts[j][0])*f,
+              pts[j][1]+(pts[j+1][1]-pts[j][1])*f]);
+  }
+  return out;
+}
+/** The outline polygon of a polyline stroked with a varying width.
+ *  Walks one side out and the other back, so the result is a single closed
+ *  contour that fills correctly under either fill rule. */
+function ribbonPolygon(src,widthAt){
+  /* Resample first. The profile is only ever evaluated AT a vertex, so the
+   * width can only change where one exists — and a straight line has exactly
+   * two. Without this a tapered line is sampled at t=0 and t=1 only, which
+   * for taper-both is zero at both ends: the whole ribbon collapses and the
+   * stroke vanishes. Even spacing also keeps the profile tied to distance
+   * travelled rather than to how the anchors happen to fall. */
+  const pts=resamplePolyline(src,4);
+  const n=pts.length; if(n<2) return null;
+  const cum=[0];
+  for(let i=1;i<n;i++)
+    cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]));
+  const total=cum[n-1];
+  if(!(total>0)) return null;      // a zero-length path has no direction
+  const L=[],R=[];
+  for(let i=0;i<n;i++){
+    // central difference keeps the normal continuous across joins
+    const p=pts[i],a=pts[Math.max(0,i-1)],b=pts[Math.min(n-1,i+1)];
+    let tx=b[0]-a[0],ty=b[1]-a[1];
+    const len=Math.hypot(tx,ty)||1;
+    tx/=len; ty/=len;
+    const h=Math.max(0,widthAt(cum[i]/total))/2;
+    L.push([p[0]-ty*h,p[1]+tx*h]);
+    R.push([p[0]+ty*h,p[1]-tx*h]);
+  }
+  return L.concat(R.reverse());
+}
 /* §4.1–§4.4 appearance painter. `mk` builds the object's path into ctx.
  * Fills paint bottom-to-top, then strokes, each with its own opacity and
  * blend mode. Stroke alignment is done with clipping, since Canvas2D only
@@ -1568,6 +1669,24 @@ function paintAppearance(c,obj,mk,b,objBlend){
     if(k.dash&&k.dash.length){ c.setLineDash(k.dash); c.lineDashOffset=k.dashOffset||0; }
     const inner=k.align==='inside', outer=k.align==='outside';
     c.lineWidth=(inner||outer)?k.width*2:k.width;
+    /* §4.2: a varying width is filled as an outline, not stroked — so it
+     * bypasses the alignment/cap/join machinery below, none of which has a
+     * meaning once the edge is a polygon the profile itself defines. */
+    const prof=STROKE_PROFILES[k.profile];
+    if(typeof prof==='function'&&PROFILEABLE(obj)){
+      c.fillStyle=paintStyle(c,k,b);
+      c.beginPath();
+      strokePolylines(obj,1).forEach(pts=>{
+        const poly=ribbonPolygon(pts,t=>k.width*prof(t));
+        if(!poly) return;
+        poly.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
+        c.closePath();
+      });
+      c.fill();
+      if(c.__ellipticalGrad) delete c.__ellipticalGrad;
+      c.restore();
+      return;
+    }
     if(outer){
       // Outside alignment needs its OWN layer: knocking the inner half out
       // with destination-out directly on the target would erase the fill and
@@ -2567,10 +2686,24 @@ function drawObject(c,obj,plain){
       const inset=k=>(k==='triangle'?sz*0.8:0);
       const i1=inset(obj.arrowStart), i2=inset(obj.arrowEnd);
       c.strokeStyle=s.color; c.lineWidth=s.width; c.lineCap='butt'; c.lineJoin='round';
-      c.beginPath();
-      c.moveTo(obj.x+Math.cos(ang)*i1, obj.y+Math.sin(ang)*i1);
-      c.lineTo(obj.x2-Math.cos(ang)*i2, obj.y2-Math.sin(ang)*i2);
-      c.stroke();
+      const ax=obj.x+Math.cos(ang)*i1, ay=obj.y+Math.sin(ang)*i1;
+      const bx=obj.x2-Math.cos(ang)*i2, by=obj.y2-Math.sin(ang)*i2;
+      /* §4.2: a line is drawn HERE rather than through paintAppearance, so
+       * the profile has to be honoured here too — the shaft becomes a filled
+       * ribbon. Arrowheads below are unaffected and still sit on the tips. */
+      const lp=STROKE_PROFILES[s.profile];
+      const ribbon=typeof lp==='function'
+        ? ribbonPolygon([[ax,ay],[bx,by]],t=>s.width*lp(t)) : null;
+      if(ribbon){
+        c.fillStyle=s.color;
+        c.beginPath();
+        ribbon.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
+        c.closePath(); c.fill();
+      }else{
+        c.beginPath();
+        c.moveTo(ax,ay); c.lineTo(bx,by);
+        c.stroke();
+      }
       // §1.8 arrowheads: tip sits exactly on the endpoint
       const head=(x,y,a,kind)=>{
         if(!kind||kind==='none') return;
@@ -4356,6 +4489,19 @@ function buildFx(obj){
               <option value="outside">Outside</option></select></label>
           </div>`);
           body.querySelectorAll('.apAlign')[fi].value=f.align;
+          // §4.2 — offered only where a profile has ends to taper between
+          if(PROFILEABLE(obj)){
+            add(`<label class="slider">Width profile<select class="apProfile" data-i="${fi}">
+              <option value="uniform">Uniform</option>
+              <option value="taper-out">Taper out (thick → thin)</option>
+              <option value="taper-in">Taper in (thin → thick)</option>
+              <option value="taper-both">Taper both ends</option>
+              <option value="bulge-ends">Thick ends, thin middle</option>
+            </select></label>`);
+            body.querySelectorAll('.apProfile')[fi].value=f.profile||'uniform';
+            if((f.profile||'uniform')!=='uniform')
+              add(`<div class="fxHint">A profiled stroke is filled as an outline, so alignment, caps, joins and dashes do not apply to it.</div>`);
+          }
           add(`<div class="row2">
             <label class="slider">Cap<select class="apCap" data-i="${fi}">
               <option value="butt">Butt</option><option value="round">Round</option>
@@ -4417,6 +4563,8 @@ function buildFx(obj){
       },true);
       each('apW','input',(f,e)=>f.width=clamp(+e.target.value||0,0,200));
       each('apAlign','change',(f,e)=>f.align=e.target.value);
+      // rebuild: the hint below the control appears/disappears with the value
+      each('apProfile','change',(f,e)=>{ f.profile=e.target.value; },true);
       each('apCap','change',(f,e)=>f.cap=e.target.value);
       each('apJoin','change',(f,e)=>f.join=e.target.value);
       each('apDash','input',(f,e)=>{
@@ -8677,6 +8825,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   copySel, pasteClip, moveLayer,
   saveStyle, applyStyle, pushStyleToSource, detachStyle, deleteStyle, renameStyle,
   renderObjectToBlob, exportObject,
+  STROKE_PROFILES, strokePolylines, ribbonPolygon,
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
