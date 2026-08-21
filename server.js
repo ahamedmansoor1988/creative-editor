@@ -29,7 +29,7 @@ const GROQ_URL =
   process.env.GROQ_URL || ENV.GROQ_URL || "https://api.groq.com/openai/v1/chat/completions";
 // Text-only prompts get the stronger text model; prompts with a reference
 // image need the one vision model Groq exposes on the free tier.
-const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "llama-3.3-70b-versatile";
+const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "openai/gpt-oss-120b";
 const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.6-27b";
 
 const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:

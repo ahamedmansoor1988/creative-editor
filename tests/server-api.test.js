@@ -163,7 +163,7 @@ describe("POST /api/generate — success paths", () => {
     mock.status = 200;
     mock.body = groqReply(JSON.stringify(VALID_DOC));
     await post("/api/generate", { prompt: "a poster" });
-    expect(mock.lastRequest.model).toBe("llama-3.3-70b-versatile");
+    expect(mock.lastRequest.model).toBe("openai/gpt-oss-120b");
     expect(mock.lastRequest.response_format).toEqual({ type: "json_object" });
     expect(mock.lastRequest.reasoning_effort).toBeUndefined();
   });
