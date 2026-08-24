@@ -286,6 +286,14 @@ function normPaint(f,dflt){
     if(kind==='radial'){
       out.fx=clamp(+f.fx||0,-1,1); out.fy=clamp(+f.fy||0,-1,1);
       out.aspect=clamp(+f.aspect||1,0.2,5);
+      /* §4.6 taper. Canvas interpolates between TWO circles, so the iso-line
+       * at t is the circle lerp(c0,c1,t) with radius lerp(r0,r1,t), and the
+       * envelope of that family is a cone of half-angle
+       * sin(th) = (r1-r0)/|c1-c0|. r0 was hardcoded to 0 — a sharp apex at
+       * the focal point and no way to reach the angle. Taper IS that inner
+       * radius, as a fraction of the outer: 0 keeps today's cone exactly, and
+       * raising it opens the cone out toward parallel-sided. */
+      out.taper=clamp(+f.taper||0,0,0.95);
     }
   }
   return out;
@@ -1451,14 +1459,23 @@ function paintStyle(c,f,b){
     const r=Math.max(b.w,b.h)/2;
     const fx=cx+(+f.fx||0)*b.w/2, fy=cy+(+f.fy||0)*b.h/2;
     let g;
+    /* Taper is the inner circle's radius. The two-circle cone is only
+     * well-formed while the inner circle stays CONTAINED in the outer —
+     * |focal-centre| + r0 <= r — and canvas renders the degenerate case as
+     * black. So the effective radius saturates against the room the focal
+     * offset leaves: at a centred focal the full range is available, and the
+     * further the focal is pushed the tighter the ceiling, rather than the
+     * fill vanishing at the exact combination the control invites. */
+    const room=Math.max(0,r-Math.hypot(fx-cx,fy-cy)-1);
+    const r0=Math.min(clamp(+f.taper||0,0,0.95)*r,room);
     if(Math.abs(asp-1)<0.01){
-      g=c.createRadialGradient(fx,fy,0,cx,cy,r);
+      g=c.createRadialGradient(fx,fy,r0,cx,cy,r);
       addStops(g,f.stops); return g;
     }
     // elliptical: scale the space about the centre, build a circular gradient
     c.save();
     c.translate(cx,cy); c.scale(1,1/asp); c.translate(-cx,-cy);
-    g=c.createRadialGradient(fx,(fy-cy)*asp+cy,0,cx,cy,r);
+    g=c.createRadialGradient(fx,(fy-cy)*asp+cy,r0,cx,cy,r);
     addStops(g,f.stops);
     c.__ellipticalGrad=true;              // caller restores after painting
     return g;
@@ -4797,6 +4814,12 @@ function buildFxSection(obj,page,add,body){
               <label class="slider">Focal X <input type="range" class="apFx" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fx*100)}"></label>
               <label class="slider">Focal Y <input type="range" class="apFy" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fy*100)}"></label>
             </div>`);
+            /* Taper opens or closes the cone the two circles sweep out. It is
+             * only meaningful once the focal point is off-centre — a centred
+             * focal gives concentric circles and no cone to open — so it is
+             * shown with the focal controls it depends on. */
+            add(`<label class="slider">Taper <span id="apTap${fi}">${Math.round((+f.taper||0)*100)}%</span>
+              <input type="range" class="apTaper" data-i="${fi}" min="0" max="95" value="${Math.round((+f.taper||0)*100)}"></label>`);
             /* Aspect stretches a radial gradient into an ellipse. Withheld,
              * not removed: the field still normalises and still renders, so a
              * stretched radial in an existing document keeps its shape.
@@ -4898,6 +4921,7 @@ function buildFxSection(obj,page,add,body){
       each('apFx','input',(f,e)=>f.fx=+e.target.value/100);
       each('apFy','input',(f,e)=>f.fy=+e.target.value/100);
       each('apAspect','input',(f,e,el)=>{ f.aspect=+e.target.value; const sp=$('apAsp'+I(el)); if(sp) sp.textContent=(+e.target.value).toFixed(2); });
+      each('apTaper','input',(f,e,el)=>{ f.taper=+e.target.value/100; const sp=$('apTap'+I(el)); if(sp) sp.textContent=e.target.value+'%'; });
       each('apSC','input',(f,e,el)=>f.stops[SI(el)].color=e.target.value);
       each('apSP','input',(f,e,el)=>f.stops[SI(el)].pos=+e.target.value/100);
       each('apSO','input',(f,e,el)=>f.stops[SI(el)].opacity=+e.target.value/100);

@@ -817,3 +817,37 @@ describe("stacked engine sections stay independent", () => {
     }
   });
 });
+
+describe("radial gradient taper", () => {
+  function radial(extra) {
+    return norm({
+      children: [
+        {
+          type: "rect",
+          w: 100,
+          h: 100,
+          fill: { kind: "radial", stops: [{ pos: 0, color: "#ffffff" }], ...extra },
+        },
+      ],
+    }).frame.children[0].fill;
+  }
+
+  it("defaults to 0, which is the sharp apex the renderer had before", () => {
+    expect(radial({}).taper).toBe(0);
+  });
+
+  it("clamps into 0..0.95", () => {
+    // 1 would put the inner circle level with the outer: no cone, and canvas
+    // renders the degenerate case as black
+    expect(radial({ taper: 5 }).taper).toBe(0.95);
+    expect(radial({ taper: -2 }).taper).toBe(0);
+  });
+
+  it("survives a compact round trip", () => {
+    const f = radial({ taper: 0.4 });
+    expect(f.taper).toBeCloseTo(0.4);
+    const wire = editor.compactDoc({ frame: editor.doc.frame });
+    editor.doc = JSON.parse(JSON.stringify(wire));
+    expect(editor.doc.frame.children[0].fill.taper).toBeCloseTo(0.4);
+  });
+});
