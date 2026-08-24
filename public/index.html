@@ -296,6 +296,14 @@
       <label>W<input type="number" id="pW" step="1"></label>
       <label>H<input type="number" id="pH" step="1"></label>
     </div>
+    <!-- Proportional scaling. A link toggle between W and H, the affordance
+         Figma, Sketch and Illustrator all use: with it on, typing either
+         dimension scales the other by the same factor. -->
+    <div id="ratioRow">
+      <button type="button" id="pRatio" data-icon="link" aria-pressed="false"
+        aria-label="Constrain proportions" title="Constrain proportions"></button>
+      <span id="pRatioHint">Constrain proportions</span>
+    </div>
     <!-- object-only: rotation, opacity, blend, constraints, flip — none of
          these apply to an artboard, so this block is hidden (not the whole
          Position section) when the selection is an artboard. -->
@@ -398,9 +406,40 @@
       </select></label>
       <button id="abSwap" data-icon="shuffle" aria-label="Swap width and height" title="Swap width and height"></button>
     </div>
-    <label class="iconField" title="Background colour" style="margin-top:6px"><i data-icon="palette"></i>
-      <input type="color" id="abBg" aria-label="Artboard background color">
-    </label>
+    <!-- Fill, stroke and radius: an artboard paints like a frame, so it gets
+         the frame properties. Fill offers the same solid/linear/radial the
+         object paint model does; "Edit gradient…" hands off to the Fill engine
+         rather than growing a second stop editor here. -->
+    <div class="grid4" style="margin-top:8px">
+      <label class="iconField" title="Fill type" style="grid-column:span 3"><i data-icon="palette"></i><select id="abFillKind" aria-label="Artboard fill type">
+        <option value="solid">Solid</option>
+        <option value="linear">Linear gradient</option>
+        <option value="radial">Radial gradient</option>
+      </select></label>
+      <input type="color" id="abBg" aria-label="Artboard fill color" title="Artboard fill colour">
+    </div>
+    <div id="abGradRow" class="grid4" style="margin-top:6px; display:none">
+      <label class="iconField" title="Gradient angle" style="grid-column:span 2"><i data-icon="rotateCw"></i>
+        <input type="number" id="abGradAngle" min="0" max="359" step="1" aria-label="Gradient angle">
+      </label>
+      <button id="abGradEdit" class="iconBtn" style="grid-column:span 2">Edit stops…</button>
+    </div>
+    <div class="grid4" style="margin-top:6px">
+      <label class="iconField" title="Corner radius" style="grid-column:span 2"><i data-icon="squircle"></i>
+        <input type="number" id="abRadius" min="0" step="1" aria-label="Artboard corner radius">
+      </label>
+      <label class="iconField" title="Stroke width" style="grid-column:span 2"><i data-icon="pen"></i>
+        <input type="number" id="abStrokeW" min="0" step="1" aria-label="Artboard stroke width">
+      </label>
+    </div>
+    <div class="grid4" style="margin-top:6px">
+      <label class="iconField" title="Stroke alignment" style="grid-column:span 3"><i data-icon="sliders"></i><select id="abStrokeAlign" aria-label="Artboard stroke alignment">
+        <option value="center">Centre</option>
+        <option value="inside">Inside</option>
+        <option value="outside">Outside</option>
+      </select></label>
+      <input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour">
+    </div>
     <!-- Clip / lock / visibility as icon toggles rather than three labelled
          checkbox rows — the same affordance Figma and Photoshop use for these
          exact three, and the layer list already uses for lock and eye. State

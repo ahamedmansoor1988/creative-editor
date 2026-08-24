@@ -574,10 +574,28 @@ describe("30/34 — rendering and retired controls", () => {
         children: [{ ...parentOf({ type: "ellipse" }), pattern: { columns: 3, rows: 1, hGap: 8 } }],
       },
     };
+    /* Baseline first: the artboard itself paints a rounded-rect path, so a
+     * flat "no rect calls" assertion measured the chrome as much as the
+     * objects — it only ever read zero because artboards used to paint with
+     * fillRect. What this test means is that INSTANCES are not drawn as
+     * rectangular slices, so it compares against the same frame with no
+     * children and asserts the object drawing added none. */
+    const empty = { ...window.__editor.doc.frame, children: [] };
+    window.__editor.doc = { frame: empty };
+    ctx.calls.length = 0;
+    window.__editor.render();
+    const chromeRects = ctx.calls.filter((c) => c.name === "rect").length;
+
+    window.__editor.doc = {
+      frame: {
+        ...empty,
+        children: [{ ...parentOf({ type: "ellipse" }), pattern: { columns: 3, rows: 1, hGap: 8 } }],
+      },
+    };
     ctx.calls.length = 0;
     window.__editor.render();
     expect(ctx.calls.filter((c) => c.name === "ellipse").length).toBe(3); // parent + 2 (3 cells − parent)
-    expect(ctx.calls.filter((c) => c.name === "rect").length).toBe(0); // no rectangular slices
+    expect(ctx.calls.filter((c) => c.name === "rect").length).toBe(chromeRects); // no rectangular slices
   });
 
   it("rotation and mirror reach the canvas transform", () => {

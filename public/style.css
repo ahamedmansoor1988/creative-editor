@@ -419,6 +419,20 @@ body.panel-left-collapsed #sidebar{
 /* Icon toggles for on/off state (clip, lock, visibility) — pressed state is
    the same accent treatment the layer list's lock/eye toggles use. */
 .iconToggleRow{display:flex; gap:3px; margin-bottom:10px;}
+/* Constrain-proportions row. The chain sits under W/H because it modifies
+   them, and the label is meta weight so the control leads, not its caption. */
+#ratioRow{display:flex; align-items:center; gap:7px; margin:6px 0 2px;}
+#ratioRow button{
+  flex:0 0 auto; width:24px; height:24px; display:grid; place-items:center;
+  background:transparent; border:1px solid transparent; border-radius:6px;
+  color:var(--icon); cursor:pointer;
+}
+#ratioRow button:hover{background:var(--surface-hover);}
+#ratioRow button[aria-pressed="true"]{
+  background:var(--surface-accent); border-color:var(--accent); color:var(--accent);
+}
+#pRatioHint{font-size:var(--text-meta); color:var(--muted);}
+#ratioRow button[aria-pressed="true"] ~ #pRatioHint{color:var(--accent);}
 .iconToggleRow button{
   flex:1; border:1px solid var(--line); background:none; border-radius:6px;
   padding:4px 0; cursor:pointer; color:var(--icon);

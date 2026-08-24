@@ -316,6 +316,33 @@ function normStroke(k,dfltColor){
  * invisible, which is never what an author meant. Frames may legitimately be
  * transparent and paths carry their own fillOn flag, so neither is included. */
 const FILL_DEFINED=['rect','ellipse','polygon','boolean'];
+/* An artboard's paint, reusing the OBJECT paint model rather than a parallel
+ * one: the renderer, the gradient editor and the style machinery all already
+ * speak normPaint/normStroke, so an artboard that speaks it too gets gradients
+ * and stroke alignment for free instead of growing a second implementation
+ * that has to be kept in step. A board with no stroke keeps `on:false` rather
+ * than dropping the field, so toggling one on remembers its last width. */
+/* An artboard's outline as a path. Rounded corners clamp to half the shorter
+ * side, the same rule rectPath uses, so a radius can never invert the box. */
+function artboardPath(c,a){
+  const r=clamp(+a.radius||0,0,Math.min(a.w,a.h)/2);
+  c.beginPath();
+  if(r<=0.5){ c.rect(a.x,a.y,a.w,a.h); return; }
+  c.moveTo(a.x+r,a.y);
+  c.arcTo(a.x+a.w,a.y,a.x+a.w,a.y+a.h,r);
+  c.arcTo(a.x+a.w,a.y+a.h,a.x,a.y+a.h,r);
+  c.arcTo(a.x,a.y+a.h,a.x,a.y,r);
+  c.arcTo(a.x,a.y,a.x+a.w,a.y,r);
+  c.closePath();
+}
+function normArtPaint(f,dfltColor){
+  return normPaint(f&&typeof f==='object'?f:{kind:'solid',color:dfltColor},dfltColor);
+}
+function normArtStroke(s){
+  const out=normStroke(s&&typeof s==='object'?s:{},'#111111');
+  out.on=!!(s&&s.on);          // default OFF: a board with a border by surprise is wrong
+  return out;
+}
 function normAppearance(c){
   const dflt=(c.fill&&c.fill.color)||'#d9d9d9';
   let fills=Array.isArray(c.fills)?c.fills:(c.fill?[c.fill]:null);
@@ -407,6 +434,15 @@ function normalizeDoc(d){
     x:Math.round(+a.x||0), y:Math.round(+a.y||0),
     w:clamp(Math.round(+a.w)||400,20,8000), h:clamp(Math.round(+a.h)||300,20,8000),
     bg:/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff',
+    /* An artboard paints like a frame, not like a coloured rectangle: fill can
+     * be a gradient, it can carry a stroke, and its corners can round. `bg`
+     * stays the solid colour so older files keep working and so anything that
+     * only wants one colour (export background, the swatch) has it — `fill` is
+     * the richer paint and wins whenever it is present. Shared shape with
+     * objects on purpose: paintStyle/strokeStyleFor already understand it. */
+    fill:normArtPaint(a.fill,/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff'),
+    stroke:normArtStroke(a.stroke),
+    radius:clamp(Math.round(+a.radius||0),0,4000),
     clip:a.clip!==false, show:a.show!==false, locked:!!a.locked,
   }));
   if(!f.artboards.length&&!hadArtboardKey)
@@ -1941,11 +1977,36 @@ function drawDoc(c,W,H,opts){
    * is an empty canvas and must paint as nothing — the page-sized slab that
    * used to stand in here is exactly the "deleted canvas space" ghost, and with
    * no artboard left to hide behind it showed up as a full page rect. */
-  // §6.5: each artboard paints its own background before any content
+  // §6.5: each artboard paints its own background before any content. It goes
+  // through the same paint path objects use, so a gradient board and a
+  // gradient rect are the same code — and rounds/strokes like a frame.
   (f.artboards||[]).forEach(a=>{
     if(!a.show) return;
-    c.fillStyle=a.bg;
-    c.fillRect(a.x,a.y,a.w,a.h);
+    artboardPath(c,a);
+    c.fillStyle=paintStyle(c,a.fill,{x:a.x,y:a.y,w:a.w,h:a.h})||a.bg;
+    c.fill();
+    const st=a.stroke;
+    if(st&&st.on&&st.width>0){
+      c.save();
+      /* Alignment is done by clipping, exactly as objects do it: an inside
+       * stroke clips to the board and draws at double width, an outside stroke
+       * clips everything else away. Otherwise a board's border would sit half
+       * over its own content while an identical rect's did not. */
+      if(st.align==='inside'){ c.clip(); }
+      else if(st.align==='outside'){
+        c.save();
+        c.beginPath(); c.rect(a.x-st.width*2,a.y-st.width*2,a.w+st.width*4,a.h+st.width*4);
+        artboardPath(c,a);
+        c.clip('evenodd');
+      }
+      c.lineWidth=(st.align==='center')?st.width:st.width*2;
+      c.strokeStyle=paintStyle(c,st,{x:a.x,y:a.y,w:a.w,h:a.h})||st.color||'#111111';
+      c.globalAlpha=clamp(st.opacity===undefined?1:st.opacity,0,1);
+      artboardPath(c,a);
+      c.stroke();
+      if(st.align==='outside') c.restore();
+      c.restore();
+    }
   });
   /* Artboards that CLIP need their members drawn inside a clip region, so the
    * children are bucketed by artboard first. Anything outside every artboard,
@@ -1957,7 +2018,7 @@ function drawDoc(c,W,H,opts){
     const a=artboardOf(o);
     if(a&&a.clip){
       c.save();
-      c.beginPath(); c.rect(a.x,a.y,a.w,a.h); c.clip();
+      artboardPath(c,a); c.clip();   // rounded boards clip to their own corners
       drawList(c,W,H,[o]);
       c.restore();
     }else drawList(c,W,H,[o]);
@@ -3068,7 +3129,7 @@ function paint(){
   ctx.fillStyle='#ffffff';
   // No artboards means an empty canvas, not a page-sized sheet: nothing to
   // paint, and no drop shadow around a surface that is not there.
-  (f.artboards||[]).forEach(a=>{ if(a.show) ctx.fillRect(a.x,a.y,a.w,a.h); });
+  (f.artboards||[]).forEach(a=>{ if(a.show){ artboardPath(ctx,a); ctx.fill(); } });
   ctx.restore();
   if(rasterPreviewNeeded()){
     ctx.imageSmoothingEnabled=true;
@@ -3234,7 +3295,7 @@ function paint(){
     const isSel=selArtboard===a.id;
     ctx.strokeStyle=isSel?'#3b82f6':'#d6d9de';
     ctx.lineWidth=(isSel?1.6:1)/z;
-    ctx.strokeRect(a.x,a.y,a.w,a.h);
+    artboardPath(ctx,a); ctx.stroke();
     ctx.font=`${11/z}px ${getComputedStyle(document.body).fontFamily}`;
     const labelColor=isSel?'#3b82f6':'#8a8d93';
     ctx.fillStyle=labelColor;
@@ -4064,6 +4125,22 @@ function syncArtboardPanel(ab){
   const key=Math.round(ab.w)+'x'+Math.round(ab.h);
   const preset=$('abPreset');
   preset.value=[...preset.options].some(o=>o.value===key)?key:'';
+  /* Fill. The colour swatch edits the SOLID colour, or the first stop of a
+   * gradient — an <input type=color> has exactly one value, so pointing it at
+   * the first stop keeps it meaningful instead of disabling it. */
+  const F=ab.fill||{kind:'solid',color:ab.bg};
+  $('abFillKind').value=F.kind||'solid';
+  const grad=F.kind==='linear'||F.kind==='radial';
+  $('abGradRow').style.display=grad?'':'none';
+  $('abBg').value=grad
+    ? ((F.stops&&F.stops[0]&&F.stops[0].color)||'#ffffff')
+    : (/^#[0-9a-fA-F]{6}$/.test(F.color||'')?F.color:'#ffffff');
+  if(grad) $('abGradAngle').value=Math.round(F.angle||0);
+  $('abRadius').value=Math.round(ab.radius||0);
+  const S=ab.stroke||{};
+  $('abStrokeW').value=Math.round(S.on?(S.width||0):0);
+  $('abStrokeAlign').value=S.align||'center';
+  $('abStrokeColor').value=/^#[0-9a-fA-F]{6}$/.test(S.color||'')?S.color:'#111111';
 }
 
 /* Is this engine doing anything on this object? Drives the dot in the engine
@@ -5707,6 +5784,17 @@ $('engineSearch').addEventListener('keydown',e=>{
 function posArtboard(){
   return (!primary()&&selArtboard)?(doc.frame.artboards||[]).find(a=>a.id===selArtboard):null;
 }
+/* Constrain proportions. A view preference, not document state: it changes how
+ * an edit is interpreted, not what the document holds, so it is deliberately
+ * not in the doc and not in history — the same call Figma and Sketch make. */
+let keepRatio=false;
+$('pRatio').addEventListener('click',()=>{
+  keepRatio=!keepRatio;
+  const b=$('pRatio');
+  b.setAttribute('aria-pressed',keepRatio?'true':'false');
+  if(window.Icons) b.innerHTML=Icons.svg(keepRatio?'link':'unlink');
+  status(keepRatio?'Proportions constrained.':'Proportions free.');
+});
 [['pX','x'],['pY','y'],['pW','w'],['pH','h']].forEach(([id,k])=>{
   $(id).addEventListener('input',e=>{
     const v=parseFloat(e.target.value); if(isNaN(v))return;
@@ -5723,7 +5811,16 @@ function posArtboard(){
           objectsInArtboard(ab).forEach(o=>{ if(!o.locked) translateObj(o,k==='x'?dv:0,k==='y'?dv:0); });
         }
       }else if(!ab.locked){
+        // Proportional scaling: the OTHER dimension follows by the same
+        // factor, measured against the value being replaced rather than
+        // against a remembered ratio, so repeated edits do not drift.
+        const before=ab[k];
         ab[k]=clamp(Math.round(v),20,8000);
+        if(keepRatio&&before>0){
+          const other=k==='w'?'h':'w';
+          ab[other]=clamp(Math.round(ab[other]*(ab[k]/before)),20,8000);
+          $(other==='w'?'pW':'pH').value=ab[other];
+        }
       }
       growFrameToArtboards();
       // The origin is world zero and no longer moves when the frame grows, so
@@ -5750,7 +5847,25 @@ function posArtboard(){
     // W/H apply to the WHOLE selection: the field reports across all of them
     // (showing Mixed when they disagree), so typing must be the way out of
     // that state rather than an edit to the primary alone.
-    else os.forEach(o=>{ if(!(o.type==='text'&&o.mode!=='area')) o[k]=v; });
+    else os.forEach(o=>{
+      if(o.type==='text'&&o.mode!=='area') return;
+      /* Proportional scaling scales the other dimension by the SAME factor
+       * this object's own edit represents, per object — so a mixed-size
+       * selection keeps each object's own aspect rather than being flattened
+       * onto the primary's. Factor is taken against the value being replaced,
+       * so successive edits compound cleanly instead of drifting. */
+      const before=o[k];
+      o[k]=v;
+      if(keepRatio&&before>0){
+        const other=k==='w'?'h':'w';
+        o[other]=Math.max(1,Math.round(o[other]*(v/before)));
+      }
+    });
+    if(keepRatio){
+      const other=k==='w'?'pH':'pW';
+      const box=os.length>1?selBounds():boxOf(obj);
+      $(other).value=Math.round(k==='w'?box.h:box.w);
+    }
     render();
   });
   $(id).addEventListener('change',()=>pushHistory(posArtboard()?'Edit artboard':undefined));
@@ -5765,9 +5880,79 @@ $('abName').addEventListener('input',e=>{
 $('abName').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Rename artboard'); });
 $('abBg').addEventListener('input',e=>{
   const ab=posArtboard(); if(!ab)return;
-  ab.bg=e.target.value; render();
+  const v=e.target.value;
+  /* bg and fill.color are kept in step deliberately. `bg` is the one plain
+   * colour the export background and the layer swatch read; `fill` is the
+   * paint the renderer uses. Writing only one of them would leave a board
+   * whose thumbnail disagreed with the canvas. On a gradient the swatch edits
+   * the FIRST STOP, which is what it displays. */
+  const F=ab.fill;
+  if(F&&(F.kind==='linear'||F.kind==='radial')){
+    if(F.stops&&F.stops[0]) F.stops[0].color=v;
+  }else{
+    ab.bg=v;
+    if(F) F.color=v;
+  }
+  render();
 });
 $('abBg').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Artboard background'); });
+$('abFillKind').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  const kind=e.target.value, F=ab.fill||{};
+  /* Switching solid -> gradient seeds the stops from the colour already on
+   * screen, so the board does not jump to an unrelated ramp; switching back
+   * takes the first stop as the solid, so a round trip is lossless in the
+   * direction the user can see. */
+  if(kind==='solid'){
+    const first=(F.stops&&F.stops[0]&&F.stops[0].color)||ab.bg||'#ffffff';
+    ab.bg=first;
+    ab.fill=normArtPaint({kind:'solid',color:first},first);
+  }else{
+    const base=(F.kind==='solid'&&F.color)||ab.bg||'#ffffff';
+    const stops=(F.stops&&F.stops.length>=2)?F.stops:[
+      {pos:0,color:base,opacity:1,mid:0.5},
+      {pos:1,color:'#333333',opacity:1,mid:0.5}];
+    ab.fill=normArtPaint({kind,stops,angle:F.angle||90},base);
+  }
+  syncArtboardPanel(ab); pushHistory('Artboard fill'); render();
+});
+$('abGradAngle').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  ab.fill.angle=((+e.target.value||0)%360+360)%360;
+  render();
+});
+$('abGradAngle').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Gradient angle'); });
+$('abGradEdit').addEventListener('click',()=>{
+  const ab=posArtboard(); if(!ab)return;
+  status('Gradient stops for an artboard are edited here: use the angle and the colour swatch. A full stop editor lives on a shape’s Fill engine.');
+});
+$('abRadius').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||ab.locked)return;
+  ab.radius=clamp(Math.round(+e.target.value||0),0,4000);
+  render();
+});
+$('abRadius').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Artboard radius'); });
+$('abStrokeW').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||ab.locked)return;
+  const w=clamp(Math.round(+e.target.value||0),0,400);
+  ab.stroke=ab.stroke||normArtStroke({});
+  ab.stroke.width=w;
+  ab.stroke.on=w>0;          // width IS the on/off, so there is no dead toggle
+  render();
+});
+$('abStrokeW').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Artboard stroke'); });
+$('abStrokeAlign').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  ab.stroke=ab.stroke||normArtStroke({});
+  ab.stroke.align=e.target.value;
+  pushHistory('Stroke alignment'); render();
+});
+$('abStrokeColor').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  ab.stroke=ab.stroke||normArtStroke({});
+  ab.stroke.color=e.target.value; render();
+});
+$('abStrokeColor').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Stroke colour'); });
 [['abClip','clip','Clip content'],['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
   .forEach(([id,key,label])=>{
     // icon toggles: click flips the flag, aria-pressed is resynced by
