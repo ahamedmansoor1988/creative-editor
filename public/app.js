@@ -6091,7 +6091,7 @@ $('pRatio').addEventListener('click',()=>{
    * this decides only where a new user starts, not what they are stuck with. */
   if(!localStorage.getItem(COLLAPSE_KEY)){
     ['Transform','Style','Stroke','Export','Presets',
-     'ab:Stroke','ab:Options'].forEach(k=>_collapsed.add(k));
+     'ab:Options'].forEach(k=>_collapsed.add(k));
     saveCollapsed();
   }
   wireCollapser(head,[target],'Transform');

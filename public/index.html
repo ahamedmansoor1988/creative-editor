@@ -433,7 +433,11 @@
          they are grouped the way a shape's are: Fill, then Stroke, then the
          behaviour switches. Fill offers the same solid/linear/radial the object
          paint model does. -->
-    <div class="pSect" data-absect="Fill">Fill</div>
+    <!-- Fill and stroke share one section and one row each. As two sections
+         they cost two headers, and the stroke's width and colour were `span 2`
+         in a two-column grid, so each took a full row of its own — three rows
+         and a header spent on what fits in two lines. -->
+    <div class="pSect" data-absect="Paint">Fill &amp; stroke</div>
     <div class="fieldRow" style="margin-top:6px">
       <label class="iconField" title="Fill type"><i data-icon="palette"></i><select id="abFillKind" aria-label="Artboard fill type">
         <option value="solid">Solid</option>
@@ -448,15 +452,14 @@
       </label>
       <button id="abGradEdit" class="iconBtn" style="grid-column:span 2">Edit stops…</button>
     </div>
-    <div class="pSect" data-absect="Stroke">Stroke</div>
-    <div class="grid4" style="margin-top:6px">
-      <label class="iconField" title="Stroke width" style="grid-column:span 2"><i data-icon="pen"></i>
+    <div class="fieldRow">
+      <label class="iconField" title="Stroke width"><i data-icon="pen"></i>
         <input type="number" id="abStrokeW" min="0" step="1" aria-label="Artboard stroke width">
       </label>
-      <input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour" style="grid-column:span 2">
+      <input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour">
     </div>
-    <div class="grid4" style="margin-top:6px">
-      <label class="iconField" title="Stroke alignment" style="grid-column:span 2"><i data-icon="sliders"></i><select id="abStrokeAlign" aria-label="Artboard stroke alignment">
+    <div class="fieldRow">
+      <label class="iconField" title="Stroke alignment"><i data-icon="sliders"></i><select id="abStrokeAlign" aria-label="Artboard stroke alignment">
         <option value="center">Centre</option>
         <option value="inside">Inside</option>
         <option value="outside">Outside</option>
