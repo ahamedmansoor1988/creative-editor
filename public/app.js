@@ -4798,9 +4798,17 @@ function buildFxSection(obj,page,add,body){
               <label class="slider">Focal Y <input type="range" class="apFy" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fy*100)}"></label>
             </div>`);
             /* Aspect stretches a radial gradient into an ellipse. Withheld,
-             * not removed: the field still normalises, still renders, and a
-             * document that already carries a non-round radial keeps it. */
-            if(SHOW_CONTROL.gradientAspect||Math.abs((+f.aspect||1)-1)>0.001)
+             * not removed: the field still normalises and still renders, so a
+             * stretched radial in an existing document keeps its shape.
+             *
+             * This used to make an exception and show the slider whenever the
+             * aspect was not 1, so a stretched gradient kept the control that
+             * could round it again. In practice that meant the control the
+             * user asked to be rid of reappeared the moment they had touched
+             * it — the exception fired exactly when they least wanted it.
+             * ?show=gradientAspect is the way back, same as every other
+             * withheld control. */
+            if(SHOW_CONTROL.gradientAspect)
               add(`<label class="slider">Aspect <span id="apAsp${fi}">${(+f.aspect).toFixed(2)}</span>
               <input type="range" class="apAspect" data-i="${fi}" min="0.2" max="5" step="0.05" value="${f.aspect}"></label>`);
           }
