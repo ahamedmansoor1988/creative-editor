@@ -4914,9 +4914,16 @@ function buildFxSection(obj,page,add,body){
           });
         }
       }
-      const hint=isFill
-        ? (multi?'Fills paint bottom to top, each with its own opacity and blend mode.':'')
-        : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.';
+      /* The stroke hint used to read "Inside/outside alignment is rendered by
+       * clipping, since canvas strokes are centred. Dash accepts a
+       * comma-separated list." Its first half described how THIS RENDERER
+       * works, which answers a question the user did not ask, and its second
+       * half repeated what the Dash field's own placeholder ("e.g. 12, 6")
+       * already shows at the point of use. Neither belonged in a paragraph
+       * under the controls. */
+      const hint=isFill&&multi
+        ? 'Fills paint bottom to top, each with its own opacity and blend mode.'
+        : '';
       if(hint) add(`<div class="fxHint">${hint}</div>`);
     }
   }
