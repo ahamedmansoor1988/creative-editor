@@ -3445,7 +3445,10 @@ function render(){
 }
 
 /* ================= UI sync ================= */
-function refresh(){ computeGapHints(); render(); syncLayers(); syncStyles(); syncInspector(); syncPageRow(); }
+function refresh(){ computeGapHints(); render(); syncLayers(); syncStyles(); syncInspector(); syncPageRow();
+  // the Effects menu depends on what the SELECTION can open, so it is synced
+  // with the selection rather than only when the menu is clicked
+  syncFxMenuAvailability(); }
 /* Depth is configurable per §6.14; kept modest by default because entries are
  * now diffs, so 200 costs far less than the old 60 snapshots did. */
 function setHistoryLimit(n){
@@ -8507,7 +8510,45 @@ function applyDefaultSize(obj,p){
 }
 
 /* ================= menus / commands ================= */
+/* The Effects menu lists a page per entry, and a page the current selection
+ * cannot open is a command that does nothing when clicked. With the QA gate
+ * holding every effect back, and Pattern and the effect stack withheld too,
+ * almost the whole menu was dead — entries that looked live, took a click and
+ * silently declined. Each entry is shown only when the selection actually has
+ * that page, so the menu re-fills on its own as effects are promoted.
+ *
+ * Dividers follow the entries they separate: one with nothing visible after it
+ * before the next divider would be a rule floating over empty space. */
+function syncFxMenuAvailability(){
+  const obj=typeof primary==='function'?primary():null;
+  const pages=obj?FX_PAGES(obj):[];
+  document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
+    b.style.display=pages.includes(b.dataset.fx)?'':'none';
+  });
+  document.querySelectorAll('.menu[data-menu="effects"] .dropdown').forEach(dd=>{
+    const kids=[...dd.children];
+    kids.forEach((el,i)=>{
+      if(!el.classList.contains('menuDivider')) return;
+      let live=false;
+      for(let j=i+1;j<kids.length&&!kids[j].classList.contains('menuDivider');j++){
+        if(kids[j].style.display!=='none'){ live=true; break; }
+      }
+      el.style.display=live?'':'none';
+    });
+    /* And the menubar entry follows its own menu. With every effect gated off
+     * nothing is left to list, and a title that opens onto an empty box is
+     * worse than no title — it offers something and then shows nothing. It
+     * returns the moment one effect is promoted. */
+    const menu=dd.closest('.menu');
+    if(menu){
+      const any=[...dd.querySelectorAll('button[data-fx]')].some(b=>b.style.display!=='none');
+      menu.style.display=any?'':'none';
+      if(!any) menu.classList.remove('open');
+    }
+  });
+}
 function syncMenuChecks(){
+  syncFxMenuAvailability();
   document.querySelectorAll('.dropdown button[data-check]').forEach(b=>{
     let on=false;
     if(b.dataset.check==='rulers') on=showRulers;

@@ -115,8 +115,10 @@
       <button data-fx="Mask">Mask</button>
       <button data-fx="Effects">Effect stack</button>
       <div class="menuDivider" aria-hidden="true"></div>
-      <button data-fx="Fill">Fill</button>
-      <button data-fx="Stroke">Stroke</button>
+      <!-- Fill and Stroke are not effects, and since the inspector stacks its
+           sections they are both permanently on screen — a menu command to
+           "go to Fill" points at something already visible. Withdrawn from
+           this menu only; the sections themselves are untouched. -->
       <button data-fx="Gradient">Gradient</button>
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-fx="Light">Light</button>
