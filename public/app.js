@@ -2948,9 +2948,14 @@ function distToSegment(px,py,x1,y1,x2,y2){
  *                 never re-running the shader engines.
  * render() = both, and is what every doc-mutating path already calls. */
 let marquee=null;   // {x0,y0,x1,y1} in page coords while dragging
+/* The ruler reads world coordinates, so the first artboard's top-left corner
+ * is 0,0 — the same origin the artboard model uses, and the same one the
+ * ruler's own page-extent highlight has always drawn from (it starts the band
+ * at view.x, i.e. world zero). This used to return the frame CENTRE, which
+ * put the ruler's 0 mid-artboard and disagreed with that highlight; it also
+ * meant growing the frame moved the origin under the user's feet. */
 function coordOrigin(){
-  const f=doc&&doc.frame;
-  return f?{x:f.w/2,y:f.h/2}:{x:0,y:0};
+  return {x:0,y:0};
 }
 function pageToUiX(x){ return x-coordOrigin().x; }
 function pageToUiY(y){ return y-coordOrigin().y; }
@@ -5682,17 +5687,9 @@ function posArtboard(){
         ab[k]=clamp(Math.round(v),20,8000);
       }
       growFrameToArtboards();
-      // growFrameToArtboards() can grow doc.frame.w/h, which moves
-      // coordOrigin() (page-center) and therefore the ruler-relative X/Y this
-      // panel shows. frame.w only ever grows from x/w (never y/h), and vice
-      // versa, so only the OTHER axis's field can have gone stale as a side
-      // effect — resync just that one. Resyncing the field being typed into
-      // would fight the user's own keystrokes: growing the frame mid-edit
-      // shifts its origin too, so echoing it back would visibly rewrite the
-      // very number they're still typing (typing "0" would redisplay as
-      // something else on the same keystroke).
-      if(k==='x'||k==='w') $('pY').value=Math.round(pageToUiY(ab.y));
-      else $('pX').value=Math.round(pageToUiX(ab.x));
+      // The origin is world zero and no longer moves when the frame grows, so
+      // neither field can go stale as a side effect of the other — the resync
+      // this used to need is gone with the page-center origin that caused it.
       render();
       return;
     }
