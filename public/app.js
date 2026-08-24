@@ -3759,9 +3759,17 @@ const PAGE_TYPE={
 };
 const FX_PAGES=obj=>{
   const FS=window.FxStack;
+  const live=FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p]));
+  /* 'Effects' is not an effect — it is the STACK page, a list of applied
+   * effects plus a menu for adding one, and that menu is built from the very
+   * pages filtered above. With every effect gated off it renders as a control
+   * that cannot do anything: an empty list and an empty menu. So it follows
+   * its own contents, appearing only once this object has at least one effect
+   * available to stack, and coming back on its own as effects are promoted. */
+  const anyEffect=live.some(p=>p in PAGE_TYPE);
   // Export applies to every type — boxOf always returns real bounds — so it
   // is appended unconditionally rather than added to each FX_PAGES_RAW list.
-  return FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p])).concat('Export');
+  return live.filter(p=>p!=='Effects'||anyEffect).concat('Export');
 };
 const FX_PAGES_RAW=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
@@ -8878,6 +8886,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get paintCacheSize(){return _paintCache.size;},
   set paintCacheOff(v){ _paintCacheOff=!!v; paintCacheClear(); },
   pushInstanceToSource,
+  FX_PAGES, PAGE_TYPE,
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,

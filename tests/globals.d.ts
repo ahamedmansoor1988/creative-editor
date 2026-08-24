@@ -9,6 +9,12 @@ declare global {
       render(): void;
       refresh(): void;
     };
+    /* The effect QA gate. READY is a live Set the tests mutate and restore, so
+     * they can assert both halves: hidden while empty, back once promoted. */
+    FxStack?: {
+      READY: Set<string>;
+      isReady(type: string): boolean;
+    };
   }
 }
 export {};

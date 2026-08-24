@@ -603,3 +603,46 @@ describe("artboard naming", () => {
     expect(new Set(A.map((a) => a.name)).size).toBe(5);
   });
 });
+
+describe("effect QA gate", () => {
+  const rect = { type: "rect", name: "R", x: 0, y: 0, w: 100, h: 100 };
+
+  function pages(readyTypes) {
+    const FS = editor.window ? editor.window.FxStack : globalThis.window.FxStack;
+    const saved = FS ? new Set(FS.READY) : null;
+    if (FS) {
+      FS.READY.clear();
+      readyTypes.forEach((t) => FS.READY.add(t));
+    }
+    const out = editor.FX_PAGES(rect);
+    if (FS) {
+      FS.READY.clear();
+      saved.forEach((t) => FS.READY.add(t));
+    }
+    return out;
+  }
+
+  it("hides every effect page while nothing is promoted", () => {
+    const p = pages([]);
+    const effects = p.filter((n) => n in editor.PAGE_TYPE);
+    expect(effects).toEqual([]);
+  });
+
+  it("hides the Effects stack page too, since its add-menu would be empty", () => {
+    // the stack page is not itself an effect, so the type filter alone
+    // leaves it behind as a control that cannot do anything
+    expect(pages([])).not.toContain("Effects");
+  });
+
+  it("keeps the structural pages, which are not gated", () => {
+    const p = pages([]);
+    expect(p).toEqual(expect.arrayContaining(["Shape", "Fill", "Stroke", "Export"]));
+  });
+
+  it("brings back the effect AND the stack page once one is promoted", () => {
+    const p = pages(["shadow"]);
+    expect(p).toContain("Shadow");
+    expect(p).toContain("Effects"); // it follows its own contents
+    expect(p).not.toContain("Glow"); // and only that one comes back
+  });
+});
