@@ -4686,7 +4686,10 @@ function buildFxSection(obj,page,add,body){
     const list=obj.exportPresets||[];
     if(!list.length) add(`<div class="fxHint">No export presets yet. Add one to rasterize just this shape.</div>`);
     list.forEach((p,pi)=>{
-      add(`<div class="pSect">${esc(p.name)}</div>`);
+      // The page header already says Export; a lone preset beneath it called
+      // "Export 1" is the same word twice for one thing. The name earns a
+      // heading once there are several presets to tell apart.
+      if(list.length>1) add(`<div class="pSect">${esc(p.name)}</div>`);
       add(`<div class="apRow">
         <button class="expDo" data-i="${pi}" style="flex:1">${IC('download',13)} Export</button>
         <button class="expDel" data-i="${pi}" title="Remove" aria-label="Remove">${IC('trash',13)}</button>
@@ -4829,7 +4832,11 @@ function buildFxSection(obj,page,add,body){
         </div>`);
         body.querySelectorAll('.apBlend')[fi].value=f.blend;
       });
-      if(multi) add(`<button class="rollBtn" id="apAdd">+ Add ${page.toLowerCase()}</button>`);
+      /* The add button is withheld as a MULTI-paint control, but it is also
+       * the only way to get the FIRST one: a rect starts with no strokes, so
+       * hiding it at zero left an empty Stroke section and no route out of it.
+       * Shown when there is nothing yet, or when stacking is available. */
+      if(multi||!list.length) add(`<button class="rollBtn" id="apAdd">+ Add ${page.toLowerCase()}</button>`);
       if($('apAdd')) $('apAdd').addEventListener('click',()=>{
         const base=list.length?JSON.parse(JSON.stringify(list[list.length-1])):null;
         obj[key]=[...list, isFill?(base||{kind:'solid',color:'#888888'})
