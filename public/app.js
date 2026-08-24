@@ -3829,7 +3829,7 @@ function syncStyles(){
  * so a document that already carries the property keeps rendering it and
  * nothing has to be rewritten to bring the control back. `?show=<key>` opens
  * one for a session, the same door ?fx= opens for an effect. */
-const SHOW_CONTROL={cornerStyle:false, pattern:false};
+const SHOW_CONTROL={cornerStyle:false, pattern:false, multiFill:false};
 try{
   new URLSearchParams(location.search).getAll('show')
     .flatMap(v=>v.split(','))
@@ -4726,42 +4726,30 @@ function buildFxSection(obj,page,add,body){
     const key=isFill?'fills':'strokes';
     if(!list){ add(`<div class="fxHint">This object type has no ${page.toLowerCase()}s.</div>`); }
     else{
-      // §4.3 object-level fill/stroke opacity, independent of layer opacity
+      /* Multi-paint UI shows when it has something to act on: the flag is
+       * off, but an object that ALREADY carries several paints keeps every
+       * control it needs, so the gate never strands existing work.
+       *
+       * §4.3's object-level opacity acts ACROSS the paints, and each paint
+       * carries its own. With one paint those are the same number reached two
+       * ways — the "two opacities" a single fill was showing. The per-paint
+       * one stays, since it sits with that paint's type, colour and blend. */
+      const multi=SHOW_CONTROL.multiFill||list.length>1;
       const opKey=isFill?'fillOpacity':'strokeOpacity';
-      add(`<label class="slider">${page} opacity <span id="apOpV">${Math.round((obj[opKey]??1)*100)}%</span>
-        <input type="range" id="apOp" min="0" max="100" value="${Math.round((obj[opKey]??1)*100)}"></label>`);
-      $('apOp').addEventListener('input',e=>{ obj[opKey]=+e.target.value/100; $('apOpV').textContent=e.target.value+'%'; render(); });
-      $('apOp').addEventListener('change',()=>pushHistory());
-
-      // Reusable style status — shown once, on the Fill page, since a style
-      // covers the whole appearance (fill+stroke+effects) not just this tab.
-      if(isFill){
-        const linkedStyle=(doc.frame.styles||[]).find(s=>s.id===obj.styleId);
-        add(`<div class="pSect">Style</div>`);
-        if(linkedStyle){
-          add(`<div class="fxHint">Linked to style "${esc(linkedStyle.name)}".</div>`);
-          add(`<div class="gsBtns">
-            <button class="rollBtn" id="stUpdate">Update style</button>
-            <button class="rollBtn" id="stDetach">Detach</button></div>`);
-          $('stUpdate').addEventListener('click',pushStyleToSource);
-          $('stDetach').addEventListener('click',detachStyle);
-        }else{
-          add(`<button class="rollBtn" id="stSave">Save as style</button>`);
-          $('stSave').addEventListener('click',()=>{
-            const nm=prompt('Style name:','Style '+((doc.frame.styles||[]).length+1));
-            if(nm===null) return;
-            saveStyle(nm.trim());
-          });
-        }
+      if(multi){
+        add(`<label class="slider">${page} opacity <span id="apOpV">${Math.round((obj[opKey]??1)*100)}%</span>
+          <input type="range" id="apOp" min="0" max="100" value="${Math.round((obj[opKey]??1)*100)}"></label>`);
+        $('apOp').addEventListener('input',e=>{ obj[opKey]=+e.target.value/100; $('apOpV').textContent=e.target.value+'%'; render(); });
+        $('apOp').addEventListener('change',()=>pushHistory());
       }
 
       list.forEach((f,fi)=>{
-        add(`<div class="pSect">${page} ${fi+1}${fi===0?' (bottom)':''}</div>`);
+        if(multi) add(`<div class="pSect">${page} ${fi+1}${fi===0?' (bottom)':''}</div>`);
         add(`<div class="apRow">
           <label class="chk" style="flex:1"><input type="checkbox" class="apOn" data-i="${fi}" ${f.on!==false?'checked':''}> Visible</label>
-          <button class="apUp" data-i="${fi}" title="Move up" aria-label="Move up" ${fi===list.length-1?'disabled':''}>${IC('chevronUp',13)}</button>
+          ${multi?`<button class="apUp" data-i="${fi}" title="Move up" aria-label="Move up" ${fi===list.length-1?'disabled':''}>${IC('chevronUp',13)}</button>
           <button class="apDn" data-i="${fi}" title="Move down" aria-label="Move down" ${fi===0?'disabled':''}>${IC('chevronDown',13)}</button>
-          <button class="apDel" data-i="${fi}" title="Remove" aria-label="Remove" ${list.length<=1&&(!isFill?obj.type==='path'||obj.type==='line':true)?'disabled':''}>${IC('trash',13)}</button>
+          <button class="apDel" data-i="${fi}" title="Remove" aria-label="Remove" ${list.length<=1&&(!isFill?obj.type==='path'||obj.type==='line':true)?'disabled':''}>${IC('trash',13)}</button>`:''}
         </div>`);
         add(`<label class="slider">Type<select class="apKind" data-i="${fi}">
           <option value="solid">Solid</option><option value="linear">Linear gradient</option>
@@ -4841,8 +4829,8 @@ function buildFxSection(obj,page,add,body){
         </div>`);
         body.querySelectorAll('.apBlend')[fi].value=f.blend;
       });
-      add(`<button class="rollBtn" id="apAdd">+ Add ${page.toLowerCase()}</button>`);
-      $('apAdd').addEventListener('click',()=>{
+      if(multi) add(`<button class="rollBtn" id="apAdd">+ Add ${page.toLowerCase()}</button>`);
+      if($('apAdd')) $('apAdd').addEventListener('click',()=>{
         const base=list.length?JSON.parse(JSON.stringify(list[list.length-1])):null;
         obj[key]=[...list, isFill?(base||{kind:'solid',color:'#888888'})
                               :(base||{kind:'solid',color:'#111111',width:2})];
@@ -4900,9 +4888,36 @@ function buildFxSection(obj,page,add,body){
         $('fRad').addEventListener('input',e=>{ obj.radius=+e.target.value; $('fRadV').textContent=e.target.value; render(); });
         $('fRad').addEventListener('change',()=>pushHistory());
       }
-      add(`<div class="fxHint">${isFill
-        ? 'Fills paint bottom to top, each with its own opacity and blend mode.'
-        : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.'}</div>`);
+      /* Style comes AFTER the paints. It used to sit above them, which was
+       * harmless only while a "Fill 1" divider stood between the two — with a
+       * single fill that divider is gone, and the Style header became the
+       * nearest one above the paint controls, so folding Style folded the
+       * fill away with it. Ordering it last removes the ambiguity rather than
+       * papering over it, and it reads better besides: a style is something
+       * you save once the appearance is set, not before. */
+      if(isFill){
+        const linkedStyle=(doc.frame.styles||[]).find(s=>s.id===obj.styleId);
+        add(`<div class="pSect">Style</div>`);
+        if(linkedStyle){
+          add(`<div class="fxHint">Linked to style "${esc(linkedStyle.name)}".</div>`);
+          add(`<div class="gsBtns">
+            <button class="rollBtn" id="stUpdate">Update style</button>
+            <button class="rollBtn" id="stDetach">Detach</button></div>`);
+          $('stUpdate').addEventListener('click',pushStyleToSource);
+          $('stDetach').addEventListener('click',detachStyle);
+        }else{
+          add(`<button class="rollBtn" id="stSave">Save as style</button>`);
+          $('stSave').addEventListener('click',()=>{
+            const nm=prompt('Style name:','Style '+((doc.frame.styles||[]).length+1));
+            if(nm===null) return;
+            saveStyle(nm.trim());
+          });
+        }
+      }
+      const hint=isFill
+        ? (multi?'Fills paint bottom to top, each with its own opacity and blend mode.':'')
+        : 'Inside/outside alignment is rendered by clipping, since canvas strokes are centred. Dash accepts a comma-separated list.';
+      if(hint) add(`<div class="fxHint">${hint}</div>`);
     }
   }
 
