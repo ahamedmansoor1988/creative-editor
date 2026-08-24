@@ -719,3 +719,101 @@ describe("artboard membership and clipping", () => {
     expect(names).not.toContain("Far");
   });
 });
+
+describe("stacked engine sections stay independent", () => {
+  /* Fill and Stroke are built by the same code, from the same control classes,
+   * with the same data-i indices. Rendering one page at a time made that
+   * unambiguous; stacking them put both on screen at once, and the class-based
+   * wiring (body.querySelectorAll('.apEOp')) then reached across — so a drag
+   * on the fill's opacity also wrote the stroke's. Each page now builds into
+   * its own container, and these pin that the two cannot touch each other. */
+  function shapeWithBoth() {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        artboards: [{ id: "a", name: "A", x: 0, y: 0, w: 900, h: 600 }],
+        children: [
+          {
+            type: "rect",
+            name: "R",
+            x: 100,
+            y: 100,
+            w: 200,
+            h: 150,
+            fill: { kind: "solid", color: "#3b6df0" },
+            strokes: [{ on: true, width: 8, color: "#ff0000", align: "center" }],
+          },
+        ],
+      },
+    };
+    const o = editor.doc.frame.children[0];
+    editor.setSelIds(new Set([o.id]));
+    editor.refresh();
+    return o;
+  }
+
+  /** The container built for one page, so a query cannot leave it. */
+  function section(name) {
+    const head = document.querySelector(`#fxBody [data-fxsect="${name}"]`);
+    return head && head.nextElementSibling;
+  }
+
+  function fire(el, value, type) {
+    if (type === "checkbox") el.checked = value;
+    else el.value = value;
+    el.dispatchEvent(new window.Event(type === "checkbox" ? "change" : "input", { bubbles: true }));
+  }
+
+  it("renders Fill and Stroke as separate containers", () => {
+    shapeWithBoth();
+    expect(section("Fill")).toBeTruthy();
+    expect(section("Stroke")).toBeTruthy();
+    expect(section("Fill")).not.toBe(section("Stroke"));
+  });
+
+  it("does not let the fill's colour reach the stroke", () => {
+    const o = shapeWithBoth();
+    const el = section("Fill").querySelector(".apColor");
+    fire(el, "#00aa00");
+    expect(o.fills[0].color).toBe("#00aa00");
+    expect(o.strokes[0].color, "the stroke must not follow the fill").toBe("#ff0000");
+  });
+
+  it("does not let the fill's visibility reach the stroke", () => {
+    /* Direction matters. Fill is built first, so the Fill pass sees only its
+     * own controls while the Stroke pass sees BOTH — which means it is the
+     * FILL's controls that end up double-wired. Driving the stroke's would
+     * pass even with the bug present. */
+    const o = shapeWithBoth();
+    fire(section("Fill").querySelector(".apOn"), false, "checkbox");
+    expect(o.fills[0].on).toBe(false);
+    expect(o.strokes[0].on, "the stroke must not follow the fill").toBe(true);
+  });
+
+  it("does not let the fill's opacity reach the stroke", () => {
+    // the reported symptom: dragging fill opacity to zero took the stroke with it
+    const o = shapeWithBoth();
+    const sect = section("Fill");
+    const slider = [...sect.querySelectorAll('input[type="range"]')].find((r) =>
+      /Opacity/.test(r.parentElement.textContent || ""),
+    );
+    expect(slider, "the Fill section must have an opacity slider").toBeTruthy();
+    fire(slider, "0");
+    expect(o.fills[0].opacity).toBe(0);
+    expect(o.strokes[0].opacity, "the stroke's opacity must not follow the fill's").toBe(1);
+  });
+
+  it("builds the same control classes in BOTH sections, which is why scoping matters", () => {
+    /* This documents the collision rather than the fix: the two pages really
+     * do emit the same class names, so any wiring rooted at the shared body
+     * addresses both. The section containers are what keeps that safe. */
+    shapeWithBoth();
+    for (const cls of ["apOn", "apKind", "apBlend"]) {
+      expect(section("Fill").querySelectorAll("." + cls).length, cls).toBeGreaterThan(0);
+      expect(section("Stroke").querySelectorAll("." + cls).length, cls).toBeGreaterThan(0);
+    }
+  });
+});

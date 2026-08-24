@@ -1157,3 +1157,8 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .fieldRow > .iconField{flex:1 1 auto; min-width:0;}
 .fieldRow > button,
 .fieldRow > input[type="color"]{flex:0 0 38px; width:38px; margin:0;}
+
+/* A page's controls live in their own container so class-based wiring cannot
+   reach into a neighbouring page. display:contents keeps the layout identical
+   to when they were siblings; collapsing sets display:none over the top. */
+.fxSect{display:contents;}

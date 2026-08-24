@@ -4455,12 +4455,37 @@ function buildFx(obj){
    * The picker and pager are what the stack REPLACES, so they are hidden
    * rather than left as a second, now-redundant way to navigate. */
   const body=$('fxBody'); body.innerHTML='';
-  const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
+  /* Each page gets its own CONTAINER, and that container — not the shared
+   * body — is what its section builder queries.
+   *
+   * This is not tidiness. buildFxSection wires controls by CLASS
+   * (body.querySelectorAll('.apEOp')), and Fill and Stroke are built by the
+   * same code from the same classes with the same data-i indices. While one
+   * page rendered at a time that was unambiguous; stacking them put both on
+   * screen, so the Fill pass wired Stroke's sliders to write into `fills` and
+   * the Stroke pass wired Fill's to write into `strokes`. Every shared control
+   * ended up with two listeners and one drag wrote to both lists — dragging
+   * fill opacity to zero took the stroke's with it.
+   *
+   * Ids were checked for collisions before stacking; classes were not, and
+   * classes are how these controls are actually addressed.
+   *
+   * .fxSect is display:contents, so the container scopes lookups without
+   * changing the layout by a pixel; collapsing sets display:none over it. */
   pages.forEach(name=>{
-    add('<div class="pSect" data-fxsect="'+esc(name)+'">'+esc(name)+'</div>');
-    buildFxSection(obj,name,add,body);
+    body.insertAdjacentHTML('beforeend',
+      '<div class="pSect" data-fxsect="'+esc(name)+'">'+esc(name)+'</div>');
+    const sect=document.createElement('div');
+    sect.className='fxSect';
+    body.appendChild(sect);
+    buildFxSection(obj,name,h=>sect.insertAdjacentHTML('beforeend',h),sect);
+    const head=sect.previousElementSibling;
+    head.classList.add('collapser');
+    head.setAttribute('role','button');
+    head.setAttribute('tabindex','0');
+    wireCollapser(head,[sect],name);
+    wireSectionCollapse(sect);   // the sub-sections a page builds for itself
   });
-  wireSectionCollapse(body);
   $('fxTitleWrap').style.display='none';
   $('fxPager').style.display='none';
   /* Search earns its row only when there is enough to search. It was built for
