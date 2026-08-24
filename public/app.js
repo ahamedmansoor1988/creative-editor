@@ -34,7 +34,6 @@ let tool='select';
 /* Viewport: page->screen is s = p*z + (x,y). 'fit' auto-frames the page until
  * the user pans or zooms, which flips it to 'free'. */
 let view={z:1,x:0,y:0,mode:'fit'};
-let fxPage=0;            // engines pager
 /* Multi-select: selIds is the source of truth; `sel` stays the PRIMARY
  * selected index so every single-object code path (inspector, engines,
  * duplicate) keeps working unchanged. Invariant: sel>=0 implies
@@ -3569,7 +3568,7 @@ function syncLayers(){
       dot.className='labelDot'; dot.style.background=c.label; r.appendChild(dot); }
     keyboardRow(r);
     r.addEventListener('click',ev=>{
-      selInstance=null; fxPage=0;
+      selInstance=null;
       if(ev.shiftKey){
         if(selIds.has(c.id)&&selIds.size>1) selIds.delete(c.id); else selIds.add(c.id);
         setSelIds(selIds,c.id);
@@ -3924,7 +3923,7 @@ function syncInspector(){
     if(parent){
       const b=document.createElement('button');
       b.type='button'; b.textContent='Select parent';
-      b.addEventListener('click',()=>{ setSel(pi); selInstance=null; fxPage=0; refresh(); });
+      b.addEventListener('click',()=>{ setSel(pi); selInstance=null; refresh(); });
       box.appendChild(document.createElement('br'));
       box.appendChild(b);
     }
@@ -4376,24 +4375,11 @@ function fxActive(obj,name){
 /* The engine name doubles as the picker. The ‹ › pager still works, but it is
  * the only affordance that scrolls off the bottom of a long panel, so it
  * cannot be the only way to reach an engine. */
-function buildFxMenu(obj,pages){
-  const menu=$('fxMenu');
-  menu.innerHTML='';
-  pages.forEach((name,i)=>{
-    const b=document.createElement('button');
-    b.type='button'; b.setAttribute('role','menuitem');
-    if(i===fxPage) b.classList.add('cur');
-    if(fxActive(obj,name)) b.classList.add('on');
-    const dot=document.createElement('span'); dot.className='dot';
-    b.appendChild(dot);
-    b.appendChild(document.createTextNode(name));
-    b.addEventListener('click',ev=>{
-      ev.stopPropagation();
-      fxPage=i; closeFxMenu(); syncInspector();
-    });
-    menu.appendChild(b);
-  });
-}
+/* buildFxMenu built the engine dropdown. The stacked panel replaced the
+ * navigation it provided — every section is on screen — so it is gone rather
+ * than left building a menu inside a hidden element on every sync. The markup
+ * and its click handler stay put and inert, so restoring paging is a matter of
+ * unhiding, not of rewriting. */
 function closeFxMenu(){
   $('fxTitleWrap').classList.remove('open');
   $('fxTitle').setAttribute('aria-expanded','false');
@@ -4451,19 +4437,33 @@ const IC=(n,sz)=>window.Icons?Icons.svg(n,{size:sz||14}):'';
 /* ---- engines panel ---- */
 function buildFx(obj){
   const pages=FX_PAGES(obj);
-  fxPage=clamp(fxPage,0,pages.length-1);
-  $('fxTitle').textContent=pages[fxPage];
-  buildFxMenu(obj,pages);
-  $('fxPager').style.display=pages.length>1?'':'none';
-  /* Search earns its row only when there is enough to search. It was built for
-   * a list of twenty-odd engines; with the effect pages gated off a shape has
-   * three, all of them visible in the dropdown at once, so the field was a
-   * permanent 44px of chrome answering a question nobody had. It comes back on
-   * its own as effects are promoted. */
-  $('engineSearchWrap').style.display=pages.length>=6?'':'none';
+  /* EVERY page renders at once, as a stack of folding sections, rather than
+   * one page at a time behind a title dropdown and a pair of arrows. Paging
+   * made the panel's own contents modal: seeing Fill and Stroke together —
+   * the commonest question a shape asks — meant clicking between them and
+   * holding one in your head. Folding is what makes the stack affordable, and
+   * it is per-section and remembered, so the panel keeps the shape the user
+   * left it in. This is the arrangement Figma, Sketch and Illustrator all
+   * settled on, for the same reason.
+   *
+   * The picker and pager are what the stack REPLACES, so they are hidden
+   * rather than left as a second, now-redundant way to navigate. */
   const body=$('fxBody'); body.innerHTML='';
   const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
-  const page=pages[fxPage];
+  pages.forEach(name=>{
+    add('<div class="pSect" data-fxsect="'+esc(name)+'">'+esc(name)+'</div>');
+    buildFxSection(obj,name,add,body);
+  });
+  wireSectionCollapse(body);
+  $('fxTitleWrap').style.display='none';
+  $('fxPager').style.display='none';
+  /* Search earns its row only when there is enough to search. It was built for
+   * a list of twenty-odd engines; with the effect pages gated off a shape has
+   * three, all now visible at once, so the field was a permanent 44px
+   * answering a question nobody had. It comes back as effects are promoted. */
+  $('engineSearchWrap').style.display=pages.length>=6?'':'none';
+}
+function buildFxSection(obj,page,add,body){
 
   if(page==='Shape'){
     const sl=(id,label,min,max,step,key,fmt)=>{
@@ -4949,8 +4949,13 @@ function buildFx(obj){
           gradient:'Gradient',light:'Light',prism:'Prism',capsule:'Capsule',strip:'Strip',
           blob:'Blob',glass2:'Glass 2',glass:'Glass'};
         const nm=PAGE[obj.fx[i].type];
-        const idx=FX_PAGES(obj).indexOf(nm);
-        if(idx>=0){ fxPage=idx; syncInspector(); }
+        // every section is on screen, so "go to that effect" unfolds it and
+        // scrolls to it rather than switching pages
+        if(nm&&FX_PAGES(obj).includes(nm)){
+          _collapsed.delete(nm); saveCollapsed(); syncInspector();
+          const head=$('fxBody').querySelector('[data-fxsect="'+CSS.escape(nm)+'"]');
+          if(head) head.scrollIntoView({block:'nearest'});
+        }
       });
       add(`<div class="pSect">Presets</div>`);
       add(`<div class="gsBtns">
@@ -5927,17 +5932,11 @@ function buildFx(obj){
     $('grA').addEventListener('input',e=>{ gr.amount=+e.target.value/100; $('grAV').textContent=e.target.value+'%'; render(); });
     $('grA').addEventListener('change',()=>pushHistory());
   }
-  // The body is rebuilt from scratch on every sync, so its sections are wired
-  // here rather than once at boot — the folded state itself lives in
-  // _collapsed and survives the rebuild.
-  wireSectionCollapse(body);
 }
 function firstColor(fill){
   if(fill.kind==='solid') return fill.color;
   return (fill.stops&&fill.stops[0]&&fill.stops[0].color)||'#cccccc';
 }
-$('fxPrev').addEventListener('click',()=>{ fxPage--; syncInspector(); });
-$('fxNext').addEventListener('click',()=>{ fxPage++; syncInspector(); });
 
 /* engine search: type to find an engine by name, click result to open it */
 $('engineSearch').addEventListener('input',()=>{
@@ -5946,14 +5945,19 @@ $('engineSearch').addEventListener('input',()=>{
   box.innerHTML='';
   const q=$('engineSearch').value.trim().toLowerCase();
   if(!obj||!q) return;
-  FX_PAGES(obj).forEach((name,i)=>{
+  FX_PAGES(obj).forEach(name=>{
     if(!name.toLowerCase().includes(q)) return;
     const b=document.createElement('button');
     b.type='button'; b.textContent=name;
     b.addEventListener('click',()=>{
-      fxPage=i;
       $('engineSearch').value=''; box.innerHTML='';
+      /* Every section is on screen now, so a hit is a place to go rather than
+       * a page to switch to: unfold it if it is folded, then scroll it into
+       * view. Paging here would have been a no-op. */
+      _collapsed.delete(name); saveCollapsed();
       syncInspector();
+      const head=$('fxBody').querySelector('[data-fxsect="'+CSS.escape(name)+'"]');
+      if(head) head.scrollIntoView({block:'nearest'});
     });
     box.appendChild(b);
   });
@@ -6072,12 +6076,15 @@ $('pRatio').addEventListener('click',()=>{
   if(!head) return;
   const target=$(head.dataset.collapse);
   if(!target) return;
-  /* First-run defaults, seeded only when the user has no saved preference:
-   * Transform because X/Y/W/H is what a panel should open on, and Style
-   * because "Save as style" is an action taken occasionally, not a property
-   * read constantly. Both are one click away and both are remembered. */
+  /* First-run defaults, seeded only when the user has no saved preference.
+   * With the engine sections stacked rather than paged the panel would open
+   * with all of them expanded and be taller than the window again, so the one
+   * a shape is usually opened for — Fill — stays open and the rest start
+   * folded. Transform for the same reason: X/Y/W/H is what a panel should
+   * lead with. Each is a single click away and the choice is remembered, so
+   * this decides only where a new user starts, not what they are stuck with. */
   if(!localStorage.getItem(COLLAPSE_KEY)){
-    _collapsed.add('Transform'); _collapsed.add('Style');
+    ['Transform','Style','Stroke','Export','Presets'].forEach(k=>_collapsed.add(k));
     saveCollapsed();
   }
   wireCollapser(head,[target],'Transform');
@@ -6759,7 +6766,7 @@ canvas.addEventListener('pointerdown',e=>{
     // shift constrains (square / circle / 45°), alt draws from the centre.
     const obj=makeShape(tool,p);
     activeList().push(obj);
-    setSel(activeList().length-1); fxPage=0;
+    setSel(activeList().length-1);
     buildSnapIndex(new Set([obj.id]));
     drag={mode:'draw',kind:tool,ox:p.x,oy:p.y,obj,moved:false};
     cap(); refresh(); return;
@@ -6823,7 +6830,7 @@ canvas.addEventListener('pointerdown',e=>{
     }else{
       setSel(-1);
     }
-    fxPage=0; refresh(); return;
+    refresh(); return;
   }
   // hit() indexes the ACTIVE list (the entered container, or the page), so the
   // id must come from the same list — reading the page's top level here
@@ -6834,9 +6841,9 @@ canvas.addEventListener('pointerdown',e=>{
     if(selIds.has(id)&&selIds.size>1) selIds.delete(id);
     else selIds.add(id);
     setSelIds(selIds,id);
-    fxPage=0; refresh(); return;
+    refresh(); return;
   }
-  if(!selIds.has(id)){ setSel(i); fxPage=0; }
+  if(!selIds.has(id)){ setSel(i); }
   else { sel=i; }   // member of a multi-selection: promote to primary, keep the set
   buildSnapIndex(new Set(selObjs().map(o=>o.id)));
   drag={mode:'move',moved:false,clickI:i,px:p.x,py:p.y,
@@ -7215,7 +7222,7 @@ const endDrag=e=>{
       obj.autosize='fixed';
     }
     activeList().push(obj);
-    setSel(activeList().length-1); fxPage=0;
+    setSel(activeList().length-1);
     setTool('select');
     pushHistory(); refresh(); return;
   }
@@ -7268,7 +7275,7 @@ const endDrag=e=>{
       if(stack.length>1){
         const cur=stack.indexOf(sel);
         setSel(stack[(cur+1)%stack.length]);
-        fxPage=0; refresh(); return;
+        refresh(); return;
       }
     }
     // a plain click on a member of a multi-selection collapses to it
@@ -8836,8 +8843,12 @@ document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
     document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
     const obj=primary();
     if(!obj) return;
-    const i=FX_PAGES(obj).indexOf(b.dataset.fx);
-    if(i>=0){ fxPage=i; syncInspector(); }
+    const nm=b.dataset.fx;
+    if(FX_PAGES(obj).includes(nm)){
+      _collapsed.delete(nm); saveCollapsed(); syncInspector();
+      const head=$('fxBody').querySelector('[data-fxsect="'+CSS.escape(nm)+'"]');
+      if(head) head.scrollIntoView({block:'nearest'});
+    }
   });
 });
 document.querySelectorAll('.dropdown button').forEach(b=>{
@@ -9016,7 +9027,7 @@ async function generate(){
       data=await callGenerate();
     }
     setActiveDoc(normalizeDoc(data.doc));
-    setSel(-1); fxPage=0;
+    setSel(-1);
     pushHistory(); refresh();
     const u=data.usage;
     status(u?`done · ${u.total_tokens} tokens (${data.model.split('/').pop()})`:'done');
@@ -9276,7 +9287,7 @@ pushHistory(); refresh();
 
 window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; pushHistory(); refresh();},
   get pages(){return pages;}, get pageIdx(){return pageIdx;}, setActivePage,
-  get sel(){return sel;}, set sel(i){setSel(i); fxPage=0; refresh();},
+  get sel(){return sel;}, set sel(i){setSel(i); refresh();},
   get selInstance(){return selInstance;},
   get view(){return view;},
   get snapCfg(){return snapCfg;},
