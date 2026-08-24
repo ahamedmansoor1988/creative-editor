@@ -636,7 +636,18 @@ describe("effect QA gate", () => {
 
   it("keeps the structural pages, which are not gated", () => {
     const p = pages([]);
-    expect(p).toEqual(expect.arrayContaining(["Shape", "Fill", "Stroke", "Export"]));
+    expect(p).toEqual(expect.arrayContaining(["Fill", "Stroke", "Export"]));
+  });
+
+  it("drops a rect's Shape page while its only control is withheld", () => {
+    // Shape holds nothing for a rect but corner style — radius lives in the
+    // Position panel — so withholding that control would leave it empty
+    expect(pages([])).not.toContain("Shape");
+  });
+
+  it("keeps Shape for an ellipse, which has content of its own", () => {
+    const p = editor.FX_PAGES({ type: "ellipse", name: "E", x: 0, y: 0, w: 10, h: 10 });
+    expect(p).toContain("Shape");
   });
 
   it("brings back the effect AND the stack page once one is promoted", () => {

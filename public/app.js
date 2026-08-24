@@ -3810,6 +3810,18 @@ function syncStyles(){
  * because the gate touches UI surfaces only. PAGE_TYPE maps page titles to
  * stack types; pages not in the map (Shape, Fill, Stroke, Pattern, the stack
  * itself, containers) are structural and never gated. */
+/* ---- withheld controls -------------------------------------------------
+ * Controls that work but are not being offered yet. Hidden the way the effect
+ * pages are — by not BUILDING the UI — never by deleting the code behind it,
+ * so a document that already carries the property keeps rendering it and
+ * nothing has to be rewritten to bring the control back. `?show=<key>` opens
+ * one for a session, the same door ?fx= opens for an effect. */
+const SHOW_CONTROL={cornerStyle:false};
+try{
+  new URLSearchParams(location.search).getAll('show')
+    .flatMap(v=>v.split(','))
+    .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
+}catch(_){}
 const PAGE_TYPE={
   'Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
@@ -3828,9 +3840,17 @@ const FX_PAGES=obj=>{
    * its own contents, appearing only once this object has at least one effect
    * available to stack, and coming back on its own as effects are promoted. */
   const anyEffect=live.some(p=>p in PAGE_TYPE);
+  /* 'Shape' for a RECT holds nothing but the corner-style control — radius
+   * moved to the Position panel — so while that control is withheld the page
+   * opens empty, which is the same dead control the Effects page would have
+   * been. Ellipse and polygon have their own content and are untouched. */
+  const emptyShape=obj.type==='rect'&&!SHOW_CONTROL.cornerStyle;
   // Export applies to every type — boxOf always returns real bounds — so it
   // is appended unconditionally rather than added to each FX_PAGES_RAW list.
-  return live.filter(p=>p!=='Effects'||anyEffect).concat('Export');
+  return live
+    .filter(p=>p!=='Effects'||anyEffect)
+    .filter(p=>p!=='Shape'||!emptyShape)
+    .concat('Export');
 };
 const FX_PAGES_RAW=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
@@ -4376,7 +4396,7 @@ function buildFx(obj){
       $(id).addEventListener('change',()=>pushHistory());
     };
     const int=v=>String(Math.round(v)), deg=v=>Math.round(v)+'°', f2=v=>(+v).toFixed(2);
-    if(obj.type==='rect'){
+    if(obj.type==='rect'&&SHOW_CONTROL.cornerStyle){
       add(`<label class="slider">Corner style<select id="shSt">
         <option value="round">Round</option><option value="bevel">Bevel</option>
         <option value="scoop">Scoop (inverted)</option></select></label>`);
