@@ -3832,7 +3832,7 @@ function syncStyles(){
  * so a document that already carries the property keeps rendering it and
  * nothing has to be rewritten to bring the control back. `?show=<key>` opens
  * one for a session, the same door ?fx= opens for an effect. */
-const SHOW_CONTROL={cornerStyle:false, pattern:false, multiFill:false};
+const SHOW_CONTROL={cornerStyle:false, pattern:false, multiFill:false, gradientAspect:false};
 try{
   new URLSearchParams(location.search).getAll('show')
     .flatMap(v=>v.split(','))
@@ -4797,7 +4797,11 @@ function buildFxSection(obj,page,add,body){
               <label class="slider">Focal X <input type="range" class="apFx" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fx*100)}"></label>
               <label class="slider">Focal Y <input type="range" class="apFy" data-i="${fi}" min="-100" max="100" value="${Math.round(f.fy*100)}"></label>
             </div>`);
-            add(`<label class="slider">Aspect <span id="apAsp${fi}">${(+f.aspect).toFixed(2)}</span>
+            /* Aspect stretches a radial gradient into an ellipse. Withheld,
+             * not removed: the field still normalises, still renders, and a
+             * document that already carries a non-round radial keeps it. */
+            if(SHOW_CONTROL.gradientAspect||Math.abs((+f.aspect||1)-1)>0.001)
+              add(`<label class="slider">Aspect <span id="apAsp${fi}">${(+f.aspect).toFixed(2)}</span>
               <input type="range" class="apAspect" data-i="${fi}" min="0.2" max="5" step="0.05" value="${f.aspect}"></label>`);
           }
           f.stops.forEach((st,si)=>{
