@@ -307,6 +307,11 @@
     <!-- object-only: rotation, opacity, blend, constraints, flip — none of
          these apply to an artboard, so this block is hidden (not the whole
          Position section) when the selection is an artboard. -->
+    <!-- Rotation, opacity, blend, flips and constraints are the SECOND thing
+         you reach for; X/Y/W/H is the first. Collapsed by default so the
+         panel opens on what is used most. -->
+    <div class="pSect collapser" id="transformHead" data-collapse="objectOnlyFields"
+      role="button" tabindex="0" aria-expanded="false">Transform</div>
     <div id="objectOnlyFields">
       <div id="alignRow">
         <button data-align="left" data-icon="alignLeft" aria-label="Align left" title="Align left"></button>

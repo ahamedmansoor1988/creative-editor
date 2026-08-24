@@ -323,20 +323,31 @@ describe("history", () => {
     expect(editor.sel).toBe(-1);
   });
 
-  it("QUIRK: history is capped at 60 entries and drops the oldest silently", () => {
-    // Locked in so Stage 5's "bounded and reliable" history is a visible change.
-    for (let i = 0; i < 70; i++) {
-      editor.doc = { frame: { name: "n" + i, w: 900, h: 600, bg: "#ffffff", children: [] } };
-    }
-    // Undo far more times than the cap; the document must still be valid.
-    for (let i = 0; i < 100; i++) {
-      document.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
-      );
-    }
-    expect(editor.doc.frame).toBeTruthy();
-    expect(Array.isArray(editor.doc.frame.children)).toBe(true);
-  });
+  /* 70 full document round trips — each one normalises, pushes history and
+   * rebuilds every panel — so this is the slowest test in the suite by a wide
+   * margin. It sat just under vitest's 5s default and tipped over it under
+   * full-suite load, failing about one run in three while passing alone. The
+   * timeout is raised to match what the test actually does rather than the
+   * test being trimmed, because the 70 iterations are the point: the cap is
+   * at 60. */
+  it(
+    "QUIRK: history is capped at 60 entries and drops the oldest silently",
+    { timeout: 20000 },
+    () => {
+      // Locked in so Stage 5's "bounded and reliable" history is a visible change.
+      for (let i = 0; i < 70; i++) {
+        editor.doc = { frame: { name: "n" + i, w: 900, h: 600, bg: "#ffffff", children: [] } };
+      }
+      // Undo far more times than the cap; the document must still be valid.
+      for (let i = 0; i < 100; i++) {
+        document.dispatchEvent(
+          new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
+        );
+      }
+      expect(editor.doc.frame).toBeTruthy();
+      expect(Array.isArray(editor.doc.frame.children)).toBe(true);
+    },
+  );
 });
 
 describe("render smoke", () => {

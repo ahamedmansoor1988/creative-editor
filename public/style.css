@@ -371,12 +371,12 @@ body.panel-left-collapsed #sidebar{
 /* ---------- right panel ---------- */
 #rightPanel{
   position:fixed; top:var(--left-panel-top); right:var(--chrome-gap); bottom:var(--chrome-gap); width:var(--right-panel-w); z-index:20;
-  padding:16px 14px; overflow-y:auto;
+  padding:12px 12px 8px; overflow-y:auto;
 }
-.rp-head{font-size:var(--text-title); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:12px;}
+.rp-head{font-size:var(--text-title); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:8px;}
 .rp-head .sep{color:var(--muted); font-weight:var(--weight-regular); padding:0 4px;}
-#rightPanel hr{border:0; border-top:1px solid var(--line); margin:16px 0;}
-.grid4{display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:10px;}
+#rightPanel hr{border:0; border-top:1px solid var(--line); margin:10px 0;}
+.grid4{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:7px;}
 .grid4 label{display:flex; align-items:center; gap:6px;
   font-size:var(--text-meta); font-weight:var(--weight-regular); color:var(--muted);}
 .grid4 input{
@@ -422,15 +422,15 @@ body.panel-left-collapsed #sidebar{
    glyph. Sized so the whole row is the hit target, not just the box. */
 .checkRow{
   display:flex; align-items:center; gap:8px; cursor:pointer;
-  margin:8px 0 6px; padding:4px 2px; border-radius:6px;
+  margin:5px 0 4px; padding:3px 2px; border-radius:6px;
   font-size:var(--text-control); color:var(--text);
 }
 .checkRow:hover{background:var(--surface-hover);}
 .checkRow input{flex:0 0 auto; margin:0; accent-color:var(--accent); cursor:pointer;}
-.iconToggleRow{display:flex; gap:3px; margin-bottom:10px;}
+.iconToggleRow{display:flex; gap:3px; margin-bottom:7px;}
 /* Constrain-proportions row. The chain sits under W/H because it modifies
    them, and the label is meta weight so the control leads, not its caption. */
-#ratioRow{display:flex; align-items:center; gap:7px; margin:6px 0 2px;}
+#ratioRow{display:flex; align-items:center; gap:7px; margin:3px 0 1px;}
 #ratioRow button{
   flex:0 0 auto; width:24px; height:24px; display:grid; place-items:center;
   background:transparent; border:1px solid transparent; border-radius:6px;
@@ -478,15 +478,27 @@ body.panel-left-collapsed #sidebar{
 /* A button carrying both an icon and its label. */
 .iconBtn{display:inline-flex; align-items:center; justify-content:center; gap:6px;}
 label.slider{display:block; font-size:var(--text-control); font-weight:var(--weight-medium);
-  color:var(--muted); margin:8px 0;}
+  color:var(--muted); margin:4px 0;}
 label.slider span{float:right; color:var(--text);}
-label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
+label.slider input{width:100%; accent-color:var(--accent); margin-top:3px;}
+/* A range needs its own line — it is a track, not a field. A SELECT or a
+   COLOUR well does not: stacking those under their own label spent a whole
+   row on a word. They sit beside the label instead, which is where every
+   other tool's inspector puts them and is worth ~20px a row in a panel that
+   was overflowing by 384. */
+label.slider:has(> select),
+label.slider:has(> input[type="color"]){
+  display:grid; grid-template-columns:auto minmax(0,1fr);
+  align-items:center; gap:8px;
+}
+label.slider:has(> select) > select,
+label.slider:has(> input[type="color"]) > input[type="color"]{margin-top:0;}
 .disabled{opacity:.35; pointer-events:none;}
 .hint{color:var(--muted); font-size:var(--text-meta); font-weight:var(--weight-regular);
   text-align:center; padding:8px 0;}
 
 /* engines: search on top, name, sliders, pager arrows at the bottom */
-#engineSearchWrap{position:relative; margin-bottom:10px;}
+#engineSearchWrap{position:relative; margin-bottom:7px;}
 #engineSearch{
   width:100%; border:1px solid var(--line); border-radius:8px;
   padding:7px 9px; font:inherit; font-size:var(--text-control);
@@ -505,7 +517,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #engineResults .noHit{padding:7px 10px; color:var(--muted); font-size:var(--text-meta);}
 /* The engine name is the menu. With ten engines the ‹ › pager alone buried
    everything past the second page below the fold, so the title opens a list. */
-#fxTitleWrap{position:relative; margin-bottom:8px;}
+#fxTitleWrap{position:relative; margin-bottom:5px;}
 #fxTitle{
   width:100%; text-align:center; font:inherit;
   font-size:var(--text-control); font-weight:var(--weight-semibold);
@@ -541,9 +553,9 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 }
 #fxMenu button.on .dot{background:var(--accent);}
 #fxMenu button.on{color:var(--accent);}
-#fxPager{display:flex; justify-content:center; gap:10px; margin-top:14px;}
+#fxPager{display:flex; justify-content:center; gap:8px; margin-top:6px;}
 #fxPager button{
-  width:28px; height:28px; border:1px solid var(--line); background:none;
+  width:24px; height:24px; border:1px solid var(--line); background:none;
   border-radius:50%; cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
@@ -593,7 +605,7 @@ label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);
 }
 .rollBtn:hover{border-color:var(--accent); color:var(--accent);}
 .fxHint{color:var(--muted); font-size:var(--text-meta); font-weight:var(--weight-regular);
-  line-height:1.5; margin-top:8px;}
+  line-height:1.45; margin-top:4px;}
 .fxWarn{
   background:var(--warning-bg); border:1px solid var(--warning-line); border-radius:7px;
   padding:8px 10px; margin:8px 0; font-size:var(--text-meta); line-height:1.5; color:var(--warning-text);
@@ -740,16 +752,31 @@ body.panel-left-collapsed #leftPanelToggle{
 
 /* --- pattern inspector (Stage 1.2) --- */
 .pSect {
-  margin: 12px 0 6px;
+  margin: 9px 0 4px;
   font-size: var(--text-meta);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
   border-top: 1px solid var(--line);
-  padding-top: 9px;
+  padding-top: 7px;
 }
 .pSect:first-child { border-top: 0; margin-top: 2px; }
+/* A foldable section header. The twisty leads, so the row reads as a control
+   rather than a caption that happens to be clickable. */
+.pSect.collapser{
+  display:flex; align-items:center; gap:6px;
+  cursor:pointer; user-select:none;
+}
+.pSect.collapser::before{
+  content:"▾"; font-size:var(--text-meta); line-height:1; color:var(--muted);
+  transition:transform .12s ease;
+}
+.pSect.collapser.shut::before{ transform:rotate(-90deg); }
+.pSect.collapser:hover{ color:var(--text); }
+@media (prefers-reduced-motion: reduce){
+  .pSect.collapser::before{ transition:none; }
+}
 .pRow { margin-bottom: 7px; }
 .pRow > label {
   display: block;

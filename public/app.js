@@ -3940,7 +3940,13 @@ function syncInspector(){
   // properties that only make sense for a board (name, background, clip,
   // lock/visibility, size presets, duplicate/delete).
   const ab=(!obj&&selArtboard)?(doc.frame.artboards||[]).find(a=>a.id===selArtboard):null;
-  $('objectOnlyFields').style.display=(obj&&!ab)?'':'none';
+  /* Two things decide whether the transform fields show: whether they APPLY
+   * (an object is selected, not an artboard) and whether the user has folded
+   * them. Applicability hides the header too; folding leaves it, because a
+   * fold the user cannot undo is a disappearance. */
+  const showTransform=!!(obj&&!ab);
+  $('transformHead').style.display=showTransform?'':'none';
+  $('objectOnlyFields').style.display=(showTransform&&!_collapsed.has('Transform'))?'':'none';
   $('artboardPanel').style.display=ab?'':'none';
   if(ab) $('pagePanel').style.display='none';
   if(ab){
@@ -4158,6 +4164,56 @@ function syncLayoutPanel(obj){
  * Effects hidden by the QA gate are still counted: the page really does
  * contain them, and a count that quietly omitted them would misreport the
  * document rather than the UI. They are marked instead. */
+/* ---- collapsible sections ---------------------------------------------
+ * A dense inspector will always outgrow a short window; the fix is to let the
+ * panel show what is being used rather than everything at once. Section
+ * headers fold, and what is folded is remembered across reloads — a preference
+ * about the workspace, so localStorage rather than the document.
+ *
+ * Two shapes are wired by the same code: an explicit header naming the element
+ * it controls (data-collapse), and the fx panel's own .pSect headers, which
+ * own every sibling up to the next .pSect because the panel body is built as a
+ * flat run of HTML rather than nested groups. */
+const COLLAPSE_KEY='ce.collapsed.v1';
+let _collapsed=(function(){
+  try{ return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)||'[]')); }
+  catch(_){ return new Set(); }
+})();
+function saveCollapsed(){
+  try{ localStorage.setItem(COLLAPSE_KEY,JSON.stringify([..._collapsed])); }catch(_){}
+}
+function applyCollapse(head,members,key){
+  const shut=_collapsed.has(key);
+  head.setAttribute('aria-expanded',shut?'false':'true');
+  head.classList.toggle('shut',shut);
+  members.forEach(el=>{ el.style.display=shut?'none':''; });
+}
+function wireCollapser(head,members,key){
+  applyCollapse(head,members,key);
+  const flip=()=>{
+    if(_collapsed.has(key)) _collapsed.delete(key); else _collapsed.add(key);
+    saveCollapsed();
+    applyCollapse(head,members,key);
+  };
+  head.addEventListener('click',flip);
+  head.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); flip(); }
+  });
+}
+/** Fold the .pSect runs inside a freshly built panel body. */
+function wireSectionCollapse(container){
+  const kids=[...container.children];
+  kids.forEach((el,i)=>{
+    if(!el.classList.contains('pSect')) return;
+    const members=[];
+    for(let j=i+1;j<kids.length&&!kids[j].classList.contains('pSect');j++) members.push(kids[j]);
+    if(!members.length) return;
+    el.classList.add('collapser');
+    el.setAttribute('role','button');
+    el.setAttribute('tabindex','0');
+    wireCollapser(el,members,(el.textContent||'').trim());
+  });
+}
 function syncPagePanel(){
   if(!doc) return;
   const f=doc.frame;
@@ -4399,6 +4455,12 @@ function buildFx(obj){
   $('fxTitle').textContent=pages[fxPage];
   buildFxMenu(obj,pages);
   $('fxPager').style.display=pages.length>1?'':'none';
+  /* Search earns its row only when there is enough to search. It was built for
+   * a list of twenty-odd engines; with the effect pages gated off a shape has
+   * three, all of them visible in the dropdown at once, so the field was a
+   * permanent 44px of chrome answering a question nobody had. It comes back on
+   * its own as effects are promoted. */
+  $('engineSearchWrap').style.display=pages.length>=6?'':'none';
   const body=$('fxBody'); body.innerHTML='';
   const add=h=>{ body.insertAdjacentHTML('beforeend',h); };
   const page=pages[fxPage];
@@ -5865,6 +5927,10 @@ function buildFx(obj){
     $('grA').addEventListener('input',e=>{ gr.amount=+e.target.value/100; $('grAV').textContent=e.target.value+'%'; render(); });
     $('grA').addEventListener('change',()=>pushHistory());
   }
+  // The body is rebuilt from scratch on every sync, so its sections are wired
+  // here rather than once at boot — the folded state itself lives in
+  // _collapsed and survives the rebuild.
+  wireSectionCollapse(body);
 }
 function firstColor(fill){
   if(fill.kind==='solid') return fill.color;
@@ -5998,6 +6064,24 @@ $('pRatio').addEventListener('click',()=>{
   });
   $(id).addEventListener('change',()=>pushHistory(posArtboard()?'Edit artboard':undefined));
 });
+
+/* Transform is a fixed header in the markup, so it is wired once. Folded by
+ * default: X/Y/W/H is what a panel should open on. */
+(function(){
+  const head=$('transformHead');
+  if(!head) return;
+  const target=$(head.dataset.collapse);
+  if(!target) return;
+  /* First-run defaults, seeded only when the user has no saved preference:
+   * Transform because X/Y/W/H is what a panel should open on, and Style
+   * because "Save as style" is an action taken occasionally, not a property
+   * read constantly. Both are one click away and both are remembered. */
+  if(!localStorage.getItem(COLLAPSE_KEY)){
+    _collapsed.add('Transform'); _collapsed.add('Style');
+    saveCollapsed();
+  }
+  wireCollapser(head,[target],'Transform');
+})();
 
 /* ---- page panel ---- */
 $('pgName').addEventListener('input',e=>{
