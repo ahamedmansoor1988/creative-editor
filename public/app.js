@@ -393,9 +393,15 @@ function normalizeDoc(d){
    * frame.w/h/children keeps working — and artboards are named regions on it.
    * Membership is GEOMETRIC (a child belongs to the artboard containing its
    * centre), so nothing extra has to be stored on the objects and moving a
-   * shape between artboards is just moving it. A document with no artboards
-   * gets one covering the whole page, so old files are unchanged. */
-  f.artboards=(Array.isArray(f.artboards)?f.artboards:[]).slice(0,32).map((a,i)=>({
+   * shape between artboards is just moving it.
+   *
+   * A file that predates artboards has no `artboards` key at all, and gets one
+   * covering the whole page so old documents are unchanged. That is NOT the
+   * same as a document whose artboards the user deleted, which carries an
+   * explicit empty array and must stay empty — the presence of the key is what
+   * separates "never had any" from "deliberately has none". */
+  const hadArtboardKey=Array.isArray(f.artboards);
+  f.artboards=(hadArtboardKey?f.artboards:[]).slice(0,32).map((a,i)=>({
     id:typeof a.id==='string'&&a.id?a.id:newId(),
     name:String(a.name||('Artboard '+(i+1))).slice(0,60),
     x:Math.round(+a.x||0), y:Math.round(+a.y||0),
@@ -403,7 +409,7 @@ function normalizeDoc(d){
     bg:/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff',
     clip:a.clip!==false, show:a.show!==false, locked:!!a.locked,
   }));
-  if(!f.artboards.length)
+  if(!f.artboards.length&&!hadArtboardKey)
     f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,clip:false,show:true}];
   /* §6.7/§6.8 definitions live with the page. An instance stores only which
    * definition it points at plus its own transform and overrides. */
@@ -3068,20 +3074,32 @@ function paint(){
     const sub=Math.max(1,G.subdivisions||1);
     const step=G.size/sub;
     if(step*z>=3){
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0,0,f.w,f.h); ctx.clip();
-      for(let pass=0;pass<2;pass++){
-        const st=pass?G.size:step;
-        if(pass===0&&sub===1) continue;
-        ctx.strokeStyle=G.color;
-        ctx.globalAlpha=pass?0.55:0.28;
-        ctx.lineWidth=1/z;
-        ctx.beginPath();
-        for(let x=0;x<=f.w+0.5;x+=st){ ctx.moveTo(x,0); ctx.lineTo(x,f.h); }
-        for(let y=0;y<=f.h+0.5;y+=st){ ctx.moveTo(0,y); ctx.lineTo(f.w,y); }
-        ctx.stroke();
+      /* The grid belongs to the ARTBOARD, not the page. The page is only the
+       * bounding box of every artboard, so a page-wide grid paints the gutters
+       * between boards and the dead space around them. Each artboard instead
+       * gets its own grid, clipped to it and originating at its own top-left,
+       * so the lines line up with the thing being designed. A document with no
+       * artboards falls back to the page as the one surface. */
+      const beds=(f.artboards&&f.artboards.length)
+        ? f.artboards.filter(a=>a.show!==false)
+        : [{x:0,y:0,w:f.w,h:f.h}];
+      for(const bed of beds){
+        ctx.save();
+        ctx.beginPath(); ctx.rect(bed.x,bed.y,bed.w,bed.h); ctx.clip();
+        ctx.translate(bed.x,bed.y);
+        for(let pass=0;pass<2;pass++){
+          const st=pass?G.size:step;
+          if(pass===0&&sub===1) continue;
+          ctx.strokeStyle=G.color;
+          ctx.globalAlpha=pass?0.55:0.28;
+          ctx.lineWidth=1/z;
+          ctx.beginPath();
+          for(let x=0;x<=bed.w+0.5;x+=st){ ctx.moveTo(x,0); ctx.lineTo(x,bed.h); }
+          for(let y=0;y<=bed.h+0.5;y+=st){ ctx.moveTo(0,y); ctx.lineTo(bed.w,y); }
+          ctx.stroke();
+        }
+        ctx.restore();
       }
-      ctx.restore();
     }
   }
   // ---- screen-space chrome (line widths divided by z stay constant) ----
@@ -6356,7 +6374,10 @@ canvas.addEventListener('pointerdown',e=>{
       // Dragging the label repositions the board (Figma/Illustrator convention).
       // Content follows: capture every contained object's start position too,
       // same as a multi-object move, so it translates live with the board.
+      // cx/cy are SCREEN coords: the arm distance below must mean the same
+      // hand movement at 23% zoom as at 200%, which document units do not.
       drag={mode:'abMove',moved:false,ab:lab,ox:lab.x,oy:lab.y,px:p.x,py:p.y,
+        cx:e.clientX,cy:e.clientY,
         offs:objectsInArtboard(lab).map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2}))};
       cap();
       refresh(); return;
@@ -6564,6 +6585,11 @@ canvas.addEventListener('pointermove',e=>{
     render(); syncInspector(); return;
   }
   if(drag.mode==='abMove'){
+    /* Arm before moving. Selecting an artboard means clicking its label, and
+     * a click carries a pixel or two of hand tremor; without a threshold that
+     * tremor lands as a real move, which is how a board sitting at 0,0 ends up
+     * reading -1,-1 after nothing but a click. Same 5px arm the layer rows use. */
+    if(!drag.moved&&Math.hypot(e.clientX-drag.cx,e.clientY-drag.cy)<5) return;
     drag.moved=true;
     let ddx=Math.round(p.x-drag.px), ddy=Math.round(p.y-drag.py);
     if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
@@ -7256,11 +7282,20 @@ function nextArtboardSpot(A){
   const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),-Infinity);
   return {x:right+AB_GUTTER, y:A[0].y||0};
 }
+/* "Artboard "+(length+1) collides the moment anything has been deleted: remove
+ * Artboard 1 from a pair and the next add is a second "Artboard 2". Take the
+ * lowest free number instead, which also reuses the gap a deletion left. */
+function nextArtboardName(A){
+  const used=new Set(A.map(a=>a.name));
+  let n=1;
+  while(used.has('Artboard '+n)) n++;
+  return 'Artboard '+n;
+}
 function addArtboard(w,h,name){
   if(!doc) return;
   const A=doc.frame.artboards;
   const at=nextArtboardSpot(A);
-  const a={id:newId(),name:name||('Artboard '+(A.length+1)),
+  const a={id:newId(),name:name||nextArtboardName(A),
     x:at.x, y:at.y, w:w||900, h:h||600, bg:'#ffffff', clip:true, show:true};
   A.push(a);
   growFrameToArtboards();
@@ -7286,7 +7321,9 @@ function duplicateArtboard(id){
 }
 function removeArtboard(id,withContent){
   const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
-  if(i<0||A.length<=1) return;
+  // Deleting the last artboard is allowed: an empty canvas is a real state,
+  // and the next artboard added to it starts again at the origin.
+  if(i<0) return;
   const a=A[i];
   if(withContent){
     const kill=new Set(objectsInArtboard(a).map(o=>o.id));

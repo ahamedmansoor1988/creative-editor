@@ -527,3 +527,79 @@ describe("artboard placement", () => {
     expect({ x: A[0].x, y: A[0].y }).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe("an empty canvas is a real state", () => {
+  function frame(extra) {
+    editor.doc = { frame: { name: "F", w: 900, h: 600, bg: "#ffffff", children: [], ...extra } };
+    return editor.doc.frame;
+  }
+
+  it("keeps an explicitly empty artboard list empty", () => {
+    // the user deleted them all; that is a decision, not a missing field
+    expect(frame({ artboards: [] }).artboards).toEqual([]);
+  });
+
+  it("still backfills one for a file that predates artboards", () => {
+    // no `artboards` key at all — an old document, which must be unchanged
+    const f = frame({});
+    expect(f.artboards).toHaveLength(1);
+    expect({ x: f.artboards[0].x, y: f.artboards[0].y }).toEqual({ x: 0, y: 0 });
+  });
+
+  it("lets the last artboard be deleted", () => {
+    const f = frame({ artboards: [{ id: "only", name: "Only", x: 0, y: 0, w: 900, h: 600 }] });
+    editor.removeArtboard(f.artboards[0].id, false);
+    expect(f.artboards).toEqual([]);
+  });
+
+  it("starts again at the origin after everything is deleted", () => {
+    const f = frame({
+      artboards: [
+        { id: "a", name: "A", x: 0, y: 0, w: 900, h: 600 },
+        { id: "b", name: "B", x: 950, y: 0, w: 900, h: 600 },
+      ],
+    });
+    f.artboards.map((a) => a.id).forEach((id) => editor.removeArtboard(id, false));
+    expect(f.artboards).toEqual([]);
+    editor.addArtboard(500, 400, "Restart");
+    expect({ x: f.artboards[0].x, y: f.artboards[0].y }).toEqual({ x: 0, y: 0 });
+  });
+
+  it("survives a compact round trip without the empty list being backfilled", () => {
+    const f = frame({ artboards: [] });
+    const wire = editor.compactDoc({ frame: f });
+    editor.doc = JSON.parse(JSON.stringify(wire));
+    expect(editor.doc.frame.artboards).toEqual([]);
+  });
+});
+
+describe("artboard naming", () => {
+  function withBoards(list) {
+    editor.doc = {
+      frame: { name: "F", w: 900, h: 600, bg: "#ffffff", children: [], artboards: list },
+    };
+    return editor.doc.frame.artboards;
+  }
+
+  it("does not reuse a name that is already taken", () => {
+    // the collision case: delete Artboard 1, and length+1 names a second "2"
+    const A = withBoards([{ id: "b", name: "Artboard 2", x: 0, y: 0, w: 900, h: 600 }]);
+    editor.addArtboard(900, 600);
+    expect(A.map((a) => a.name)).toEqual(["Artboard 2", "Artboard 1"]);
+  });
+
+  it("fills the gap a deletion left rather than counting upward forever", () => {
+    const A = withBoards([
+      { id: "a", name: "Artboard 1", x: 0, y: 0, w: 400, h: 400 },
+      { id: "c", name: "Artboard 3", x: 900, y: 0, w: 400, h: 400 },
+    ]);
+    editor.addArtboard(400, 400);
+    expect(A[2].name).toBe("Artboard 2");
+  });
+
+  it("keeps every name unique across repeated adds", () => {
+    const A = withBoards([]);
+    for (let i = 0; i < 5; i++) editor.addArtboard(200, 200);
+    expect(new Set(A.map((a) => a.name)).size).toBe(5);
+  });
+});
