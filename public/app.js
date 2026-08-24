@@ -1207,6 +1207,18 @@ function artboardAt(p){
   }
   return null;
 }
+/* Which artboard an object belongs to.
+ *
+ * Centre-inside first: unambiguous, cheap, and the answer for almost every
+ * object. But an object that OVERLAPS a board while its centre sits outside
+ * used to belong to nothing at all — so it was excluded from the board's
+ * export, filed under "off artboard" in the tree, and, worst of the three,
+ * skipped by clipping. That is why content could hang off the side of a board
+ * whose Clip content was on: the spilling shapes were not members, and clip
+ * only ever applied to members. Falling back to the LARGEST overlap gives
+ * those shapes a home, so clip, export and the tree all agree about them.
+ * Largest-overlap rather than first-hit keeps it deterministic when boards are
+ * close together, and one home per object keeps it a single draw. */
 function artboardOf(o){
   if(!doc||!doc.frame.artboards) return null;
   const b=aabbOf(o), cx=b.x+b.w/2, cy=b.y+b.h/2;
@@ -1215,7 +1227,14 @@ function artboardOf(o){
     const a=A[i];
     if(cx>=a.x&&cx<=a.x+a.w&&cy>=a.y&&cy<=a.y+a.h) return a;
   }
-  return null;
+  let best=null,bestArea=0;
+  for(let i=A.length-1;i>=0;i--){
+    const a=A[i];
+    const ow=Math.min(b.x+b.w,a.x+a.w)-Math.max(b.x,a.x);
+    const oh=Math.min(b.y+b.h,a.y+a.h)-Math.max(b.y,a.y);
+    if(ow>0&&oh>0&&ow*oh>bestArea){ bestArea=ow*oh; best=a; }
+  }
+  return best;
 }
 function objectsInArtboard(a){
   return allObjects().filter(o=>artboardOf(o)===a);
@@ -3741,17 +3760,12 @@ function syncLayers(){
       }else mine.forEach(c=>row(c,1));
     }
   });
-  const loose=top.filter(c=>!homed.has(c));
-  if(loose.length){
-    const head=document.createElement('div');
-    head.className='abGroup';
-    head.innerHTML=(window.Icons?Icons.svg('chevronDown',{size:12}):'')
-      +'<span class="abName">Off artboard</span>'
-      +'<span class="abCount">'+loose.length+'</span>';
-    head.title='These sit outside every artboard and will not appear in an artboard export';
-    list.appendChild(head);
-    loose.forEach(c=>row(c,1));
-  }
+  /* Anything still unhomed sits outside every artboard entirely — not merely
+   * spilling over an edge, which now finds a home by overlap. They are listed
+   * plainly at the top level rather than under an "Off artboard" heading: the
+   * heading named a state the user did not ask for and could not act on, and
+   * Figma likewise just shows such objects as page-level layers. */
+  top.filter(c=>!homed.has(c)).forEach(c=>row(c,0));
 }
 
 /** Document-level list of reusable styles (see saveStyle/applyStyle above).
@@ -4229,7 +4243,7 @@ function syncArtboardPanel(ab){
     b.setAttribute('aria-pressed',on?'true':'false');
     if(icon&&window.Icons) b.innerHTML=Icons.svg(icon);
   };
-  tgl('abClip',ab.clip!==false);
+  $('abClip').checked=ab.clip!==false;
   tgl('abLocked',!!ab.locked,ab.locked?'lock':'unlock');
   tgl('abShow',ab.show!==false,ab.show!==false?'eye':'eyeOff');
   // Reflects the CURRENT size as a preset when it happens to match one
@@ -6074,7 +6088,14 @@ $('abStrokeColor').addEventListener('input',e=>{
   ab.stroke.color=e.target.value; render();
 });
 $('abStrokeColor').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Stroke colour'); });
-[['abClip','clip','Clip content'],['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
+// Clip content is a real checkbox now, so it reports through .checked rather
+// than a click that flips a flag and re-reads aria-pressed.
+$('abClip').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab)return;
+  ab.clip=e.target.checked;
+  pushHistory('Clip content'); refresh();
+});
+[['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
   .forEach(([id,key,label])=>{
     // icon toggles: click flips the flag, aria-pressed is resynced by
     // syncArtboardPanel on the refresh below

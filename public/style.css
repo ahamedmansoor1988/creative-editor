@@ -418,6 +418,15 @@ body.panel-left-collapsed #sidebar{
 .iconField input[type=color]{padding:2px; height:28px; cursor:pointer;}
 /* Icon toggles for on/off state (clip, lock, visibility) — pressed state is
    the same accent treatment the layer list's lock/eye toggles use. */
+/* A labelled checkbox row, for the properties that need naming rather than a
+   glyph. Sized so the whole row is the hit target, not just the box. */
+.checkRow{
+  display:flex; align-items:center; gap:8px; cursor:pointer;
+  margin:8px 0 6px; padding:4px 2px; border-radius:6px;
+  font-size:var(--text-control); color:var(--text);
+}
+.checkRow:hover{background:var(--surface-hover);}
+.checkRow input{flex:0 0 auto; margin:0; accent-color:var(--accent); cursor:pointer;}
 .iconToggleRow{display:flex; gap:3px; margin-bottom:10px;}
 /* Constrain-proportions row. The chain sits under W/H because it modifies
    them, and the label is meta weight so the control leads, not its caption. */

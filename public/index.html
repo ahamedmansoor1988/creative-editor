@@ -453,12 +453,16 @@
       </select></label>
       <input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour">
     </div>
-    <!-- Clip / lock / visibility as icon toggles rather than three labelled
-         checkbox rows — the same affordance Figma and Photoshop use for these
-         exact three, and the layer list already uses for lock and eye. State
-         is carried on aria-pressed (see syncArtboardPanel), not .checked. -->
+    <!-- Clip content earns a LABELLED row of its own. As one unlabelled crop
+         glyph among three it was undiscoverable — the property most likely to
+         explain "why is my artwork hanging off the edge" was the one control
+         nobody could find. Lock and visibility stay as icons: the layer list
+         already teaches those two glyphs. -->
+    <label class="checkRow" title="Hide anything that extends past this artboard's edges">
+      <input type="checkbox" id="abClip">
+      <span>Clip content</span>
+    </label>
     <div id="abToggles" class="iconToggleRow">
-      <button type="button" id="abClip" data-icon="crop" aria-pressed="false" aria-label="Clip content" title="Clip content"></button>
       <button type="button" id="abLocked" data-icon="unlock" aria-pressed="false" aria-label="Lock artboard" title="Lock artboard"></button>
       <button type="button" id="abShow" data-icon="eye" aria-pressed="true" aria-label="Artboard visibility" title="Artboard visibility"></button>
     </div>

@@ -657,3 +657,50 @@ describe("effect QA gate", () => {
     expect(p).not.toContain("Glow"); // and only that one comes back
   });
 });
+
+describe("artboard membership and clipping", () => {
+  function scene(clip) {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        artboards: [{ id: "ab1", name: "A", x: 0, y: 0, w: 900, h: 600, clip }],
+        children: [
+          // straddles the right edge: its CENTRE is outside the board
+          { type: "rect", name: "Spiller", x: 800, y: 200, w: 400, h: 150 },
+          { type: "rect", name: "Inside", x: 100, y: 100, w: 200, h: 120 },
+          { type: "rect", name: "Far", x: 2000, y: 100, w: 100, h: 100 },
+        ],
+      },
+    };
+    const by = {};
+    editor.allObjects().forEach((o) => (by[o.name] = o));
+    return by;
+  }
+
+  it("homes an object that overlaps a board even when its centre is outside", () => {
+    // this is what made clip look broken: the spiller belonged to nothing, and
+    // clipping only ever applied to members
+    const by = scene(true);
+    expect(editor.artboardOf(by.Spiller)?.name).toBe("A");
+  });
+
+  it("still homes an object by its centre when it is inside", () => {
+    const by = scene(true);
+    expect(editor.artboardOf(by.Inside)?.name).toBe("A");
+  });
+
+  it("leaves an object that touches no board unhomed", () => {
+    const by = scene(true);
+    expect(editor.artboardOf(by.Far)).toBe(null);
+  });
+
+  it("counts the overlapping object as part of the board's contents", () => {
+    scene(true);
+    const names = editor.objectsInArtboard(editor.doc.frame.artboards[0]).map((o) => o.name);
+    expect(names).toEqual(expect.arrayContaining(["Inside", "Spiller"]));
+    expect(names).not.toContain("Far");
+  });
+});
