@@ -1142,3 +1142,18 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .rowDragging{opacity:.45;}
 .dropAbove{box-shadow:inset 0 2px 0 var(--accent);}
 .dropBelow{box-shadow:inset 0 -2px 0 var(--accent);}
+
+/* The artboard panel's sections are the panel's own — no extra rule beyond a
+   little air above the actions, which sit outside every fold so Duplicate and
+   Delete stay reachable whatever is collapsed. */
+.abActions{margin-top:10px;}
+
+/* A control with a trailing icon button — a size preset and its swap, a fill
+   type and its colour well. These were .grid4 rows declaring `span 3` in a
+   TWO-column grid, so the label overflowed to its own line and left the button
+   stranded on the next one. A flex row says what was meant: the control takes
+   the space, the button takes what it needs. */
+.fieldRow{display:flex; align-items:center; gap:6px; margin-bottom:7px;}
+.fieldRow > .iconField{flex:1 1 auto; min-width:0;}
+.fieldRow > button,
+.fieldRow > input[type="color"]{flex:0 0 38px; width:38px; margin:0;}

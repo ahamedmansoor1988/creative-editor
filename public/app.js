@@ -4205,7 +4205,13 @@ function wireSectionCollapse(container){
   kids.forEach((el,i)=>{
     if(!el.classList.contains('pSect')) return;
     const members=[];
-    for(let j=i+1;j<kids.length&&!kids[j].classList.contains('pSect');j++) members.push(kids[j]);
+    for(let j=i+1;j<kids.length&&!kids[j].classList.contains('pSect');j++){
+      // data-nofold marks a row that belongs to the panel, not to the section
+      // above it — Duplicate/Delete sit at the bottom and must stay reachable
+      // whatever is folded, so folding the last section must not take them.
+      if(kids[j].hasAttribute('data-nofold')) break;
+      members.push(kids[j]);
+    }
     if(!members.length) return;
     el.classList.add('collapser');
     el.setAttribute('role','button');
@@ -6084,10 +6090,36 @@ $('pRatio').addEventListener('click',()=>{
    * lead with. Each is a single click away and the choice is remembered, so
    * this decides only where a new user starts, not what they are stuck with. */
   if(!localStorage.getItem(COLLAPSE_KEY)){
-    ['Transform','Style','Stroke','Export','Presets'].forEach(k=>_collapsed.add(k));
+    ['Transform','Style','Stroke','Export','Presets',
+     'ab:Stroke','ab:Options'].forEach(k=>_collapsed.add(k));
     saveCollapsed();
   }
   wireCollapser(head,[target],'Transform');
+})();
+
+/* The artboard panel is static markup, so its sections are wired once rather
+ * than on every rebuild. Same folding, same store — an artboard's panel should
+ * behave like a shape's, not like a different app. Its keys are prefixed so
+ * "Fill" folded on an artboard does not fold "Fill" on a shape: the two are
+ * different panels that happen to share a word. */
+(function(){
+  const panel=$('artboardPanel');
+  if(!panel) return;
+  const kids=[...panel.children];
+  kids.forEach((el,i)=>{
+    if(!el.dataset||!el.dataset.absect) return;
+    const members=[];
+    for(let j=i+1;j<kids.length;j++){
+      if(kids[j].dataset&&kids[j].dataset.absect) break;
+      if(kids[j].hasAttribute('data-nofold')) break;
+      members.push(kids[j]);
+    }
+    if(!members.length) return;
+    el.classList.add('collapser');
+    el.setAttribute('role','button');
+    el.setAttribute('tabindex','0');
+    wireCollapser(el,members,'ab:'+el.dataset.absect);
+  });
 })();
 
 /* ---- page panel ---- */
