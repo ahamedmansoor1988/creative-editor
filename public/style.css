@@ -432,6 +432,30 @@ body.panel-left-collapsed #sidebar{
   background:var(--surface-accent); border-color:var(--accent); color:var(--accent);
 }
 #pRatioHint{font-size:var(--text-meta); color:var(--muted);}
+/* ---- page inspector ---- */
+.pgStats{margin-top:8px; display:flex; flex-direction:column; gap:2px;}
+.pgStat{
+  display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+  padding:3px 2px; font-size:var(--text-meta); color:var(--muted);
+}
+.pgStat .v{color:var(--text); font-weight:var(--weight-medium); font-variant-numeric:tabular-nums;}
+.pgList{display:flex; flex-direction:column; gap:2px; margin-top:4px;}
+.pgRow{
+  display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+  width:100%; text-align:left; padding:5px 7px; border:0; border-radius:7px;
+  background:transparent; cursor:pointer; font:inherit;
+  font-size:var(--text-control); color:var(--text);
+}
+.pgRow:hover{background:var(--surface-accent); color:var(--accent);}
+.pgRow .k{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pgRow .v{
+  flex:0 0 auto; font-size:var(--text-meta); color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.pgRow:hover .v{color:var(--accent);}
+/* Applied but gated off for QA — real content, so it is dimmed, not omitted. */
+.pgRow.pgHidden .k{color:var(--muted); font-style:italic;}
+.pgEmpty{font-size:var(--text-meta); color:var(--muted); padding:3px 2px;}
 #ratioRow button[aria-pressed="true"] ~ #pRatioHint{color:var(--accent);}
 .iconToggleRow button{
   flex:1; border:1px solid var(--line); background:none; border-radius:6px;

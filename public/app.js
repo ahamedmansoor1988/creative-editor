@@ -3879,6 +3879,7 @@ function syncInspector(){
     $('engineSection').classList.add('disabled');
     $('engineSection').style.display='none';
     $('artboardPanel').style.display='none';
+    $('pagePanel').style.display='none';
     const hint=$('noSel');
     hint.style.display='';
     hint.innerHTML='';
@@ -3906,6 +3907,7 @@ function syncInspector(){
   const ab=(!obj&&selArtboard)?(doc.frame.artboards||[]).find(a=>a.id===selArtboard):null;
   $('objectOnlyFields').style.display=(obj&&!ab)?'':'none';
   $('artboardPanel').style.display=ab?'':'none';
+  if(ab) $('pagePanel').style.display='none';
   if(ab){
     $('posSection').classList.remove('disabled');
     $('engineSection').classList.add('disabled');
@@ -3920,8 +3922,12 @@ function syncInspector(){
   $('posSection').classList.toggle('disabled',!obj);
   $('engineSection').classList.toggle('disabled',!obj);
   $('engineSection').style.display=obj?'':'none';
-  $('noSel').style.display=obj?'none':'';
-  if(!obj) return;
+  /* Nothing selected IS the page: clicking a page row clears the object and
+   * artboard selection, so this branch is the page's own inspector rather
+   * than a dead "select something" panel. */
+  $('pagePanel').style.display=obj?'none':'';
+  $('noSel').style.display='none';
+  if(!obj){ syncPagePanel(); return; }
   // Every field below reports across the WHOLE selection, not just the
   // primary — see sharedValue/setNumField.
   const S=selIds.size>1?selObjs():[obj];
@@ -4106,6 +4112,93 @@ function syncLayoutPanel(obj){
 
 /** Populates the Artboard section. X/Y/W/H live in the shared Position
  *  fields (see syncInspector) so this only covers what is artboard-specific. */
+/* The Page inspector: what this page CONTAINS.
+ *
+ * Counting fx entries would be meaningless — normalizeDoc gives every object
+ * an entry for every known effect type, most of them inert — so "in use" is
+ * decided by fxActive(), the same predicate that lights the dot in the engine
+ * menu. That keeps one definition of "this engine is doing something" instead
+ * of a second one that could disagree with the menu the user just looked at.
+ *
+ * Effects hidden by the QA gate are still counted: the page really does
+ * contain them, and a count that quietly omitted them would misreport the
+ * document rather than the UI. They are marked instead. */
+function syncPagePanel(){
+  if(!doc) return;
+  const f=doc.frame;
+  $('pgName').value=f.name||'';
+
+  const objs=allObjects();
+  const boards=(f.artboards||[]).length;
+  const stats=[
+    ['Artboards',boards],
+    ['Layers',objs.length],
+    ['Styles',(f.styles||[]).length],
+    ['Size',Math.round(f.w)+' × '+Math.round(f.h)],
+  ];
+  const sb=$('pgStats'); sb.innerHTML='';
+  stats.forEach(([k,v])=>{
+    const r=document.createElement('div'); r.className='pgStat';
+    const a=document.createElement('span'); a.className='k'; a.textContent=k;
+    const b=document.createElement('span'); b.className='v'; b.textContent=v;
+    r.appendChild(a); r.appendChild(b); sb.appendChild(r);
+  });
+
+  const sl=$('pgStyles'); sl.innerHTML='';
+  const styles=f.styles||[];
+  if(!styles.length){
+    sl.innerHTML='<div class="pgEmpty">No styles saved on this page.</div>';
+  }else{
+    styles.forEach(s=>{
+      const used=objs.filter(o=>o.styleId===s.id).length;
+      const r=document.createElement('button');
+      r.type='button'; r.className='pgRow';
+      r.innerHTML='<span class="k"></span><span class="v"></span>';
+      r.querySelector('.k').textContent=s.name;
+      r.querySelector('.v').textContent=used+(used===1?' use':' uses');
+      r.title='Select every object using “'+s.name+'”';
+      r.addEventListener('click',()=>{
+        const ids=objs.filter(o=>o.styleId===s.id).map(o=>o.id);
+        if(!ids.length){ status('No objects use that style.'); return; }
+        setSelIds(new Set(ids)); refresh();
+      });
+      sl.appendChild(r);
+    });
+  }
+
+  const el=$('pgEffects'); el.innerHTML='';
+  const FS=window.FxStack;
+  const counts=new Map();
+  objs.forEach(o=>{
+    Object.keys(PAGE_TYPE).forEach(name=>{
+      let on;
+      try{ on=fxActive(o,name); }catch(_){ on=false; }
+      if(on) counts.set(name,(counts.get(name)||0)+1);
+    });
+  });
+  if(!counts.size){
+    el.innerHTML='<div class="pgEmpty">No effects applied on this page.</div>';
+  }else{
+    [...counts.entries()].sort((a,b)=>b[1]-a[1]).forEach(([name,n])=>{
+      const hidden=FS&&!FS.isReady(PAGE_TYPE[name]);
+      const r=document.createElement('button');
+      r.type='button'; r.className='pgRow'+(hidden?' pgHidden':'');
+      r.innerHTML='<span class="k"></span><span class="v"></span>';
+      r.querySelector('.k').textContent=name+(hidden?' (hidden)':'');
+      r.querySelector('.v').textContent=n+(n===1?' object':' objects');
+      r.title=hidden
+        ? name+' is applied to '+n+' object(s) but its panel is off while it is being QA’d. Click to select them.'
+        : 'Select every object using '+name;
+      r.addEventListener('click',()=>{
+        const ids=objs.filter(o=>{ try{ return fxActive(o,name); }catch(_){ return false; } })
+          .map(o=>o.id);
+        if(!ids.length){ status('Nothing uses that effect any more.'); return; }
+        setSelIds(new Set(ids)); refresh();
+      });
+      el.appendChild(r);
+    });
+  }
+}
 function syncArtboardPanel(ab){
   $('abName').value=ab.name||'';
   $('abBg').value=/^#[0-9a-fA-F]{6}$/.test(ab.bg||'')?ab.bg:'#ffffff';
@@ -5870,6 +5963,14 @@ $('pRatio').addEventListener('click',()=>{
   });
   $(id).addEventListener('change',()=>pushHistory(posArtboard()?'Edit artboard':undefined));
 });
+
+/* ---- page panel ---- */
+$('pgName').addEventListener('input',e=>{
+  if(!doc) return;
+  doc.frame.name=e.target.value.slice(0,60);
+  syncPageRow();
+});
+$('pgName').addEventListener('change',()=>{ if(doc) pushHistory('Rename page'); });
 
 /* ---- artboard panel ---- */
 $('abName').addEventListener('input',e=>{

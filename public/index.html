@@ -375,6 +375,19 @@
   </div>
 
   <!-- shown only when the selection is an artboard (no object selected) -->
+  <!-- Page: what the page CONTAINS. Figma's page panel is just a background
+       colour, which tells you nothing about the page you are standing in.
+       These are the counts you would otherwise get by scrolling the tree. -->
+  <div id="pagePanel" style="display:none">
+    <div class="secTitle">Page</div>
+    <label class="iconField" title="Page name"><i data-icon="text"></i><input type="text" id="pgName" maxlength="60" placeholder="Name" aria-label="Page name"></label>
+    <div id="pgStats" class="pgStats"></div>
+    <div class="secTitle" style="margin-top:12px">Styles on this page</div>
+    <div id="pgStyles" class="pgList"></div>
+    <div class="secTitle" style="margin-top:12px">Effects in use</div>
+    <div id="pgEffects" class="pgList"></div>
+  </div>
+
   <div id="artboardPanel" style="display:none">
     <hr>
     <div class="secTitle">Artboard</div>
