@@ -645,6 +645,10 @@ describe("effect QA gate", () => {
     expect(pages([])).not.toContain("Shape");
   });
 
+  it("hides the Pattern page while that control is withheld", () => {
+    expect(pages([])).not.toContain("Pattern");
+  });
+
   it("keeps Shape for an ellipse, which has content of its own", () => {
     const p = editor.FX_PAGES({ type: "ellipse", name: "E", x: 0, y: 0, w: 10, h: 10 });
     expect(p).toContain("Shape");

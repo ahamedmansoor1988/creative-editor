@@ -3830,7 +3830,7 @@ function syncStyles(){
  * so a document that already carries the property keeps rendering it and
  * nothing has to be rewritten to bring the control back. `?show=<key>` opens
  * one for a session, the same door ?fx= opens for an effect. */
-const SHOW_CONTROL={cornerStyle:false};
+const SHOW_CONTROL={cornerStyle:false, pattern:false};
 try{
   new URLSearchParams(location.search).getAll('show')
     .flatMap(v=>v.split(','))
@@ -3864,6 +3864,7 @@ const FX_PAGES=obj=>{
   return live
     .filter(p=>p!=='Effects'||anyEffect)
     .filter(p=>p!=='Shape'||!emptyShape)
+    .filter(p=>p!=='Pattern'||SHOW_CONTROL.pattern)
     .concat('Export');
 };
 const FX_PAGES_RAW=obj=>{
