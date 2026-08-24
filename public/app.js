@@ -1935,11 +1935,12 @@ function drawDoc(c,W,H,opts){
   opts=opts||{};
   const f=doc.frame;
   if(opts.clear!==false) c.clearRect(0,0,Math.max(W,f.w)+8000,Math.max(H,f.h)+8000);
-  /* The legacy page rect only paints when there are NO artboards. Once
-   * artboards exist they are the canvas surface — painting the old page rect
-   * underneath left a ghost slab of white wherever it outsized or outlived
-   * an artboard ("deleted canvas space" beside the real artboard). */
-  if(!(f.artboards&&f.artboards.length)){ c.fillStyle=f.bg; c.fillRect(0,0,f.w,f.h); }
+  /* Artboards ARE the canvas surface, and there is no longer any such thing as
+   * a document without them: a file that predates artboards gets one backfilled
+   * on load, so an empty list can only mean the user deleted every board. That
+   * is an empty canvas and must paint as nothing — the page-sized slab that
+   * used to stand in here is exactly the "deleted canvas space" ghost, and with
+   * no artboard left to hide behind it showed up as a full page rect. */
   // §6.5: each artboard paints its own background before any content
   (f.artboards||[]).forEach(a=>{
     if(!a.show) return;
@@ -3052,11 +3053,9 @@ function paint(){
   ctx.save();
   ctx.shadowColor='rgba(0,0,0,.13)'; ctx.shadowBlur=18/z; ctx.shadowOffsetY=3/z;
   ctx.fillStyle='#ffffff';
-  if(f.artboards&&f.artboards.length){
-    f.artboards.forEach(a=>{ if(a.show) ctx.fillRect(a.x,a.y,a.w,a.h); });
-  }else{
-    ctx.fillRect(0,0,f.w,f.h);
-  }
+  // No artboards means an empty canvas, not a page-sized sheet: nothing to
+  // paint, and no drop shadow around a surface that is not there.
+  (f.artboards||[]).forEach(a=>{ if(a.show) ctx.fillRect(a.x,a.y,a.w,a.h); });
   ctx.restore();
   if(rasterPreviewNeeded()){
     ctx.imageSmoothingEnabled=true;
@@ -3078,11 +3077,10 @@ function paint(){
        * bounding box of every artboard, so a page-wide grid paints the gutters
        * between boards and the dead space around them. Each artboard instead
        * gets its own grid, clipped to it and originating at its own top-left,
-       * so the lines line up with the thing being designed. A document with no
-       * artboards falls back to the page as the one surface. */
-      const beds=(f.artboards&&f.artboards.length)
-        ? f.artboards.filter(a=>a.show!==false)
-        : [{x:0,y:0,w:f.w,h:f.h}];
+       * so the lines line up with the thing being designed. With no artboards
+       * there is no surface, so there is no grid — a grid floating on an empty
+       * canvas is drawing a page that does not exist. */
+      const beds=(f.artboards||[]).filter(a=>a.show!==false);
       for(const bed of beds){
         ctx.save();
         ctx.beginPath(); ctx.rect(bed.x,bed.y,bed.w,bed.h); ctx.clip();
@@ -3618,11 +3616,11 @@ function syncLayers(){
       ctxMenu(ev.clientX,ev.clientY,[
         ['Export PNG',()=>exportArtboard(a.id)],
         ['Duplicate',()=>duplicateArtboard(a.id)],
-        boards.length>1?['Delete…',()=>{
+        ['Delete…',()=>{
           const n=objectsInArtboard(a).length;
           const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
           removeArtboard(a.id,withContent);
-        }]:null,
+        }],
       ].filter(Boolean));
     });
     keyboardRow(head);
@@ -5782,7 +5780,6 @@ $('abSwap').addEventListener('click',()=>{
 $('abDuplicate').addEventListener('click',()=>{ const ab=posArtboard(); if(ab) duplicateArtboard(ab.id); });
 $('abDelete').addEventListener('click',()=>{
   const ab=posArtboard(); if(!ab)return;
-  if((doc.frame.artboards||[]).length<=1){ alert('The document needs at least one artboard.'); return; }
   const n=objectsInArtboard(ab).length;
   const withContent=n>0&&confirm(`Delete its ${n} object${n===1?'':'s'} too?\n\nOK deletes them, Cancel keeps them on the page.`);
   removeArtboard(ab.id,withContent);
@@ -8465,8 +8462,9 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();
     /* Object selection wins. With nothing selected, Delete acts on the
      * artboard picked in the tree — same confirm about contents as the
-     * context menu, and never the last remaining board. */
-    if(selIds.size===0&&selArtboard&&(doc.frame.artboards||[]).length>1){
+     * context menu. The last board goes too: an empty canvas is a real
+     * state, and the next artboard added starts again at the origin. */
+    if(selIds.size===0&&selArtboard&&(doc.frame.artboards||[]).length){
       const a=(doc.frame.artboards||[]).find(x=>x.id===selArtboard);
       if(a){
         const n=objectsInArtboard(a).length;
