@@ -7247,13 +7247,24 @@ function renameStyle(id,name){
 /* ---- §6.5 artboard commands ---- */
 const AB_PRESETS=[['Landscape',900,600],['Square',1080,1080],['Wide',1600,900],
   ['Portrait',1080,1350],['Story',1080,1920],['A4 @96dpi',794,1123]];
+/* Where a new artboard goes. The rule, in the user's words: the first one
+ * sits at the origin, and each next one is placed beside the row with a
+ * AB_GUTTER gap — so an empty document always starts at 0,0 no matter how
+ * many artboards have been added and removed before. y follows the first
+ * artboard rather than being hardcoded, so a row that has been dragged as a
+ * unit stays a straight row. */
+const AB_GUTTER=50;
+function nextArtboardSpot(A){
+  if(!A.length) return {x:0,y:0};
+  const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),-Infinity);
+  return {x:right+AB_GUTTER, y:A[0].y||0};
+}
 function addArtboard(w,h,name){
   if(!doc) return;
   const A=doc.frame.artboards;
-  // place it to the RIGHT of everything so far, with a comfortable gutter
-  const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),0);
+  const at=nextArtboardSpot(A);
   const a={id:newId(),name:name||('Artboard '+(A.length+1)),
-    x:A.length?right+80:0, y:0, w:w||900, h:h||600, bg:'#ffffff', clip:true, show:true};
+    x:at.x, y:at.y, w:w||900, h:h||600, bg:'#ffffff', clip:true, show:true};
   A.push(a);
   growFrameToArtboards();
   selArtboard=a.id;
@@ -7263,8 +7274,8 @@ function duplicateArtboard(id){
   const A=doc.frame.artboards, i=A.findIndex(a=>a.id===id);
   if(i<0) return;
   const src=A[i];
-  const right=A.reduce((m,a)=>Math.max(m,a.x+a.w),0);
-  const dx=right+80-src.x, dy=0;
+  const at=nextArtboardSpot(A);
+  const dx=at.x-src.x, dy=at.y-src.y;
   const copy={...src,id:newId(),name:src.name+' copy',x:src.x+dx,y:src.y+dy};
   // the artboard's CONTENT comes with it
   const kids=objectsInArtboard(src).filter(o=>listOf(o)===doc.frame.children);

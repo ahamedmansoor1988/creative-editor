@@ -473,3 +473,57 @@ describe("inspector — mixed values across a multi-selection", () => {
     expect(kids.map((o) => o.x)).toEqual([150, 350]);
   });
 });
+
+describe("artboard placement", () => {
+  /* The rule, as specified: the first artboard sits at the origin and each
+   * next one is placed beside the row with a 50px gap. The interesting cases
+   * are the ones where the document has been edited first — the origin must
+   * not depend on how many artboards were created and removed earlier. */
+  const GUTTER = 50;
+
+  function boards(list) {
+    editor.doc = {
+      frame: { name: "F", w: 900, h: 600, bg: "#ffffff", children: [], artboards: list },
+    };
+    return editor.doc.frame.artboards;
+  }
+
+  it("puts a new artboard at 0,0 when the document has none", () => {
+    // normalizeDoc backfills one artboard, so empty it first
+    const A = boards([{ id: "x", name: "A", x: 400, y: 300, w: 200, h: 200 }]);
+    A.length = 0;
+    editor.addArtboard(300, 200, "First");
+    expect({ x: A[0].x, y: A[0].y }).toEqual({ x: 0, y: 0 });
+  });
+
+  it("places the second artboard one gutter right of the first", () => {
+    const A = boards([{ id: "a", name: "A", x: 0, y: 0, w: 900, h: 600 }]);
+    editor.addArtboard(400, 300, "Second");
+    expect(A[1].x).toBe(900 + GUTTER);
+    expect(A[1].y).toBe(0);
+  });
+
+  it("measures from the rightmost edge, not the last-added artboard", () => {
+    const A = boards([
+      { id: "a", name: "A", x: 0, y: 0, w: 300, h: 300 },
+      { id: "b", name: "B", x: 1000, y: 0, w: 500, h: 300 },
+    ]);
+    editor.addArtboard(200, 200, "Third");
+    expect(A[2].x).toBe(1500 + GUTTER);
+  });
+
+  it("keeps the row straight by following the first artboard's y", () => {
+    const A = boards([{ id: "a", name: "A", x: 0, y: 250, w: 400, h: 200 }]);
+    editor.addArtboard(400, 200, "Beside");
+    expect(A[1].y).toBe(250);
+  });
+
+  it("returns to the origin once every artboard is gone", () => {
+    const A = boards([{ id: "a", name: "A", x: 0, y: 0, w: 900, h: 600 }]);
+    editor.addArtboard(400, 300, "Second");
+    expect(A[1].x).toBe(950);
+    A.length = 0; // whatever route emptied it, the next one starts over
+    editor.addArtboard(400, 300, "Fresh");
+    expect({ x: A[0].x, y: A[0].y }).toEqual({ x: 0, y: 0 });
+  });
+});
