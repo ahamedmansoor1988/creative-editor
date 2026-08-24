@@ -48,14 +48,29 @@
      Product-tool scale: compact, neutral, no marketing sizes. */
   --font-ui:"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  --text-micro:9px;  /* tiny glyph metadata */
-  --text-xxs:10px;   /* dense counters */
-  --text-xs:11px;    /* metadata, hints */
-  --text-sm:12px;    /* labels, buttons, compact controls */
-  --text-md:13px;    /* rows and inspector values */
-  --text-base:13px;  /* default UI text */
-  --text-lg:15px;    /* dense panel heads */
-  --text-xl:18px;    /* modal titles */
+  /* ---- Type hierarchy -------------------------------------------------
+   * Five roles over FOUR sizes, all inside 11-14px. Below 11 the UI stops
+   * being readable at arm's length; above 14 a dense tool starts looking
+   * like a marketing page. Three points of range cannot express five levels
+   * on their own, so size is only one of three axes — WEIGHT and COLOUR do
+   * the rest, which is what Inter's weight range is for. Section and Body
+   * share 13px and separate on weight alone; that is deliberate, not a
+   * duplicate token.
+   *
+   *   role      size  weight     colour        used for
+   *   title     14    semibold   text-strong   modal + panel titles
+   *   section   13    semibold   text-strong   Pages / Artwork / Styles
+   *   body      13    regular    text          layer rows, list items
+   *   control   12    medium     text          buttons, inputs, values
+   *   meta      11    regular    muted         hints, counters, units
+   *
+   * Tokens are named by ROLE, not by size, so a use site says what it is
+   * rather than how big it is — and a wrong choice reads as wrong. */
+  --text-title:14px;
+  --text-section:13px;
+  --text-body:13px;
+  --text-control:12px;
+  --text-meta:11px;
 
   --weight-regular:400;
   --weight-medium:500;
@@ -69,7 +84,7 @@ html,body{height:100%;}
 body{
   margin:0; background:var(--bg); color:var(--text);
   font-family:var(--font-ui);
-  font-size:var(--text-base);
+  font-size:var(--text-body);
   font-weight:var(--weight-regular);
   line-height:var(--line-normal);
   overflow:hidden;
@@ -111,7 +126,7 @@ textarea:focus-visible,
   display:flex; justify-content:space-between; gap:4px; padding:8px 10px;
 }
 .menu{position:relative; padding:4px 10px; border-radius:7px; cursor:default;
-  flex:0 1 auto; white-space:nowrap; font-size:var(--text-sm); font-weight:var(--weight-medium);}
+  flex:0 1 auto; white-space:nowrap; font-size:var(--text-control); font-weight:var(--weight-medium);}
 .menu:hover{background:var(--surface-hover);}
 .menu .dropdown{
   display:none; position:absolute; top:100%; left:0; margin-top:8px; min-width:224px;
@@ -137,7 +152,7 @@ textarea:focus-visible,
 .dropdown button{
   display:flex; align-items:center; justify-content:space-between; gap:28px; width:100%;
   min-height:32px; background:none; border:0; padding:6px 9px; border-radius:7px;
-  font:inherit; font-size:var(--text-base); font-weight:var(--weight-regular);
+  font:inherit; font-size:var(--text-body); font-weight:var(--weight-regular);
   line-height:var(--line-tight); color:var(--text); text-align:left; cursor:pointer;
   position:relative;
 }
@@ -155,7 +170,7 @@ textarea:focus-visible,
   height:12px;
   transform:translateY(-50%);
   color:var(--accent);
-  font-size:13px;
+  font-size:var(--text-body);
   line-height:12px;
   font-weight:var(--weight-semibold);
 }
@@ -169,7 +184,7 @@ textarea:focus-visible,
 .dropdown.hasSub{max-height:none; overflow:visible;}
 .submenu{position:relative;}
 .submenu > .subLabel > span{
-  margin-left:auto; color:var(--muted); font-size:var(--text-base); line-height:1;
+  margin-left:auto; color:var(--muted); font-size:var(--text-body); line-height:1;
 }
 .submenu > .subItems{
   display:none; position:absolute; left:100%; top:-8px; margin-left:2px;
@@ -183,7 +198,7 @@ textarea:focus-visible,
 .submenu:focus-within > .subItems{display:block;}
 .submenu:hover > .subLabel{background:var(--surface-accent); color:var(--accent);}
 .dropdown button span{
-  margin-left:auto; color:var(--muted); font-size:var(--text-sm);
+  margin-left:auto; color:var(--muted); font-size:var(--text-control);
   font-weight:var(--weight-regular); line-height:1;
 }
 
@@ -198,7 +213,7 @@ textarea:focus-visible,
 }
 #appNotch button{
   border:0; background:none; padding:4px 10px; border-radius:7px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium);
   color:var(--text); cursor:pointer;
 }
 #appNotch button:hover{background:var(--surface-hover);}
@@ -207,7 +222,7 @@ textarea:focus-visible,
   border-radius:50%;
   background:#2563eb;
   color:#ffffff;
-  font-size:var(--text-xxs);
+  font-size:var(--text-meta);
   font-weight:var(--weight-semibold);
   box-shadow:0 2px 8px rgba(37,99,235,.22);
 }
@@ -261,13 +276,13 @@ body.panel-left-collapsed #leftPanel{
   width:100%; min-height:34px; padding:0 8px; border:0; border-radius:8px;
   background:transparent; color:var(--text); cursor:pointer;
   display:grid; grid-template-columns:20px 1fr auto; align-items:center; gap:8px;
-  font:inherit; font-size:var(--text-sm); text-align:left;
+  font:inherit; font-size:var(--text-control); text-align:left;
 }
 .toolMenu button:hover{background:var(--surface-hover);}
 .toolMenu button.active{background:var(--surface-accent); color:var(--accent);}
 .toolMenu span{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .toolMenu kbd{
-  font:inherit; color:var(--muted); font-size:12px; background:transparent;
+  font:inherit; color:var(--muted); font-size:var(--text-control); background:transparent;
 }
 .toolMenu button.active kbd{color:var(--accent);}
 /* The list rows BLEED to the panel edges, so the sidebar carries no horizontal
@@ -292,7 +307,7 @@ body.panel-left-collapsed #sidebar{
   /* Headings LEAD: rows sit at the same 13px but regular weight, so the
      heading is never outweighed by its own contents — the inversion the
      user circled ("Page 1" larger than "Pages"). */
-  font-size:var(--text-md); font-weight:var(--weight-semibold); color:var(--text);
+  font-size:var(--text-section); font-weight:var(--weight-semibold); color:var(--text-strong);
   padding:0 12px; margin:6px 0 6px; min-height:26px;
 }
 /* A hairline separates each section from the list above it. The first heading
@@ -308,7 +323,7 @@ body.panel-left-collapsed #sidebar{
 .sideHead button:hover{background:var(--surface-accent); color:var(--accent);}
 #pageList{margin-bottom:2px;}
 .pageRow{
-  font-size:var(--text-md); font-weight:var(--weight-regular);
+  font-size:var(--text-body); font-weight:var(--weight-regular);
   padding:8px 10px; cursor:pointer;
   color:var(--text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
@@ -320,7 +335,7 @@ body.panel-left-collapsed #sidebar{
 .pageRow:hover{background:var(--surface-hover);}
 .pageRow.sel{background:var(--surface-accent); color:var(--accent); font-weight:var(--weight-medium);}
 #layerList div{
-  font-size:var(--text-md); font-weight:var(--weight-regular);
+  font-size:var(--text-body); font-weight:var(--weight-regular);
   padding:8px 10px; cursor:pointer; display:flex; gap:8px; align-items:center;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-soft);
 }
@@ -349,7 +364,7 @@ body.panel-left-collapsed #sidebar{
 }
 #zoomChip input{
   width:52px; border:0; background:none; font:inherit;
-  font-size:var(--text-sm); font-weight:var(--weight-medium);
+  font-size:var(--text-control); font-weight:var(--weight-medium);
   text-align:center; color:var(--text); outline:none;
 }
 
@@ -358,24 +373,24 @@ body.panel-left-collapsed #sidebar{
   position:fixed; top:var(--left-panel-top); right:var(--chrome-gap); bottom:var(--chrome-gap); width:var(--right-panel-w); z-index:20;
   padding:16px 14px; overflow-y:auto;
 }
-.rp-head{font-size:var(--text-lg); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:12px;}
+.rp-head{font-size:var(--text-title); font-weight:var(--weight-semibold); line-height:var(--line-tight); text-align:center; margin-bottom:12px;}
 .rp-head .sep{color:var(--muted); font-weight:var(--weight-regular); padding:0 4px;}
 #rightPanel hr{border:0; border-top:1px solid var(--line); margin:16px 0;}
 .grid4{display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:10px;}
 .grid4 label{display:flex; align-items:center; gap:6px;
-  font-size:var(--text-xs); font-weight:var(--weight-regular); color:var(--muted);}
+  font-size:var(--text-meta); font-weight:var(--weight-regular); color:var(--muted);}
 .grid4 input{
   width:100%; border:1px solid var(--line); border-radius:6px; padding:5px 6px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium); min-width:0;
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium); min-width:0;
 }
 /* Opacity + Corner radius + the independent-corners toggle, one row (Figma's
    "Appearance" row: two icon+number fields plus a small expand button). */
 .grid3{display:grid; grid-template-columns:1fr 1fr auto; gap:7px; margin-bottom:10px; align-items:center;}
 .grid3 label{display:flex; align-items:center; gap:6px;
-  font-size:var(--text-xs); font-weight:var(--weight-regular); color:var(--muted);}
+  font-size:var(--text-meta); font-weight:var(--weight-regular); color:var(--muted);}
 .grid3 input{
   width:100%; border:1px solid var(--line); border-radius:6px; padding:5px 6px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium); min-width:0;
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium); min-width:0;
 }
 .grid3 button{
   flex:0 0 auto; width:28px; height:28px; border:1px solid var(--line); background:none;
@@ -398,7 +413,7 @@ body.panel-left-collapsed #sidebar{
 .iconField input, .iconField select{
   flex:1 1 auto; min-width:0; width:100%;
   border:1px solid var(--line); border-radius:6px; padding:5px 6px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium);
 }
 .iconField input[type=color]{padding:2px; height:28px; cursor:pointer;}
 /* Icon toggles for on/off state (clip, lock, visibility) — pressed state is
@@ -415,19 +430,19 @@ body.panel-left-collapsed #sidebar{
 }
 /* A button carrying both an icon and its label. */
 .iconBtn{display:inline-flex; align-items:center; justify-content:center; gap:6px;}
-label.slider{display:block; font-size:var(--text-sm); font-weight:var(--weight-medium);
+label.slider{display:block; font-size:var(--text-control); font-weight:var(--weight-medium);
   color:var(--muted); margin:8px 0;}
 label.slider span{float:right; color:var(--text);}
 label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 .disabled{opacity:.35; pointer-events:none;}
-.hint{color:var(--muted); font-size:var(--text-xs); font-weight:var(--weight-regular);
+.hint{color:var(--muted); font-size:var(--text-meta); font-weight:var(--weight-regular);
   text-align:center; padding:8px 0;}
 
 /* engines: search on top, name, sliders, pager arrows at the bottom */
 #engineSearchWrap{position:relative; margin-bottom:10px;}
 #engineSearch{
   width:100%; border:1px solid var(--line); border-radius:8px;
-  padding:7px 9px; font:inherit; font-size:var(--text-sm);
+  padding:7px 9px; font:inherit; font-size:var(--text-control);
   font-weight:var(--weight-medium); background:var(--field-bg);
 }
 #engineSearch:focus{border-color:var(--accent); background:var(--field-focus);}
@@ -436,22 +451,22 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #engineResults:empty{display:none;}
 #engineResults button{
   display:block; width:100%; border:0; background:none; text-align:left;
-  padding:7px 10px; font:inherit; font-size:var(--text-sm);
+  padding:7px 10px; font:inherit; font-size:var(--text-control);
   font-weight:var(--weight-medium); cursor:pointer;
 }
 #engineResults button:hover{background:var(--surface-accent);}
-#engineResults .noHit{padding:7px 10px; color:var(--muted); font-size:var(--text-xs);}
+#engineResults .noHit{padding:7px 10px; color:var(--muted); font-size:var(--text-meta);}
 /* The engine name is the menu. With ten engines the ‹ › pager alone buried
    everything past the second page below the fold, so the title opens a list. */
 #fxTitleWrap{position:relative; margin-bottom:8px;}
 #fxTitle{
   width:100%; text-align:center; font:inherit;
-  font-size:var(--text-sm); font-weight:var(--weight-semibold);
+  font-size:var(--text-control); font-weight:var(--weight-semibold);
   background:none; border:1px solid transparent; border-radius:7px;
   padding:5px 22px 5px 10px; cursor:pointer; color:inherit;
 }
 #fxTitle:hover{background:var(--surface-hover); border-color:var(--line);}
-#fxTitle::after{content:"▾"; position:absolute; right:9px; color:var(--muted); font-size:var(--text-xs);}
+#fxTitle::after{content:"▾"; position:absolute; right:9px; color:var(--muted); font-size:var(--text-meta);}
 #fxTitleWrap.open #fxTitle{background:var(--surface-hover); border-color:var(--line);}
 #fxMenu{
   display:none; position:absolute; top:100%; left:0; right:0; z-index:40;
@@ -469,7 +484,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #fxMenu button{
   display:flex; align-items:center; gap:8px; width:100%;
   background:none; border:0; padding:7px 10px; font:inherit;
-  font-size:var(--text-sm); font-weight:var(--weight-medium);
+  font-size:var(--text-control); font-weight:var(--weight-medium);
   text-align:left; cursor:pointer; color:inherit;
 }
 #fxMenu button:hover{background:var(--surface-hover);}
@@ -489,7 +504,7 @@ label.slider input{width:100%; accent-color:var(--accent); margin-top:4px;}
 #fxBody .row2{display:grid; grid-template-columns:1fr 1fr; gap:7px;}
 #fxBody select, #fxBody input[type=text]{
   width:100%; border:1px solid var(--line); border-radius:6px; padding:5px 6px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium);
 }
 #fxBody input[type=color]{
   width:100%; height:28px; border:1px solid var(--line); border-radius:6px; padding:1px 2px; background:none;
@@ -517,7 +532,7 @@ label.slider input[type=checkbox]{width:auto; margin:0 6px 0 0; vertical-align:m
    and its own label text land on different lines when the row got tight. */
 label.chk{
   display:flex; align-items:center; gap:7px; margin:8px 0;
-  font-size:var(--text-sm); font-weight:var(--weight-medium); color:var(--muted); cursor:pointer;
+  font-size:var(--text-control); font-weight:var(--weight-medium); color:var(--muted); cursor:pointer;
 }
 label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);}
 
@@ -526,15 +541,15 @@ label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);
 
 .rollBtn{
   width:100%; border:1px solid var(--line); background:none; border-radius:7px;
-  padding:6px 0; font:inherit; font-size:var(--text-sm);
+  padding:6px 0; font:inherit; font-size:var(--text-control);
   font-weight:var(--weight-medium); cursor:pointer; margin-top:4px;
 }
 .rollBtn:hover{border-color:var(--accent); color:var(--accent);}
-.fxHint{color:var(--muted); font-size:var(--text-xs); font-weight:var(--weight-regular);
+.fxHint{color:var(--muted); font-size:var(--text-meta); font-weight:var(--weight-regular);
   line-height:1.5; margin-top:8px;}
 .fxWarn{
   background:var(--warning-bg); border:1px solid var(--warning-line); border-radius:7px;
-  padding:8px 10px; margin:8px 0; font-size:var(--text-xs); line-height:1.5; color:var(--warning-text);
+  padding:8px 10px; margin:8px 0; font-size:var(--text-meta); line-height:1.5; color:var(--warning-text);
 }
 .fxWarn .rollBtn{margin-top:7px; border-color:var(--warning-line); color:var(--warning-text);}
 .fxWarn .rollBtn:hover{background:var(--surface-2); border-color:var(--warning-text); color:var(--warning-text);}
@@ -548,25 +563,25 @@ label.chk input{flex:0 0 auto; width:auto; margin:0; accent-color:var(--accent);
   width:340px; background:var(--panel); border-radius:14px; box-shadow:var(--shadow);
   padding:18px 18px 16px;
 }
-.modal h3{margin:0 0 12px; font-size:var(--text-lg); font-weight:var(--weight-semibold);
+.modal h3{margin:0 0 12px; font-size:var(--text-title); font-weight:var(--weight-semibold);
   line-height:var(--line-tight);}
 .modal>input[type=text], .modal .modal-name{width:100%;}
 #npName{width:100%; border:1px solid var(--line); border-radius:7px; padding:7px 9px;
-  font:inherit; font-size:var(--text-sm); font-weight:var(--weight-medium);}
+  font:inherit; font-size:var(--text-control); font-weight:var(--weight-medium);}
 .mSec{
-  font-size:var(--text-xs); font-weight:var(--weight-semibold); color:var(--muted); text-transform:uppercase;
+  font-size:var(--text-meta); font-weight:var(--weight-semibold); color:var(--muted); text-transform:uppercase;
   letter-spacing:.05em; margin:12px 0 7px;
 }
 #sizeChips{display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:9px;}
 #sizeChips button{
   border:1px solid var(--line); background:none; border-radius:8px; cursor:pointer;
-  padding:7px 2px; font:inherit; font-size:var(--text-xs);
+  padding:7px 2px; font:inherit; font-size:var(--text-meta);
   font-weight:var(--weight-medium); line-height:1.35;
 }
-#sizeChips button em{font-style:normal; color:var(--muted); font-size:var(--text-xxs);
+#sizeChips button em{font-style:normal; color:var(--muted); font-size:var(--text-meta);
   font-weight:var(--weight-regular);}
 #sizeChips button.on{border-color:var(--accent); background:var(--surface-accent);}
-#bgModeRow{display:flex; gap:16px; margin-bottom:9px; font-size:var(--text-sm);
+#bgModeRow{display:flex; gap:16px; margin-bottom:9px; font-size:var(--text-control);
   font-weight:var(--weight-medium);}
 #bgModeRow input{accent-color:var(--accent);}
 #swatches{display:flex; gap:6px; margin-top:8px;}
@@ -604,16 +619,16 @@ body.panel-left-collapsed #agentBar{
   border:0; background:var(--text-strong); color:var(--panel); line-height:1; cursor:pointer;
   display:inline-flex; align-items:center; justify-content:center;
 }
-#prompt{flex:1; border:0; outline:0; font:inherit; font-size:var(--text-base);
+#prompt{flex:1; border:0; outline:0; font:inherit; font-size:var(--text-body);
   font-weight:var(--weight-regular); background:none; min-width:0;}
 #agentStatus{
-  color:var(--muted); font-size:var(--text-xs); white-space:nowrap;
+  color:var(--muted); font-size:var(--text-meta); white-space:nowrap;
   max-width:280px; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto;
 }
 #agentStatus.err{color:var(--danger);}
 #generateBtn{
   border:1px solid var(--line); background:none; border-radius:999px;
-  padding:7px 16px; font:inherit; font-size:var(--text-sm);
+  padding:7px 16px; font:inherit; font-size:var(--text-control);
   font-weight:var(--weight-medium); cursor:pointer;
 }
 #generateBtn:hover{border-color:var(--accent); color:var(--accent);}
@@ -641,7 +656,7 @@ body.panel-left-collapsed #leftPanelToggle{
 /* lock/eye toggles: quiet until hovered or active, pushed to the row's end */
 #layerList .layerTgl{
   margin-left:auto; flex:0 0 auto; border:0; background:none; cursor:pointer;
-  font-size:var(--text-xs); padding:1px 3px; border-radius:4px; opacity:0; color:var(--muted);
+  font-size:var(--text-meta); padding:1px 3px; border-radius:4px; opacity:0; color:var(--muted);
 }
 #layerList .layerTgl + .layerTgl{ margin-left:0; }
 #layerList div:hover .layerTgl{ opacity:.7; }
@@ -649,7 +664,7 @@ body.panel-left-collapsed #leftPanelToggle{
 #layerList .layerTgl:hover{ background:var(--surface-3); opacity:1; }
 #layerList .linkBadge {
   margin-left: auto;
-  font-size: var(--text-xxs);
+  font-size: var(--text-meta);
   padding: 1px 5px;
   border-radius: 8px;
   background: var(--info-bg-strong);
@@ -662,7 +677,7 @@ body.panel-left-collapsed #leftPanelToggle{
   border-radius: 8px;
   background: var(--info-bg);
   color: var(--info-text);
-  font-size: var(--text-xs);
+  font-size: var(--text-meta);
   line-height: 1.45;
 }
 .instHint button {
@@ -679,7 +694,7 @@ body.panel-left-collapsed #leftPanelToggle{
 /* --- pattern inspector (Stage 1.2) --- */
 .pSect {
   margin: 12px 0 6px;
-  font-size: var(--text-xxs);
+  font-size: var(--text-meta);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -691,7 +706,7 @@ body.panel-left-collapsed #leftPanelToggle{
 .pRow { margin-bottom: 7px; }
 .pRow > label {
   display: block;
-  font-size: var(--text-xs);
+  font-size: var(--text-meta);
   color: var(--text-soft);
   margin-bottom: 3px;
 }
@@ -701,14 +716,14 @@ body.panel-left-collapsed #leftPanelToggle{
   width: 56px;
   flex: 0 0 auto;
   font: inherit;
-  font-size: var(--text-xs);
+  font-size: var(--text-meta);
   padding: 2px 4px;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
   background: var(--field-focus);
 }
-.pCtl select { flex: 1 1 auto; font-size: var(--text-xs); }
-.pUnit { font-size: var(--text-xxs); color: var(--muted); width: 14px; flex: 0 0 auto; }
+.pCtl select { flex: 1 1 auto; font-size: var(--text-meta); }
+.pUnit { font-size: var(--text-meta); color: var(--muted); width: 14px; flex: 0 0 auto; }
 .pQ {
   display: inline-block;
   width: 13px;
@@ -718,21 +733,21 @@ body.panel-left-collapsed #leftPanelToggle{
   border-radius: 50%;
   background: var(--surface-3);
   color: var(--muted);
-  font-size: var(--text-micro);
+  font-size: var(--text-meta);
   cursor: help;
 }
 .pCheck {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--text-xs);
+  font-size: var(--text-meta);
   color: var(--text-soft);
   margin: 6px 0 8px;
 }
 .pAdv { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .pAdv > summary {
   cursor: pointer;
-  font-size: var(--text-xxs);
+  font-size: var(--text-meta);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -755,7 +770,7 @@ body.panel-left-collapsed #leftPanelToggle{
 #pencilOpts{
   position:fixed; left:52px; top:76px; z-index:30; width:190px;
   background:var(--surface-1); border:1px solid var(--line); border-radius:9px;
-  padding:9px 12px; box-shadow:var(--shadow); font-size:var(--text-xs); color:var(--muted);
+  padding:9px 12px; box-shadow:var(--shadow); font-size:var(--text-meta); color:var(--muted);
 }
 #pencilOpts label{display:block; margin:4px 0;}
 #pencilOpts span{float:right; color:var(--text);}
@@ -765,7 +780,7 @@ body.panel-left-collapsed #leftPanelToggle{
 #fxBody .apRow{display:flex; align-items:center; gap:4px; margin:4px 0;}
 #fxBody .apRow button{
   width:22px; height:22px; padding:0; line-height:1; border:1px solid var(--line);
-  border-radius:5px; background:none; color:var(--muted); cursor:pointer; font-size:var(--text-sm);
+  border-radius:5px; background:none; color:var(--muted); cursor:pointer; font-size:var(--text-control);
 }
 #fxBody .apRow button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
 #fxBody .apRow button:disabled{opacity:.3; cursor:default;}
@@ -776,12 +791,12 @@ body.panel-left-collapsed #leftPanelToggle{
    in, not a selection, and it is the one thing in this panel that should not
    look like a list row. It only needs to share the gutter. */
 #layerList .isoBar{
-  background:var(--mode-bg); color:var(--mode-text); font-size:var(--text-xs); font-weight:var(--weight-semibold);
+  background:var(--mode-bg); color:var(--mode-text); font-size:var(--text-meta); font-weight:var(--weight-semibold);
   border-radius:7px; padding:6px 9px; margin:0 12px 6px; cursor:pointer;
 }
 #layerList .isoBar:hover{background:var(--mode-bg-hover);}
 #layerList .twisty{
-  flex:0 0 10px; color:var(--muted); font-size:var(--text-micro); transition:transform .12s ease;
+  flex:0 0 10px; color:var(--muted); font-size:var(--text-meta); transition:transform .12s ease;
   transform:rotate(0deg); cursor:pointer;
 }
 #layerList .twisty.open{transform:rotate(90deg);}
@@ -833,7 +848,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
    reviewable diff instead of touching six existing rule blocks). */
 #styleList{display:flex; flex-direction:column;}
 #styleList .sRow{
-  font-size:var(--text-md); font-weight:var(--weight-regular);
+  font-size:var(--text-body); font-weight:var(--weight-regular);
   padding:8px 10px; margin:0 8px; border-radius:7px; cursor:pointer;
   display:flex; align-items:center; gap:8px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-soft);
@@ -852,7 +867,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #styleList .sRow:hover .layerTgl{opacity:.7;}
 #styleList .layerTgl:hover{background:var(--surface-3); opacity:1;}
 #styleList .linkBadge{
-  flex:0 0 auto; margin-left:auto; font-size:var(--text-xxs);
+  flex:0 0 auto; margin-left:auto; font-size:var(--text-meta);
   padding:1px 5px; border-radius:8px;
   background:var(--info-bg-strong); color:var(--info-text);
 }
@@ -888,12 +903,12 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 }
 #fxBody .fxRow .fxName{
   flex:1 1 auto; min-width:0; text-align:left; font:inherit;
-  font-size:var(--text-sm); font-weight:var(--weight-medium); color:var(--text);
+  font-size:var(--text-control); font-weight:var(--weight-medium); color:var(--text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 #fxBody .fxRow .fxName:hover{color:var(--accent);}
 #fxBody .fxRow .fxSlot{
-  flex:0 0 auto; font-size:var(--text-micro); color:var(--muted); text-transform:uppercase;
+  flex:0 0 auto; font-size:var(--text-meta); color:var(--muted); text-transform:uppercase;
   letter-spacing:.04em;
 }
 #fxBody .fxRow button:disabled{opacity:.25; cursor:default;}
@@ -904,7 +919,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
    lists in this panel should read as one control, not three. */
 .histRow{
   display:flex; align-items:center; gap:6px; padding:6px 12px;
-  cursor:pointer; font-size:var(--text-xs); color:var(--muted);
+  cursor:pointer; font-size:var(--text-meta); color:var(--muted);
   white-space:nowrap; overflow:hidden;
 }
 .histRow:hover{background:var(--surface-hover);}
@@ -912,8 +927,8 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 .histRow.cur{background:var(--surface-accent); color:var(--accent); font-weight:var(--weight-medium);}
 .histRow.future{opacity:.42;}
 .histRow .hName{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;}
-.histRow .hOps{flex:0 0 auto; font-size:var(--text-micro); opacity:.7;}
-#historyFoot{font-size:var(--text-xxs); color:var(--muted); padding:0 12px 4px;}
+.histRow .hOps{flex:0 0 auto; font-size:var(--text-meta); opacity:.7;}
+#historyFoot{font-size:var(--text-meta); color:var(--muted); padding:0 12px 4px;}
 
 /* §6.5 artboards + §6.6 page rows + §6.1 layer affordances */
 #artboardList{margin-bottom:12px;}
@@ -934,14 +949,14 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
   display:none;
   width:calc(100% - 24px); margin:0 12px 6px;
   border:1px solid var(--line); border-radius:7px; padding:6px 9px;
-  font:inherit; font-size:var(--text-sm); background:var(--field-bg,#fafafa);
+  font:inherit; font-size:var(--text-control); background:var(--field-bg,#fafafa);
 }
 #layerSearch.open{display:block;}
 .headBtns{display:inline-flex; gap:4px; align-items:center;}
 #layerSearch:focus{border-color:var(--accent); background:var(--field-focus);}
 .lrename{
   flex:1 1 auto; min-width:0; border:1px solid var(--accent); border-radius:4px;
-  padding:1px 4px; font:inherit; font-size:var(--text-xs); background:var(--field-focus);
+  padding:1px 4px; font:inherit; font-size:var(--text-meta); background:var(--field-focus);
 }
 #layerList .labelDot{
   flex:0 0 6px; width:6px; height:6px; border-radius:50%; margin-left:2px;
@@ -951,11 +966,11 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList div.dropTarget[data-drop="into"]{box-shadow:inset 0 0 0 2px var(--accent);}
 
 /* §6.7/§6.12 panel headings — same weight as .sideHead but inside the inspector */
-.secTitle{font-size:var(--text-xs); font-weight:var(--weight-semibold);
+.secTitle{font-size:var(--text-meta); font-weight:var(--weight-semibold);
   letter-spacing:.02em; color:var(--muted); text-transform:uppercase; margin:0 0 4px;}
 #instOverrides{display:flex; flex-direction:column; gap:4px;}
 #instOverrides .ovRow{display:flex; align-items:center; gap:6px;}
-#instOverrides .ovRow span{flex:0 0 76px; font-size:var(--text-xs); color:var(--muted);
+#instOverrides .ovRow span{flex:0 0 76px; font-size:var(--text-meta); color:var(--muted);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 #instOverrides .ovRow input[type=text]{flex:1 1 auto; min-width:0;}
 #instOverrides .ovRow input[type=color]{flex:0 0 26px; padding:0; height:22px;}
@@ -966,7 +981,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
    is a row, not a section title: it is clickable, countable and collapsible. */
 #layerList .abGroup{
   display:flex; align-items:center; gap:7px; padding:9px 12px; cursor:pointer;
-  font-size:var(--text-sm); font-weight:var(--weight-semibold); color:var(--text);
+  font-size:var(--text-control); font-weight:var(--weight-semibold); color:var(--text);
   white-space:nowrap; overflow:hidden; position:relative;
 }
 #layerList .abTwisty{display:inline-flex; align-items:center; flex:0 0 auto;}
@@ -997,17 +1012,17 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 #layerList .abGroup svg{flex:0 0 auto; color:var(--muted);}
 #layerList .abName{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;}
 #layerList .abCount{
-  flex:0 0 auto; font-size:var(--text-xs); font-weight:var(--weight-regular);
+  flex:0 0 auto; font-size:var(--text-meta); font-weight:var(--weight-regular);
   color:var(--muted); font-variant-numeric:tabular-nums;
 }
 #layerList .abEmpty{
-  padding:7px 12px 7px 33px; font-size:var(--text-xs); color:var(--muted);
+  padding:7px 12px 7px 33px; font-size:var(--text-meta); color:var(--muted);
   cursor:default;
 }
 #layerList .abEmpty:hover{background:none;}
 #layerList .abAdd{
   display:flex; align-items:center; gap:6px; cursor:pointer;
-  color:var(--accent); font-size:var(--text-sm); font-weight:var(--weight-medium);
+  color:var(--accent); font-size:var(--text-control); font-weight:var(--weight-medium);
   border-radius:7px; margin:0 8px; padding:7px 12px 7px 25px;
 }
 #layerList .abAdd:hover{background:var(--surface-accent);}
@@ -1044,7 +1059,7 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
 }
 .ctxMenu button{
   display:block; width:100%; text-align:left; background:none; border:0;
-  padding:7px 10px; border-radius:7px; font:inherit; font-size:var(--text-sm);
+  padding:7px 10px; border-radius:7px; font:inherit; font-size:var(--text-control);
   font-weight:var(--weight-medium); cursor:pointer; color:var(--text);
 }
 .ctxMenu button:hover{background:var(--surface-accent); color:var(--accent);}

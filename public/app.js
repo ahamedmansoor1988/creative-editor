@@ -2961,6 +2961,19 @@ let marquee=null;   // {x0,y0,x1,y1} in page coords while dragging
  * at view.x, i.e. world zero). This used to return the frame CENTRE, which
  * put the ruler's 0 mid-artboard and disagreed with that highlight; it also
  * meant growing the frame moved the origin under the user's feet. */
+/* Read one type token off :root so canvas text follows the same scale as the
+ * DOM instead of drifting from it — the ruler sat at 9px for exactly that
+ * reason, below the 11px floor the CSS keeps. Cached because this is called
+ * per frame and getComputedStyle forces style resolution every time. */
+const _typeCache=new Map();
+function cssType(name,fallback){
+  if(_typeCache.has(name)) return _typeCache.get(name);
+  let v='';
+  try{ v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }catch(_){}
+  const out=/^\d+(\.\d+)?px$/.test(v)?v:fallback;
+  _typeCache.set(name,out);
+  return out;
+}
 function coordOrigin(){
   return {x:0,y:0};
 }
@@ -3136,7 +3149,7 @@ function paint(){
     const m=drag.readout;
     ctx.save();
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.font='11px Inter,-apple-system,sans-serif';
+    ctx.font=cssType('--text-meta','11px')+' Inter,-apple-system,sans-serif';
     const tw=ctx.measureText(m.text).width+12;
     ctx.fillStyle='rgba(17,24,39,.85)';
     ctx.beginPath();
@@ -3308,7 +3321,9 @@ function paint(){
     ctx.moveTo(0,RULER+.5); ctx.lineTo(W,RULER+.5);
     ctx.moveTo(RULER+.5,0); ctx.lineTo(RULER+.5,H);
     ctx.stroke();
-    ctx.font='9px '+getComputedStyle(document.body).fontFamily;
+    // Canvas text is outside CSS, so the type scale has to be read across
+    // rather than inherited: --text-meta is the 11px floor the whole UI keeps.
+    ctx.font=cssType('--text-meta','11px')+' '+getComputedStyle(document.body).fontFamily;
     ctx.textBaseline='top';
     ctx.fillStyle='#8a8d93'; ctx.strokeStyle='#c9ced6';
     const from=v=>Math.floor(v/step)*step;
