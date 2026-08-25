@@ -6041,6 +6041,114 @@ function buildFxSection(obj,page,add,body){
     }
   }
 
+  /* §5.x gradient stripe. The engine, the model, the clamps, the draw path, the
+   * page entry and the fxActive case all existed — the PANEL did not, so the
+   * section opened empty and not one of its parameters could be reached. The
+   * effect was unusable from the UI and only reachable by hand-editing a
+   * document. That is precisely what the QA gate is for. */
+  if(page==='Gradient'){
+    const G=obj.effects.gradient;
+    const GE=window.GradientEngine;
+    add(`<label class="slider"><input type="checkbox" id="grdOn" ${G.on?'checked':''}> Enable gradient stripe</label>`);
+    $('grdOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
+    if(!GE){
+      add(`<div class="fxWarn">The gradient engine did not load, so this effect cannot render.</div>`);
+    }else if(G.on){
+      // Ranges below mirror normalizeDoc's clamps exactly, so nothing the
+      // panel offers can be silently re-clamped on the next load.
+      const sl=(id,label,min,max,step,k,fmt)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${fmt(G[k])}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${G[k]}"></label>`);
+        $(id).addEventListener('input',e=>{ G[k]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      const int=v=>String(Math.round(v)), deg=v=>Math.round(v)+'\u00b0', f2=v=>(+v).toFixed(2);
+
+      add(`<div class="pSect">Bands</div>`);
+      sl('grdBH','Band height',2,400,1,'bandHeight',int);
+      sl('grdSp','Split %',5,95,1,'split',int);
+      sl('grdDr','Drift',-20,20,0.5,'drift',f2);
+      sl('grdPh','Phase',-0.5,0.5,0.01,'phase',f2);
+      sl('grdAn','Angle',0,359,1,'angle',deg);
+
+      add(`<div class="pSect">Ramp offsets</div>`);
+      sl('grdS1','Ramp 1 shift',-50,50,1,'g1shift',int);
+      sl('grdS2','Ramp 2 shift',-50,50,1,'g2shift',int);
+
+      add(`<div class="pSect">Symmetry</div>`);
+      [['grdBo','bounce','Bounce'],['grdMX','mirrorX','Mirror X'],['grdMY','mirrorY','Mirror Y']]
+        .forEach(([id,k,label])=>{
+          add(`<label class="slider"><input type="checkbox" id="${id}" ${G[k]?'checked':''}> ${label}</label>`);
+          $(id).addEventListener('change',e=>{ G[k]=e.target.checked; pushHistory(); render(); });
+        });
+
+      /* The two ramps are the effect's actual subject, so they get real stop
+       * editors rather than a preset dropdown alone. MAX_STOPS is the engine's
+       * own limit, read from it rather than repeated here. */
+      const maxSt=GE.MAX_STOPS||6;
+      ['g1','g2'].forEach((key,gi)=>{
+        add(`<div class="pSect">Ramp ${gi+1}</div>`);
+        G[key].forEach((st,si)=>{
+          add(`<div class="row2">
+            <label class="slider">Colour <input type="color" class="grdC${gi}" data-i="${si}" value="${st.color}"></label>
+            <label class="slider">Pos <span id="grdP${gi}_${si}">${st.pos.toFixed(2)}</span>
+              <input type="range" class="grdP${gi}" data-i="${si}" min="0" max="1" step="0.01" value="${st.pos}"></label>
+          </div>`);
+        });
+        body.querySelectorAll('.grdC'+gi).forEach(el=>{
+          el.addEventListener('input',e=>{ G[key][+el.dataset.i].color=e.target.value; render(); });
+          el.addEventListener('change',()=>pushHistory());
+        });
+        body.querySelectorAll('.grdP'+gi).forEach(el=>{
+          el.addEventListener('input',e=>{
+            const i=+el.dataset.i;
+            G[key][i].pos=+e.target.value;
+            const sp=$('grdP'+gi+'_'+i); if(sp) sp.textContent=(+e.target.value).toFixed(2);
+            render();
+          });
+          el.addEventListener('change',()=>pushHistory());
+        });
+        add(`<div class="gsBtns">
+          <button class="rollBtn" id="grdAdd${gi}" ${G[key].length>=maxSt?'disabled':''}>+ Stop</button>
+          <button class="rollBtn" id="grdDel${gi}" ${G[key].length<=2?'disabled':''}>Remove</button>
+        </div>`);
+        $('grdAdd'+gi).addEventListener('click',()=>{
+          if(G[key].length>=maxSt) return;
+          const last=G[key][G[key].length-1];
+          G[key].push({color:last.color,pos:1});
+          setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+        });
+        $('grdDel'+gi).addEventListener('click',()=>{
+          if(G[key].length<=2) return;
+          G[key].pop();
+          setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+        });
+      });
+
+      add(`<div class="pSect">Presets</div>`);
+      add(`<label class="slider">Palette<select id="grdPre">
+        <option value="">Choose…</option>`+
+        (GE.PRESETS||[]).map((pr,i)=>`<option value="${i}">${esc(pr.name)}</option>`).join('')+
+        `</select></label>`);
+      $('grdPre').addEventListener('change',e=>{
+        const pr=(GE.PRESETS||[])[+e.target.value];
+        if(!pr) return;
+        G.g1=pr.g1.map(x=>({...x})); G.g2=pr.g2.map(x=>({...x}));
+        setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+      });
+      // Seeding from the object's own fill is what ties the stripe to the
+      // artwork rather than to an unrelated palette.
+      add(`<button class="rollBtn" id="grdSeed">Seed ramps from this shape's fill</button>`);
+      $('grdSeed').addEventListener('click',()=>{
+        const seeded=GE.seedFromFill&&GE.seedFromFill(obj.fill);
+        if(!seeded) return;
+        G.g1=seeded.g1; G.g2=seeded.g2;
+        setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
+      });
+      add(`<div class="fxHint">Two colour ramps are interleaved into bands. Split sets where one hands over to the other; drift and phase move the seam along the band.</div>`);
+    }
+  }
+
   if(page==='Grain'){
     const gr=obj.effects.grain;
     add(`<label class="slider">Amount <span id="grAV">${Math.round(gr.amount*100)}%</span>

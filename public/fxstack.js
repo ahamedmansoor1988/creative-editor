@@ -111,6 +111,7 @@
     // promoted effects go here, one per fix
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
+    "gradient", // QA'd: panel BUILT (it had none), clamps, ramps. See tests/gradient.test.js
   ]);
   let DEV = new Set();
   try {

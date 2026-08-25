@@ -177,7 +177,13 @@ export function loadEditor() {
    * The WebGL engines and clipper2.mjs are deliberately NOT loaded: the first
    * need a GPU context jsdom cannot provide, the second is an ES module that
    * window.eval cannot take. Both are already guarded by available() checks,
-   * so their absence is a supported state rather than a broken one. */
+   * so their absence is a supported state rather than a broken one.
+   *
+   * gradient.js is the exception among the engines: it is a plain 2D canvas
+   * renderer, not WebGL, so it loads here like any other sibling. Its panel
+   * reads MAX_STOPS and PRESETS off the engine rather than repeating them, so
+   * without it that panel builds its "engine did not load" branch and none of
+   * it can be tested. */
   for (const dep of [
     "fxstack.js",
     "history.js",
@@ -185,6 +191,7 @@ export function loadEditor() {
     "components.js",
     "filters.js",
     "icons.js",
+    "gradient.js",
   ]) {
     window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
   }

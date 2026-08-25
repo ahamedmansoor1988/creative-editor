@@ -15,6 +15,13 @@ declare global {
       READY: Set<string>;
       isReady(type: string): boolean;
     };
+    /* The gradient stripe engine. Its panel reads these off the engine rather
+     * than repeating them, so the tests assert against the same source. */
+    GradientEngine?: {
+      MAX_STOPS: number;
+      PRESETS: { name: string; g1: any[]; g2: any[] }[];
+      seedFromFill(fill: any): { g1: any[]; g2: any[] };
+    };
   }
 }
 export {};
