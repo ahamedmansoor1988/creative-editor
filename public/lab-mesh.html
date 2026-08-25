@@ -289,82 +289,9 @@
        *
        * A spline through more knots is never bit-identical to the one it came from;
        * the goal is that nothing the user placed by hand is disturbed. */
-      function insertRow(m) {
-        const { cols, rows, points } = m;
-        const vAt = (r) => (rows === 1 ? 0 : r / (rows - 1));
-        // widest gap first, so repeated inserts spread out instead of piling up
-        let at = 0,
-          best = -1;
-        for (let r = 0; r < rows - 1; r++) {
-          const g = vAt(r + 1) - vAt(r);
-          if (g > best) {
-            best = g;
-            at = r;
-          }
-        }
-        const vm = (vAt(at) + vAt(at + 1)) / 2;
-        const row = [];
-        for (let c = 0; c < cols; c++) {
-          const p = evalSurface(m, cols === 1 ? 0 : c / (cols - 1), vm);
-          row.push({
-            id: "ins" + Math.random().toString(36).slice(2, 7),
-            x: p.x,
-            y: p.y,
-            color: p.color,
-          });
-        }
-        const pts = points.map((r2) => r2.slice());
-        pts.splice(at + 1, 0, row);
-        return { cols, rows: rows + 1, points: pts };
-      }
-      function insertCol(m) {
-        const { cols, rows, points } = m;
-        const uAt = (c) => (cols === 1 ? 0 : c / (cols - 1));
-        let at = 0,
-          best = -1;
-        for (let c = 0; c < cols - 1; c++) {
-          const g = uAt(c + 1) - uAt(c);
-          if (g > best) {
-            best = g;
-            at = c;
-          }
-        }
-        const um = (uAt(at) + uAt(at + 1)) / 2;
-        const pts = points.map((r2, r) => {
-          const p = evalSurface(m, um, rows === 1 ? 0 : r / (rows - 1));
-          const copy = r2.slice();
-          copy.splice(at + 1, 0, {
-            id: "ins" + Math.random().toString(36).slice(2, 7),
-            x: p.x,
-            y: p.y,
-            color: p.color,
-          });
-          return copy;
-        });
-        return { cols: cols + 1, rows, points: pts };
-      }
       /* Removing drops an INTERIOR line, never an edge: the outer ring is the
        * artwork's own boundary, and losing it would resize the piece rather than
        * simplify its mesh. */
-      function removeRow(m) {
-        if (m.rows <= MIN_N) return m;
-        const pts = m.points.slice();
-        pts.splice(Math.floor(m.rows / 2), 1);
-        return { cols: m.cols, rows: m.rows - 1, points: pts };
-      }
-      function removeCol(m) {
-        if (m.cols <= MIN_N) return m;
-        const at = Math.floor(m.cols / 2);
-        return {
-          cols: m.cols - 1,
-          rows: m.rows,
-          points: m.points.map((r) => {
-            const c = r.slice();
-            c.splice(at, 1);
-            return c;
-          }),
-        };
-      }
 
       /* ---------- 2. Mesh geometry: the same maths the shader runs -------- *
        * Kept on the CPU too, because resampling and the mesh overlay both need to
@@ -393,7 +320,30 @@
           ri = clampi(Math.floor(fy), 0, rows - 2);
         const tu = fx - ci,
           tv = fy - ri;
-        const get = (r, c) => points[clampi(r, 0, rows - 1)][clampi(c, 0, cols - 1)];
+        /* END CONDITION. Catmull-Rom needs one point beyond each end. CLAMPING
+         * to the boundary duplicates the edge point, which flattens the
+         * tangent there and compresses the parameterisation — a uniform grid
+         * resampled to a larger one came back with its outer gaps pinched
+         * (194, 206, 206, 194 instead of four equal steps). Reflecting instead
+         * — a phantom point at 2*p0 - p1 — continues the existing slope, so a
+         * uniform grid resamples to itself exactly and a straight edge stays
+         * straight. Separable: resolve the column, then the row. */
+        const ext = (a, b) => ({
+          x: 2 * a.x - b.x,
+          y: 2 * a.y - b.y,
+          color: [0, 1, 2].map((k) => 2 * a.color[k] - b.color[k]),
+        });
+        const inRow = (row, c) =>
+          c >= 0 && c <= cols - 1
+            ? row[c]
+            : c < 0
+              ? ext(row[0], row[1])
+              : ext(row[cols - 1], row[cols - 2]);
+        const get = (r, c) => {
+          if (r >= 0 && r <= rows - 1) return inRow(points[r], c);
+          const e = r < 0 ? [0, 1] : [rows - 1, rows - 2];
+          return ext(inRow(points[e[0]], c), inRow(points[e[1]], c));
+        };
         const out = { x: 0, y: 0, color: [0, 0, 0] };
         const rowsOf = [];
         for (let j = -1; j <= 2; j++) {
@@ -427,6 +377,40 @@
         return out;
       }
 
+      /* Adding a row or column RESAMPLES the whole net at the new uniform
+       * parameters, taking every new point off the CURRENT surface so the
+       * artwork carries across rather than resetting.
+       *
+       * I first tried to be cleverer — insert one line and leave every existing
+       * control point untouched — and it was visibly wrong. The
+       * parameterisation here comes from the INDEX (u = c/(cols-1)), so it is
+       * uniform by construction; a point sampled at the midpoint of the OLD
+       * spacing and then re-derived at the NEW spacing is sampled at one
+       * parameter and treated as living at another. The columns bunched toward
+       * one edge and the surface slid with them.
+       *
+       * Keeping control points exactly would mean storing the knots and
+       * evaluating a NON-uniform spline in both the CPU and the shader.
+       * Resampling keeps the parameterisation honest and the artwork
+       * recognisable, which is the trade the brief asks for: the SURFACE is
+       * what is preserved, not the control positions. A cubic through
+       * resampled knots is never identical to the one it came from, so a
+       * little drift is inherent rather than a defect. */
+      function resample(m, cols, rows) {
+        const pts = [];
+        for (let r = 0; r < rows; r++) {
+          const row = [];
+          for (let c = 0; c < cols; c++) {
+            const u = cols === 1 ? 0 : c / (cols - 1);
+            const v = rows === 1 ? 0 : r / (rows - 1);
+            const p = evalSurface(m, u, v);
+            row.push({ id: "p" + r + "_" + c, x: p.x, y: p.y, color: p.color });
+          }
+          pts.push(row);
+        }
+        return { rows, cols, points: pts };
+      }
+
       /* ---------- 3. Colour helpers -------------------------------------- */
       function hexToRgb(h) {
         const n = parseInt(String(h).replace("#", ""), 16);
@@ -456,9 +440,19 @@ vec4 cr(vec4 p0, vec4 p1, vec4 p2, vec4 p3, float t){
             + (-p0+3.0*p1-3.0*p2+p3)*t3);
 }
 int cl(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+/* Reflected end condition — see the CPU note. Clamping duplicated the edge
+   point and pinched the outer spacing; 2*p0 - p1 continues the slope. */
+vec4 rowPos(int r,int c){
+  int mx=int(uGrid.x)-1;
+  if(c>=0 && c<=mx) return texelFetch(uPos, ivec2(c,r), 0);
+  if(c<0) return 2.0*texelFetch(uPos, ivec2(0,r),0) - texelFetch(uPos, ivec2(1,r),0);
+  return 2.0*texelFetch(uPos, ivec2(mx,r),0) - texelFetch(uPos, ivec2(mx-1,r),0);
+}
 vec4 fetchPos(int r,int c){
-  int mx=int(uGrid.x)-1, my=int(uGrid.y)-1;
-  return texelFetch(uPos, ivec2(cl(c,0,mx), cl(r,0,my)), 0);
+  int my=int(uGrid.y)-1;
+  if(r>=0 && r<=my) return rowPos(r,c);
+  if(r<0) return 2.0*rowPos(0,c) - rowPos(1,c);
+  return 2.0*rowPos(my,c) - rowPos(my-1,c);
 }
 void main(){
   vUV = aUV;
@@ -490,9 +484,17 @@ vec4 cr(vec4 p0, vec4 p1, vec4 p2, vec4 p3, float t){
             + (-p0+3.0*p1-3.0*p2+p3)*t3);
 }
 int cl(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+vec4 rowCol(int r,int c){
+  int mx=int(uGrid.x)-1;
+  if(c>=0 && c<=mx) return texelFetch(uCol, ivec2(c,r), 0);
+  if(c<0) return 2.0*texelFetch(uCol, ivec2(0,r),0) - texelFetch(uCol, ivec2(1,r),0);
+  return 2.0*texelFetch(uCol, ivec2(mx,r),0) - texelFetch(uCol, ivec2(mx-1,r),0);
+}
 vec4 fetchCol(int r,int c){
-  int mx=int(uGrid.x)-1, my=int(uGrid.y)-1;
-  return texelFetch(uCol, ivec2(cl(c,0,mx), cl(r,0,my)), 0);
+  int my=int(uGrid.y)-1;
+  if(r>=0 && r<=my) return rowCol(r,c);
+  if(r<0) return 2.0*rowCol(0,c) - rowCol(1,c);
+  return 2.0*rowCol(my,c) - rowCol(my-1,c);
 }
 void main(){
   /* The SAME bicubic, on the same parameter, over the colour net. Evaluating
@@ -849,11 +851,7 @@ void main(){
         cols = clampi(cols, MIN_N, MAX_N);
         rows = clampi(rows, MIN_N, MAX_N);
         if (cols === mesh.cols && rows === mesh.rows) return;
-        // one line at a time, so a jump in the number fields is just several inserts
-        while (mesh.cols < cols) mesh = insertCol(mesh);
-        while (mesh.cols > cols) mesh = removeCol(mesh);
-        while (mesh.rows < rows) mesh = insertRow(mesh);
-        while (mesh.rows > rows) mesh = removeRow(mesh);
+        mesh = resample(mesh, cols, rows);
         if (selected) {
           selected.r = clampi(selected.r, 0, mesh.rows - 1);
           selected.c = clampi(selected.c, 0, mesh.cols - 1);
