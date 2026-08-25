@@ -1162,3 +1162,13 @@ button .ic, label .ic{display:inline-block; vertical-align:middle;}
    reach into a neighbouring page. display:contents keeps the layout identical
    to when they were siblings; collapsing sets display:none over the top. */
 .fxSect{display:contents;}
+
+/* An explanation in place of a menu's items, for when none apply. The menu
+   itself must never vanish from the menubar — a missing menu reads as
+   breakage, and "nothing selected" is the most ordinary state there is. */
+.menuNote {
+  padding: 8px 9px;
+  font-size: var(--text-meta);
+  color: var(--muted);
+  line-height: var(--line-normal);
+}

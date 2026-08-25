@@ -8778,15 +8778,29 @@ function syncFxMenuAvailability(){
       }
       el.style.display=live?'':'none';
     });
-    /* And the menubar entry follows its own menu. With every effect gated off
-     * nothing is left to list, and a title that opens onto an empty box is
-     * worse than no title — it offers something and then shows nothing. It
-     * returns the moment one effect is promoted. */
+    /* The menubar entry STAYS. It used to hide itself when nothing applied,
+     * on the reasoning that a title opening onto an empty box offers
+     * something and then shows nothing. That was worse: a menu that vanishes
+     * from the menubar reads as breakage, and the commonest way to reach this
+     * state is the most ordinary one there is — having nothing selected. A
+     * menu that is present and explains itself beats one that disappears. */
     const menu=dd.closest('.menu');
-    if(menu){
-      const any=[...dd.querySelectorAll('button[data-fx]')].some(b=>b.style.display!=='none');
-      menu.style.display=any?'':'none';
-      if(!any) menu.classList.remove('open');
+    if(!menu) return;
+    menu.style.display='';
+    const any=[...dd.querySelectorAll('button[data-fx]')].some(b=>b.style.display!=='none');
+    let note=dd.querySelector('.menuNote');
+    if(!any){
+      if(!note){
+        note=document.createElement('div');
+        note.className='menuNote';
+        dd.appendChild(note);
+      }
+      note.textContent=obj
+        ? 'No effects available for this object yet.'
+        : 'Select a shape to apply an effect.';
+      note.style.display='';
+    }else if(note){
+      note.style.display='none';
     }
   });
 }
