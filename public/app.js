@@ -9650,6 +9650,34 @@ function status(msg,isErr){
  *
  * Area-averaged rather than point-sampled: one pixel of a photograph is noise,
  * and a grid cell's average is what a gradient control point should carry. */
+/* The attachment is DOWNSCALED before it is sent.
+ *
+ * A full-resolution photograph is most of a request's token budget — a
+ * 1080x2160 JPEG took one over Groq's free-tier 8,000 tokens-per-minute
+ * ceiling on its own, and the provider rejected the whole call. But the image
+ * no longer has to carry the colours: those travel separately, measured
+ * exactly. All it has to convey now is STRUCTURE — where things sit relative
+ * to each other — and 512px conveys that as well as 2160 does.
+ *
+ * So the two halves of the request each do the thing they are good at: the
+ * grid is precise about colour, the thumbnail is enough about composition. */
+const SEND_MAX_PX=512;
+async function shrinkForModel(dataUrl){
+  if(!dataUrl) return dataUrl;
+  try{
+    const img=await new Promise((res,rej)=>{
+      const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=dataUrl;
+    });
+    const w=img.naturalWidth, h=img.naturalHeight;
+    const scale=Math.min(1, SEND_MAX_PX/Math.max(w,h));
+    if(scale>=1) return dataUrl;                  // already small enough
+    const c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    return c.toDataURL('image/jpeg',0.82);
+  }catch(_){ return dataUrl; }                    // a bad decode must not block
+}
+
 const SAMPLE_N=8;
 async function sampleAttached(dataUrl){
   if(!dataUrl) return undefined;
@@ -9685,7 +9713,9 @@ async function callGenerate(){
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       prompt:$('prompt').value.trim(),
-      imageDataUrl:attachedImage||undefined,
+      // sampled from the ORIGINAL, sent as a thumbnail: precision comes from
+      // the grid, and the picture only has to show the arrangement
+      imageDataUrl: await shrinkForModel(attachedImage)||undefined,
       imageSamples: await sampleAttached(attachedImage),
       currentDoc: doc&&doc.frame.children.length ? doc : undefined,
     })

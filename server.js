@@ -82,6 +82,11 @@ function allowRequest(req) {
   return b.n <= RATE_MAX;
 }
 
+/* Requests that will carry a mesh need a far larger reply than a document of
+ * plain shapes. Matched on the request rather than raised for everything,
+ * because a bigger ceiling costs latency on every ordinary generation. */
+const MESH_SHAPED = /mesh|gradient mesh|colou?r field|blend surface/i;
+
 const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:
 {"frame":{"name":string,"w":900,"h":600,"bg":"#hex","children":[...]}}
 Each child is one of:
@@ -132,7 +137,7 @@ const CAPABILITIES = [
     id: "mesh-gradient",
     match: /mesh|gradient mesh|colou?r field|blend surface|smooth colou?r|iridescent/i,
     inDoc: d => /"mesh":\{"on":true/.test(d),
-    doc: `A rect/ellipse/polygon/path may add "effects":{"mesh":{"on":true,"cols":2-10,"rows":2-10,"points":[{"x":0..1,"y":0..1,"color":[r,g,b]},...]}} which fills the shape with a MESH GRADIENT: a bicubic surface through a cols x rows net of coloured control points. points is row-major and must be exactly cols*rows long; x,y are fractions of the shape's box, so the mesh scales with it. Moving a point bends the colour field around it. Use for rich multi-directional colour that a linear or radial gradient cannot express. Omit "points" to get an even net in a default palette.`,
+    doc: `A rect/ellipse/polygon/path may add "effects":{"mesh":{"on":true,"cols":2-10,"rows":2-10,"points":[{"x":0..1,"y":0..1,"color":[r,g,b]},...]}} which fills the shape with a MESH GRADIENT: a bicubic surface through a cols x rows net of coloured control points. points is row-major and must be exactly cols*rows long; x,y are fractions of the shape's box, so the mesh scales with it. Moving a point bends the colour field around it. Use for rich multi-directional colour that a linear or radial gradient cannot express. Omit \"points\" to get an even net in a default palette. Prefer a 4x4 or 5x5 net: it is what reads as a gradient, and a denser one costs more reply than the response budget allows.`,
   },
   {
     id: "light",
@@ -297,7 +302,20 @@ async function generate(body) {
       { role: "user", content: hasImage ? userContent : instruction },
     ],
     temperature: 0.7,
-    max_completion_tokens: 1800,
+    /* 1800 was set when a document was a handful of shapes. A mesh gradient
+     * is the first effect whose PARAMETERS are bulk data: an 8x8 net is 64
+     * points of position and colour, roughly 2,900 characters, and the reply
+     * simply ran out mid-object — JSON truncated at position 2785, reported to
+     * the user as "the AI returned an unusable design", which points at the
+     * wrong thing entirely. The budget now follows what is being asked for
+     * rather than a number chosen before meshes existed. */
+    /* Groq counts max_completion_tokens toward the tokens-per-minute limit, so
+     * asking for a large reply is spent whether or not it is used: 6000 here
+     * put an image request at 10,107 against a free-tier ceiling of 8,000 and
+     * the provider rejected the whole call. The budget has to leave room for
+     * the request itself. A 5x5 net is ~25 points and fits inside this
+     * comfortably; anything denser is the fitter's job, not the model's. */
+    max_completion_tokens: MESH_SHAPED.test(prompt || "") ? (hasImage ? 3200 : 6000) : 1800,
   };
   // qwen3.6 is a reasoning model; left on it burns the output budget
   // thinking and truncates the JSON (measured in creative-mixer).
