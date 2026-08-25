@@ -45,6 +45,10 @@
     innerShadow: { slot: "over", label: "Inner shadow", multi: true },
     grain: { slot: "over", label: "Grain", multi: false },
     light: { slot: "material", label: "Light", multi: false },
+    /* A material, not an overlay: the mesh IS what the shape shows, the same
+     * standing liquid and flare have. Marking it "over" would paint it on top
+     * of a fill that is then invisible but still casting the shadow. */
+    mesh: { slot: "material", label: "Mesh gradient", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -74,6 +78,7 @@
   const LEGACY_ORDER = [
     "shadow",
     "glow",
+    "mesh",
     "blob",
     "glass2",
     "light",
@@ -111,6 +116,7 @@
     // promoted effects go here, one per fix
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
+    "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
     /* "gradient" (the stripe engine) is QA'd and now HAS the panel it never
      * had — see tests/gradient.test.js — but it is not being offered: it is
      * the effect slated for retirement once fractal glass replaces it, so

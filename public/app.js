@@ -48,6 +48,9 @@ let snapCfg={on:true, radius:7,
   edges:true, centers:true, anchors:true, guides:true, grid:true, artboard:true};
 let showRulers=true;
 let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
+/* Which mesh handle is selected. View state: it says what the user is
+ * pointing at, not what the document contains. */
+let meshSel=null;
 let selArtboard=null;      // §6.5 the artboard whose panel is open
 let snapLines=[];        // live indicators, screen chrome only
 let gapHints=[];         // §2.11 equal-spacing indicators
@@ -74,6 +77,11 @@ const DEFAULT_EFFECTS=()=>({
          beamLength:1.17,beamGlow:0.65,transparent:true,
          deep:'#000000',core:'#00aaff',inner:'#eaeaea',mesh:'#7744ff',bg:'#000000'},
   // banded two-gradient stripe fill, ported from the Gradient Stripe plugin
+  /* §4.7 mesh gradient. `points` is left EMPTY by default and filled by the
+   * engine on first use: a 4x4 default net is sixteen points of geometry and
+   * colour, and carrying that in every object's defaults would put it in the
+   * compact-serialisation baseline for shapes that never touch the effect. */
+  mesh:{on:false,cols:4,rows:4,points:[],showNet:true},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
@@ -645,6 +653,30 @@ function normChildren(list,depth){
       if(!/^#[0-9a-fA-F]{6}$/.test(glw.color||'')) glw.color='#ffffff';
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
+      const msh=Object.assign(de.mesh, ce.mesh||{});
+      msh.on=!!msh.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      const MG=window.MeshGradient;
+      const nlo=(MG&&MG.MIN_N)||2, nhi=(MG&&MG.MAX_N)||10;
+      msh.cols=clamp(Math.round(+msh.cols)||4,nlo,nhi);
+      msh.rows=clamp(Math.round(+msh.rows)||4,nlo,nhi);
+      msh.showNet=msh.showNet!==false;
+      /* The net is repaired rather than trusted: it arrives from saved files
+       * and from the model as readily as from the panel. A net whose length
+       * disagrees with cols*rows is not partially usable — the surface would
+       * read past its own data — so it is rebuilt from defaults. */
+      {
+        const want=msh.cols*msh.rows;
+        let a=Array.isArray(msh.points)?msh.points:[];
+        if(a.length!==want){
+          a=(MG&&MG.defaultPoints)?MG.defaultPoints(msh.cols,msh.rows):[];
+        }
+        msh.points=a.slice(0,want).map(pt=>({
+          x:clamp(+(pt&&pt.x)||0,-1,2),          // a point may sit outside the
+          y:clamp(+(pt&&pt.y)||0,-1,2),          // box; the surface still spans it
+          color:(Array.isArray(pt&&pt.color)?pt.color:[136,136,136])
+            .slice(0,3).map(v=>clamp(Math.round(+v)||0,0,255)),
+        }));
+      }
       const grd=Object.assign(de.gradient, ce.gradient||{});
       grd.on=!!grd.on && ['rect','ellipse','polygon','path'].includes(c.type);
       grd.bandHeight=clamp(Math.round(+grd.bandHeight)||60,2,400);
@@ -879,7 +911,7 @@ function normChildren(list,depth){
       ['bg','coreColor','tint'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
-      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, gradient:grd,
+      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
@@ -1430,6 +1462,12 @@ function stopColor(s){
   if(a>=1) return s.color;
   const n=parseInt(String(s.color).slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+/* Hex <-> [r,g,b], for the mesh panel and its canvas handles. */
+const rgbHex=c=>'#'+c.map(v=>clamp(Math.round(v),0,255).toString(16).padStart(2,'0')).join('');
+function hexRgb(h){
+  const n=parseInt(String(h).replace('#',''),16);
+  return [(n>>16)&255,(n>>8)&255,n&255];
 }
 function mixHex(c1,c2,t){
   const a=parseInt(String(c1).slice(1),16), b2=parseInt(String(c2).slice(1),16);
@@ -2605,6 +2643,26 @@ function drawOneInner(c,W,H,obj){
      * colour rather than sampling the page, so each renders into the object's
      * own box and is clipped to its outline — the same shape Light uses. That
      * is also why both cache: nothing beneath them can change their result. */
+    /* §4.7 mesh gradient. A material like liquid and flare: it IS what the
+     * shape shows, so it is clipped to the shape's own path and the flat fill
+     * beneath it never appears. Its world is its own control net — it never
+     * samples the page — so it caches like the others, and a dragged control
+     * point costs one render rather than one per frame. */
+    const msh=fx.mesh;
+    if(msh&&fxOn(obj,'mesh')&&obj.type!=='text'&&window.MeshGradient&&window.MeshGradient.available()){
+      const draw=o=>{
+        const img=window.MeshGradient.get(o.w,o.h,{cols:msh.cols,rows:msh.rows,points:msh.points});
+        if(!img) return;
+        c.save();
+        c.globalAlpha=obj.opacity;
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      draw(obj);
+      patternInstances(obj).forEach(draw);
+      return;
+    }
     const lq=fx.liquid;
     if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
       const draw=o=>{
@@ -3281,6 +3339,53 @@ function paint(){
       }
     }
   }
+  /* §4.7 the mesh net, drawn as CHROME rather than as artwork: it belongs to
+   * the selection, never to the export, and it follows the SURFACE rather than
+   * joining the points with straight lines — a Catmull-Rom row bows between
+   * its points, and a straight overlay would claim a shape the artwork does
+   * not have. Line widths divide by z so handles stay a constant size on
+   * screen at any zoom, like every other handle in the app. */
+  (function drawMeshNet(){
+    const ME=window.MeshGradient;
+    if(!ME||!ME.available()) return;
+    const o=primary();
+    if(!o||!o.effects||!o.effects.mesh) return;
+    const M=o.effects.mesh;
+    if(!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
+    if(!M.points||M.points.length!==M.cols*M.rows) return;
+    const b=boxOf(o);
+    const at=(u,v)=>{ const p=ME.evalAt(M.points,M.cols,M.rows,u,v);
+      return {x:b.x+p.x*b.w, y:b.y+p.y*b.h}; };
+    ctx.save();
+    ctx.lineWidth=1/z;
+    ctx.strokeStyle='rgba(255,255,255,.85)';
+    const STEPS=32;
+    for(let r=0;r<M.rows;r++){
+      ctx.beginPath();
+      for(let i=0;i<=STEPS;i++){
+        const p=at(i/STEPS, M.rows===1?0:r/(M.rows-1));
+        i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y);
+      }
+      ctx.stroke();
+    }
+    for(let c2=0;c2<M.cols;c2++){
+      ctx.beginPath();
+      for(let i=0;i<=STEPS;i++){
+        const p=at(M.cols===1?0:c2/(M.cols-1), i/STEPS);
+        i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y);
+      }
+      ctx.stroke();
+    }
+    M.points.forEach((pt,i)=>{
+      const x=b.x+pt.x*b.w, y=b.y+pt.y*b.h;
+      ctx.beginPath(); ctx.arc(x,y,(i===meshSel?6:5)/z,0,Math.PI*2);
+      ctx.fillStyle=rgbHex(pt.color); ctx.fill();
+      ctx.lineWidth=(i===meshSel?2.6:1.8)/z;
+      ctx.strokeStyle=i===meshSel?'#2563eb':'rgba(255,255,255,.95)';
+      ctx.stroke();
+    });
+    ctx.restore();
+  })();
   // ---- screen-space chrome (line widths divided by z stay constant) ----
   if(selInstance){
     // Instances: dashed, so a derived object never looks editable.
@@ -3928,7 +4033,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
+  'Mesh':'mesh','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
   'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -3966,11 +4071,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -4456,6 +4561,7 @@ function fxActive(obj,name){
         Displacement:'displacement',Haze:'haze',Slice:'slice',Noise:'noise'}[name];
       return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>x.type===K&&FxStack.entryOn(x)));
     }
+    case 'Mesh':     return !!(e.mesh&&e.mesh.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -6128,6 +6234,73 @@ function buildFxSection(obj,page,add,body){
    * section opened empty and not one of its parameters could be reached. The
    * effect was unusable from the UI and only reachable by hand-editing a
    * document. That is precisely what the QA gate is for. */
+  /* §4.7 mesh gradient. The net itself is edited ON THE CANVAS — a grid of
+   * colours is not something a list of numbers conveys — so this panel carries
+   * what the canvas cannot: how big the net is, whether its handles show, and
+   * the colour of whichever point is selected. */
+  if(page==='Mesh'){
+    const M=obj.effects.mesh, ME=window.MeshGradient;
+    add(`<label class="slider"><input type="checkbox" id="mshOn" ${M.on?'checked':''}> Enable mesh gradient</label>`);
+    $('mshOn').addEventListener('change',e=>{
+      M.on=e.target.checked;
+      if(M.on&&meshSel==null) meshSel=0;
+      pushHistory(); refresh();
+    });
+    if(!ME||!ME.available()){
+      add(`<div class="fxWarn">WebGL2 is unavailable, so the mesh gradient cannot render here.</div>`);
+    }else if(M.on){
+      const lo=ME.MIN_N, hi=ME.MAX_N;
+      add(`<div class="row2">
+        <label class="slider">Columns <span id="mshCV">${M.cols}</span>
+          <input type="range" id="mshC" min="${lo}" max="${hi}" step="1" value="${M.cols}"></label>
+        <label class="slider">Rows <span id="mshRV">${M.rows}</span>
+          <input type="range" id="mshR" min="${lo}" max="${hi}" step="1" value="${M.rows}"></label>
+      </div>`);
+      /* Resizing RESAMPLES the surface, so the artwork carries across instead
+       * of resetting — the new points are taken off the net that was there. */
+      const resize=(cols,rows)=>{
+        const pts=ME.resample(M.points,M.cols,M.rows,cols,rows);
+        M.cols=cols; M.rows=rows; M.points=pts;
+        if(meshSel!=null) meshSel=Math.min(meshSel,cols*rows-1);
+        pushHistory(); refresh();
+      };
+      $('mshC').addEventListener('change',e=>resize(+e.target.value,M.rows));
+      $('mshR').addEventListener('change',e=>resize(M.cols,+e.target.value));
+      $('mshC').addEventListener('input',e=>{ $('mshCV').textContent=e.target.value; });
+      $('mshR').addEventListener('input',e=>{ $('mshRV').textContent=e.target.value; });
+
+      add(`<label class="slider"><input type="checkbox" id="mshNet" ${M.showNet!==false?'checked':''}> Show net while selected</label>`);
+      $('mshNet').addEventListener('change',e=>{ M.showNet=e.target.checked; pushHistory(); render(); });
+
+      add(`<div class="pSect">Selected point</div>`);
+      const sel=(meshSel!=null&&M.points[meshSel])?M.points[meshSel]:null;
+      if(!sel){
+        add(`<div class="fxHint">Click a handle on the canvas to pick a point.</div>`);
+      }else{
+        const hex=rgbHex(sel.color);
+        add(`<div class="row2">
+          <label class="slider">X <span id="mshXV">${Math.round(sel.x*100)}%</span>
+            <input type="range" id="mshX" min="-20" max="120" step="1" value="${Math.round(sel.x*100)}"></label>
+          <label class="slider">Y <span id="mshYV">${Math.round(sel.y*100)}%</span>
+            <input type="range" id="mshY" min="-20" max="120" step="1" value="${Math.round(sel.y*100)}"></label>
+        </div>`);
+        add(`<label class="slider">Colour <input type="color" id="mshCol" value="${hex}"></label>`);
+        const live=()=>{ paintCacheClear(); render(); };
+        $('mshX').addEventListener('input',e=>{ sel.x=+e.target.value/100; $('mshXV').textContent=e.target.value+'%'; live(); });
+        $('mshY').addEventListener('input',e=>{ sel.y=+e.target.value/100; $('mshYV').textContent=e.target.value+'%'; live(); });
+        ['mshX','mshY'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
+        $('mshCol').addEventListener('input',e=>{ sel.color=hexRgb(e.target.value); live(); });
+        $('mshCol').addEventListener('change',()=>pushHistory());
+      }
+      add(`<button class="rollBtn" id="mshReset">Reset net</button>`);
+      $('mshReset').addEventListener('click',()=>{
+        M.points=ME.defaultPoints(M.cols,M.rows);
+        pushHistory(); refresh();
+      });
+      add(`<div class="fxHint">Drag the handles on the canvas. The surface is one bicubic patch through every point, so moving one bends its neighbourhood and leaves the rest alone.</div>`);
+    }
+  }
+
   if(page==='Gradient'){
     const G=obj.effects.gradient;
     const GE=window.GradientEngine;
@@ -7124,6 +7297,33 @@ canvas.addEventListener('pointerdown',e=>{
       cap(); return;
     }
   }
+  /* §4.7 mesh handles take priority over a body hit on their own object: the
+   * handles sit ON the shape, so without this every grab would move the shape
+   * instead of the point under the cursor. Same standing as the line endpoint
+   * grips below, and for the same reason. */
+  (function(){
+    const ME=window.MeshGradient;
+    if(!ME||!ME.available()) return;
+    const o=primary();
+    if(!o||selIds.size!==1||o.locked) return;
+    const M=o.effects&&o.effects.mesh;
+    if(!M||!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
+    if(!M.points||M.points.length!==M.cols*M.rows) return;
+    const b=boxOf(o), grip=11/view.z;
+    let best=-1, bd=grip*grip;
+    M.points.forEach((pt,idx)=>{
+      const dx=(b.x+pt.x*b.w)-p.x, dy=(b.y+pt.y*b.h)-p.y, q=dx*dx+dy*dy;
+      if(q<=bd){ bd=q; best=idx; }
+    });
+    if(best<0) return;
+    meshSel=best;
+    const pt=M.points[best];
+    // grab OFFSET, so a handle does not jump to the cursor on grab
+    drag={mode:'meshPt', obj:o, i:best, box:b,
+      dx:(b.x+pt.x*b.w)-p.x, dy:(b.y+pt.y*b.h)-p.y};
+    cap(); refresh();
+  })();
+  if(drag&&drag.mode==='meshPt') return;
   // line endpoint grips take priority over a body hit on the primary line
   const prim=primary();
   if(prim&&prim.type==='line'&&selIds.size===1&&!prim.locked){
@@ -7339,6 +7539,19 @@ canvas.addEventListener('pointermove',e=>{
       }
     }
     render(); syncInspector(); return;
+  }
+  if(drag.mode==='meshPt'){
+    const M=drag.obj.effects.mesh, b=drag.box, pt=M.points[drag.i];
+    if(pt){
+      /* Stored normalised to the shape's box, so the net survives the shape
+       * being resized. Allowed a little outside 0..1: a control point beyond
+       * the edge is how you steer the surface AT the edge. */
+      pt.x=clamp(((p.x+drag.dx)-b.x)/Math.max(b.w,1e-6),-0.2,1.2);
+      pt.y=clamp(((p.y+drag.dy)-b.y)/Math.max(b.h,1e-6),-0.2,1.2);
+      paintCacheClear();
+      render(); syncInspector();
+    }
+    return;
   }
   if(drag.mode==='lineEnd'){
     const o=drag.obj;
@@ -7598,6 +7811,7 @@ const endDrag=e=>{
   }
   if(d.mode==='resize'){ pushHistory(); refresh(); return; }
   if(d.mode==='abMove'&&!d.moved) return;    // plain click on the label: already selected, nothing changed
+  if(d.mode==='meshPt'){ pushHistory('Move mesh point'); return; }
   if(d.mode==='abMove'){ pushHistory('Move artboard'); return; }
   if(d.mode==='move'&&!d.moved){
     if(d.dup){

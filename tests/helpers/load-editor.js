@@ -215,6 +215,13 @@ export function loadEditor() {
     "filters.js",
     "icons.js",
     "gradient.js",
+    /* meshgradient.js for the same reason as gradient.js, though it IS a WebGL
+     * engine: its init() is lazy, so loading the file touches no GPU. What
+     * app.js needs from it at normalise time — defaultPoints, the grid limits
+     * — is plain JS, and without it every mesh in a document normalises to an
+     * empty net. available() still reports false here, which is the branch a
+     * machine without WebGL2 takes, so that path gets exercised too. */
+    "meshgradient.js",
   ]) {
     window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
   }

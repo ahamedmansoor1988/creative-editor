@@ -121,6 +121,12 @@ const CAPABILITIES = [
     doc: `A rect/ellipse that has a "pattern" may add "effects":{"blob":{"on":true,"smoothness":0-300,"mode":"union"|"intersect"|"difference"}} to MERGE the shape with its own pattern copies into one organic mass (SDF smooth-union - they fuse as they approach). Use a NEGATIVE pattern hGap/vGap so the copies overlap. For the same merge rendered as refractive liquid glass use "glass2" instead, which takes the blob fields plus the glass fields (depth, refraction, frost, reflection, dispersion, tint, opacity).`,
   },
   {
+    id: "mesh-gradient",
+    match: /mesh|gradient mesh|colou?r field|blend surface|smooth colou?r|iridescent/i,
+    inDoc: d => /"mesh":\{"on":true/.test(d),
+    doc: `A rect/ellipse/polygon/path may add "effects":{"mesh":{"on":true,"cols":2-10,"rows":2-10,"points":[{"x":0..1,"y":0..1,"color":[r,g,b]},...]}} which fills the shape with a MESH GRADIENT: a bicubic surface through a cols x rows net of coloured control points. points is row-major and must be exactly cols*rows long; x,y are fractions of the shape's box, so the mesh scales with it. Moving a point bends the colour field around it. Use for rich multi-directional colour that a linear or radial gradient cannot express. Omit "points" to get an even net in a default palette.`,
+  },
+  {
     id: "light",
     match: /light|beam|ray|cone|glow|funnel|star|burst|volumetric|god ?ray/i,
     inDoc: d => /"light":\{"on":true/.test(d),

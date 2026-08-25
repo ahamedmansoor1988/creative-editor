@@ -14,9 +14,24 @@ declare global {
     FxStack?: {
       READY: Set<string>;
       isReady(type: string): boolean;
+      slotOf(type: string): string;
+      entryOn(entry: any): boolean;
+      activeMaterial(fx: any[]): any;
+      inSlot(fx: any[], slot: string): any[];
     };
     /* The gradient stripe engine. Its panel reads these off the engine rather
      * than repeating them, so the tests assert against the same source. */
+    /* The mesh gradient engine. Loaded in tests for its plain-JS half —
+     * defaultPoints and the grid limits — while available() reports false,
+     * since jsdom has no WebGL2. */
+    MeshGradient?: {
+      MIN_N: number;
+      MAX_N: number;
+      defaultPoints(cols: number, rows: number): any[];
+      resample(points: any[], fromC: number, fromR: number, toC: number, toR: number): any[];
+      evalAt(points: any[], cols: number, rows: number, u: number, v: number): any;
+      available(): boolean;
+    };
     GradientEngine?: {
       MAX_STOPS: number;
       PRESETS: { name: string; g1: any[]; g2: any[] }[];
