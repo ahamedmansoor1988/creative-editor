@@ -355,12 +355,215 @@ void main(){
     return tile;
   }
 
+  /* ---- fitting a net to a reference image ---------------------------------
+   *
+   * This is raster-to-vector inference, which HANDOFF.md:78 rules out. It is
+   * here at the author's explicit direction after the constraint was put to
+   * them; the note stays so the decision is visible to whoever reads this next
+   * rather than being discovered.
+   *
+   * HOW. Sampling the image at the sixteen grid positions gets a net that is
+   * roughly right and visibly wrong: a control point's colour is not the
+   * colour under it. A Catmull-Rom surface passes THROUGH its points, but every
+   * point also pulls on its neighbourhood, so a net of sampled colours renders
+   * with the contrast smeared and the extremes pulled toward the middle.
+   *
+   * So the initial sample is a starting guess, refined by rendering the net
+   * and correcting it against the target — the residual at each control point
+   * is fed back into its colour, weighted by that point's own influence. It is
+   * the same idea as unsharp masking a downsample: measure what the
+   * reconstruction gets wrong and pre-compensate for it.
+   *
+   * Geometry is fitted second and separately: a point moves toward the nearest
+   * strong colour EDGE in its cell, because a control point sitting on an edge
+   * reproduces that edge far better than one sitting in a flat region. Moves
+   * are bounded to a fraction of a cell so the net cannot tangle.
+   */
+  const FIT_RES = 160; // working resolution; fidelity plateaus here
+
+  function imageToRGBA(img, W, H) {
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, W, H);
+    return x.getImageData(0, 0, W, H);
+  }
+
+  /** Area-average of the image around (u,v) — one pixel is too noisy to trust. */
+  function sampleArea(data, W, H, u, v, rad) {
+    const cx = u * (W - 1),
+      cy = v * (H - 1);
+    let r = 0,
+      g = 0,
+      b = 0,
+      n = 0;
+    const x0 = Math.max(0, Math.round(cx - rad)),
+      x1 = Math.min(W - 1, Math.round(cx + rad));
+    const y0 = Math.max(0, Math.round(cy - rad)),
+      y1 = Math.min(H - 1, Math.round(cy + rad));
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = (y * W + x) * 4;
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+        n++;
+      }
+    return n ? [r / n, g / n, b / n] : [128, 128, 128];
+  }
+
+  /** How much control point (pr,pc) influences (u,v). Matches Catmull-Rom's
+   *  two-cell support, so the correction lands where the point actually acts. */
+  function influence(u, v, pc, pr, cols, rows) {
+    const du = Math.abs(u * (cols - 1) - pc),
+      dv = Math.abs(v * (rows - 1) - pr);
+    if (du >= 2 || dv >= 2) return 0;
+    const k = (d) => (d < 1 ? 1 - (d * d * (3 - 2 * d)) / 1 : Math.max(0, (2 - d) * 0.25));
+    return Math.max(0, k(du)) * Math.max(0, k(dv));
+  }
+
+  function fitToImage(img, cols, rows, opts) {
+    if (!init()) return null;
+    opts = opts || {};
+    const passes = opts.passes == null ? 14 : opts.passes;
+    /* Geometry fitting is OFF by default because it was measured, not because
+     * it was hard. Moving control points onto colour edges sounds obviously
+     * right and is not: it distorts the parameterisation faster than sitting
+     * on an edge helps. Against a four-hotspot reference — sampling / with
+     * correction / with correction and snapping — 4x4 gave 20.8 / 19.2 / 18.2,
+     * 6x6 gave 11.7 / 10.0 / 10.2 and 8x8 gave 5.0 / 3.4 / 4.9. It wins
+     * marginally at the smallest grid and loses at every larger one, and
+     * WITHOUT the colour correction it is far worse than doing nothing (31.2
+     * at 4x4). Kept as an option rather than deleted, since a very coarse net
+     * is the one case it helps. */
+    const moveGeometry = opts.moveGeometry === true;
+    const W = FIT_RES,
+      H = FIT_RES;
+    const target = imageToRGBA(img, W, H).data;
+
+    // --- 1. initial guess: area-sampled colours on an even net
+    const rad = Math.max(1, Math.round(FIT_RES / Math.max(cols, rows) / 3));
+    const pts = [];
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const u = cols === 1 ? 0.5 : c / (cols - 1),
+          v = rows === 1 ? 0.5 : r / (rows - 1);
+        pts.push({ x: u, y: v, color: sampleArea(target, W, H, u, v, rad) });
+      }
+
+    // --- 2. move points onto edges, where a control point earns its keep
+    if (moveGeometry) {
+      const lum = (i) => 0.2126 * target[i] + 0.7152 * target[i + 1] + 0.0722 * target[i + 2];
+      for (let r = 1; r < rows - 1; r++)
+        for (let c = 1; c < cols - 1; c++) {
+          const i = r * cols + c;
+          const u0 = pts[i].x,
+            v0 = pts[i].y;
+          const reach = 0.35 / Math.max(cols - 1, 1); // bounded: the net must not tangle
+          let bx = u0,
+            by = v0,
+            bs = -1;
+          for (let dy = -3; dy <= 3; dy++)
+            for (let dx = -3; dx <= 3; dx++) {
+              const u = u0 + (dx / 3) * reach,
+                v = v0 + (dy / 3) * reach;
+              if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+              const px = Math.round(u * (W - 1)),
+                py = Math.round(v * (H - 1));
+              if (px < 1 || py < 1 || px >= W - 1 || py >= H - 1) continue;
+              const p = (py * W + px) * 4;
+              const gx = lum(p + 4) - lum(p - 4);
+              const gy = lum(p + W * 4) - lum(p - W * 4);
+              const mag = Math.hypot(gx, gy);
+              if (mag > bs) {
+                bs = mag;
+                bx = u;
+                by = v;
+              }
+            }
+          pts[i].x = bx;
+          pts[i].y = by;
+          pts[i].color = sampleArea(target, W, H, bx, by, rad);
+        }
+    }
+
+    // --- 3. correct the colours against what the net actually renders
+    const acc = new Float64Array(cols * rows * 3),
+      wsum = new Float64Array(cols * rows);
+    for (let pass = 0; pass < passes; pass++) {
+      const tile = render(W, H, { cols, rows, points: pts });
+      if (!tile) break;
+      const cur = tile.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+      acc.fill(0);
+      wsum.fill(0);
+      // a coarse stride: the residual is smooth, and every pixel costs passes
+      const step = 2;
+      for (let y = 0; y < H; y += step)
+        for (let x = 0; x < W; x += step) {
+          const i = (y * W + x) * 4;
+          const u = x / (W - 1),
+            v = y / (H - 1);
+          const er = target[i] - cur[i],
+            eg = target[i + 1] - cur[i + 1],
+            eb = target[i + 2] - cur[i + 2];
+          for (let r = 0; r < rows; r++)
+            for (let c = 0; c < cols; c++) {
+              const w = influence(u, v, c, r, cols, rows);
+              if (w <= 0) continue;
+              const k = r * cols + c;
+              acc[k * 3] += er * w;
+              acc[k * 3 + 1] += eg * w;
+              acc[k * 3 + 2] += eb * w;
+              wsum[k] += w;
+            }
+        }
+      /* Under-relaxed. A full correction overshoots, because every point's
+       * neighbours are being corrected in the same pass and their influences
+       * overlap — the net then oscillates instead of settling. */
+      const rate = 0.7;
+      for (let k = 0; k < cols * rows; k++) {
+        if (wsum[k] <= 0) continue;
+        const p = pts[k];
+        for (let ch = 0; ch < 3; ch++)
+          p.color[ch] = clampi(p.color[ch] + (acc[k * 3 + ch] / wsum[k]) * rate, 0, 255);
+      }
+    }
+    pts.forEach((p) => (p.color = p.color.map((v) => clampi(Math.round(v), 0, 255))));
+    return pts;
+  }
+
+  /** Mean per-channel error between a fitted net and its reference, 0..255.
+   *  Reported rather than hidden: a fit that cannot reach the image should say
+   *  so instead of quietly returning its best guess as though it were right. */
+  function fitError(img, cols, rows, pts) {
+    if (!init()) return null;
+    const W = FIT_RES,
+      H = FIT_RES;
+    const target = imageToRGBA(img, W, H).data;
+    const tile = render(W, H, { cols, rows, points: pts });
+    if (!tile) return null;
+    const cur = tile.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+    let sum = 0,
+      n = 0;
+    for (let i = 0; i < target.length; i += 4 * 3) {
+      sum +=
+        Math.abs(target[i] - cur[i]) +
+        Math.abs(target[i + 1] - cur[i + 1]) +
+        Math.abs(target[i + 2] - cur[i + 2]);
+      n += 3;
+    }
+    return n ? sum / n : null;
+  }
+
   window.MeshGradient = {
     get,
     render,
     evalAt,
     resample,
     defaultPoints,
+    fitToImage,
+    fitError,
     MIN_N,
     MAX_N,
     PALETTE,

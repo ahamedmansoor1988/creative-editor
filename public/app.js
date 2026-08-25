@@ -6292,6 +6292,56 @@ function buildFxSection(obj,page,add,body){
         $('mshCol').addEventListener('input',e=>{ sel.color=hexRgb(e.target.value); live(); });
         $('mshCol').addEventListener('change',()=>pushHistory());
       }
+      /* Fit the net to a reference image. This is raster-to-vector inference,
+       * which HANDOFF.md:78 rules out; it is here at the author's explicit
+       * direction after the constraint was put to them. The note stays so the
+       * decision is found rather than discovered. */
+      add(`<div class="pSect">Reference</div>`);
+      add(`<button class="rollBtn" id="mshFit">Match an image…</button>`);
+      add(`<div class="fxHint" id="mshFitNote">Samples the image and then corrects the net against what it actually renders.</div>`);
+      $('mshFit').addEventListener('click',()=>{
+        const inp=document.createElement('input');
+        inp.type='file'; inp.accept='image/*';
+        inp.addEventListener('change',()=>{
+          const f=inp.files&&inp.files[0];
+          if(!f) return;
+          const url=URL.createObjectURL(f);
+          const im=new Image();
+          im.onload=()=>{
+            const note=$('mshFitNote');
+            if(note) note.textContent='Fitting…';
+            /* Deferred a frame so the note paints before the fit blocks: the
+             * fit renders the net a dozen times and reads it back each time,
+             * which is long enough to look like nothing happened. */
+            setTimeout(()=>{
+              try{
+                const pts=ME.fitToImage(im,M.cols,M.rows,{});
+                if(pts){
+                  M.points=pts;
+                  const err=ME.fitError(im,M.cols,M.rows,pts);
+                  pushHistory('Match mesh to image');
+                  refresh();
+                  const n2=$('mshFitNote');
+                  if(n2&&err!=null){
+                    /* Reported, not hidden. A photograph cannot be reproduced
+                     * by sixteen control points, and a fit that cannot reach
+                     * its reference should say so rather than return its best
+                     * guess as though it were right. */
+                    n2.textContent=err<12
+                      ? 'Close fit (mean error '+err.toFixed(1)+'/255). '
+                      : err<30
+                        ? 'Approximate (mean error '+err.toFixed(1)+'/255) — more rows and columns will tighten it.'
+                        : 'Loose (mean error '+err.toFixed(1)+'/255) — this image has more detail than a mesh of this size can hold.';
+                  }
+                }
+              }finally{ URL.revokeObjectURL(url); }
+            },16);
+          };
+          im.onerror=()=>{ status('That file could not be read as an image.'); URL.revokeObjectURL(url); };
+          im.src=url;
+        });
+        inp.click();
+      });
       add(`<button class="rollBtn" id="mshReset">Reset net</button>`);
       $('mshReset').addEventListener('click',()=>{
         M.points=ME.defaultPoints(M.cols,M.rows);
