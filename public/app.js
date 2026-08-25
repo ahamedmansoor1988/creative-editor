@@ -9635,12 +9635,58 @@ function status(msg,isErr){
   el.title=msg||'';
   el.className=isErr?'err':'';
 }
+/* MEASURE the attached image, rather than asking the model to read it.
+ *
+ * A vision model turns an image into patch tokens and emits text; it never
+ * touches a pixel. Asked for the colour at a point it answers "red", and a
+ * hex it produces is a guess dressed as a measurement — #f0344a comes back
+ * #ff0000. No prompt fixes that, because it is what the model IS.
+ *
+ * So the reading happens here, where the pixels are, and the model is handed
+ * the answer. An 8x8 grid of area-averaged hex values is about 600 characters
+ * and turns "what colour is the top left" from a guess into a lookup. The
+ * model keeps the job it is good at — deciding what to build and where — with
+ * data it cannot get wrong.
+ *
+ * Area-averaged rather than point-sampled: one pixel of a photograph is noise,
+ * and a grid cell's average is what a gradient control point should carry. */
+const SAMPLE_N=8;
+async function sampleAttached(dataUrl){
+  if(!dataUrl) return undefined;
+  try{
+    const img=await new Promise((res,rej)=>{
+      const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=dataUrl;
+    });
+    const N=64;
+    const c=document.createElement('canvas'); c.width=N; c.height=N;
+    const x=c.getContext('2d',{willReadFrequently:true});
+    x.drawImage(img,0,0,N,N);
+    const d=x.getImageData(0,0,N,N).data;
+    const cell=N/SAMPLE_N;
+    const rows=[];
+    for(let gy=0;gy<SAMPLE_N;gy++){
+      const row=[];
+      for(let gx=0;gx<SAMPLE_N;gx++){
+        let r=0,g=0,b=0,n=0;
+        for(let y=Math.floor(gy*cell);y<Math.floor((gy+1)*cell);y++)
+          for(let xx=Math.floor(gx*cell);xx<Math.floor((gx+1)*cell);xx++){
+            const i=(y*N+xx)*4; r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++;
+          }
+        row.push('#'+[r/n,g/n,b/n].map(v=>Math.round(v).toString(16).padStart(2,'0')).join(''));
+      }
+      rows.push(row);
+    }
+    return {grid:SAMPLE_N, aspect:+(img.naturalWidth/img.naturalHeight).toFixed(3), rows};
+  }catch(_){ return undefined; }   // a bad decode must not block the request
+}
+
 async function callGenerate(){
   const r=await fetch('/api/generate',{
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       prompt:$('prompt').value.trim(),
       imageDataUrl:attachedImage||undefined,
+      imageSamples: await sampleAttached(attachedImage),
       currentDoc: doc&&doc.frame.children.length ? doc : undefined,
     })
   });

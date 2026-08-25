@@ -56,6 +56,14 @@ const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3
 const RATE_MAX = Number(process.env.RATE_MAX || 20);
 const RATE_WINDOW_S = Number(process.env.RATE_WINDOW_S || 60);
 const _rate = new Map();
+/* Exported for tests. A limiter is stateful by definition, so the test that
+ * proves it fires leaves it exhausted — and every test after it then gets a
+ * 429 instead of reaching the provider, which reads as those tests failing for
+ * reasons of their own. Clearing between tests is the isolation that state
+ * needs; ordering them around it would work until someone reordered them. */
+function resetRateLimit() {
+  _rate.clear();
+}
 function allowRequest(req) {
   if (RATE_MAX <= 0) return true; // 0 disables the limit outright
   const key =
@@ -226,8 +234,40 @@ async function generate(body) {
     /** @type {any} */ (e).code = "NO_KEY";
     throw e;
   }
-  const { prompt, imageDataUrl, currentDoc } = body;
+  const { prompt, imageDataUrl, currentDoc, imageSamples } = body;
   const hasImage = !!imageDataUrl;
+
+  /* MEASURED colours from the attached image, sampled in the browser where the
+   * pixels are. A vision model never touches a pixel — it reads patch tokens
+   * and writes text — so a hex it produces from looking is a guess wearing the
+   * costume of a measurement. Handing it the grid turns "what colour is the
+   * top left" from a guess into a lookup, and leaves the model the part it is
+   * actually good at: deciding what to build.
+   *
+   * Validated here rather than trusted: this arrives from a client and goes
+   * straight into a prompt. */
+  let sampleBlock = "";
+  if (imageSamples && Array.isArray(imageSamples.rows)) {
+    const rows = imageSamples.rows
+      .slice(0, 16)
+      .map((r) =>
+        Array.isArray(r)
+          ? r.slice(0, 16).filter((h) => /^#[0-9a-f]{6}$/i.test(h))
+          : [],
+      )
+      .filter((r) => r.length);
+    if (rows.length) {
+      const n = rows[0].length;
+      const aspect = Number(imageSamples.aspect);
+      sampleBlock =
+        `\n\nMEASURED COLOURS from the reference, on a ${n}x${rows.length} grid, ` +
+        `row 0 = top, column 0 = left. These are exact averages taken from the ` +
+        `image itself — USE THEM RATHER THAN JUDGING COLOUR BY EYE, and do not ` +
+        `substitute approximations:\n` +
+        rows.map((r, i) => `row ${i}: ${r.join(" ")}`).join("\n") +
+        (Number.isFinite(aspect) ? `\nThe reference is ${aspect.toFixed(2)}:1 (width:height).` : "");
+    }
+  }
 
   const userContent = [];
   let instruction = prompt || "Design something striking.";
@@ -240,6 +280,11 @@ async function generate(body) {
       `Recreate the attached reference image as an editable composition ` +
       `(rects, ellipses, gradients, text), applying this instruction: ${instruction}`;
   }
+  /* Appended last, so the measurements are the final thing read before the
+   * model answers — and only when there IS a reference: a grid of colours
+   * without an image to belong to describes nothing, and would just be noise
+   * pushed into a plain text prompt. */
+  if (sampleBlock && hasImage) instruction += sampleBlock;
   if (hasImage) {
     userContent.push({ type: "image_url", image_url: { url: imageDataUrl } });
     userContent.push({ type: "text", text: instruction });
@@ -419,4 +464,4 @@ if (require.main === module) {
 
 /* Exported for characterization tests. These are the existing internals,
  * unchanged — exporting them does not alter runtime behaviour. */
-module.exports = { server, generate, extractJSON, buildSystem, CAPABILITIES, PORT };
+module.exports = { server, generate, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };
