@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mesh gradient — lab</title>
+    <style>
+      :root {
+        --bg: #f2f3f5;
+        --panel: #ffffff;
+        --line: #e2e4e9;
+        --text: #1b1d22;
+        --muted: #6a6d75;
+        --accent: #2563eb;
+        --field: #fbfcfd;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        gap: 16px;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+        font:
+          13px/1.4 "Inter",
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none; /* no accidental text selection */
+      }
+      #stageWrap {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        min-width: 0;
+        background: var(--panel);
+        border-radius: 12px;
+        box-shadow:
+          0 1px 2px rgba(15, 23, 42, 0.07),
+          0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      #stage {
+        position: relative;
+        line-height: 0;
+        touch-action: none;
+      }
+      #gl,
+      #ui {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+      }
+      #gl {
+        position: relative;
+      }
+      #ui {
+        cursor: default;
+      }
+      aside {
+        width: 250px;
+        flex: none;
+        overflow-y: auto;
+        background: var(--panel);
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow:
+          0 1px 2px rgba(15, 23, 42, 0.07),
+          0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      h2:not(:first-child) {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 7px;
+      }
+      .row label {
+        flex: 0 0 58px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      input[type="number"],
+      input[type="text"] {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 7px;
+        font: inherit;
+        font-size: 12px;
+        background: var(--field);
+        font-variant-numeric: tabular-nums;
+      }
+      input:focus {
+        outline: 2px solid rgba(37, 99, 235, 0.5);
+        outline-offset: 1px;
+        border-color: var(--accent);
+      }
+      input[type="color"] {
+        flex: 1;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: none;
+        cursor: pointer;
+      }
+      .btns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      button {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 7px;
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        color: inherit;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .chk {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        cursor: pointer;
+        margin-top: 8px;
+      }
+      .chk input {
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      .note {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-top: 6px;
+      }
+      .empty {
+        font-size: 11px;
+        color: var(--muted);
+        padding: 4px 0;
+      }
+      #fps {
+        font-size: 11px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stageWrap">
+      <div id="stage"><canvas id="gl"></canvas><canvas id="ui"></canvas></div>
+    </div>
+
+    <aside>
+      <h2>Mesh</h2>
+      <div class="row">
+        <label>Columns</label><input type="number" id="cols" min="2" max="10" step="1" />
+      </div>
+      <div class="row">
+        <label>Rows</label><input type="number" id="rows" min="2" max="10" step="1" />
+      </div>
+      <div class="btns">
+        <button id="addCol">+ Column</button><button id="delCol">− Column</button>
+        <button id="addRow">+ Row</button><button id="delRow">− Row</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="showMesh" checked /> Show mesh</label>
+
+      <h2>Selected point</h2>
+      <div id="noSel" class="empty">Click a point on the artwork.</div>
+      <div id="selBody" style="display: none">
+        <div class="row"><label>X</label><input type="number" id="px" step="1" /></div>
+        <div class="row"><label>Y</label><input type="number" id="py" step="1" /></div>
+        <div class="row"><label>Colour</label><input type="color" id="pc" /></div>
+        <div class="row">
+          <label>HEX</label><input type="text" id="phex" maxlength="7" spellcheck="false" />
+        </div>
+        <div class="row"><label>RGB</label><input type="text" id="prgb" spellcheck="false" /></div>
+      </div>
+
+      <h2>Render</h2>
+      <div id="fps">—</div>
+      <div class="note">
+        Bicubic Catmull-Rom over the whole control net. Position is evaluated per vertex, colour per
+        FRAGMENT, so the colour surface is independent of how finely the geometry is tessellated.
+      </div>
+    </aside>
+
+    <script>
+      /* ===================================================================
+       * Mesh gradient — a real deformable colour surface.
+       *
+       * The thing this is NOT: blurred blobs under draggable dots. There are no
+       * radial falloffs, no metaballs, no IDW weighting, no blur of any kind. The
+       * colour at a point comes from WHERE THAT POINT SITS ON THE SURFACE, which is
+       * what makes it a mesh gradient rather than a decorated scatter of colours.
+       *
+       * THE SURFACE. One bicubic Catmull-Rom surface spans the entire control net,
+       * rather than a separate patch per cell. That choice is what removes seams by
+       * construction instead of by blending: Catmull-Rom is C1 continuous and
+       * interpolating, so the surface passes exactly through every control point and
+       * its tangents already agree across every cell boundary. There is no boundary
+       * to hide.
+       *
+       * GEOMETRY DRIVES COLOUR. Both position and colour are evaluated from the SAME
+       * parameterisation (u,v). Move a point and the (u,v) -> position map deforms;
+       * the colour map deforms with it because they share the parameter, not because
+       * anything is dragged along afterwards.
+       *
+       * WHY COLOUR IS EVALUATED PER FRAGMENT. If colour were a vertex attribute the
+       * GPU would interpolate it LINEARLY across each triangle, and the bicubic
+       * surface would be visible as faceting wherever the tessellation was too
+       * coarse — polygon edges, which the brief rules out. Evaluating the colour
+       * bicubic in the fragment shader makes colour smoothness independent of
+       * geometry density: the tessellation only has to be fine enough for the SHAPE.
+       *
+       * COST. Dragging changes uniforms and one small texture, never the vertex
+       * buffer: the (u,v) lattice is uploaded once at startup and never rewritten.
+       * =================================================================== */
+      "use strict";
+
+      /* ---------- 1. Mesh model ------------------------------------------ */
+      const MIN_N = 2,
+        MAX_N = 10;
+      const SIZE = 800; // artwork is SIZE x SIZE document px
+
+      /* A deliberately strong default palette: the interpolation has to be obvious,
+       * and pastels hide exactly the seams and facets this lab exists to rule out. */
+      const PALETTE = ["#0b5cff", "#7b2fff", "#ff2fb0", "#ff8a00", "#00d3ff", "#fff2a8"];
+
+      let mesh = makeMesh(4, 4);
+
+      function makeMesh(cols, rows) {
+        const pts = [];
+        for (let r = 0; r < rows; r++) {
+          const row = [];
+          for (let c = 0; c < cols; c++) {
+            row.push({
+              id: "p" + r + "_" + c,
+              x: (c / (cols - 1)) * SIZE,
+              y: (r / (rows - 1)) * SIZE,
+              color: hexToRgb(PALETTE[(r * cols + c) % PALETTE.length]),
+            });
+          }
+          pts.push(row);
+        }
+        return { rows, cols, points: pts };
+      }
+
+      /* Adding a row or column INSERTS one, rather than resampling the whole net at
+       * new parameters. Resampling moves every existing point — even the ones that
+       * had no reason to move — and each of those small moves perturbs the surface
+       * a little more. Inserting leaves every existing control point exactly where
+       * the user put it and takes only the NEW points off the current surface, so
+       * the artwork survives an edit as closely as an interpolating spline allows.
+       *
+       * A spline through more knots is never bit-identical to the one it came from;
+       * the goal is that nothing the user placed by hand is disturbed. */
+      function insertRow(m) {
+        const { cols, rows, points } = m;
+        const vAt = (r) => (rows === 1 ? 0 : r / (rows - 1));
+        // widest gap first, so repeated inserts spread out instead of piling up
+        let at = 0,
+          best = -1;
+        for (let r = 0; r < rows - 1; r++) {
+          const g = vAt(r + 1) - vAt(r);
+          if (g > best) {
+            best = g;
+            at = r;
+          }
+        }
+        const vm = (vAt(at) + vAt(at + 1)) / 2;
+        const row = [];
+        for (let c = 0; c < cols; c++) {
+          const p = evalSurface(m, cols === 1 ? 0 : c / (cols - 1), vm);
+          row.push({
+            id: "ins" + Math.random().toString(36).slice(2, 7),
+            x: p.x,
+            y: p.y,
+            color: p.color,
+          });
+        }
+        const pts = points.map((r2) => r2.slice());
+        pts.splice(at + 1, 0, row);
+        return { cols, rows: rows + 1, points: pts };
+      }
+      function insertCol(m) {
+        const { cols, rows, points } = m;
+        const uAt = (c) => (cols === 1 ? 0 : c / (cols - 1));
+        let at = 0,
+          best = -1;
+        for (let c = 0; c < cols - 1; c++) {
+          const g = uAt(c + 1) - uAt(c);
+          if (g > best) {
+            best = g;
+            at = c;
+          }
+        }
+        const um = (uAt(at) + uAt(at + 1)) / 2;
+        const pts = points.map((r2, r) => {
+          const p = evalSurface(m, um, rows === 1 ? 0 : r / (rows - 1));
+          const copy = r2.slice();
+          copy.splice(at + 1, 0, {
+            id: "ins" + Math.random().toString(36).slice(2, 7),
+            x: p.x,
+            y: p.y,
+            color: p.color,
+          });
+          return copy;
+        });
+        return { cols: cols + 1, rows, points: pts };
+      }
+      /* Removing drops an INTERIOR line, never an edge: the outer ring is the
+       * artwork's own boundary, and losing it would resize the piece rather than
+       * simplify its mesh. */
+      function removeRow(m) {
+        if (m.rows <= MIN_N) return m;
+        const pts = m.points.slice();
+        pts.splice(Math.floor(m.rows / 2), 1);
+        return { cols: m.cols, rows: m.rows - 1, points: pts };
+      }
+      function removeCol(m) {
+        if (m.cols <= MIN_N) return m;
+        const at = Math.floor(m.cols / 2);
+        return {
+          cols: m.cols - 1,
+          rows: m.rows,
+          points: m.points.map((r) => {
+            const c = r.slice();
+            c.splice(at, 1);
+            return c;
+          }),
+        };
+      }
+
+      /* ---------- 2. Mesh geometry: the same maths the shader runs -------- *
+       * Kept on the CPU too, because resampling and the mesh overlay both need to
+       * ask "where is the surface at (u,v)?" and the answer must be identical to
+       * what the GPU draws — two implementations that disagree would show up as an
+       * overlay that floats off the artwork it is meant to annotate. */
+      function catmull(p0, p1, p2, p3, t) {
+        const t2 = t * t,
+          t3 = t2 * t;
+        return (
+          0.5 *
+          (2 * p1 +
+            (-p0 + p2) * t +
+            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+            (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+        );
+      }
+      const clampi = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+      /** Surface point at (u,v) in [0,1]^2 — position and colour together. */
+      function evalSurface(m, u, v) {
+        const { cols, rows, points } = m;
+        const fx = u * (cols - 1),
+          fy = v * (rows - 1);
+        const ci = clampi(Math.floor(fx), 0, cols - 2),
+          ri = clampi(Math.floor(fy), 0, rows - 2);
+        const tu = fx - ci,
+          tv = fy - ri;
+        const get = (r, c) => points[clampi(r, 0, rows - 1)][clampi(c, 0, cols - 1)];
+        const out = { x: 0, y: 0, color: [0, 0, 0] };
+        const rowsOf = [];
+        for (let j = -1; j <= 2; j++) {
+          const a = get(ri + j, ci - 1),
+            b = get(ri + j, ci),
+            c2 = get(ri + j, ci + 1),
+            d = get(ri + j, ci + 2);
+          rowsOf.push({
+            x: catmull(a.x, b.x, c2.x, d.x, tu),
+            y: catmull(a.y, b.y, c2.y, d.y, tu),
+            color: [0, 1, 2].map((k) =>
+              catmull(a.color[k], b.color[k], c2.color[k], d.color[k], tu),
+            ),
+          });
+        }
+        out.x = catmull(rowsOf[0].x, rowsOf[1].x, rowsOf[2].x, rowsOf[3].x, tv);
+        out.y = catmull(rowsOf[0].y, rowsOf[1].y, rowsOf[2].y, rowsOf[3].y, tv);
+        out.color = [0, 1, 2].map((k) =>
+          clampi(
+            catmull(
+              rowsOf[0].color[k],
+              rowsOf[1].color[k],
+              rowsOf[2].color[k],
+              rowsOf[3].color[k],
+              tv,
+            ),
+            0,
+            255,
+          ),
+        );
+        return out;
+      }
+
+      /* ---------- 3. Colour helpers -------------------------------------- */
+      function hexToRgb(h) {
+        const n = parseInt(String(h).replace("#", ""), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      }
+      const rgbToHex = (c) =>
+        "#" + c.map((v) => clampi(Math.round(v), 0, 255).toString(16).padStart(2, "0")).join("");
+
+      /* ---------- 4. Renderer (WebGL2) ----------------------------------- */
+      const glCanvas = document.getElementById("gl");
+      const gl = glCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
+      if (!gl)
+        document.body.innerHTML = '<p style="padding:24px">WebGL2 is required for this lab.</p>';
+
+      const VS = `#version 300 es
+precision highp float;
+precision highp int;
+layout(location=0) in vec2 aUV;          // the static (u,v) lattice
+uniform sampler2D uPos;                  // control-point positions, RG = x,y
+uniform vec2  uGrid;                     // cols, rows (float: see note)
+uniform vec2  uSize;                     // artwork size in document px
+out vec2 vUV;
+
+vec4 cr(vec4 p0, vec4 p1, vec4 p2, vec4 p3, float t){
+  float t2=t*t, t3=t2*t;
+  return 0.5*((2.0*p1) + (-p0+p2)*t + (2.0*p0-5.0*p1+4.0*p2-p3)*t2
+            + (-p0+3.0*p1-3.0*p2+p3)*t3);
+}
+int cl(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+vec4 fetchPos(int r,int c){
+  int mx=int(uGrid.x)-1, my=int(uGrid.y)-1;
+  return texelFetch(uPos, ivec2(cl(c,0,mx), cl(r,0,my)), 0);
+}
+void main(){
+  vUV = aUV;
+  float fx = aUV.x*(uGrid.x-1.0), fy = aUV.y*(uGrid.y-1.0);
+  int ci = cl(int(floor(fx)),0,int(uGrid.x)-2), ri = cl(int(floor(fy)),0,int(uGrid.y)-2);
+  float tu = fx-float(ci), tv = fy-float(ri);
+  vec4 rowv[4];
+  for(int j=0;j<4;j++){
+    int r = ri + j - 1;
+    rowv[j] = cr(fetchPos(r,ci-1), fetchPos(r,ci), fetchPos(r,ci+1), fetchPos(r,ci+2), tu);
+  }
+  vec4 p = cr(rowv[0], rowv[1], rowv[2], rowv[3], tv);
+  // document px -> clip space, y down
+  vec2 ndc = vec2(p.x/uSize.x*2.0-1.0, 1.0-p.y/uSize.y*2.0);
+  gl_Position = vec4(ndc,0.0,1.0);
+}`;
+
+      const FS = `#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUV;
+uniform sampler2D uCol;                  // control-point colours, RGB 0..1
+uniform vec2  uGrid;
+out vec4 fragColor;
+
+vec4 cr(vec4 p0, vec4 p1, vec4 p2, vec4 p3, float t){
+  float t2=t*t, t3=t2*t;
+  return 0.5*((2.0*p1) + (-p0+p2)*t + (2.0*p0-5.0*p1+4.0*p2-p3)*t2
+            + (-p0+3.0*p1-3.0*p2+p3)*t3);
+}
+int cl(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+vec4 fetchCol(int r,int c){
+  int mx=int(uGrid.x)-1, my=int(uGrid.y)-1;
+  return texelFetch(uCol, ivec2(cl(c,0,mx), cl(r,0,my)), 0);
+}
+void main(){
+  /* The SAME bicubic, on the same parameter, over the colour net. Evaluating
+     it here rather than interpolating a vertex attribute is what keeps the
+     colour smooth no matter how coarse the triangles are. */
+  float fx = vUV.x*(uGrid.x-1.0), fy = vUV.y*(uGrid.y-1.0);
+  int ci = cl(int(floor(fx)),0,int(uGrid.x)-2), ri = cl(int(floor(fy)),0,int(uGrid.y)-2);
+  float tu = fx-float(ci), tv = fy-float(ri);
+  vec4 rowv[4];
+  for(int j=0;j<4;j++){
+    int r = ri + j - 1;
+    rowv[j] = cr(fetchCol(r,ci-1), fetchCol(r,ci), fetchCol(r,ci+1), fetchCol(r,ci+2), tu);
+  }
+  vec4 c = cr(rowv[0], rowv[1], rowv[2], rowv[3], tv);
+  fragColor = vec4(clamp(c.rgb,0.0,1.0), 1.0);
+}`;
+
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+        return s;
+      }
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+        throw new Error(gl.getProgramInfoLog(prog));
+      gl.useProgram(prog);
+
+      const U = {
+        pos: gl.getUniformLocation(prog, "uPos"),
+        col: gl.getUniformLocation(prog, "uCol"),
+        grid: gl.getUniformLocation(prog, "uGrid"),
+        size: gl.getUniformLocation(prog, "uSize"),
+      };
+
+      /* The (u,v) lattice: uploaded once, never rewritten. TESS is the geometry
+       * density only — colour smoothness does not depend on it, so this is chosen
+       * for how finely a dragged point may bend the surface, not for gradient
+       * quality. 128 is past the point where more is visible at this artwork size. */
+      const TESS = 128;
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      (function buildLattice() {
+        const verts = [];
+        for (let r = 0; r < TESS; r++) {
+          for (let c = 0; c < TESS; c++) {
+            const u0 = c / TESS,
+              u1 = (c + 1) / TESS,
+              v0 = r / TESS,
+              v1 = (r + 1) / TESS;
+            verts.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1);
+          }
+        }
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      })();
+      const VERT_COUNT = TESS * TESS * 6;
+
+      function makeTex(unit) {
+        const t = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return t;
+      }
+      const posTex = makeTex(0),
+        colTex = makeTex(1);
+      gl.uniform1i(U.pos, 0);
+      gl.uniform1i(U.col, 1);
+
+      /** Push the control net into the two textures. This is the whole cost of a drag. */
+      function uploadMesh() {
+        const { cols, rows, points } = mesh;
+        const P = new Float32Array(cols * rows * 4),
+          C = new Float32Array(cols * rows * 4);
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++) {
+            const i = (r * cols + c) * 4,
+              p = points[r][c];
+            P[i] = p.x;
+            P[i + 1] = p.y;
+            P[i + 2] = 0;
+            P[i + 3] = 1;
+            C[i] = p.color[0] / 255;
+            C[i + 1] = p.color[1] / 255;
+            C[i + 2] = p.color[2] / 255;
+            C[i + 3] = 1;
+          }
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, posTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, P);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, colTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, C);
+        gl.uniform2f(U.grid, cols, rows);
+        gl.uniform2f(U.size, SIZE, SIZE);
+      }
+
+      /* Reported as TIME PER DRAW, not as a frame rate. Nothing here animates — a
+       * frame is drawn when something changes and not otherwise — so a frames-per-
+       * second figure would read 0 while idle and mean nothing while dragging. What
+       * matters is whether one draw fits in a frame's budget, and that is a
+       * duration. */
+      let drawMs = 0,
+        drawn = 0,
+        lastReport = performance.now();
+      function drawGL() {
+        const t0 = performance.now();
+        gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+        gl.clearColor(1, 1, 1, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, VERT_COUNT);
+        drawMs += performance.now() - t0;
+        drawn++;
+        const now = performance.now();
+        if (now - lastReport > 400 && drawn) {
+          const per = drawMs / drawn;
+          document.getElementById("fps").textContent =
+            per.toFixed(2) +
+            " ms / draw · " +
+            (TESS * TESS * 2).toLocaleString() +
+            " triangles" +
+            (per < 16.7 ? " · within a 60fps frame" : " · OVER a 60fps frame");
+          drawMs = 0;
+          drawn = 0;
+          lastReport = now;
+        }
+      }
+
+      /* ---------- 5. Mesh overlay + interaction -------------------------- */
+      const uiCanvas = document.getElementById("ui");
+      const ui = uiCanvas.getContext("2d");
+      let selected = null; // {r,c}
+      let dragging = null; // {r,c,dx,dy}
+      let hover = null;
+      let showMesh = true;
+
+      /** Document px -> CSS px within the stage. */
+      function toScreen(p) {
+        const s = uiCanvas.clientWidth / SIZE;
+        return { x: p.x * s, y: p.y * s };
+      }
+      /** CSS px (from a pointer event) -> document px. */
+      function toDoc(ev) {
+        const r = uiCanvas.getBoundingClientRect();
+        const s = SIZE / r.width;
+        return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s };
+      }
+
+      function drawOverlay() {
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        const w = uiCanvas.clientWidth,
+          h = uiCanvas.clientHeight;
+        if (uiCanvas.width !== w * dpr || uiCanvas.height !== h * dpr) {
+          uiCanvas.width = w * dpr;
+          uiCanvas.height = h * dpr;
+        }
+        ui.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ui.clearRect(0, 0, w, h);
+        if (!showMesh) return;
+        const { cols, rows } = mesh;
+
+        /* The mesh lines follow the SURFACE, not straight segments between control
+         * points: a Catmull-Rom row bows between its points, and an overlay drawn
+         * with straight lines would claim a shape the artwork does not have. */
+        ui.lineWidth = 1;
+        ui.strokeStyle = "rgba(255,255,255,.85)";
+        const STEPS = 48;
+        for (let r = 0; r < rows; r++) {
+          ui.beginPath();
+          for (let i = 0; i <= STEPS; i++) {
+            const p = toScreen(evalSurface(mesh, i / STEPS, rows === 1 ? 0 : r / (rows - 1)));
+            i ? ui.lineTo(p.x, p.y) : ui.moveTo(p.x, p.y);
+          }
+          ui.stroke();
+        }
+        for (let c = 0; c < cols; c++) {
+          ui.beginPath();
+          for (let i = 0; i <= STEPS; i++) {
+            const p = toScreen(evalSurface(mesh, cols === 1 ? 0 : c / (cols - 1), i / STEPS));
+            i ? ui.lineTo(p.x, p.y) : ui.moveTo(p.x, p.y);
+          }
+          ui.stroke();
+        }
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++) {
+            const p = toScreen(mesh.points[r][c]);
+            const isSel = selected && selected.r === r && selected.c === c;
+            const isHov = hover && hover.r === r && hover.c === c;
+            ui.beginPath();
+            ui.arc(p.x, p.y, isSel ? 7 : 5.5, 0, Math.PI * 2);
+            ui.fillStyle = rgbToHex(mesh.points[r][c].color);
+            ui.fill();
+            ui.lineWidth = isSel ? 3 : 2;
+            ui.strokeStyle = isSel ? "#2563eb" : isHov ? "#ffffff" : "rgba(255,255,255,.9)";
+            ui.stroke();
+          }
+      }
+
+      function hit(d) {
+        const s = uiCanvas.clientWidth / SIZE,
+          R = 10 / s; // 10 CSS px, in document units
+        let best = null,
+          bd = R * R;
+        for (let r = 0; r < mesh.rows; r++)
+          for (let c = 0; c < mesh.cols; c++) {
+            const p = mesh.points[r][c],
+              dx = p.x - d.x,
+              dy = p.y - d.y,
+              q = dx * dx + dy * dy;
+            if (q <= bd) {
+              bd = q;
+              best = { r, c };
+            }
+          }
+        return best;
+      }
+
+      uiCanvas.addEventListener("pointerdown", (ev) => {
+        const d = toDoc(ev),
+          h2 = hit(d);
+        if (!h2) {
+          selected = null;
+          syncPanel();
+          drawOverlay();
+          return;
+        }
+        selected = { ...h2 };
+        const p = mesh.points[h2.r][h2.c];
+        // grab OFFSET, so the point does not jump to the cursor on grab
+        dragging = { ...h2, dx: p.x - d.x, dy: p.y - d.y };
+        uiCanvas.setPointerCapture(ev.pointerId);
+        syncPanel();
+        drawOverlay();
+      });
+      uiCanvas.addEventListener("pointermove", (ev) => {
+        const d = toDoc(ev);
+        if (dragging) {
+          const p = mesh.points[dragging.r][dragging.c];
+          p.x = d.x + dragging.dx;
+          p.y = d.y + dragging.dy;
+          uploadMesh();
+          drawGL();
+          drawOverlay();
+          syncPanel(true);
+          return;
+        }
+        const h2 = hit(d);
+        const changed = !!h2 !== !!hover || (h2 && hover && (h2.r !== hover.r || h2.c !== hover.c));
+        hover = h2;
+        uiCanvas.style.cursor = h2 ? "grab" : "default";
+        if (changed) drawOverlay();
+      });
+      uiCanvas.addEventListener("pointerup", (ev) => {
+        dragging = null;
+        uiCanvas.style.cursor = hover ? "grab" : "default";
+        try {
+          uiCanvas.releasePointerCapture(ev.pointerId);
+        } catch (_) {}
+      });
+      uiCanvas.addEventListener("pointercancel", () => {
+        dragging = null;
+      });
+
+      /* ---------- 6. UI controls ----------------------------------------- */
+      const $ = (id) => document.getElementById(id);
+
+      function syncPanel(duringDrag) {
+        const has = !!selected;
+        $("noSel").style.display = has ? "none" : "";
+        $("selBody").style.display = has ? "" : "none";
+        $("cols").value = mesh.cols;
+        $("rows").value = mesh.rows;
+        $("addCol").disabled = mesh.cols >= MAX_N;
+        $("delCol").disabled = mesh.cols <= MIN_N;
+        $("addRow").disabled = mesh.rows >= MAX_N;
+        $("delRow").disabled = mesh.rows <= MIN_N;
+        if (!has) return;
+        const p = mesh.points[selected.r][selected.c];
+        // while dragging, the fields follow the point; never the other way round
+        if (document.activeElement !== $("px") || duringDrag) $("px").value = Math.round(p.x);
+        if (document.activeElement !== $("py") || duringDrag) $("py").value = Math.round(p.y);
+        const hex = rgbToHex(p.color);
+        $("pc").value = hex;
+        if (document.activeElement !== $("phex")) $("phex").value = hex;
+        if (document.activeElement !== $("prgb"))
+          $("prgb").value = p.color.map(Math.round).join(", ");
+      }
+
+      function commitAll() {
+        uploadMesh();
+        drawGL();
+        drawOverlay();
+        syncPanel();
+      }
+
+      ["px", "py"].forEach((id, i) => {
+        $(id).addEventListener("input", () => {
+          if (!selected) return;
+          const v = parseFloat($(id).value);
+          if (!Number.isFinite(v)) return;
+          const p = mesh.points[selected.r][selected.c];
+          if (i === 0) p.x = v;
+          else p.y = v;
+          uploadMesh();
+          drawGL();
+          drawOverlay();
+        });
+      });
+      $("pc").addEventListener("input", () => {
+        if (!selected) return;
+        mesh.points[selected.r][selected.c].color = hexToRgb($("pc").value);
+        commitAll();
+      });
+      /* All three colour fields are views of ONE value, so every edit re-syncs the
+       * other two through syncPanel — which already leaves whichever field has focus
+       * alone, so a field never fights the person typing into it. Updating only the
+       * picker by hand, as this used to, left the RGB field showing the previous
+       * colour after a hex edit: three controls that are supposed to agree, and two
+       * of them silently did not. */
+      $("phex").addEventListener("input", () => {
+        if (!selected) return;
+        const v = $("phex").value.trim();
+        if (!/^#?[0-9a-fA-F]{6}$/.test(v)) return; // ignore half-typed values
+        mesh.points[selected.r][selected.c].color = hexToRgb(v);
+        uploadMesh();
+        drawGL();
+        drawOverlay();
+        syncPanel();
+      });
+      $("prgb").addEventListener("input", () => {
+        if (!selected) return;
+        const m = $("prgb").value.match(/(\d{1,3})\D+(\d{1,3})\D+(\d{1,3})/);
+        if (!m) return;
+        mesh.points[selected.r][selected.c].color = [1, 2, 3].map((i) => clampi(+m[i], 0, 255));
+        uploadMesh();
+        drawGL();
+        drawOverlay();
+        syncPanel();
+      });
+
+      function resize(cols, rows) {
+        cols = clampi(cols, MIN_N, MAX_N);
+        rows = clampi(rows, MIN_N, MAX_N);
+        if (cols === mesh.cols && rows === mesh.rows) return;
+        // one line at a time, so a jump in the number fields is just several inserts
+        while (mesh.cols < cols) mesh = insertCol(mesh);
+        while (mesh.cols > cols) mesh = removeCol(mesh);
+        while (mesh.rows < rows) mesh = insertRow(mesh);
+        while (mesh.rows > rows) mesh = removeRow(mesh);
+        if (selected) {
+          selected.r = clampi(selected.r, 0, mesh.rows - 1);
+          selected.c = clampi(selected.c, 0, mesh.cols - 1);
+        }
+        commitAll();
+      }
+      $("addCol").addEventListener("click", () => resize(mesh.cols + 1, mesh.rows));
+      $("delCol").addEventListener("click", () => resize(mesh.cols - 1, mesh.rows));
+      $("addRow").addEventListener("click", () => resize(mesh.cols, mesh.rows + 1));
+      $("delRow").addEventListener("click", () => resize(mesh.cols, mesh.rows - 1));
+      $("cols").addEventListener("change", () =>
+        resize(parseInt($("cols").value, 10) || mesh.cols, mesh.rows),
+      );
+      $("rows").addEventListener("change", () =>
+        resize(mesh.cols, parseInt($("rows").value, 10) || mesh.rows),
+      );
+      $("showMesh").addEventListener("change", (e) => {
+        showMesh = e.target.checked;
+        drawOverlay();
+      });
+
+      /* ---------- 7. Boot ------------------------------------------------- */
+      function fit() {
+        const wrap = document.getElementById("stageWrap");
+        const side = Math.max(240, Math.min(wrap.clientWidth - 32, wrap.clientHeight - 32));
+        const stage = document.getElementById("stage");
+        stage.style.width = side + "px";
+        stage.style.height = side + "px";
+        const dpr = Math.min(devicePixelRatio || 1, 2);
+        glCanvas.width = Math.round(side * dpr);
+        glCanvas.height = Math.round(side * dpr);
+        glCanvas.style.width = side + "px";
+        glCanvas.style.height = side + "px";
+        drawGL();
+        drawOverlay();
+      }
+      new ResizeObserver(fit).observe(document.getElementById("stageWrap"));
+      uploadMesh();
+      fit();
+      syncPanel();
+
+      /* A hook for automated checks: the lab is driven by tests the same way the
+       * editor is, so what is asserted is the real thing rather than a copy. */
+      window.__mesh = {
+        get mesh() {
+          return mesh;
+        },
+        set mesh(m) {
+          mesh = m;
+          commitAll();
+        },
+        evalSurface: (u, v) => evalSurface(mesh, u, v),
+        resample: (c, r) => resize(c, r),
+        select: (r, c) => {
+          selected = { r, c };
+          syncPanel();
+          drawOverlay();
+        },
+        get selected() {
+          return selected;
+        },
+        readPixel(u, v) {
+          /* A WebGL drawing buffer is cleared once it has been composited, so a read
+           * taken outside a draw returns nothing at all — which reads as "the whole
+           * surface is one flat colour" rather than as an error. Drawing first makes
+           * the hook answer the question actually being asked. */
+          drawGL();
+          const x = Math.round(u * (glCanvas.width - 1)),
+            y = Math.round((1 - v) * (glCanvas.height - 1));
+          const px = new Uint8Array(4);
+          gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          return [px[0], px[1], px[2]];
+        },
+        SIZE,
+        TESS,
+      };
+    </script>
+  </body>
+</html>
