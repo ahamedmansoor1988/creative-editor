@@ -137,7 +137,7 @@ const CAPABILITIES = [
     id: "mesh-gradient",
     match: /mesh|gradient mesh|colou?r field|blend surface|smooth colou?r|iridescent/i,
     inDoc: d => /"mesh":\{"on":true/.test(d),
-    doc: `A rect/ellipse/polygon/path may add "effects":{"mesh":{"on":true,"cols":2-10,"rows":2-10,"points":[{"x":0..1,"y":0..1,"color":[r,g,b]},...]}} which fills the shape with a MESH GRADIENT: a bicubic surface through a cols x rows net of coloured control points. points is row-major and must be exactly cols*rows long; x,y are fractions of the shape's box, so the mesh scales with it. Moving a point bends the colour field around it. Use for rich multi-directional colour that a linear or radial gradient cannot express. Omit \"points\" to get an even net in a default palette. Prefer a 4x4 or 5x5 net: it is what reads as a gradient, and a denser one costs more reply than the response budget allows.`,
+    doc: `A rect/ellipse/polygon/path may add "effects":{"mesh":{"on":true,"cols":2-10,"rows":2-10,"points":[{"x":0..1,"y":0..1,"color":[r,g,b]},...]}} which fills the shape with a MESH GRADIENT: a bicubic surface through a cols x rows net of coloured control points. points is row-major and must be exactly cols*rows long; x,y are fractions of the shape's box, so the mesh scales with it. Moving a point bends the colour field around it. Use for rich multi-directional colour that a linear or radial gradient cannot express. Omit "points" to get an even net in a default palette. Prefer a 4x4 or 5x5 net: it is what reads as a gradient, and a denser one costs more reply than the response budget allows.`,
   },
   {
     id: "light",
