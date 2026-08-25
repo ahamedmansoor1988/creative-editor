@@ -5,9 +5,25 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
+const crypto = require("crypto");
 
-const PORT = process.env.PORT || 8470;
+const PORT = Number(process.env.PORT) || 8470;
+/* Binds LOOPBACK unless told otherwise. The previous listen(PORT) bound
+ * 0.0.0.0, so anything on the network could reach the editor and, more to the
+ * point, /api/generate — which spends a real API key. Exposing it is now a
+ * deliberate act (HOST=0.0.0.0) rather than the default. */
+const HOST = String(process.env.HOST || ENV_HOST() || "127.0.0.1");
 const PUB = path.join(__dirname, "public");
+
+function ENV_HOST() {
+  try {
+    const m = fs.readFileSync(path.join(__dirname, ".env"), "utf8").match(/^HOST=(.*)$/m);
+    return m && m[1].trim();
+  } catch (_) {
+    return null;
+  }
+}
 
 /* ---- .env (KEY=value lines, no expansion) ---- */
 const ENV = {};
@@ -31,6 +47,32 @@ const GROQ_URL =
 // image need the one vision model Groq exposes on the free tier.
 const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "openai/gpt-oss-120b";
 const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.6-27b";
+
+/* ---- rate limit for /api/generate ----------------------------------------
+ * Fixed window, per client address. Deliberately small and dependency-free:
+ * the endpoint's cost is an external API key, so the point is a ceiling, not
+ * precise accounting. Buckets are pruned as they expire so a long-running
+ * process cannot accumulate one entry per address seen. */
+const RATE_MAX = Number(process.env.RATE_MAX || 20);
+const RATE_WINDOW_S = Number(process.env.RATE_WINDOW_S || 60);
+const _rate = new Map();
+function allowRequest(req) {
+  if (RATE_MAX <= 0) return true; // 0 disables the limit outright
+  const key =
+    (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.socket.remoteAddress ||
+    "unknown";
+  const now = Date.now();
+  const windowMs = RATE_WINDOW_S * 1000;
+  for (const [k, v] of _rate) if (now - v.start > windowMs) _rate.delete(k);
+  const b = _rate.get(key);
+  if (!b || now - b.start > windowMs) {
+    _rate.set(key, { start: now, n: 1 });
+    return true;
+  }
+  b.n += 1;
+  return b.n <= RATE_MAX;
+}
 
 const BASE_SCHEMA = `You generate EDITABLE vector designs for a canvas tool. Reply with ONLY JSON (no prose, no code fences) matching exactly:
 {"frame":{"name":string,"w":900,"h":600,"bg":"#hex","children":[...]}}
@@ -274,6 +316,20 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/generate") {
+    /* Every call here spends a real API key, and until now anything that could
+     * reach the port could spend it without limit. A fixed window per client
+     * is crude but it is the difference between a mistake costing a few cents
+     * and a loop costing the whole quota. Kept in memory on purpose: one
+     * process, no dependency, and a restart resetting the window is an
+     * acceptable trade for a single-tenant tool. */
+    if (!allowRequest(req)) {
+      res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(RATE_WINDOW_S) });
+      res.end(JSON.stringify({
+        error: "rate_limited",
+        message: `Too many generations. Limit is ${RATE_MAX} per ${RATE_WINDOW_S}s.`,
+      }));
+      return;
+    }
     let raw = "";
     req.on("data", c => { raw += c; if (raw.length > 15e6) req.destroy(); });
     req.on("end", async () => {
@@ -313,11 +369,33 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(PUB)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); res.end("not found"); return; }
-    res.writeHead(200, {
-      "Content-Type": MIME[path.extname(file)] || "application/octet-stream",
-      // dev server: always revalidate so UI changes are never masked by cache
-      "Cache-Control": "no-cache",
-    });
+    const type = MIME[path.extname(file)] || "application/octet-stream";
+    /* A strong ETag over the bytes, so an unchanged asset costs a 304 and no
+     * body at all on every load after the first. `no-cache` is kept — it means
+     * "revalidate", not "do not store" — so a UI change is never masked by a
+     * stale cache while repeat loads stop re-downloading 800K. */
+    const etag = '"' + crypto.createHash("sha1").update(buf).digest("base64").slice(0, 22) + '"';
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { ETag: etag, "Cache-Control": "no-cache" });
+      res.end();
+      return;
+    }
+    const head = { "Content-Type": type, "Cache-Control": "no-cache", ETag: etag, Vary: "Accept-Encoding" };
+    /* Text assets were served raw: app.js alone is 442K on the wire and 136K
+     * gzipped. Compression is a stdlib call and costs the app nothing — no
+     * build step, no dependency, no change to a single line of client code.
+     * Binary types (png/jpeg) are already compressed and are left alone. */
+    const compressible = /^(text\/|application\/(javascript|json)|image\/svg)/.test(type);
+    const accepts = String(req.headers["accept-encoding"] || "");
+    if (compressible && buf.length > 1024 && /\bgzip\b/.test(accepts)) {
+      zlib.gzip(buf, (gzErr, out) => {
+        if (gzErr) { res.writeHead(200, head); res.end(buf); return; }
+        res.writeHead(200, Object.assign({ "Content-Encoding": "gzip" }, head));
+        res.end(out);
+      });
+      return;
+    }
+    res.writeHead(200, head);
     res.end(buf);
   });
 });
@@ -325,9 +403,10 @@ const server = http.createServer((req, res) => {
  * module hands back the server so the test can bind an ephemeral port and close
  * it again — running `node server.js` behaves exactly as before. */
 if (require.main === module) {
-  server.listen(PORT, () =>
+  server.listen(PORT, HOST, () =>
     console.log(
-      `creative-editor on http://localhost:${PORT} (key: ${GROQ_KEY ? "loaded" : "MISSING"})`,
+      `creative-editor on http://${HOST}:${PORT} (key: ${GROQ_KEY ? "loaded" : "MISSING"})` +
+        (HOST === "127.0.0.1" ? "" : "  [reachable from the network]"),
     ),
   );
 }

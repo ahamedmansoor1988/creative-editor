@@ -301,3 +301,77 @@ describe("19/20 — provider capability endpoint", () => {
     expect(sys).toMatch(/linked duplicate copies/i);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Transport: compression, revalidation, and the ceiling on /api/generate.
+ * These are the difference between "runs on my machine" and "can face a
+ * network", so they are pinned rather than left to be re-measured by hand.
+ * ------------------------------------------------------------------ */
+
+describe("static assets — compression", () => {
+  it("gzips a text asset when the client accepts it", async () => {
+    // app.js is ~440K raw; served uncompressed it dominated every page load
+    const res = await fetch(baseUrl + "/app.js", { headers: { "Accept-Encoding": "gzip" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("serves it raw when the client does not accept gzip", async () => {
+    // fetch decodes transparently, so assert on the header the server chose
+    const res = await fetch(baseUrl + "/app.js", { headers: { "Accept-Encoding": "identity" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-encoding")).toBe(null);
+  });
+
+  it("varies on Accept-Encoding, so a proxy cannot serve the wrong body", async () => {
+    const res = await fetch(baseUrl + "/app.js");
+    expect(String(res.headers.get("vary") || "")).toMatch(/accept-encoding/i);
+  });
+
+  it("actually shrinks the payload", async () => {
+    const raw = await fetch(baseUrl + "/app.js", { headers: { "Accept-Encoding": "identity" } });
+    const rawLen = (await raw.arrayBuffer()).byteLength;
+    const gz = await fetch(baseUrl + "/app.js", { headers: { "Accept-Encoding": "gzip" } });
+    const gzLen = Number(gz.headers.get("content-length"));
+    expect(gzLen, "gzip must be materially smaller, not marginally").toBeLessThan(rawLen / 2);
+  });
+});
+
+describe("static assets — revalidation", () => {
+  it("offers an ETag", async () => {
+    const res = await fetch(baseUrl + "/app.js");
+    expect(res.headers.get("etag")).toBeTruthy();
+  });
+
+  it("answers 304 with no body when the ETag still matches", async () => {
+    const first = await fetch(baseUrl + "/app.js");
+    const etag = first.headers.get("etag");
+    const again = await fetch(baseUrl + "/app.js", { headers: { "If-None-Match": etag } });
+    expect(again.status).toBe(304);
+    expect((await again.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("still revalidates rather than caching blind", async () => {
+    // no-cache means "ask first", not "do not store" — a UI change must never
+    // be masked by a stale asset
+    const res = await fetch(baseUrl + "/app.js");
+    expect(String(res.headers.get("cache-control") || "")).toMatch(/no-cache/);
+  });
+});
+
+describe("/api/generate — rate limit", () => {
+  it("refuses past the ceiling, and says so in a way a client can act on", async () => {
+    // the endpoint spends a real API key; without a ceiling a loop spends the
+    // whole quota. RATE_MAX defaults to 20/60s, so this walks past it.
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    let limited = null;
+    for (let i = 0; i < 40 && !limited; i++) {
+      const { res, json } = await post("/api/generate", { prompt: "x" });
+      if (res.status === 429 && json && json.error === "rate_limited") limited = { res, json };
+    }
+    expect(limited, "the limiter never fired within 40 requests").toBeTruthy();
+    expect(limited.res.headers.get("retry-after"), "a 429 must say when to retry").toBeTruthy();
+    expect(limited.json.message).toMatch(/per \d+s/);
+  });
+});
