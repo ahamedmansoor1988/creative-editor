@@ -10,7 +10,7 @@
  * document. The tests below therefore lean on the panel: an effect you cannot
  * operate is not shipped, whatever its renderer does.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadEditor } from "./helpers/load-editor.js";
 
 let editor;
@@ -60,6 +60,16 @@ function drive(el, value, type) {
 beforeAll(() => {
   ({ editor } = loadEditor());
   editor.paintCacheOff = true;
+  /* Whether the stripe is OFFERED and whether its panel WORKS are separate
+   * questions. It is currently withheld — it is the effect slated for
+   * retirement in favour of fractal glass — but the panel it was missing now
+   * exists and must keep working, so these tests promote it for their own
+   * duration rather than depending on the shipping decision. */
+  window.FxStack.READY.add("gradient");
+});
+
+afterAll(() => {
+  window.FxStack.READY.delete("gradient");
 });
 
 describe("gradient — the panel exists at all", () => {

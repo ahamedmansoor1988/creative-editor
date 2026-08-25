@@ -111,7 +111,11 @@
     // promoted effects go here, one per fix
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
-    "gradient", // QA'd: panel BUILT (it had none), clamps, ramps. See tests/gradient.test.js
+    /* "gradient" (the stripe engine) is QA'd and now HAS the panel it never
+     * had — see tests/gradient.test.js — but it is not being offered: it is
+     * the effect slated for retirement once fractal glass replaces it, so
+     * shipping it now would put a control in front of users that is meant to
+     * go away. Promoting it is this one line when that decision settles. */
   ]);
   let DEV = new Set();
   try {
