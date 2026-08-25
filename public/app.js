@@ -1436,14 +1436,86 @@ function mixHex(c1,c2,t){
   const ch=(sh)=>Math.round((((a>>sh)&255)+((((b2>>sh)&255)-((a>>sh)&255))*t)));
   return '#'+[16,8,0].map(sh=>ch(sh).toString(16).padStart(2,'0')).join('');
 }
-function addStops(g,stops){
+/* §4.5 gradient interpolation space.
+ *
+ * `space` has been in the model and the schema since gradients landed, and
+ * nothing ever read it: addStops did not take it and paintStyle did not pass
+ * it, so every gradient interpolated in sRGB whatever the document said. A
+ * field that normalises, serialises and does nothing is worse than a missing
+ * one, because a document can claim a rendering it never gets.
+ *
+ * Canvas only ever interpolates between stops in sRGB, so working in another
+ * space means SAMPLING the ramp there and emitting the results as ordinary
+ * stops. sRGB blending is the reason a blue-to-yellow ramp passes through a
+ * dead grey: the midpoint is dark in the middle of two bright colours. Linear
+ * light fixes the brightness; OKLab fixes hue and lightness together, which is
+ * what perceptual uniformity buys.
+ *
+ * OKLab is Björn Ottosson's, published to the public domain. */
+const _srgbToLin=v=>(v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4));
+const _linToSrgb=v=>(v<=0.0031308?v*12.92:1.055*Math.pow(v,1/2.4)-0.055);
+function _hexToRgb(h){
+  const n=parseInt(String(h).slice(1),16);
+  return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255];
+}
+function _rgbToHex(r){
+  return '#'+r.map(v=>Math.round(clamp(v,0,1)*255).toString(16).padStart(2,'0')).join('');
+}
+function _linToOklab([r,g,b]){
+  const l=Math.cbrt(0.4122214708*r+0.5363325363*g+0.0514459929*b);
+  const m=Math.cbrt(0.2119034982*r+0.6806995451*g+0.1073969566*b);
+  const s=Math.cbrt(0.0883024619*r+0.2817188376*g+0.6299787005*b);
+  return [0.2104542553*l+0.7936177850*m-0.0040720468*s,
+          1.9779984951*l-2.4285922050*m+0.4505937099*s,
+          0.0259040371*l+0.7827717662*m-0.8086757660*s];
+}
+function _oklabToLin([L,A,B]){
+  const l=(L+0.3963377774*A+0.2158037573*B)**3;
+  const m=(L-0.1055613458*A-0.0638541728*B)**3;
+  const s=(L-0.0894841775*A-1.2914855480*B)**3;
+  return [ 4.0767416621*l-3.3077115913*m+0.2309699292*s,
+          -1.2684380046*l+2.6097574011*m-0.3413193965*s,
+          -0.0041960863*l-0.7034186147*m+1.7076147010*s];
+}
+/** Blend two hex colours at t, working in `space`. */
+function mixIn(c1,c2,t,space){
+  if(space!=='linear'&&space!=='oklab') return mixHex(c1,c2,t);
+  const a=_hexToRgb(c1).map(_srgbToLin), b=_hexToRgb(c2).map(_srgbToLin);
+  if(space==='linear')
+    return _rgbToHex(a.map((v,i)=>v+(b[i]-v)*t).map(_linToSrgb));
+  const A=_linToOklab(a), B=_linToOklab(b);
+  return _rgbToHex(_oklabToLin(A.map((v,i)=>v+(B[i]-v)*t)).map(_linToSrgb));
+}
+/* How many stops one segment is sampled into for a non-sRGB space. Eight is
+ * past the point where a further doubling is visible on a full-width ramp, and
+ * well under the cost of anything the cache would notice. */
+const GRAD_SAMPLES=8;
+function addStops(g,stops,space){
   const S=[...stops].sort((x,y)=>x.pos-y.pos);
+  const perceptual=space==='linear'||space==='oklab';
   S.forEach((s,i)=>{
     g.addColorStop(clamp(s.pos,0,1),stopColor(s));
     const nx=S[i+1];
     // midpoint: where the 50% blend between this stop and the next lands
     const m=s.mid===undefined?0.5:clamp(+s.mid,0.05,0.95);
-    if(nx&&Math.abs(m-0.5)>0.01){
+    if(!nx) return;
+    if(perceptual){
+      /* Sample the segment in the working space. The midpoint bends WHERE the
+       * halfway blend lands, so it is applied to the sample parameter rather
+       * than to the colour — otherwise a shifted midpoint and a perceptual
+       * space would fight over the same stop. */
+      const o1=s.opacity===undefined?1:s.opacity, o2=nx.opacity===undefined?1:nx.opacity;
+      for(let k=1;k<GRAD_SAMPLES;k++){
+        const u=k/GRAD_SAMPLES;
+        // remap u through the midpoint so 0.5 lands at m
+        const t=u<=0.5?(u/0.5)*m:m+((u-0.5)/0.5)*(1-m);
+        const p=clamp(s.pos+(nx.pos-s.pos)*u,0,1);
+        g.addColorStop(p,stopColor({color:mixIn(s.color,nx.color,t,space),
+          opacity:o1+(o2-o1)*t}));
+      }
+      return;
+    }
+    if(Math.abs(m-0.5)>0.01){
       const p=clamp(s.pos+(nx.pos-s.pos)*m,0,1);
       g.addColorStop(p,stopColor({color:mixHex(s.color,nx.color,0.5),
         opacity:((s.opacity===undefined?1:s.opacity)+(nx.opacity===undefined?1:nx.opacity))/2}));
@@ -1470,20 +1542,20 @@ function paintStyle(c,f,b){
     const r0=Math.min(clamp(+f.taper||0,0,0.95)*r,room);
     if(Math.abs(asp-1)<0.01){
       g=c.createRadialGradient(fx,fy,r0,cx,cy,r);
-      addStops(g,f.stops); return g;
+      addStops(g,f.stops,f.space); return g;
     }
     // elliptical: scale the space about the centre, build a circular gradient
     c.save();
     c.translate(cx,cy); c.scale(1,1/asp); c.translate(-cx,-cy);
     g=c.createRadialGradient(fx,(fy-cy)*asp+cy,r0,cx,cy,r);
-    addStops(g,f.stops);
+    addStops(g,f.stops,f.space);
     c.__ellipticalGrad=true;              // caller restores after painting
     return g;
   }
   const a=(f.angle||0)*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
   const cx=b.x+b.w/2, cy=b.y+b.h/2, ext=Math.abs(dx)*b.w/2+Math.abs(dy)*b.h/2;
   const g=c.createLinearGradient(cx-dx*ext,cy-dy*ext,cx+dx*ext,cy+dy*ext);
-  addStops(g,f.stops);
+  addStops(g,f.stops,f.space);
   return g;
 }
 /* Back-compat shim: older code paths (blob flood, engines) still ask for a
@@ -4806,6 +4878,15 @@ function buildFxSection(obj,page,add,body){
         if(f.kind==='solid'){
           add(`<label class="slider">Color <input type="color" class="apColor" data-i="${fi}" value="${f.color}"></label>`);
         }else{
+          /* Interpolation space applies to both gradient kinds, so it sits
+           * above the kind-specific controls. It was in the model from the
+           * start and had no control and no renderer — a document could ask
+           * for OKLab and silently get sRGB. */
+          add(`<label class="slider">Blend space<select class="apSpace" data-i="${fi}">
+            <option value="srgb">sRGB (classic)</option>
+            <option value="linear">Linear light</option>
+            <option value="oklab">OKLab (perceptual)</option></select></label>`);
+          body.querySelectorAll('.apSpace')[fi].value=f.space||'srgb';
           if(f.kind==='linear'){
             add(`<label class="slider">Angle <span id="apAng${fi}">${Math.round(f.angle)}°</span>
               <input type="range" class="apAngle" data-i="${fi}" min="0" max="359" value="${Math.round(f.angle)}"></label>`);
@@ -4917,6 +4998,7 @@ function buildFxSection(obj,page,add,body){
       each('apOn','change',(f,e)=>f.on=e.target.checked);
       each('apKind','change',(f,e)=>{ f.kind=e.target.value; },true);
       each('apColor','input',(f,e)=>f.color=e.target.value);
+      each('apSpace','change',(f,e)=>{ f.space=e.target.value; },true);
       each('apAngle','input',(f,e,el)=>{ f.angle=+e.target.value; const sp=$('apAng'+I(el)); if(sp) sp.textContent=e.target.value+'°'; });
       each('apFx','input',(f,e)=>f.fx=+e.target.value/100);
       each('apFy','input',(f,e)=>f.fy=+e.target.value/100);

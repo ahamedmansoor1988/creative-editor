@@ -16,6 +16,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "..", "..");
 
 /** A 2D context stub that swallows every draw call and records the calls. */
+/** A gradient that remembers the stops added to it. */
+function makeGradientStub(kind, args, ctx) {
+  const g = {
+    kind,
+    args,
+    stops: [],
+    addColorStop(pos, color) {
+      g.stops.push({ pos, color });
+    },
+  };
+  ctx.gradients.push(g);
+  ctx.lastGradient = g;
+  return g;
+}
+
 /** The context properties app.js sets and therefore the ones save/restore
  *  must unwind. Anything outside this list is not modelled. */
 const STATE_KEYS = [
@@ -36,6 +51,8 @@ const STATE_KEYS = [
 export function makeCtxStub() {
   const calls = [];
   const stack = [];
+  /** Every gradient built this session, newest last. */
+  const gradients = [];
   const noop =
     (name) =>
     (...args) => {
@@ -43,6 +60,8 @@ export function makeCtxStub() {
     };
   const ctx = {
     calls,
+    gradients,
+    lastGradient: null,
     canvas: null,
     // state
     fillStyle: "",
@@ -104,8 +123,12 @@ export function makeCtxStub() {
     getLineDash: () => [],
     // measuring / factories — must return plausible objects, not undefined
     measureText: (t) => ({ width: String(t).length * 8 }),
-    createLinearGradient: () => ({ addColorStop() {} }),
-    createRadialGradient: () => ({ addColorStop() {} }),
+    /* Gradients used to be black holes: addColorStop discarded everything, so
+     * nothing about a ramp could be asserted — which is how `space` sat in the
+     * model unimplemented without a test noticing. They record their stops
+     * now, and the most recent one is kept on ctx.lastGradient. */
+    createLinearGradient: (...args) => makeGradientStub("linear", args, ctx),
+    createRadialGradient: (...args) => makeGradientStub("radial", args, ctx),
     createPattern: () => ({}),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
     getImageData: (x, y, w, h) => ({
