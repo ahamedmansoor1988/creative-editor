@@ -5692,16 +5692,33 @@ function buildFxSection(obj,page,add,body){
         add(`<label class="slider">${label} <span id="${id}V">${val}</span>
           <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
       };
-      sl('shX','Offset X',-60,60,sh.x); sl('shY','Offset Y',-60,60,sh.y);
-      sl('shBlur','Blur',0,120,sh.blur); sl('shA','Opacity %',0,100,Math.round(sh.alpha*100));
+      /* Ranges match normalizeDoc's clamps exactly. They did not: offset ran
+       * to +/-60 against a clamp of +/-100 and blur to 120 against 150, so a
+       * third of each documented range was unreachable from the panel and a
+       * document carrying a larger value could not be edited back down
+       * without the slider silently re-clamping it. */
+      sl('shX','Offset X',-100,100,sh.x); sl('shY','Offset Y',-100,100,sh.y);
+      sl('shBlur','Blur',0,150,sh.blur);
+      // §4.9 spread thickens the caster so the shadow grows WITHOUT blurring.
+      // It is in the model, it is clamped, the draw path strokes with it — it
+      // simply had no control, so it could only ever be 0.
+      sl('shSpread','Spread',0,100,sh.spread);
+      sl('shA','Opacity %',0,100,Math.round(sh.alpha*100));
       const wire=(id,f)=>{
         $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=e.target.value; render(); });
         $(id).addEventListener('change',()=>pushHistory());
       };
-      wire('shX',v=>sh.x=v); wire('shY',v=>sh.y=v); wire('shBlur',v=>sh.blur=v); wire('shA',v=>sh.alpha=v/100);
+      wire('shX',v=>sh.x=v); wire('shY',v=>sh.y=v); wire('shBlur',v=>sh.blur=v);
+      wire('shSpread',v=>sh.spread=v); wire('shA',v=>sh.alpha=v/100);
       add(`<label class="slider">Color <input type="color" id="shC" value="${sh.color}"></label>`);
       $('shC').addEventListener('input',e=>{ sh.color=e.target.value; render(); });
       $('shC').addEventListener('change',()=>pushHistory());
+      // Blend was likewise modelled, clamped and honoured by the draw path
+      // with no way to set it.
+      add(`<label class="slider">Blend<select id="shBlend">`+
+        BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>`);
+      $('shBlend').value=sh.blend||'normal';
+      $('shBlend').addEventListener('change',e=>{ sh.blend=e.target.value; pushHistory(); render(); });
     }
   }
 

@@ -109,6 +109,7 @@
    * a commit, which is the reviewable record of "this one is fixed". */
   const READY = new Set([
     // promoted effects go here, one per fix
+    "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
   ]);
   let DEV = new Set();
   try {

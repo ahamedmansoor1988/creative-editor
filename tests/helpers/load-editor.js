@@ -16,8 +16,26 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "..", "..");
 
 /** A 2D context stub that swallows every draw call and records the calls. */
+/** The context properties app.js sets and therefore the ones save/restore
+ *  must unwind. Anything outside this list is not modelled. */
+const STATE_KEYS = [
+  "fillStyle",
+  "strokeStyle",
+  "lineWidth",
+  "font",
+  "globalAlpha",
+  "globalCompositeOperation",
+  "shadowColor",
+  "shadowBlur",
+  "shadowOffsetX",
+  "shadowOffsetY",
+  "textBaseline",
+  "textAlign",
+];
+
 export function makeCtxStub() {
   const calls = [];
+  const stack = [];
   const noop =
     (name) =>
     (...args) => {
@@ -40,8 +58,21 @@ export function makeCtxStub() {
     textBaseline: "",
     textAlign: "",
     // geometry / drawing
-    save: noop("save"),
-    restore: noop("restore"),
+    /* save/restore were no-ops, so canvas state never unwound: whatever an
+     * effect set stayed set for every later draw in the frame. That makes any
+     * assertion of the form "what state was in force when this was painted?"
+     * meaningless — a leftover shadow reads exactly like a configured one.
+     * The effect QA pass depends on telling those apart, so the stub now
+     * models the state stack for the properties app.js actually sets. */
+    save: (...args) => {
+      calls.push({ name: "save", args });
+      stack.push(STATE_KEYS.map((k) => ctx[k]));
+    },
+    restore: (...args) => {
+      calls.push({ name: "restore", args });
+      const prev = stack.pop();
+      if (prev) STATE_KEYS.forEach((k, i) => (ctx[k] = prev[i]));
+    },
     beginPath: noop("beginPath"),
     closePath: noop("closePath"),
     moveTo: noop("moveTo"),
