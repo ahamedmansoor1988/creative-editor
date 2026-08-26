@@ -36,6 +36,12 @@ declare global {
        * cannot reach on its own. */
       get(w: number, h: number, opts?: any): any;
     };
+    /* The pixel-slot filter bank. Every pixel effect goes through apply() by
+     * name, which is what makes that slot observable under jsdom — the calls
+     * are the passes and their order is the stack order. */
+    Filters?: {
+      apply(type: string, layer: any, params: any): any;
+    };
     GradientEngine?: {
       MAX_STOPS: number;
       PRESETS: { name: string; g1: any[]; g2: any[] }[];

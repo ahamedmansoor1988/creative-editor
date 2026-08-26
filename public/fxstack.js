@@ -117,6 +117,15 @@
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
     "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
+    /* The three the layered-reference flow composes with: a mesh underneath,
+     * motion blur over it, grain or noise on top. Their engines were never
+     * dead — the analyser already emitted all three and the draw paths ran
+     * them — but with no panel a value the model chose could not afterwards be
+     * changed by hand, which is an engine you can trigger and not steer.
+     * See tests/pixel-effects.test.js. */
+    "blur", // incl. directional, which is the motion blur
+    "grain",
+    "noise",
     /* "gradient" (the stripe engine) is QA'd and now HAS the panel it never
      * had — see tests/gradient.test.js — but it is not being offered: it is
      * the effect slated for retirement once fractal glass replaces it, so

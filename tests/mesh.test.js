@@ -221,7 +221,12 @@ describe("applying an analysed recipe", () => {
     expect(o.effects.blur.radius).toBe(200);
     expect(o.effects.grain.amount).toBe(1);
     expect(o.effects.noise.amount).toBe(0);
-    expect(o.effects.noise.scale).toBe(8);
+    /* 32, the model's own ceiling. This asserted 8 — applyRecipe had a
+     * narrower clamp of its own, so the analyser could not reach a coarse
+     * grain and any value it set below 1 was quietly moved by normalizeDoc
+     * afterwards. The assertion was pinning the mismatch in place rather than
+     * catching it. */
+    expect(o.effects.noise.scale).toBe(32);
   });
 
   it("leaves alone what the recipe does not mention", () => {

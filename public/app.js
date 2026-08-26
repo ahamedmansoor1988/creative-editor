@@ -4422,7 +4422,11 @@ function applyRecipe(obj,recipe){
     if(fx.type==='noise'&&E.noise){
       E.noise.amount=clamp(+fx.amount||0,0,1);
       E.noise.mono=fx.mono!==false;
-      E.noise.scale=clamp(+fx.scale||1,0.2,8);
+      /* 1..32 is the model's range. This read 0.2..8, so the analyser could
+       * neither reach a coarse grain nor set a value below 1 without
+       * normalizeDoc silently moving it afterwards. A second door into one
+       * model has to use that model's clamps. */
+      E.noise.scale=clamp(+fx.scale||1,1,32);
       if(E.noise.amount>0) applied.push('noise');
     }
   });
@@ -5572,7 +5576,12 @@ function buildFxSection(obj,page,add,body){
       ['num','amount','Amount',0,1,0.01],
       ['num','scale','Grain size',1,32,1],
       ['chk','mono','Monochrome'],
-      ['num','seed','Seed',1,9999,1],
+      /* 1..99999 to match the clamp. It read 9999, so a seed arriving from a
+       * saved file or the analyser above that could not be returned to by
+       * hand — the same narrower-panel-than-model fault the shadow panel
+       * shipped with. The other pixel panels still have it, and are gated off
+       * until their own QA pass. */
+      ['num','seed','Seed',1,99999,1],
     ],'Seeded, so a document looks identical on reload.'],
   };
   if(PIXEL_PANELS[page]){
