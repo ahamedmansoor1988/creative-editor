@@ -513,11 +513,11 @@ describe("per-node channels", () => {
     expect(MG().evalAt(pts, 4, 4, pts[7].x, pts[7].y).glow).toBeCloseTo(0, 3);
   });
 
-  it("offers a slider for every channel the shader reads", () => {
-    /* The panel hides its controls when the engine cannot run — asserted a few
-     * describes up, and correct: dead controls are worse than none. So the
-     * engine is stubbed live here, or this checks the unavailable branch and
-     * passes whatever the real panel does. */
+  it("offers the two channels the panel is meant to show", () => {
+    /* Eight of the ten are WITHHELD rather than removed — the shader still
+     * reads all ten, documents carrying them still render them, and their
+     * tests still run. Ten sliders under one node was more inspector than the
+     * effect earns. ?show=nodeFx puts them back. */
     const MGm = window.MeshGradient;
     const oldAvail = MGm.available,
       oldGet = MGm.get;
@@ -529,14 +529,27 @@ describe("per-node channels", () => {
     const head = document.querySelector('#fxBody [data-fxsect="Mesh"]');
     if (head && head.getAttribute("aria-expanded") !== "true")
       /** @type {HTMLElement} */ (head).click();
-    for (const f of MG().NODE_FX) {
-      expect(
-        document.getElementById("mshfx_" + f.key),
-        `no control for ${f.key}; the shader reads it either way`,
-      ).toBeTruthy();
+
+    for (const key of ["metallic", "glow"]) {
+      expect(document.getElementById("mshfx_" + key), `${key} should be offered`).toBeTruthy();
+    }
+    for (const key of ["noise", "noiseSize", "blur", "falloff", "smooth", "chromatic"]) {
+      expect(document.getElementById("mshfx_" + key), `${key} should be withheld`).toBeFalsy();
     }
     MGm.available = oldAvail;
     MGm.get = oldGet;
+  });
+
+  it("keeps every withheld channel alive in the model", () => {
+    /* The point of withholding rather than deleting: a value already set on a
+     * node has to survive, or hiding a control would silently change the
+     * artwork it controls. */
+    const pts = MG().defaultPoints(2, 2);
+    pts[0].blur = 0.7;
+    pts[0].noise = 0.4;
+    pts[0].chromatic = 0.3;
+    const m = shapeWithMesh({ cols: 2, rows: 2, points: pts }).effects.mesh;
+    expect(m.points[0]).toMatchObject({ blur: 0.7, noise: 0.4, chromatic: 0.3 });
   });
 });
 

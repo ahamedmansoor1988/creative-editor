@@ -84,12 +84,21 @@
     centerY: 0,
 
     rotation: 0, // degrees, applied to the anchor field only
-    concentration: 3.2, // kappa in the vMF weighting
+    /* kappa. Started at 3.2, which was far too broad: with eight anchors a
+     * 45-degree neighbour still weighed 0.39 of the peak, so every fragment
+     * was a blend of ALL of them and the field converged on their average —
+     * grey. The brief wants the perimeter to carry the chromatic energy, and
+     * that needs each anchor to own its own arc. At 9 a neighbour weighs
+     * 0.072 and the opposite side 0.0001: distinct regions, still seamless. */
+    concentration: 9,
     intensity: 1.0, // spectral saturation multiplier
 
     centerColor: "#ffe0d6", // warm pearl; never pure white
-    centerStrength: 0.62,
-    centerFalloff: 2.4, // gamma in center = z^gamma
+    centerStrength: 0.58,
+    /* gamma in center = z^gamma. z stays high across most of the disc — it is
+     * still 0.87 at half radius — so a low gamma spreads the wash over nearly
+     * the whole orb and pales the colour it is supposed to sit inside. */
+    centerFalloff: 3.2,
 
     fresnelStrength: 0.55,
     fresnelPower: 2.6,

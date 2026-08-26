@@ -62,9 +62,17 @@
         position: relative;
         line-height: 0;
       }
+      /* The stage is narrower than the render, so the canvas is fitted by CSS
+         rather than shrunk in pixels — the engine keeps rendering at full
+         resolution, which is the property test 6 exists to protect. Handles
+         are positioned in percentages, so they follow the fit automatically. */
       canvas {
         display: block;
         border-radius: 3px;
+        max-width: min(78vw, 640px);
+        max-height: 92vh;
+        width: auto;
+        height: auto;
       }
       #handles {
         position: absolute;

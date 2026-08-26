@@ -4092,7 +4092,13 @@ function syncStyles(){
  * so a document that already carries the property keeps rendering it and
  * nothing has to be rewritten to bring the control back. `?show=<key>` opens
  * one for a session, the same door ?fx= opens for an effect. */
-const SHOW_CONTROL={cornerStyle:false, pattern:false, multiFill:false, gradientAspect:false};
+const SHOW_CONTROL={cornerStyle:false, pattern:false, multiFill:false, gradientAspect:false,
+  /* The per-node mesh channels beyond metallic and glow. Withheld from the
+   * panel, NOT removed: the shader still reads all ten, documents that carry
+   * them still render them, and their tests still run. Ten sliders under one
+   * node was more inspector than the effect earns — open with ?show=nodeFx to
+   * get them back. */
+  nodeFx:false};
 try{
   new URLSearchParams(location.search).getAll('show')
     .flatMap(v=>v.split(','))
@@ -6468,7 +6474,12 @@ function buildFxSection(obj,page,add,body){
          * repeated here — the shader reads that array as its channel layout,
          * so a panel written from the same array cannot drift out of step with
          * what is actually drawn. */
-        const CH=(window.MeshGradient&&window.MeshGradient.NODE_FX)||[];
+        /* Two channels, unless the rest are unlocked. Filtered at the panel so
+         * a node keeps whatever the others were set to — hiding a control must
+         * not silently change the artwork it controls. */
+        const NODE_FX_SHOWN=['metallic','glow'];
+        const ALL=(window.MeshGradient&&window.MeshGradient.NODE_FX)||[];
+        const CH=SHOW_CONTROL.nodeFx?ALL:ALL.filter(f=>NODE_FX_SHOWN.includes(f.key));
         if(CH.length){
           add(`<div class="pSect">This node</div>`);
           CH.forEach(f=>{
@@ -6483,7 +6494,7 @@ function buildFxSection(obj,page,add,body){
             });
             el.addEventListener('change',()=>pushHistory());
           });
-          add(`<div class="fxHint">These belong to the selected node, not the shape: each one is interpolated across the net the same way its colour is, so it fades out toward its neighbours. Falloff and smoothness read as neutral at 50% and 100%.</div>`);
+          add(`<div class="fxHint">These belong to the selected node, not the shape: each one is interpolated across the net the same way its colour is, so it fades out toward its neighbours.</div>`);
         }
       }
       /* Fit the net to a reference image. This is raster-to-vector inference,
