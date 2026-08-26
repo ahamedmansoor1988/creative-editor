@@ -63,10 +63,10 @@ declare global {
       hash2(x: number, y: number, seed: number): number;
       grain3(x: number, y: number, seed: number): number;
     };
-    /* The spectral orb engine. Loaded in tests for its plain-JS half — the
+    /* The spectral field engine. Loaded in tests for its plain-JS half — the
      * settings model and its clamps — while available() reports false, since
      * jsdom has no WebGL2. */
-    SpectralOrb?: {
+    SpectralField?: {
       ANCHOR_LIMIT: number;
       DEFAULTS(): any;
       DEFAULT_ANCHORS(): any[];

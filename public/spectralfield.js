@@ -1,4 +1,9 @@
-/* Spectral Orb — a spectral colour field wrapped around a virtual sphere.
+/* Spectral Field — a chromatic colour field over a virtual sphere.
+ *
+ * NAMED FOR WHAT IT IS, not for the shape it started in. It was Spectral Field
+ * while it only ever filled a disc; the surface is a directional colour field
+ * and nothing about it requires a circular outline, so the name would have
+ * fought the next change rather than describing this one.
  *
  * THE PIPELINE IS THE FEATURE. Not a circle containing gradients: a 2D disc is
  * reconstructed as a unit sphere, and every colour decision is made against
@@ -31,9 +36,9 @@
 (function () {
   "use strict";
 
-  /* ---- SpectralOrbModel -------------------------------------------------
+  /* ---- SpectralFieldModel -------------------------------------------------
    * The settings object, its limits, and the defaults. Every value here is a
-   * plain number or array so a whole orb round-trips through JSON.           */
+   * plain number or array so a whole field round-trips through JSON.           */
 
   const ANCHOR_LIMIT = 12; // the shader's uniform arrays are sized to this
 
@@ -97,7 +102,7 @@
     centerStrength: 0.58,
     /* gamma in center = z^gamma. z stays high across most of the disc — it is
      * still 0.87 at half radius — so a low gamma spreads the wash over nearly
-     * the whole orb and pales the colour it is supposed to sit inside. */
+     * the whole shape and pales the colour it is supposed to sit inside. */
     centerFalloff: 3.2,
 
     fresnelStrength: 0.55,
@@ -116,7 +121,7 @@
 
   /** Repair a settings object arriving from a saved file, a preset, or a
    *  panel. Everything is clamped rather than trusted, on the same grounds as
-   *  the mesh net: a bad value should give a poor orb, never a broken one. */
+   *  the mesh net: a bad value should give a poor field, never a broken one. */
   function normalize(S) {
     const s = Object.assign(DEFAULTS(), S || {});
     s.radius = clampf(+s.radius, 0.05, 1);
@@ -450,7 +455,7 @@ void main(){
   }
 
   /* One tile per (size, settings). Same bargain as the other engines: the
-   * document is static, so an orb that has not changed is not re-traced. */
+   * document is static, so a field that has not changed is not re-traced. */
   const cache = new Map();
   const CACHE_MAX = 12;
   function get(W, H, settings) {
@@ -500,7 +505,7 @@ void main(){
     return rotateZ(d, -S.rotation);
   }
 
-  window.SpectralOrb = {
+  window.SpectralField = {
     ANCHOR_LIMIT,
     DEFAULTS,
     DEFAULT_ANCHORS,

@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Spectral Orb — lab</title>
+    <title>Spectral Field — lab</title>
     <!--
-      A standalone bench for the Spectral Orb engine, built before the effect
+      A standalone bench for the Spectral Field engine, built before the effect
       goes anywhere near the editor. The mesh gradient was developed the same
       way and it is why its acceptance tests could be run against a framebuffer
       rather than argued about: this page owns the engine outright, so every
@@ -208,13 +208,13 @@
   <body>
     <div id="stage">
       <div id="wrap">
-        <canvas id="orb" width="640" height="640"></canvas>
+        <canvas id="field" width="640" height="640"></canvas>
         <div id="handles"></div>
       </div>
     </div>
 
     <aside>
-      <h1>Spectral Orb</h1>
+      <h1>Spectral Field</h1>
       <div class="sub">v1 — engine bench</div>
 
       <div class="sect">Geometry</div>
@@ -275,7 +275,7 @@
       /></label>
 
       <div class="sect">Anchors</div>
-      <div class="note">Drag a handle on the orb to move its colour across the sphere.</div>
+      <div class="note">Drag a handle on the field to move its colour across the sphere.</div>
       <div class="chips" id="chips"></div>
       <label class="sl">Anchor colour<input type="color" id="anchorColor" /></label>
       <label class="sl"
@@ -292,10 +292,10 @@
       <div id="tests"></div>
     </aside>
 
-    <script src="spectralorb.js"></script>
+    <script src="spectralfield.js"></script>
     <script>
-      const SO = window.SpectralOrb;
-      const cv = document.getElementById("orb");
+      const SO = window.SpectralField;
+      const cv = document.getElementById("field");
       const ctx = cv.getContext("2d");
       const handlesEl = document.getElementById("handles");
       let S = SO.DEFAULTS();
@@ -604,7 +604,7 @@
           say(
             "5 rim",
             worksOff && centreDiff < edgeDiff * 0.2 && edgeDiff > 200,
-            `orb renders with rim off (alpha ${mid(off)[3]}); centre change ${centreDiff}, edge change ${edgeDiff}`,
+            `field renders with rim off (alpha ${mid(off)[3]}); centre change ${centreDiff}, edge change ${edgeDiff}`,
           );
         }
 
@@ -644,7 +644,7 @@
 
       if (!SO.available()) {
         document.getElementById("tests").innerHTML =
-          '<span class="bad">WebGL2 unavailable — the orb cannot render here.</span>';
+          '<span class="bad">WebGL2 unavailable — the spectral field cannot render here.</span>';
       } else {
         bindControls();
         syncControls();
