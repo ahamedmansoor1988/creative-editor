@@ -200,10 +200,20 @@ const CAPABILITIES = [
     doc: `A rect/ellipse may add "effects":{"grain":{"amount":0..1}} for film-grain texture on its fill.`,
   },
 ];
-function buildSystem(prompt, currentDoc) {
+/* Capabilities reach the model by matching the PROMPT, which fails the moment
+ * the request does not name what it needs. "Generate the attached reference"
+ * matches nothing, so the mesh gradient — the one capability that can actually
+ * reproduce a colour field — was never described to the model, and it built
+ * the thing it does know: a stack of translucent ellipses.
+ *
+ * `force` lets the caller add what the REQUEST implies rather than what its
+ * words happen to contain. A colour-field attachment implies a mesh whether
+ * or not the user says the word. */
+function buildSystem(prompt, currentDoc, force) {
   const docStr = currentDoc ? JSON.stringify(currentDoc) : "";
+  const forced = new Set(force || []);
   const docs = CAPABILITIES
-    .filter(c => c.match.test(prompt || "") || (docStr && c.inDoc(docStr)))
+    .filter(c => forced.has(c.id) || c.match.test(prompt || "") || (docStr && c.inDoc(docStr)))
     .map(c => c.doc);
   return docs.length ? BASE_SCHEMA + "\nCapabilities available for this request:\n" + docs.join("\n") : BASE_SCHEMA;
 }
@@ -252,6 +262,7 @@ async function generate(body) {
    * Validated here rather than trusted: this arrives from a client and goes
    * straight into a prompt. */
   let sampleBlock = "";
+  let isColourField = false;
   if (imageSamples && Array.isArray(imageSamples.rows)) {
     const rows = imageSamples.rows
       .slice(0, 16)
@@ -264,7 +275,57 @@ async function generate(body) {
     if (rows.length) {
       const n = rows[0].length;
       const aspect = Number(imageSamples.aspect);
+      /* Is the reference a COLOUR FIELD or a picture of things?
+       *
+       * Measured from the grid itself rather than guessed: the mean difference
+       * between neighbouring cells. A gradient drifts — small steps everywhere
+       * — while a photograph or a layout jumps at every edge. The threshold is
+       * generous because the cost of being wrong is asymmetric: suggesting a
+       * mesh for a busy image wastes one shape, while NOT suggesting it for a
+       * gradient produces what this was built to replace — a pile of
+       * overlapping translucent ellipses approximating a smooth field, which
+       * is what the model reaches for on its own.
+       *
+       * This is the judgement the user should not have to make. Asking for
+       * "the attached reference" has to be enough. */
+      const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      let diffs = 0, pairs = 0;
+      for (let r = 0; r < rows.length; r++)
+        for (let c = 0; c < rows[r].length; c++) {
+          const a = hexToRgb(rows[r][c]);
+          for (const [dr, dc] of [[0, 1], [1, 0]]) {
+            const nb = rows[r + dr] && rows[r + dr][c + dc];
+            if (!nb) continue;
+            const b = hexToRgb(nb);
+            diffs += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+            pairs++;
+          }
+        }
+      const meanStep = pairs ? diffs / pairs : 0;
+      isColourField = meanStep < 60;
+
       sampleBlock =
+        (isColourField
+          ? `\n\nTHIS REFERENCE IS A SMOOTH COLOUR FIELD (mean step between ` +
+            `neighbouring samples is ${meanStep.toFixed(0)}/255). Reproduce it as ` +
+            `ONE rect covering the whole frame carrying a MESH GRADIENT. Do NOT ` +
+            `stack translucent ellipses or radial gradients to fake it: a mesh ` +
+            `reproduces a colour field exactly and stays editable, and ` +
+            `overlapping blobs do neither.\n` +
+            /* The measurement grid is finer than the NET should be. They are
+             * different things and conflating them produced a mesh nobody
+             * could edit: an 8x8 grid became an 8x8 net, sixty-four handles
+             * on the canvas. Density that helps the model choose colours is
+             * not density a person can hold in their hands. Four by four is
+             * sixteen handles — the coarsest net that still reads as this kind
+             * of gradient, and the user can add rows and columns afterwards,
+             * which resamples rather than resets. */
+            `Use a 4x4 net — SIXTEEN control points, no more. The grid below is ` +
+            `finer than the net on purpose: read the colour for each control ` +
+            `point from the region of the grid it sits over, averaging across ` +
+            `the cells it covers. A denser net is not more faithful here, it is ` +
+            `just more handles than a person can edit.`
+          : ``) +
         `\n\nMEASURED COLOURS from the reference, on a ${n}x${rows.length} grid, ` +
         `row 0 = top, column 0 = left. These are exact averages taken from the ` +
         `image itself — USE THEM RATHER THAN JUDGING COLOUR BY EYE, and do not ` +
@@ -298,7 +359,7 @@ async function generate(body) {
   const payload = {
     model: hasImage ? VISION_MODEL : TEXT_MODEL,
     messages: [
-      { role: "system", content: buildSystem(prompt, currentDoc) },
+      { role: "system", content: buildSystem(prompt, currentDoc, isColourField ? ["mesh-gradient"] : []) },
       { role: "user", content: hasImage ? userContent : instruction },
     ],
     temperature: 0.7,
@@ -315,7 +376,8 @@ async function generate(body) {
      * the provider rejected the whole call. The budget has to leave room for
      * the request itself. A 5x5 net is ~25 points and fits inside this
      * comfortably; anything denser is the fitter's job, not the model's. */
-    max_completion_tokens: MESH_SHAPED.test(prompt || "") ? (hasImage ? 3200 : 6000) : 1800,
+    max_completion_tokens:
+      isColourField || MESH_SHAPED.test(prompt || "") ? (hasImage ? 3200 : 6000) : 1800,
   };
   // qwen3.6 is a reasoning model; left on it burns the output budget
   // thinking and truncates the JSON (measured in creative-mixer).

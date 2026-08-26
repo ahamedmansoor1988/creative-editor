@@ -6269,6 +6269,12 @@ function buildFxSection(obj,page,add,body){
       $('mshC').addEventListener('input',e=>{ $('mshCV').textContent=e.target.value; });
       $('mshR').addEventListener('input',e=>{ $('mshRV').textContent=e.target.value; });
 
+      /* Say what the grid COSTS, because the number of handles is the thing
+       * that decides whether a mesh is editable, and 8x8 is sixty-four of them
+       * on the canvas at once. Resizing resamples, so coarsening is not
+       * destructive — that is worth saying too, since a slider that looks like
+       * it will throw the artwork away does not get dragged. */
+      add(`<div class="fxHint">${M.cols*M.rows} handles. Fewer is easier to edit — resizing resamples the surface, so nothing is thrown away.</div>`);
       add(`<label class="slider"><input type="checkbox" id="mshNet" ${M.showNet!==false?'checked':''}> Show net while selected</label>`);
       $('mshNet').addEventListener('change',e=>{ M.showNet=e.target.checked; pushHistory(); render(); });
 
