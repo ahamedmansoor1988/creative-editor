@@ -218,6 +218,78 @@ function buildSystem(prompt, currentDoc, force) {
   return docs.length ? BASE_SCHEMA + "\nCapabilities available for this request:\n" + docs.join("\n") : BASE_SCHEMA;
 }
 
+/* ---- /api/analyze : dissect a reference into ENGINES --------------------
+ *
+ * A different job from /api/generate, and a much smaller one. Generate asks
+ * the model for a whole document, which is where its weaknesses live: it
+ * guesses colours it cannot measure and emits hundreds of numbers that
+ * truncate. Analysis asks for a RECIPE — which engines, roughly what
+ * parameters — perhaps two hundred tokens, and the client composes the
+ * document itself from that plus colours it measured exactly.
+ *
+ * That is the division worth having. The model does the thing only judgement
+ * can do — "this is a colour field smeared vertically with heavy grain" — and
+ * nothing that a for-loop over pixels does better.
+ *
+ * Deliberately conservative: an effect the model is unsure about is worse than
+ * one it omits, because a recipe gets APPLIED. */
+const ANALYSE_SYSTEM = `You analyse a reference image and describe HOW IT WAS MADE, as a recipe of rendering engines. Reply with ONLY JSON, no prose:
+{"base":"mesh"|"linear"|"radial"|"solid","effects":[...],"structure":"one short phrase","confidence":0..1}
+Each effect is one of:
+{"type":"blur","kind":"gaussian","radius":0-200}
+{"type":"blur","kind":"directional","angle":-180..180,"distance":0-400}
+{"type":"blur","kind":"zoom","amount":0..1,"cx":-1..1,"cy":-1..1}
+{"type":"grain","amount":0..1}
+{"type":"noise","amount":0..1,"mono":true|false,"scale":0.2-8}
+{"type":"glass","depth":-200..200,"refraction":-200..200,"frost":0-100}
+{"type":"light","intensity":0..2.8}
+Include ONLY effects you can see direct evidence of. An effect you are unsure about is worse than a missing one, because it will be applied.
+Judge specifically: is the colour field smooth everywhere or does it have creases and hard edges? Is there directional smearing, and at roughly what angle? Is there visible grain or noise? Is there refraction or glassiness?
+Say nothing about the colours themselves — those are measured separately and far more precisely than you can judge them.`;
+
+async function analyse(body) {
+  if (!GROQ_KEY) {
+    const e = new Error("GROQ_API_KEY missing from .env");
+    /** @type {any} */ (e).code = "NO_KEY";
+    throw e;
+  }
+  const { imageDataUrl } = body;
+  if (!imageDataUrl) throw new Error("analyse needs an image");
+  const payload = {
+    model: VISION_MODEL,
+    messages: [
+      { role: "system", content: ANALYSE_SYSTEM },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageDataUrl } },
+          { type: "text", text: "Analyse this reference. Which engines and parameters would reproduce it?" },
+        ],
+      },
+    ],
+    // low, because this is a reading rather than an invention
+    temperature: 0.2,
+    // small on purpose: a recipe is short, and a tight ceiling keeps the whole
+    // request inside a free tier that counts requested tokens against the limit
+    max_completion_tokens: 700,
+    reasoning_effort: "none",
+  };
+  const r = await fetch(GROQ_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_KEY}` },
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    const msg = (data && data.error && data.error.message) || `provider ${r.status}`;
+    const e = new Error(msg);
+    /** @type {any} */ (e).status = r.status;
+    throw e;
+  }
+  const recipe = extractJSON(data.choices?.[0]?.message?.content || "");
+  return { recipe, model: payload.model, usage: data.usage };
+}
+
 function extractJSON(s) {
   s = s.replace(/```json|```/g, "").trim();
   const a = s.indexOf("{"), b = s.lastIndexOf("}");
@@ -446,6 +518,38 @@ const server = http.createServer((req, res) => {
     );
     return;
   }
+  if (req.method === "POST" && req.url === "/api/analyze") {
+    if (!allowRequest(req)) {
+      res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(RATE_WINDOW_S) });
+      res.end(JSON.stringify({ error: "rate_limited", message: `Too many requests. Limit is ${RATE_MAX} per ${RATE_WINDOW_S}s.` }));
+      return;
+    }
+    let raw = "";
+    req.on("data", (c) => { raw += c; if (raw.length > 15e6) req.destroy(); });
+    req.on("end", async () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(raw || "{}");
+      } catch (_) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "bad_request", message: "Body was not valid JSON." }));
+        return;
+      }
+      try {
+        const out = await analyse(parsed);
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify(out));
+      } catch (err) {
+        console.error("[analyze]", err);
+        const status = err && err.status === 429 ? 429 : 502;
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          error: status === 429 ? "Rate limit reached — try again shortly." : "The reference could not be analysed.",
+        }));
+      }
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/generate") {
     /* Every call here spends a real API key, and until now anything that could
      * reach the port could spend it without limit. A fixed window per client
@@ -544,4 +648,4 @@ if (require.main === module) {
 
 /* Exported for characterization tests. These are the existing internals,
  * unchanged — exporting them does not alter runtime behaviour. */
-module.exports = { server, generate, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };
+module.exports = { server, generate, analyse, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };

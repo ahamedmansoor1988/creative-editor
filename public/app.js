@@ -4360,6 +4360,56 @@ function syncLayoutPanel(obj){
  * Effects hidden by the QA gate are still counted: the page really does
  * contain them, and a count that quietly omitted them would misreport the
  * document rather than the UI. They are marked instead. */
+/* Turn an analysed recipe into effects on an object.
+ *
+ * Every value is CLAMPED here rather than trusted, for the same reason the
+ * measured colour grid is validated on the server: this arrives from a model,
+ * and a model that has misjudged an image will produce a number that is
+ * merely wrong rather than obviously wrong. Clamping is what keeps a bad
+ * reading a bad result instead of a broken document.
+ *
+ * Effects the recipe does not mention are left ALONE rather than switched off:
+ * the user may have set them by hand, and an analysis pass is an addition to
+ * their work, not a replacement for it. */
+function applyRecipe(obj,recipe){
+  const applied=[];
+  if(!obj||!recipe||!Array.isArray(recipe.effects)) return applied;
+  const E=obj.effects; if(!E) return applied;
+  recipe.effects.forEach(fx=>{
+    if(!fx||typeof fx.type!=='string') return;
+    if(fx.type==='blur'&&E.blur){
+      const kind=['gaussian','directional','zoom'].includes(fx.kind)?fx.kind:'gaussian';
+      E.blur.kind=kind;
+      if(kind==='directional'){
+        E.blur.angle=clamp(+fx.angle||0,-180,180);
+        E.blur.distance=clamp(+fx.distance||0,0,400);
+        /* A directional blur with distance 0 is not a blur. The model reaches
+         * for `radius` out of habit even when the schema asks for distance, so
+         * a stated radius stands in rather than the effect silently doing
+         * nothing — which would read as the analysis having been ignored. */
+        if(E.blur.distance<=0) E.blur.distance=clamp(+fx.radius||40,1,400);
+      }else if(kind==='zoom'){
+        E.blur.amount=clamp(+fx.amount||0.2,0,1);
+        E.blur.cx=clamp(+fx.cx||0,-1,1); E.blur.cy=clamp(+fx.cy||0,-1,1);
+      }else{
+        E.blur.radius=clamp(+fx.radius||0,0,200);
+      }
+      applied.push('blur');
+    }
+    if(fx.type==='grain'&&E.grain){
+      E.grain.amount=clamp(+fx.amount||0,0,1);
+      if(E.grain.amount>0) applied.push('grain');
+    }
+    if(fx.type==='noise'&&E.noise){
+      E.noise.amount=clamp(+fx.amount||0,0,1);
+      E.noise.mono=fx.mono!==false;
+      E.noise.scale=clamp(+fx.scale||1,0.2,8);
+      if(E.noise.amount>0) applied.push('noise');
+    }
+  });
+  return applied;
+}
+
 /* ---- collapsible sections ---------------------------------------------
  * A dense inspector will always outgrow a short window; the fix is to let the
  * panel show what is being used rather than everything at once. Section
@@ -6349,6 +6399,51 @@ function buildFxSection(obj,page,add,body){
           im.src=url;
         });
         inp.click();
+      });
+      /* Analysis is a SEPARATE pass from the fit, and separate on purpose.
+       *
+       * The fit is exact, instant and free — it measures pixels. The analysis
+       * asks a model to judge how the reference was MADE, which costs a round
+       * trip and can be wrong. Running them together would make a precise
+       * operation wait on an imprecise one, and make a failure of the second
+       * look like a failure of the first.
+       *
+       * So: match the colours first, then decide whether the surface texture
+       * is worth a second opinion. */
+      add(`<button class="rollBtn" id="mshAnalyse">Analyse the reference…</button>`);
+      add(`<div class="fxHint" id="mshAnalyseNote">Asks what else was done to the image — smearing, grain, glass — and applies those engines on top.</div>`);
+      $('mshAnalyse').addEventListener('click',()=>{
+        const pick=document.createElement('input');
+        pick.type='file'; pick.accept='image/*';
+        pick.addEventListener('change',async ()=>{
+          const f=pick.files&&pick.files[0];
+          if(!f) return;
+          const note=$('mshAnalyseNote');
+          if(note) note.textContent='Analysing…';
+          try{
+            const dataUrl=await new Promise((res,rej)=>{
+              const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(f);
+            });
+            // downscaled for the same reason a generate is: the model is being
+            // asked about STRUCTURE, and structure survives 512px
+            const small=await shrinkForModel(dataUrl);
+            const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({imageDataUrl:small})});
+            const j=await r.json();
+            if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+            const applied=applyRecipe(obj,j.recipe);
+            pushHistory('Apply analysed effects');
+            refresh();
+            const n2=$('mshAnalyseNote');
+            if(n2) n2.textContent = applied.length
+              ? '“'+String(j.recipe.structure||'').slice(0,60)+'” — applied '+applied.join(', ')+'.'
+              : 'Nothing beyond the colour field was detected.';
+          }catch(e){
+            const n2=$('mshAnalyseNote');
+            if(n2) n2.textContent='Analysis failed: '+e.message;
+          }
+        });
+        pick.click();
       });
       add(`<button class="rollBtn" id="mshReset">Reset net</button>`);
       $('mshReset').addEventListener('click',()=>{
@@ -10041,7 +10136,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get paintCacheSize(){return _paintCache.size;},
   set paintCacheOff(v){ _paintCacheOff=!!v; paintCacheClear(); },
   pushInstanceToSource,
-  FX_PAGES, PAGE_TYPE,
+  FX_PAGES, PAGE_TYPE, applyRecipe,
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,

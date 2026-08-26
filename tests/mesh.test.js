@@ -153,3 +153,95 @@ describe("mesh — the panel", () => {
     expect(sect.querySelector("#mshC"), "no grid controls when nothing can render").toBeFalsy();
   });
 });
+
+describe("applying an analysed recipe", () => {
+  /* The model dissects a reference into engines and parameters; this turns
+   * that into effects. Everything here arrives from a model, so the tests are
+   * mostly about what happens when it is WRONG — a misjudged image should
+   * produce a poor result, never a broken document. */
+  function shape() {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        artboards: [],
+        children: [
+          {
+            type: "rect",
+            name: "R",
+            x: 100,
+            y: 80,
+            w: 700,
+            h: 440,
+            fill: { kind: "solid", color: "#888888" },
+            effects: { mesh: { on: true } },
+          },
+        ],
+      },
+    };
+    return editor.doc.frame.children[0];
+  }
+
+  it("applies a directional blur and grain, as analysed", () => {
+    // the recipe the live endpoint returned for images/glass.jpg
+    const o = shape();
+    const applied = editor.applyRecipe(o, {
+      base: "linear",
+      effects: [
+        { type: "blur", kind: "directional", angle: 90, distance: 150 },
+        { type: "grain", amount: 0.4 },
+      ],
+    });
+    expect(applied).toEqual(["blur", "grain"]);
+    expect(o.effects.blur).toMatchObject({ kind: "directional", angle: 90, distance: 150 });
+    expect(o.effects.grain.amount).toBeCloseTo(0.4);
+  });
+
+  it("rescues a directional blur the model gave a radius instead of a distance", () => {
+    // it reaches for `radius` out of habit; distance 0 is not a blur at all,
+    // and would read as the analysis having been ignored
+    const o = shape();
+    editor.applyRecipe(o, {
+      effects: [{ type: "blur", kind: "directional", angle: 35, distance: 0, radius: 90 }],
+    });
+    expect(o.effects.blur.distance).toBe(90);
+  });
+
+  it("clamps every value, because a misjudged reading must stay a bad result", () => {
+    const o = shape();
+    editor.applyRecipe(o, {
+      effects: [
+        { type: "blur", kind: "gaussian", radius: 9999 },
+        { type: "grain", amount: 5 },
+        { type: "noise", amount: -2, scale: 99 },
+      ],
+    });
+    expect(o.effects.blur.radius).toBe(200);
+    expect(o.effects.grain.amount).toBe(1);
+    expect(o.effects.noise.amount).toBe(0);
+    expect(o.effects.noise.scale).toBe(8);
+  });
+
+  it("leaves alone what the recipe does not mention", () => {
+    // an analysis pass adds to the user's work rather than replacing it
+    const o = shape();
+    o.effects.grain.amount = 0.6;
+    editor.applyRecipe(o, { effects: [{ type: "blur", kind: "gaussian", radius: 10 }] });
+    expect(o.effects.grain.amount).toBeCloseTo(0.6);
+  });
+
+  it("survives junk without throwing", () => {
+    const o = shape();
+    expect(editor.applyRecipe(o, { effects: [null, { type: "nope" }, {}, "x"] })).toEqual([]);
+    expect(editor.applyRecipe(o, {})).toEqual([]);
+    expect(editor.applyRecipe(o, null)).toEqual([]);
+  });
+
+  it("reports only the effects it actually turned on", () => {
+    // grain at zero is not grain; saying it was applied would be a lie in the UI
+    const o = shape();
+    expect(editor.applyRecipe(o, { effects: [{ type: "grain", amount: 0 }] })).toEqual([]);
+  });
+});
