@@ -409,7 +409,7 @@ describe("mesh does not swallow the passes below it", () => {
 describe("per-node channels", () => {
   const MG = () => window.MeshGradient;
 
-  it("declares eight channels, every default a no-op", () => {
+  it("declares nine channels, every default a no-op", () => {
     /* The defaults are the back-compatibility guarantee: a net that has never
      * been touched here has to render exactly as it did before the channels
      * existed, or adding them repaints every document already saved. */
@@ -417,6 +417,7 @@ describe("per-node channels", () => {
     expect(t.map((f) => f.key)).toEqual([
       "noise",
       "noiseSize",
+      "noiseColour",
       "blur",
       "falloff",
       "smooth",
@@ -428,10 +429,10 @@ describe("per-node channels", () => {
     // rest are additive and neutral at zero. noiseSize is neutral at zero
     // because zero means a one-pixel block, which is the per-pixel hash it
     // replaced.
-    expect(t.map((f) => f.def)).toEqual([0, 0, 0, 0.5, 1, 0, 0, 0]);
+    expect(t.map((f) => f.def)).toEqual([0, 0, 0, 0, 0.5, 1, 0, 0, 0]);
   });
 
-  it("puts the grain size next to the grain it sizes", () => {
+  it("keeps the grain controls together", () => {
     /* This array orders the PANEL and nothing else — render() names every
      * channel explicitly when it uploads, so the layout the shader reads is
      * fixed independently. Worth a test, because the comment here used to
@@ -439,6 +440,7 @@ describe("per-node channels", () => {
      * move a slider. */
     const keys = MG().NODE_FX.map((f) => f.key);
     expect(keys.indexOf("noiseSize")).toBe(keys.indexOf("noise") + 1);
+    expect(keys.indexOf("noiseColour")).toBe(keys.indexOf("noise") + 2);
   });
 
   it("fills the defaults on a point that carries none", () => {

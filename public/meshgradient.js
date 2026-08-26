@@ -65,6 +65,12 @@
     // grain size in pixels, 0 -> a single pixel, which is what the per-pixel
     // hash did before there was a control for it
     { key: "noiseSize", label: "Noise size", def: 0 },
+    /* 0 is monochrome — one signed value on all three channels, grain that
+     * does not tint — and 1 is independent per channel, the colour speckle a
+     * sensor makes. The same choice Photoshop puts behind its "Monochromatic"
+     * box, as a blend rather than a switch because every channel here is
+     * interpolated across the net. Default 0 keeps what the mesh already did. */
+    { key: "noiseColour", label: "Noise colour", def: 0 },
     { key: "blur", label: "Blur", def: 0 },
     { key: "falloff", label: "Falloff", def: 0.5 },
     { key: "smooth", label: "Smoothness", def: 1 },
@@ -227,7 +233,7 @@ float grain3(vec2 p){
 }
 /* One node's channels, passed whole. Blur has to re-evaluate every one of
  * them per tap, so they travel together rather than as eight arguments. */
-struct Node { float fall; float smth; float metl; float glw; float nAmt; float nsz; };
+struct Node { float fall; float smth; float metl; float glw; float nAmt; float nsz; float ncol; };
 /* ORDER MATTERS, AND IT WAS WRONG. Blur used to run on the bare colour with
  * everything else painted on top of it, which made the control very nearly
  * inert: a mesh surface is locally near-LINEAR, and blurring a linear ramp
@@ -267,7 +273,15 @@ vec3 sampleAt(vec2 uv,vec2 pxOff,Node n){
   vec3 c=materialAt(uv,n);
   if(n.nAmt>0.001){
     float sz=mix(1.0,14.0,n.nsz);
-    c+=grain3(floor((gl_FragCoord.xy+pxOff)/sz))*n.nAmt*0.314;
+    vec2 cell=floor((gl_FragCoord.xy+pxOff)/sz);
+    /* One draw for monochrome, three for colour, blended — so the grain can
+     * be grey in one part of the net and speckled in another, which is what
+     * every other channel here already does. */
+    float g=grain3(cell);
+    vec3 gv=mix(vec3(g),
+                vec3(g,grain3(cell+vec2(101.0,7.0)),grain3(cell+vec2(31.0,191.0))),
+                n.ncol);
+    c+=gv*n.nAmt*0.314;
   }
   return c;
 }
@@ -351,7 +365,9 @@ void main(){
   float nsz=clamp(f2.a,0.0,1.0);
   /* Grain size is in whole PIXELS, so the speckle is square and stable rather
    * than resampled. At 0 the block is one pixel. */
-  Node n=Node(fall,smth,metl,glw,nAmt,nsz);
+  // the ninth channel rides in the colour texture's otherwise unused alpha
+  float ncol=clamp(patch4(uCol,vUV).a,0.0,1.0);
+  Node n=Node(fall,smth,metl,glw,nAmt,nsz,ncol);
   vec3 c=chromAt(vUV,n,bAmt*0.18,chrm);
   fragColor=vec4(clamp(c,0.0,1.0),1.0);
 }`;
@@ -592,7 +608,10 @@ void main(){
       Col[i * 4] = p.color[0] / 255;
       Col[i * 4 + 1] = p.color[1] / 255;
       Col[i * 4 + 2] = p.color[2] / 255;
-      Col[i * 4 + 3] = 1;
+      /* The surface reads uCol.rgb and writes alpha 1, so this channel was
+       * dead weight. Carrying noiseColour here avoids a third channel texture
+       * for one scalar. */
+      Col[i * 4 + 3] = fxOf(p, "noiseColour");
       // THIS is the channel layout — named, not positional, so NODE_FX can be
       // ordered for the panel. uFx1 is (noise, blur, falloff, smooth) and
       // uFx2 (chromatic, metallic, glow, noiseSize); the shader reads them in
