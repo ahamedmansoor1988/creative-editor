@@ -14,6 +14,7 @@ declare global {
     FxStack?: {
       READY: Set<string>;
       isReady(type: string): boolean;
+      LEGACY_ORDER: string[];
       slotOf(type: string): string;
       entryOn(entry: any): boolean;
       activeMaterial(fx: any[]): any;
@@ -61,6 +62,24 @@ declare global {
        * apply() under jsdom, which has no raster to measure. */
       hash2(x: number, y: number, seed: number): number;
       grain3(x: number, y: number, seed: number): number;
+    };
+    /* The spectral orb engine. Loaded in tests for its plain-JS half — the
+     * settings model and its clamps — while available() reports false, since
+     * jsdom has no WebGL2. */
+    SpectralOrb?: {
+      ANCHOR_LIMIT: number;
+      DEFAULTS(): any;
+      DEFAULT_ANCHORS(): any[];
+      normalize(s: any): any;
+      available(): boolean;
+      render(w: number, h: number, s: any, opts?: any): any;
+      get(w: number, h: number, s: any): any;
+      anchorHandle(a: any, s: any, w: number, h: number): any;
+      directionFromHandle(x: number, y: number, s: any, w: number, h: number): number[];
+      directionFromDisc(x: number, y: number): number[];
+      rotateZ(d: number[], deg: number): number[];
+      hexToLinear(hex: string): number[];
+      srgbToLinear(c: number): number;
     };
     GradientEngine?: {
       MAX_STOPS: number;

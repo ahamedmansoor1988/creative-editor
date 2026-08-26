@@ -49,6 +49,7 @@
      * standing liquid and flare have. Marking it "over" would paint it on top
      * of a fill that is then invisible but still casting the shadow. */
     mesh: { slot: "material", label: "Mesh gradient", multi: false },
+    orb: { slot: "material", label: "Spectral orb", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -79,6 +80,7 @@
     "shadow",
     "glow",
     "mesh",
+    "orb",
     "blob",
     "glass2",
     "light",
@@ -117,6 +119,12 @@
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
     "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
+    /* Ported from lab-orb.html, where all six of the brief's acceptance tests
+     * pass against a real framebuffer — sphere geometry, centre wash, rotation
+     * moving the field and not the geometry, anchor movement without a blob,
+     * an optional rim, and identical output at 256/1024/2048. The editor-side
+     * wiring, clamps and panel are covered in tests/orb.test.js. */
+    "orb",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran

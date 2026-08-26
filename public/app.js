@@ -84,6 +84,12 @@ const DEFAULT_EFFECTS=()=>({
    * colour, and carrying that in every object's defaults would put it in the
    * compact-serialisation baseline for shapes that never touch the effect. */
   mesh:{on:false,cols:4,rows:4,points:[],showNet:true},
+  /* §orb. The settings object belongs to the engine, so the default here is
+   * the switch and nothing else: normalizeDoc fills the rest from
+   * SpectralOrb.DEFAULTS(). Carrying eight anchors in every object's defaults
+   * would put them into the compact-serialisation baseline for shapes that
+   * never touch the effect. */
+  orb:{on:false},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
@@ -823,6 +829,17 @@ function normChildren(list,depth){
       const nz=Object.assign(de.noise, ce.noise||{});
       fnum(nz,'amount',0,1,0); fnum(nz,'scale',1,32,1); fnum(nz,'seed',1,99999,1);
       nz.mono=nz.mono!==false;
+      /* The orb repairs itself: its own normalize() owns every clamp, so a
+       * settings object from a saved file, a preset or the panel is checked in
+       * exactly one place rather than mirrored here and left to drift. */
+      {
+        const rawOrb=Object.assign({}, de.orb, ce.orb||{});
+        const on=!!rawOrb.on && ['rect','ellipse','polygon','path'].includes(c.type);
+        const SO=window.SpectralOrb;
+        const fixed=SO?SO.normalize(rawOrb):rawOrb;
+        fixed.on=on;
+        de.orb=fixed;
+      }
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -929,7 +946,7 @@ function normChildren(list,depth){
       ['bg','coreColor','tint'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
-      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, gradient:grd,
+      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, orb:de.orb, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
@@ -2712,6 +2729,33 @@ function drawOneInner(c,W,H,obj){
        * reaches drawObject, which paints the over-slot passes; drawObject
        * checks for an active mesh itself and skips only the fill. */
     }
+    /* §orb spectral orb. A material on the same terms as the mesh: it IS what
+     * the shape shows, it generates its own colour rather than sampling the
+     * page, and so it caches. It RETURNS rather than falling through, because
+     * unlike the mesh it has its own alpha — the disc is round inside a
+     * rectangular tile, and letting the flat fill paint underneath would put a
+     * square behind every orb. */
+    const orb=fx.orb;
+    if(orb&&fxOn(obj,'orb')&&obj.type!=='text'&&window.SpectralOrb&&window.SpectralOrb.available()){
+      const drawOrb=o=>{
+        const tf=c.getTransform?c.getTransform():null;
+        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
+        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
+        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        const img=window.SpectralOrb.get(tw,th,orb);
+        if(!img) return;
+        c.save();
+        c.globalAlpha=obj.opacity;
+        c.imageSmoothingEnabled=true;
+        if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      drawOrb(obj);
+      patternInstances(obj).forEach(drawOrb);
+      return;
+    }
     const lq=fx.liquid;
     if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
       const draw=o=>{
@@ -4105,7 +4149,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Mesh':'mesh','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
+  'Mesh':'mesh','Orb':'orb','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
   'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -4143,11 +4187,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Orb','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Orb','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Orb','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6712,6 +6756,68 @@ function buildFxSection(obj,page,add,body){
         setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
       });
       add(`<div class="fxHint">Two colour ramps are interleaved into bands. Split sets where one hands over to the other; drift and phase move the seam along the band.</div>`);
+    }
+  }
+
+  if(page==='Orb'){
+    const O=obj.effects.orb, SO=window.SpectralOrb;
+    add(`<label class="slider"><input type="checkbox" id="orbOn" ${O.on?'checked':''}> Enable spectral orb</label>`);
+    $('orbOn').addEventListener('change',e=>{ O.on=e.target.checked; pushHistory(); refresh(); });
+    if(!SO||!SO.available()){
+      add(`<div class="fxWarn">WebGL2 is unavailable, so the spectral orb cannot render here.</div>`);
+    }else if(O.on){
+      const liveO=()=>{ paintCacheClear(); render(); };
+      /* One table, three sections. The panel is generated rather than written
+       * out so a setting cannot exist in the engine and be unreachable here —
+       * the fault the shadow panel shipped with, twice. */
+      const ROWS=[
+        ['Geometry'],
+        ['radius','Radius',5,100,100,'%'],
+        ['centerX','Centre X',-100,100,100,''],
+        ['centerY','Centre Y',-100,100,100,''],
+        ['Spectral field'],
+        ['rotation','Rotation',0,360,1,'°'],
+        ['concentration','Colour spread',20,2400,100,''],
+        ['intensity','Colour intensity',0,200,100,'%'],
+        ['Centre'],
+        ['centerStrength','Centre wash',0,100,100,'%'],
+        ['centerFalloff','Centre falloff',2,120,10,''],
+        ['Edge'],
+        ['rimStrength','Rim strength',0,100,100,'%'],
+        ['rimWidth','Rim width',30,99,100,'%'],
+        ['fresnelStrength','Fresnel',0,200,100,'%'],
+        ['fresnelPower','Fresnel power',2,80,10,''],
+      ];
+      ROWS.forEach(r=>{
+        if(r.length===1){ add(`<div class="pSect">${r[0]}</div>`); return; }
+        const [key,label,lo,hi,scale,suffix]=r;
+        const id='orb_'+key;
+        const cur=Math.round(O[key]*scale);
+        const shown=v=>suffix==='%'?Math.round(v)+'%':(scale===1?Math.round(v)+suffix:(v/1).toFixed(scale>=100?2:1)+suffix);
+        add(`<label class="slider">${label} <span id="${id}V">${shown(suffix==='%'?cur:O[key]*(suffix==='°'?1:1))}</span>
+          <input type="range" id="${id}" min="${lo}" max="${hi}" step="1" value="${cur}"></label>`);
+        $(id).addEventListener('input',e=>{
+          O[key]=+e.target.value/scale;
+          $(id+'V').textContent=shown(suffix==='%'?+e.target.value:O[key]);
+          liveO();
+        });
+        $(id).addEventListener('change',()=>pushHistory());
+      });
+      add(`<div class="pSect">Centre colour</div>`);
+      add(`<label class="slider">Colour <input type="color" id="orbCC" value="${O.centerColor}"></label>`);
+      $('orbCC').addEventListener('input',e=>{ O.centerColor=e.target.value; liveO(); });
+      $('orbCC').addEventListener('change',()=>pushHistory());
+
+      add(`<div class="pSect">Anchors</div>`);
+      O.anchors.forEach((a,i)=>{
+        const hex=(()=>{const f=v=>{const cc=v<=0.0031308?v*12.92:1.055*Math.pow(Math.max(v,0),1/2.4)-0.055;
+          return Math.round(clamp(cc,0,1)*255).toString(16).padStart(2,'0');};
+          return '#'+f(a.color[0])+f(a.color[1])+f(a.color[2]);})();
+        add(`<label class="slider">${a.id} <input type="color" id="orb_a${i}" value="${hex}"></label>`);
+        $('orb_a'+i).addEventListener('input',e=>{ a.color=SO.hexToLinear(e.target.value); liveO(); });
+        $('orb_a'+i).addEventListener('change',()=>pushHistory());
+      });
+      add(`<div class="fxHint">A spectral field wrapped around a virtual sphere: the disc is read as a unit sphere and every colour sits on its surface, so the perimeter carries the chroma and the centre stays pale. Colour spread controls how tightly each anchor holds its own arc — low blends them all toward their average.</div>`);
     }
   }
 

@@ -222,6 +222,7 @@ export function loadEditor() {
      * empty net. available() still reports false here, which is the branch a
      * machine without WebGL2 takes, so that path gets exercised too. */
     "meshgradient.js",
+    "spectralorb.js",
   ]) {
     window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
   }
