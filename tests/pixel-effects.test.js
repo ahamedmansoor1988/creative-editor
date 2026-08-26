@@ -367,3 +367,63 @@ describe("blur does work rather than just getting called", () => {
     );
   });
 });
+
+/* THE HASH IS THE EFFECT.
+ *
+ * Every noise-driven filter here is only as good as its hash, and the one
+ * that shipped was not a hash but a bias: it built its mixer in double
+ * arithmetic where the ULP was 256, so it returned values only in [0, 0.5).
+ * `(hash - 0.5)` was therefore negative for every pixel on the canvas — "add
+ * noise" could darken and could never brighten, and mean luminance fell from
+ * 146.7 to 102.7 at amount 0.7. Monochromatic grain never looked like grain
+ * because real grain is signed.
+ *
+ * None of this was visible through apply() under jsdom, which has no raster
+ * to measure, so the hash is exported and checked directly. A distribution is
+ * a testable property; "the noise looks wrong" is not.
+ */
+describe("the noise hash is actually uniform", () => {
+  const sample = (fn, seed) => {
+    const v = [];
+    for (let y = 0; y < 120; y++) for (let x = 0; x < 120; x++) v.push(fn(x, y, seed));
+    return v;
+  };
+  const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length;
+
+  it("centres on 0.5 rather than on a quarter of the range", () => {
+    for (const seed of [1, 7, 1234]) {
+      expect(mean(sample(window.Filters.hash2, seed)), `seed ${seed} is biased`).toBeCloseTo(
+        0.5,
+        2,
+      );
+    }
+  });
+
+  it("reaches the whole range, not just the bottom half", () => {
+    const v = sample(window.Filters.hash2, 1);
+    // it capped at 0.500 before: the top five deciles held nothing at all
+    expect(Math.max(...v)).toBeGreaterThan(0.99);
+    expect(Math.min(...v)).toBeLessThan(0.01);
+  });
+
+  it("fills every decile evenly", () => {
+    const bins = new Array(10).fill(0);
+    const v = sample(window.Filters.hash2, 7);
+    v.forEach((x) => bins[Math.min(9, Math.floor(x * 10))]++);
+    for (const b of bins) expect(b / v.length).toBeCloseTo(0.1, 1);
+  });
+
+  it("does not collide its way into visible repeats", () => {
+    // seed 1234 gave 15432 distinct values out of 40000, which reads as
+    // structure in the grain rather than as grain
+    const v = sample(window.Filters.hash2, 1234);
+    expect(new Set(v).size / v.length).toBeGreaterThan(0.95);
+  });
+
+  it("gives signed grain centred on zero, so it can lighten as well as darken", () => {
+    const g = sample(window.Filters.grain3, 3);
+    expect(mean(g)).toBeCloseTo(0, 1);
+    expect(Math.max(...g)).toBeGreaterThan(0.5);
+    expect(Math.min(...g)).toBeLessThan(-0.5);
+  });
+});

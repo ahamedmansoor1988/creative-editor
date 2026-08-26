@@ -45,6 +45,11 @@ declare global {
      * are the passes and their order is the stack order. */
     Filters?: {
       apply(type: string, layer: any, params: any): any;
+      /* Exported for tests. The distribution of these two IS the correctness
+       * of every noise-driven effect, and it cannot be observed through
+       * apply() under jsdom, which has no raster to measure. */
+      hash2(x: number, y: number, seed: number): number;
+      grain3(x: number, y: number, seed: number): number;
     };
     GradientEngine?: {
       MAX_STOPS: number;

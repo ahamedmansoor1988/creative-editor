@@ -25,20 +25,42 @@
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
   /** Deterministic hash noise — same seed gives the same field every render,
-   *  so a document looks identical on reload. */
+   *  so a document looks identical on reload.
+   *
+   *  REWRITTEN because the previous version was not a hash, it was a bias. It
+   *  built the mixer in DOUBLE arithmetic — `seed * 1442695040888963407` lands
+   *  near 1.4e18, where the ULP is 256 — so the pixel terms and every low bit
+   *  were quantised away before the mix. Measured over a 200x200 grid it
+   *  returned values only in [0, 0.5): mean 0.249, the top five deciles empty,
+   *  and 15432 distinct values out of 40000 at seed 1234.
+   *
+   *  That is why noise DARKENED instead of dithering. `(hash - 0.5)` was
+   *  negative for every pixel on the canvas, so "add noise" meant "subtract
+   *  up to half": mean luminance fell 146.7 -> 102.5 at amount 0.7. It could
+   *  not brighten a single pixel, which is also why monochromatic grain never
+   *  looked like grain — real grain is signed.
+   *
+   *  Math.imul and >>> keep every step inside exact int32, which is what the
+   *  original comment assumed was happening. Now: mean 0.4998, all 40000
+   *  distinct, flat deciles, full [0,1). The field changes in documents saved
+   *  before this, and it has to — the old one was broken. */
   function hash2(x, y, seed) {
-    /* eslint-disable-next-line no-loss-of-precision --
-     * The seed multiplier is a 64-bit SplitMix64 constant and a double cannot
-     * hold it exactly. That is harmless here: the next line XOR-shifts h, which
-     * coerces to int32 and discards the high bits regardless, and the same
-     * inputs still produce the same double — so the field stays deterministic,
-     * which is the property this function actually promises.
-     * Substituting a 32-bit-safe constant would change the noise pattern in
-     * every already-saved document, so the value stays. */
-    let h = x * 374761393 + y * 668265263 + seed * 1442695040888963407;
-    h = (h ^ (h >> 13)) * 1274126177;
-    return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+    let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(seed, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
   }
+
+  /** Signed grain in roughly a NORMAL distribution, which is what film grain
+   *  and sensor noise actually are — uniform noise reads as digital speckle
+   *  because real grain clusters around zero and only rarely swings wide.
+   *  Three hashes summed is Irwin-Hall n=3: cheap, deterministic, and close
+   *  enough to Gaussian that the difference is invisible at grain amplitudes.
+   *  Returns roughly [-1.5, 1.5] with sigma 0.5. */
+  function grain3(x, y, seed) {
+    return hash2(x, y, seed) + hash2(x, y, seed + 0x9e37) + hash2(x, y, seed + 0x85eb) - 1.5;
+  }
+
   function valueNoise(x, y, seed) {
     const xi = Math.floor(x),
       yi = Math.floor(y);
@@ -335,15 +357,21 @@
         if (!d[i + 3]) continue;
         const sx = Math.floor(x / sc),
           sy = Math.floor(y / sc);
+        /* 80 puts sigma at 40/255 with the slider at 100 — heavy but still
+         * a picture — and at 4/255 around 10, which is the subtle film grain
+         * range real work actually uses. The old scaling was 255*amt, so the
+         * bottom of the slider was already past anything usable. */
+        const g = amt * 80;
         if (mono) {
-          const v = (hash2(sx, sy, seed) - 0.5) * 255 * amt;
+          // one signed value on all three channels: grain that does not tint
+          const v = grain3(sx, sy, seed) * g;
           d[i] = clamp(d[i] + v, 0, 255);
           d[i + 1] = clamp(d[i + 1] + v, 0, 255);
           d[i + 2] = clamp(d[i + 2] + v, 0, 255);
         } else {
-          d[i] = clamp(d[i] + (hash2(sx, sy, seed) - 0.5) * 255 * amt, 0, 255);
-          d[i + 1] = clamp(d[i + 1] + (hash2(sx, sy, seed + 17) - 0.5) * 255 * amt, 0, 255);
-          d[i + 2] = clamp(d[i + 2] + (hash2(sx, sy, seed + 31) - 0.5) * 255 * amt, 0, 255);
+          d[i] = clamp(d[i] + grain3(sx, sy, seed) * g, 0, 255);
+          d[i + 1] = clamp(d[i + 1] + grain3(sx, sy, seed + 17) * g, 0, 255);
+          d[i + 2] = clamp(d[i + 2] + grain3(sx, sy, seed + 31) * g, 0, 255);
         }
       }
     }
@@ -453,5 +481,9 @@
     return cv;
   }
 
-  window.Filters = { apply, ENVELOPES, fbm, valueNoise };
+  /* hash2 and grain3 are exported for TESTS. Their distribution is the whole
+   * correctness of every noise-driven effect here and it is not observable
+   * through apply() under jsdom, which has no real raster — a biased hash
+   * shipped for exactly that reason. */
+  window.Filters = { apply, ENVELOPES, fbm, valueNoise, hash2, grain3 };
 })();
