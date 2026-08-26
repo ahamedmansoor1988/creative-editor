@@ -4405,10 +4405,27 @@ function applyRecipe(obj,recipe){
   const applied=[];
   if(!obj||!recipe||!Array.isArray(recipe.effects)) return applied;
   const E=obj.effects; if(!E) return applied;
+  /* A MESH ALREADY IS THE SOFTNESS. Every reference this flow is pointed at
+   * looks blurry — that is what a gradient looks like — so the model reports a
+   * gaussian blur, and applying it blurs a colour field that was just fitted to
+   * reproduce that exact softness. The result is not softer, it is DULLER: an
+   * isotropic blur mixes complementary colours, and red mixed into blue is
+   * grey. Measured on a fitted net, r=30 cost 10% of the saturation and r=60
+   * cost 27%, and the pad spread the artwork visibly outside its own shape.
+   *
+   * Directional and zoom are kept, because they are smears the colour field
+   * genuinely cannot express — and a directional smear runs along one axis, so
+   * it mixes far less: measured at zero saturation cost.
+   *
+   * Only the ANALYSER is constrained here. The Blur panel still offers
+   * gaussian on a mesh for anyone who wants it; what is refused is applying it
+   * unasked as the conclusion of reading a picture. */
+  const meshActive=!!(E.mesh&&fxOn(obj,'mesh'));
   recipe.effects.forEach(fx=>{
     if(!fx||typeof fx.type!=='string') return;
     if(fx.type==='blur'&&E.blur){
       const kind=['gaussian','directional','zoom'].includes(fx.kind)?fx.kind:'gaussian';
+      if(kind==='gaussian'&&meshActive){ applied.push('no blur (the mesh is the softness)'); return; }
       E.blur.kind=kind;
       if(kind==='directional'){
         E.blur.angle=clamp(+fx.angle||0,-180,180);

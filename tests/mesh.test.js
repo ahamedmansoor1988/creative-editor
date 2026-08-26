@@ -213,12 +213,15 @@ describe("applying an analysed recipe", () => {
     const o = shape();
     editor.applyRecipe(o, {
       effects: [
-        { type: "blur", kind: "gaussian", radius: 9999 },
+        // directional rather than gaussian: this shape carries a mesh, and the
+        // analyser no longer applies an isotropic blur over one — see below
+        { type: "blur", kind: "directional", distance: 9999, angle: 999 },
         { type: "grain", amount: 5 },
         { type: "noise", amount: -2, scale: 99 },
       ],
     });
-    expect(o.effects.blur.radius).toBe(200);
+    expect(o.effects.blur.distance).toBe(400);
+    expect(o.effects.blur.angle).toBe(180);
     expect(o.effects.grain.amount).toBe(1);
     expect(o.effects.noise.amount).toBe(0);
     /* 32, the model's own ceiling. This asserted 8 — applyRecipe had a
@@ -227,6 +230,42 @@ describe("applying an analysed recipe", () => {
      * afterwards. The assertion was pinning the mismatch in place rather than
      * catching it. */
     expect(o.effects.noise.scale).toBe(32);
+  });
+
+  /* Every reference this flow is pointed at looks blurry, because that is what
+   * a gradient looks like. The model duly reports a gaussian blur, and
+   * applying it blurs a colour field that was just fitted to reproduce exactly
+   * that softness — which does not soften it, it DULLS it. An isotropic blur
+   * mixes complementary colours and red mixed into blue is grey. */
+  it("refuses to blur a mesh isotropically on the analyser's say-so", () => {
+    const o = shape();
+    const applied = editor.applyRecipe(o, {
+      effects: [{ type: "blur", kind: "gaussian", radius: 120 }],
+    });
+    expect(o.effects.blur.radius, "the mesh got blurred into grey").toBe(0);
+    // reported rather than dropped in silence: a recipe that visibly did
+    // nothing reads as the analysis having been ignored
+    expect(applied.join()).toMatch(/mesh is the softness/);
+  });
+
+  it("still applies a gaussian blur to a shape with no mesh", () => {
+    // the rule is about double-counting a mesh's own smoothness, not about
+    // gaussian blur being unwelcome
+    const o = shape();
+    o.effects.mesh.on = false;
+    editor.applyRecipe(o, { effects: [{ type: "blur", kind: "gaussian", radius: 120 }] });
+    expect(o.effects.blur.radius).toBe(120);
+  });
+
+  it("still applies a directional blur over a mesh", () => {
+    /* A smear along one axis is something the colour field genuinely cannot
+     * express, and it mixes far less than a disc — measured at no saturation
+     * cost at all, against 27% for a gaussian at r=60. */
+    const o = shape();
+    editor.applyRecipe(o, {
+      effects: [{ type: "blur", kind: "directional", distance: 150, angle: 90 }],
+    });
+    expect(o.effects.blur).toMatchObject({ kind: "directional", distance: 150 });
   });
 
   it("leaves alone what the recipe does not mention", () => {
