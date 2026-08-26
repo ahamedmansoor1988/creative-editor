@@ -128,8 +128,9 @@ precision highp int;
 in vec2 vUV;
 uniform sampler2D uCol;
 uniform sampler2D uFx1;                  // noise, blur, falloff, smoothness
-uniform sampler2D uFx2;                  // chromatic, metallic, glow, -
+uniform sampler2D uFx2;                  // chromatic, metallic, glow, noiseSize
 uniform vec2 uGrid;
+uniform vec2 uSize;                      // tile pixels: the blur steps grain in screen space
 out vec4 fragColor;
 vec4 cr(vec4 p0,vec4 p1,vec4 p2,vec4 p3,float t){
   float t2=t*t,t3=t2*t;
@@ -214,6 +215,19 @@ vec3 colourAt(vec2 uv,float fall,float smth){
  * shuffling the definitions into an order that reads worse. */
 vec3 metalAt(vec3 c,float m);
 vec3 glowAt(vec3 c,float g);
+/* Keyed off the fragment, so a tile of a given size is identical every time it
+ * is rendered — the same reason the pixel-slot noise carries a seed. */
+float hash21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
+/* Signed and roughly NORMAL, matching the pixel-slot grain: film grain and
+ * sensor noise both cluster near zero and only rarely swing wide, which is
+ * what stops grain reading as digital speckle. Three hashes summed is
+ * Irwin-Hall n=3, sigma 0.5 over [-1.5, 1.5]. */
+float grain3(vec2 p){
+  return hash21(p)+hash21(p+vec2(17.3,7.1))+hash21(p+vec2(3.7,29.1))-1.5;
+}
+/* One node's channels, passed whole. Blur has to re-evaluate every one of
+ * them per tap, so they travel together rather than as eight arguments. */
+struct Node { float fall; float smth; float metl; float glw; float nAmt; float nsz; };
 /* ORDER MATTERS, AND IT WAS WRONG. Blur used to run on the bare colour with
  * everything else painted on top of it, which made the control very nearly
  * inert: a mesh surface is locally near-LINEAR, and blurring a linear ramp
@@ -233,16 +247,35 @@ vec3 glowAt(vec3 c,float g);
  *
  * Cost: metallic and glow are evaluated once per tap rather than once per
  * fragment. The tile is cached, so that is paid on edit, not per frame. */
-vec3 materialAt(vec2 uv,float fall,float smth,float metl,float glw){
-  vec3 c=colourAt(uv,fall,smth);
-  c=metalAt(c,metl);
-  return glowAt(c,glw);
+vec3 materialAt(vec2 uv,Node n){
+  vec3 c=colourAt(uv,n.fall,n.smth);
+  c=metalAt(c,n.metl);
+  return glowAt(c,n.glw);
+}
+/* GRAIN IS INSIDE THE BLUR, and that is the whole reason Blur does anything.
+ *
+ * It used to sit after it, on the argument that grain is the layer above the
+ * blur. True of the object pipeline; fatal here. A mesh is locally LINEAR, and
+ * a blur of a linear ramp is the same ramp — so with grain excluded, blur had
+ * literally nothing left to act on. Measured at 100% on one node it moved the
+ * image by 0.41 of 255, and 0.05 on a corner node. A control that does nothing
+ * is not a defensible layer order.
+ *
+ * The offset is in PIXELS, not parameter space, so the grain stays a constant
+ * size on screen instead of stretching with the warp. */
+vec3 sampleAt(vec2 uv,vec2 pxOff,Node n){
+  vec3 c=materialAt(uv,n);
+  if(n.nAmt>0.001){
+    float sz=mix(1.0,14.0,n.nsz);
+    c+=grain3(floor((gl_FragCoord.xy+pxOff)/sz))*n.nAmt*0.314;
+  }
+  return c;
 }
 /* A real blur, not a softening trick: the surface is analytic, so averaging it
  * over a disc IS blurring it. Twelve taps on a golden-angle spiral, which
  * spreads evenly without the banding a square kernel leaves. */
-vec3 blurAt(vec2 uv,float fall,float smth,float metl,float glw,float rad){
-  vec3 s=materialAt(uv,fall,smth,metl,glw);
+vec3 blurAt(vec2 uv,Node n,float rad){
+  vec3 s=sampleAt(uv,vec2(0.0),n);
   if(rad<=0.0005) return s;
   /* 20 taps on a FIXED golden-angle spiral. It was briefly rotated per
    * fragment — the usual stochastic-kernel trade — to chase concentric rings
@@ -255,22 +288,22 @@ vec3 blurAt(vec2 uv,float fall,float smth,float metl,float glw,float rad){
   for(int i=0;i<20;i++){
     float a=float(i)*2.39996323;
     float rr=rad*sqrt((float(i)+0.5)/20.0);
-    s+=materialAt(uv+vec2(cos(a),sin(a))*rr,fall,smth,metl,glw);
+    vec2 o=vec2(cos(a),sin(a))*rr;
+    s+=sampleAt(uv+o,o*uSize,n);
   }
   return s/21.0;
 }
 /* CHROMATIC splits red and blue along the radius, growing toward the edges the
  * way a lens does rather than uniformly, which would read as a print
  * misregistration instead of glass. */
-vec3 chromAt(vec2 uv,float fall,float smth,float metl,float glw,float rad,float amt){
-  vec3 c=blurAt(uv,fall,smth,metl,glw,rad);
+vec3 chromAt(vec2 uv,Node n,float rad,float amt){
+  vec3 c=blurAt(uv,n,rad);
   if(amt<=0.001) return c;
   vec2 d=uv-vec2(0.5);
   float L=length(d);
   vec2 dir=L>1e-5?d/L:vec2(0.0);
   float o=amt*0.10*L;
-  return vec3(blurAt(uv+dir*o,fall,smth,metl,glw,rad).r, c.g,
-              blurAt(uv-dir*o,fall,smth,metl,glw,rad).b);
+  return vec3(blurAt(uv+dir*o,n,rad).r, c.g, blurAt(uv-dir*o,n,rad).b);
 }
 /* METALLIC desaturates toward luminance and rakes a periodic highlight across
  * the tonal range — metal reads as metal because its specular response is
@@ -306,9 +339,6 @@ vec3 glowAt(vec3 c,float g){
    * slider being broken. */
   return c+(c*0.72+vec3(0.28))*g*(0.35+0.65*l);
 }
-/* Keyed off the fragment, so a tile of a given size is identical every time it
- * is rendered — the same reason the pixel-slot noise carries a seed. */
-float hash21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
 void main(){
   vec4 f1=patch4(uFx1,vUV);
   vec4 f2=patch4(uFx2,vUV);
@@ -319,14 +349,10 @@ void main(){
   float fall=clamp(f1.b,0.0,1.0), smth=clamp(f1.a,0.0,1.0);
   float chrm=clamp(f2.r,0.0,1.0), metl=clamp(f2.g,0.0,1.0), glw=clamp(f2.b,0.0,1.0);
   float nsz=clamp(f2.a,0.0,1.0);
-  vec3 c=chromAt(vUV,fall,smth,metl,glw,bAmt*0.18,chrm);
-  if(nAmt>0.001){
-    /* Grain size in whole PIXELS, so the speckle is square and stable rather
-     * than resampled. At 0 the block is one pixel — exactly the per-pixel hash
-     * this replaced — so the default stays a no-op. */
-    float sz=mix(1.0,14.0,nsz);
-    c+=(hash21(floor(gl_FragCoord.xy/sz))*2.0-1.0)*nAmt*0.22;
-  }
+  /* Grain size is in whole PIXELS, so the speckle is square and stable rather
+   * than resampled. At 0 the block is one pixel. */
+  Node n=Node(fall,smth,metl,glw,nAmt,nsz);
+  vec3 c=chromAt(vUV,n,bAmt*0.18,chrm);
   fragColor=vec4(clamp(c,0.0,1.0),1.0);
 }`;
 
