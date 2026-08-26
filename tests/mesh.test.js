@@ -370,13 +370,14 @@ describe("mesh does not swallow the passes below it", () => {
 describe("per-node channels", () => {
   const MG = () => window.MeshGradient;
 
-  it("declares seven channels, every default a no-op", () => {
+  it("declares eight channels, every default a no-op", () => {
     /* The defaults are the back-compatibility guarantee: a net that has never
      * been touched here has to render exactly as it did before the channels
      * existed, or adding them repaints every document already saved. */
     const t = MG().NODE_FX;
     expect(t.map((f) => f.key)).toEqual([
       "noise",
+      "noiseSize",
       "blur",
       "falloff",
       "smooth",
@@ -385,8 +386,20 @@ describe("per-node channels", () => {
       "glow",
     ]);
     // falloff is neutral at its midpoint and smoothness at full bicubic; the
-    // rest are additive and neutral at zero
-    expect(t.map((f) => f.def)).toEqual([0, 0, 0.5, 1, 0, 0, 0]);
+    // rest are additive and neutral at zero. noiseSize is neutral at zero
+    // because zero means a one-pixel block, which is the per-pixel hash it
+    // replaced.
+    expect(t.map((f) => f.def)).toEqual([0, 0, 0, 0.5, 1, 0, 0, 0]);
+  });
+
+  it("puts the grain size next to the grain it sizes", () => {
+    /* This array orders the PANEL and nothing else — render() names every
+     * channel explicitly when it uploads, so the layout the shader reads is
+     * fixed independently. Worth a test, because the comment here used to
+     * claim the opposite and would have made a reader shuffle textures to
+     * move a slider. */
+    const keys = MG().NODE_FX.map((f) => f.key);
+    expect(keys.indexOf("noiseSize")).toBe(keys.indexOf("noise") + 1);
   });
 
   it("fills the defaults on a point that carries none", () => {
