@@ -427,17 +427,23 @@ void main(){
     if (!init()) return null;
     opts = opts || {};
     const passes = opts.passes == null ? 14 : opts.passes;
-    /* Geometry fitting is OFF by default because it was measured, not because
-     * it was hard. Moving control points onto colour edges sounds obviously
-     * right and is not: it distorts the parameterisation faster than sitting
-     * on an edge helps. Against a four-hotspot reference — sampling / with
-     * correction / with correction and snapping — 4x4 gave 20.8 / 19.2 / 18.2,
-     * 6x6 gave 11.7 / 10.0 / 10.2 and 8x8 gave 5.0 / 3.4 / 4.9. It wins
-     * marginally at the smallest grid and loses at every larger one, and
-     * WITHOUT the colour correction it is far worse than doing nothing (31.2
-     * at 4x4). Kept as an option rather than deleted, since a very coarse net
-     * is the one case it helps. */
-    const moveGeometry = opts.moveGeometry === true;
+    /* Geometry fitting is ON, and the history is worth keeping because it is
+     * the same lesson twice.
+     *
+     * First attempt: snap each interior point to the nearest strong colour
+     * edge. Measured, it made things worse at every grid above the coarsest,
+     * so it was turned off. Second attempt: coordinate descent on real
+     * reconstruction error — right idea, still worse, because it ran BEFORE
+     * the colours were fitted and so minimised error against a net whose
+     * colours were still a first guess. 6x6 went from 11.5 to 19.3.
+     *
+     * Both failures were the same mistake in different clothes: optimising
+     * something other than the thing that matters. Correcting colours first,
+     * then moving points against the true rendered error, then correcting the
+     * colours again for the net's new shape, improves every size measured —
+     * 4x4 17.9 to 14.9, 5x5 10.5 to 8.2, 6x6 11.5 to 8.4. It costs about half
+     * a second, which is a fit-once operation, not a per-frame one. */
+    const moveGeometry = opts.moveGeometry !== false;
     const W = FIT_RES,
       H = FIT_RES;
     const target = imageToRGBA(img, W, H).data;
@@ -452,83 +458,125 @@ void main(){
         pts.push({ x: u, y: v, color: sampleArea(target, W, H, u, v, rad) });
       }
 
-    // --- 2. move points onto edges, where a control point earns its keep
-    if (moveGeometry) {
-      const lum = (i) => 0.2126 * target[i] + 0.7152 * target[i + 1] + 0.0722 * target[i + 2];
-      for (let r = 1; r < rows - 1; r++)
-        for (let c = 1; c < cols - 1; c++) {
-          const i = r * cols + c;
-          const u0 = pts[i].x,
-            v0 = pts[i].y;
-          const reach = 0.35 / Math.max(cols - 1, 1); // bounded: the net must not tangle
-          let bx = u0,
-            by = v0,
-            bs = -1;
-          for (let dy = -3; dy <= 3; dy++)
-            for (let dx = -3; dx <= 3; dx++) {
-              const u = u0 + (dx / 3) * reach,
-                v = v0 + (dy / 3) * reach;
-              if (u < 0 || u > 1 || v < 0 || v > 1) continue;
-              const px = Math.round(u * (W - 1)),
-                py = Math.round(v * (H - 1));
-              if (px < 1 || py < 1 || px >= W - 1 || py >= H - 1) continue;
-              const p = (py * W + px) * 4;
-              const gx = lum(p + 4) - lum(p - 4);
-              const gy = lum(p + W * 4) - lum(p - W * 4);
-              const mag = Math.hypot(gx, gy);
-              if (mag > bs) {
-                bs = mag;
-                bx = u;
-                by = v;
+    /* --- 2/3. colour and geometry, ALTERNATED -------------------------
+     *
+     * These two are coupled, and the order is the whole difference between a
+     * fit that improves and one that degrades. Twice now I moved the points
+     * first: the optimiser then measures error against colours that have not
+     * been fitted yet, so it is minimising the wrong quantity. The tell was
+     * that every point travelled the maximum offset in one direction every
+     * round — a search walking downhill on a surface that was not the one it
+     * cared about. Measured, that made a 6x6 fit go from 11.5 to 19.3.
+     *
+     * So: correct the colours, THEN ask whether moving a point helps, then
+     * correct the colours again for the net's new shape. A move is kept only
+     * when the rendered result genuinely improves, which is a measurement
+     * rather than a heuristic about where edges are.
+     */
+    const correctColours = (P, passes2) => {
+      const acc = new Float64Array(cols * rows * 3),
+        wsum = new Float64Array(cols * rows);
+      for (let pass = 0; pass < passes2; pass++) {
+        const tile = render(W, H, { cols, rows, points: P });
+        if (!tile) break;
+        const cur = tile
+          .getContext("2d", { willReadFrequently: true })
+          .getImageData(0, 0, W, H).data;
+        acc.fill(0);
+        wsum.fill(0);
+        const step = 2;
+        for (let y = 0; y < H; y += step)
+          for (let x = 0; x < W; x += step) {
+            const i = (y * W + x) * 4;
+            const u = x / (W - 1),
+              v = y / (H - 1);
+            const er = target[i] - cur[i],
+              eg = target[i + 1] - cur[i + 1],
+              eb = target[i + 2] - cur[i + 2];
+            for (let r = 0; r < rows; r++)
+              for (let c = 0; c < cols; c++) {
+                const w = influence(u, v, c, r, cols, rows);
+                if (w <= 0) continue;
+                const k = r * cols + c;
+                acc[k * 3] += er * w;
+                acc[k * 3 + 1] += eg * w;
+                acc[k * 3 + 2] += eb * w;
+                wsum[k] += w;
+              }
+          }
+        /* Under-relaxed: neighbouring influences overlap, so a full correction
+         * overshoots and the net oscillates instead of settling. */
+        for (let k = 0; k < cols * rows; k++) {
+          if (wsum[k] <= 0) continue;
+          for (let ch = 0; ch < 3; ch++)
+            P[k].color[ch] = clampi(P[k].color[ch] + (acc[k * 3 + ch] / wsum[k]) * 0.7, 0, 255);
+        }
+      }
+      return P;
+    };
+
+    /** True reconstruction error, at a reduced resolution for search speed. */
+    const errorOf = (P, res) => {
+      const t = render(res, res, { cols, rows, points: P });
+      if (!t) return Infinity;
+      const cur = t
+        .getContext("2d", { willReadFrequently: true })
+        .getImageData(0, 0, res, res).data;
+      // the target at FIT_RES is resampled by index; res divides it evenly
+      const k = W / res;
+      let sum = 0;
+      for (let y = 0; y < res; y += 2)
+        for (let x = 0; x < res; x += 2) {
+          const i = (y * res + x) * 4;
+          const j = (Math.round(y * k) * W + Math.round(x * k)) * 4;
+          sum +=
+            Math.abs(target[j] - cur[i]) +
+            Math.abs(target[j + 1] - cur[i + 1]) +
+            Math.abs(target[j + 2] - cur[i + 2]);
+        }
+      return sum;
+    };
+
+    correctColours(pts, passes);
+
+    if (moveGeometry && cols > 2 && rows > 2) {
+      const RES = 80;
+      let best = errorOf(pts, RES);
+      for (const step of [0.07, 0.035]) {
+        for (let r = 1; r < rows - 1; r++)
+          for (let c = 1; c < cols - 1; c++) {
+            const i = r * cols + c,
+              p = pts[i];
+            const ox = p.x,
+              oy = p.y;
+            let bx = ox,
+              by = oy,
+              bv = best;
+            for (const [dx, dy] of [
+              [step, 0],
+              [-step, 0],
+              [0, step],
+              [0, -step],
+            ]) {
+              p.x = clampi(ox + dx, 0.08, 0.92);
+              p.y = clampi(oy + dy, 0.08, 0.92);
+              const v = errorOf(pts, RES);
+              if (v < bv) {
+                bv = v;
+                bx = p.x;
+                by = p.y;
               }
             }
-          pts[i].x = bx;
-          pts[i].y = by;
-          pts[i].color = sampleArea(target, W, H, bx, by, rad);
-        }
-    }
-
-    // --- 3. correct the colours against what the net actually renders
-    const acc = new Float64Array(cols * rows * 3),
-      wsum = new Float64Array(cols * rows);
-    for (let pass = 0; pass < passes; pass++) {
-      const tile = render(W, H, { cols, rows, points: pts });
-      if (!tile) break;
-      const cur = tile.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
-      acc.fill(0);
-      wsum.fill(0);
-      // a coarse stride: the residual is smooth, and every pixel costs passes
-      const step = 2;
-      for (let y = 0; y < H; y += step)
-        for (let x = 0; x < W; x += step) {
-          const i = (y * W + x) * 4;
-          const u = x / (W - 1),
-            v = y / (H - 1);
-          const er = target[i] - cur[i],
-            eg = target[i + 1] - cur[i + 1],
-            eb = target[i + 2] - cur[i + 2];
-          for (let r = 0; r < rows; r++)
-            for (let c = 0; c < cols; c++) {
-              const w = influence(u, v, c, r, cols, rows);
-              if (w <= 0) continue;
-              const k = r * cols + c;
-              acc[k * 3] += er * w;
-              acc[k * 3 + 1] += eg * w;
-              acc[k * 3 + 2] += eb * w;
-              wsum[k] += w;
-            }
-        }
-      /* Under-relaxed. A full correction overshoots, because every point's
-       * neighbours are being corrected in the same pass and their influences
-       * overlap — the net then oscillates instead of settling. */
-      const rate = 0.7;
-      for (let k = 0; k < cols * rows; k++) {
-        if (wsum[k] <= 0) continue;
-        const p = pts[k];
-        for (let ch = 0; ch < 3; ch++)
-          p.color[ch] = clampi(p.color[ch] + (acc[k * 3 + ch] / wsum[k]) * rate, 0, 255);
+            p.x = bx;
+            p.y = by;
+            best = bv;
+          }
+        // the net changed shape, so the colours that suited the old one no longer do
+        correctColours(pts, 6);
+        best = errorOf(pts, RES);
       }
     }
+
     pts.forEach((p) => (p.color = p.color.map((v) => clampi(Math.round(v), 0, 255))));
     return pts;
   }

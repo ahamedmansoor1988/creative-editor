@@ -6304,7 +6304,8 @@ function buildFxSection(obj,page,add,body){
        * decision is found rather than discovered. */
       add(`<div class="pSect">Reference</div>`);
       add(`<button class="rollBtn" id="mshFit">Match an image…</button>`);
-      add(`<div class="fxHint" id="mshFitNote">Samples the image and then corrects the net against what it actually renders.</div>`);
+      add(`<label class="slider"><input type="checkbox" id="mshFitGeo" checked> Move nodes to follow the image</label>`);
+      add(`<div class="fxHint" id="mshFitNote">Samples the image, corrects the net against what it actually renders, then moves the interior nodes where that measurably helps.</div>`);
       $('mshFit').addEventListener('click',()=>{
         const inp=document.createElement('input');
         inp.type='file'; inp.accept='image/*';
@@ -6321,7 +6322,8 @@ function buildFxSection(obj,page,add,body){
              * which is long enough to look like nothing happened. */
             setTimeout(()=>{
               try{
-                const pts=ME.fitToImage(im,M.cols,M.rows,{});
+                const geo=$('mshFitGeo');
+                const pts=ME.fitToImage(im,M.cols,M.rows,{moveGeometry:!geo||geo.checked});
                 if(pts){
                   M.points=pts;
                   const err=ME.fitError(im,M.cols,M.rows,pts);
