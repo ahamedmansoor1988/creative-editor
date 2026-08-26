@@ -409,7 +409,7 @@ describe("mesh does not swallow the passes below it", () => {
 describe("per-node channels", () => {
   const MG = () => window.MeshGradient;
 
-  it("declares nine channels, every default a no-op", () => {
+  it("declares ten channels, every default a no-op", () => {
     /* The defaults are the back-compatibility guarantee: a net that has never
      * been touched here has to render exactly as it did before the channels
      * existed, or adding them repaints every document already saved. */
@@ -417,6 +417,7 @@ describe("per-node channels", () => {
     expect(t.map((f) => f.key)).toEqual([
       "noise",
       "noiseSize",
+      "noiseContrast",
       "noiseColour",
       "blur",
       "falloff",
@@ -429,7 +430,7 @@ describe("per-node channels", () => {
     // rest are additive and neutral at zero. noiseSize is neutral at zero
     // because zero means a one-pixel block, which is the per-pixel hash it
     // replaced.
-    expect(t.map((f) => f.def)).toEqual([0, 0, 0, 0, 0.5, 1, 0, 0, 0]);
+    expect(t.map((f) => f.def)).toEqual([0, 0, 0, 0, 0, 0.5, 1, 0, 0, 0]);
   });
 
   it("keeps the grain controls together", () => {
@@ -440,7 +441,8 @@ describe("per-node channels", () => {
      * move a slider. */
     const keys = MG().NODE_FX.map((f) => f.key);
     expect(keys.indexOf("noiseSize")).toBe(keys.indexOf("noise") + 1);
-    expect(keys.indexOf("noiseColour")).toBe(keys.indexOf("noise") + 2);
+    expect(keys.indexOf("noiseContrast")).toBe(keys.indexOf("noise") + 2);
+    expect(keys.indexOf("noiseColour")).toBe(keys.indexOf("noise") + 3);
   });
 
   it("fills the defaults on a point that carries none", () => {
@@ -535,5 +537,66 @@ describe("per-node channels", () => {
     }
     MGm.available = oldAvail;
     MGm.get = oldGet;
+  });
+});
+
+/* sampleCurve is an OPTIMISATION, and the only thing that makes it safe is
+ * that it draws the same curve. It exists because the net overlay needs
+ * hundreds of points per curve to stay smooth when zoomed, and walking evalAt
+ * that many times measured 32.3ms per frame across a 4x4 net — a third of a
+ * second of stutter for every drag. Collapsing the fixed axis once per curve
+ * makes each sample a single Catmull-Rom instead of twenty.
+ *
+ * A faster path that quietly draws a DIFFERENT curve would be worse than the
+ * slow one, so these check agreement rather than speed. */
+describe("sampleCurve draws the same curve as evalAt", () => {
+  const MG = () => window.MeshGradient;
+
+  /** A deliberately warped net: on an even grid a wrong collapse can still
+   *  land on the right answer by symmetry. */
+  function warped() {
+    return MG()
+      .defaultPoints(4, 4)
+      .map((p, i) => ({
+        ...p,
+        x: p.x + (((i * 37) % 11) - 5) / 60,
+        y: p.y + (((i * 53) % 13) - 6) / 60,
+      }));
+  }
+
+  const worstAgainstEvalAt = (axis, at, steps) => {
+    const pts = warped();
+    const c = MG().sampleCurve(pts, 4, 4, axis, at, steps);
+    let worst = 0;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const e = axis === "u" ? MG().evalAt(pts, 4, 4, t, at) : MG().evalAt(pts, 4, 4, at, t);
+      worst = Math.max(worst, Math.abs(c[i * 2] - e.x), Math.abs(c[i * 2 + 1] - e.y));
+    }
+    return worst;
+  };
+
+  it("matches along a row, including the edge rows", () => {
+    for (const at of [0, 1 / 3, 2 / 3, 1]) {
+      expect(worstAgainstEvalAt("u", at, 48), `row at v=${at} diverges`).toBeLessThan(1e-6);
+    }
+  });
+
+  it("matches along a column, including the edge columns", () => {
+    for (const at of [0, 1 / 3, 2 / 3, 1]) {
+      expect(worstAgainstEvalAt("v", at, 48), `column at u=${at} diverges`).toBeLessThan(1e-6);
+    }
+  });
+
+  it("matches on a curve that is not on the control grid", () => {
+    // between rows is where a mishandled collapse shows up: on a grid line the
+    // fixed axis lands exactly on a control point and the interpolation is
+    // skipped entirely
+    expect(worstAgainstEvalAt("u", 0.42, 64)).toBeLessThan(1e-6);
+    expect(worstAgainstEvalAt("v", 0.17, 64)).toBeLessThan(1e-6);
+  });
+
+  it("returns the point count it was asked for", () => {
+    expect(MG().sampleCurve(warped(), 4, 4, "u", 0.5, 100)).toHaveLength(202);
   });
 });

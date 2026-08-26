@@ -29,6 +29,17 @@ declare global {
       MAX_N: number;
       defaultPoints(cols: number, rows: number): any[];
       resample(points: any[], fromC: number, fromR: number, toC: number, toR: number): any[];
+      /* A whole net curve at once, with the fixed axis collapsed first — the
+       * overlay's smoothness at zoom depends on being able to afford hundreds
+       * of points per curve. */
+      sampleCurve(
+        points: any[],
+        cols: number,
+        rows: number,
+        along: string,
+        at: number,
+        steps: number,
+      ): Float32Array;
       evalAt(points: any[], cols: number, rows: number, u: number, v: number): any;
       available(): boolean;
       /* What the DRAW path calls — the cached surface for a box. Declared

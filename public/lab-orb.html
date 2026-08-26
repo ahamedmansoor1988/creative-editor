@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Spectral Orb — lab</title>
+    <!--
+      A standalone bench for the Spectral Orb engine, built before the effect
+      goes anywhere near the editor. The mesh gradient was developed the same
+      way and it is why its acceptance tests could be run against a framebuffer
+      rather than argued about: this page owns the engine outright, so every
+      control is live and every test below reads real pixels.
+    -->
+    <style>
+      :root {
+        --bg: #0d0f13;
+        --panel: #161a21;
+        --line: #262c37;
+        --ink: #e6e9ef;
+        --dim: #8b93a3;
+        --accent: #6ea8fe;
+        --ok: #4ade80;
+        --bad: #f87171;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          13px/1.5 ui-sans-serif,
+          -apple-system,
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+        display: grid;
+        grid-template-columns: 1fr 300px;
+        height: 100vh;
+      }
+      #stage {
+        display: grid;
+        place-items: center;
+        position: relative;
+        overflow: auto;
+        /* a light chequerboard, so the anti-aliased alpha edge is visible
+           rather than hidden against a matching background */
+        background:
+          linear-gradient(45deg, #1a1e26 25%, transparent 25%),
+          linear-gradient(-45deg, #1a1e26 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #1a1e26 75%),
+          linear-gradient(-45deg, transparent 75%, #1a1e26 75%);
+        background-size: 22px 22px;
+        background-position:
+          0 0,
+          0 11px,
+          11px -11px,
+          -11px 0;
+      }
+      #wrap {
+        position: relative;
+        line-height: 0;
+      }
+      canvas {
+        display: block;
+        border-radius: 3px;
+      }
+      #handles {
+        position: absolute;
+        inset: 0;
+      }
+      .h {
+        position: absolute;
+        width: 15px;
+        height: 15px;
+        margin: -8px 0 0 -8px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow:
+          0 0 0 1px rgba(0, 0, 0, 0.55),
+          0 1px 4px rgba(0, 0, 0, 0.5);
+        cursor: grab;
+      }
+      .h.behind {
+        background: transparent !important;
+        border-style: dashed;
+        opacity: 0.75;
+      }
+      .h.sel {
+        width: 19px;
+        height: 19px;
+        margin: -10px 0 0 -10px;
+        border-color: var(--accent);
+      }
+      aside {
+        background: var(--panel);
+        border-left: 1px solid var(--line);
+        overflow: auto;
+        padding: 12px 13px 40px;
+      }
+      h1 {
+        font-size: 13px;
+        margin: 0 0 2px;
+        letter-spacing: 0.02em;
+      }
+      .sub {
+        color: var(--dim);
+        font-size: 11px;
+        margin-bottom: 12px;
+      }
+      .sect {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--dim);
+        margin: 16px 0 7px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line);
+      }
+      label.sl {
+        display: block;
+        font-size: 11.5px;
+        margin-bottom: 9px;
+        color: var(--ink);
+      }
+      label.sl span {
+        float: right;
+        color: var(--dim);
+        font-variant-numeric: tabular-nums;
+      }
+      input[type="range"] {
+        width: 100%;
+        margin-top: 3px;
+        accent-color: var(--accent);
+      }
+      input[type="color"] {
+        width: 100%;
+        height: 26px;
+        background: none;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px;
+      }
+      button {
+        font: inherit;
+        font-size: 11.5px;
+        color: var(--ink);
+        background: #1e242e;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 6px 9px;
+        cursor: pointer;
+        width: 100%;
+        margin-bottom: 6px;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-bottom: 8px;
+      }
+      .chip {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+      }
+      .chip.sel {
+        border-color: var(--accent);
+      }
+      #tests {
+        font-size: 11.5px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        line-height: 1.55;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      .note {
+        color: var(--dim);
+        font-size: 10.5px;
+        margin: -4px 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="wrap">
+        <canvas id="orb" width="640" height="640"></canvas>
+        <div id="handles"></div>
+      </div>
+    </div>
+
+    <aside>
+      <h1>Spectral Orb</h1>
+      <div class="sub">v1 — engine bench</div>
+
+      <div class="sect">Geometry</div>
+      <label class="sl"
+        >Radius <span id="vRadius"></span
+        ><input type="range" id="radius" min="5" max="100" step="1"
+      /></label>
+      <label class="sl"
+        >Centre X <span id="vCenterX"></span
+        ><input type="range" id="centerX" min="-100" max="100" step="1"
+      /></label>
+      <label class="sl"
+        >Centre Y <span id="vCenterY"></span
+        ><input type="range" id="centerY" min="-100" max="100" step="1"
+      /></label>
+
+      <div class="sect">Spectral field</div>
+      <label class="sl"
+        >Rotation <span id="vRotation"></span
+        ><input type="range" id="rotation" min="0" max="360" step="1"
+      /></label>
+      <label class="sl"
+        >Colour spread <span id="vConcentration"></span
+        ><input type="range" id="concentration" min="0" max="100" step="1"
+      /></label>
+      <label class="sl"
+        >Colour intensity <span id="vIntensity"></span
+        ><input type="range" id="intensity" min="0" max="200" step="1"
+      /></label>
+
+      <div class="sect">Centre</div>
+      <label class="sl"
+        >Centre wash <span id="vCenterStrength"></span
+        ><input type="range" id="centerStrength" min="0" max="100" step="1"
+      /></label>
+      <label class="sl"
+        >Centre falloff <span id="vCenterFalloff"></span
+        ><input type="range" id="centerFalloff" min="2" max="120" step="1"
+      /></label>
+      <label class="sl">Centre colour<input type="color" id="centerColor" /></label>
+
+      <div class="sect">Edge</div>
+      <label class="sl"
+        >Rim strength <span id="vRimStrength"></span
+        ><input type="range" id="rimStrength" min="0" max="100" step="1"
+      /></label>
+      <label class="sl"
+        >Rim width <span id="vRimWidth"></span
+        ><input type="range" id="rimWidth" min="30" max="99" step="1"
+      /></label>
+      <label class="sl"
+        >Fresnel <span id="vFresnelStrength"></span
+        ><input type="range" id="fresnelStrength" min="0" max="200" step="1"
+      /></label>
+      <label class="sl"
+        >Fresnel power <span id="vFresnelPower"></span
+        ><input type="range" id="fresnelPower" min="2" max="80" step="1"
+      /></label>
+
+      <div class="sect">Anchors</div>
+      <div class="note">Drag a handle on the orb to move its colour across the sphere.</div>
+      <div class="chips" id="chips"></div>
+      <label class="sl">Anchor colour<input type="color" id="anchorColor" /></label>
+      <label class="sl"
+        >Anchor strength <span id="vAnchorStrength"></span
+        ><input type="range" id="anchorStrength" min="0" max="200" step="1"
+      /></label>
+
+      <div class="sect">Bench</div>
+      <div class="row">
+        <button id="btnNormals">Normals</button>
+        <button id="btnReset">Reset</button>
+      </div>
+      <button id="btnTests">Run acceptance tests</button>
+      <div id="tests"></div>
+    </aside>
+
+    <script src="spectralorb.js"></script>
+    <script>
+      const SO = window.SpectralOrb;
+      const cv = document.getElementById("orb");
+      const ctx = cv.getContext("2d");
+      const handlesEl = document.getElementById("handles");
+      let S = SO.DEFAULTS();
+      let selAnchor = 0;
+      let debugNormals = false;
+
+      /* ---- Controls ------------------------------------------------------
+       * Each row is [id, key, scale, suffix, decimals]: the slider is an
+       * integer and the model is not, so the mapping lives in one table
+       * rather than in twelve handlers. */
+      const SLIDERS = [
+        ["radius", "radius", 100, "%", 0],
+        ["centerX", "centerX", 100, "", 0],
+        ["centerY", "centerY", 100, "", 0],
+        ["rotation", "rotation", 1, "°", 0],
+        ["concentration", "concentration", null, "", 1], // own mapping, below
+        ["intensity", "intensity", 100, "%", 0],
+        ["centerStrength", "centerStrength", 100, "%", 0],
+        ["centerFalloff", "centerFalloff", 10, "", 1],
+        ["rimStrength", "rimStrength", 100, "%", 0],
+        ["rimWidth", "rimWidth", 100, "%", 0],
+        ["fresnelStrength", "fresnelStrength", 100, "%", 0],
+        ["fresnelPower", "fresnelPower", 10, "", 1],
+      ];
+
+      /* Colour spread is exposed as 0..100 but kappa is meaningful on a log
+       * scale — 0.4 to 20 — so a linear slider would spend most of its travel
+       * in the range where nothing visibly changes. */
+      const kappaFromUI = (v) => 0.4 * Math.pow(50, v / 100);
+      const uiFromKappa = (k) => (Math.log(k / 0.4) / Math.log(50)) * 100;
+
+      function syncControls() {
+        for (const [id, key, scale, suffix, dp] of SLIDERS) {
+          const el = document.getElementById(id);
+          const out = document.getElementById("v" + id[0].toUpperCase() + id.slice(1));
+          if (key === "concentration") {
+            el.value = Math.round(uiFromKappa(S.concentration));
+            if (out) out.textContent = S.concentration.toFixed(1);
+          } else {
+            el.value = Math.round(S[key] * scale);
+            if (out) out.textContent = (S[key] * (suffix === "%" ? 100 : 1)).toFixed(dp) + suffix;
+          }
+        }
+        document.getElementById("centerColor").value = S.centerColor;
+        const a = S.anchors[selAnchor];
+        if (a) {
+          document.getElementById("anchorColor").value = linToHex(a.color);
+          document.getElementById("anchorStrength").value = Math.round(a.strength * 100);
+          document.getElementById("vAnchorStrength").textContent =
+            Math.round(a.strength * 100) + "%";
+        }
+      }
+
+      function bindControls() {
+        for (const [id, key, scale] of SLIDERS) {
+          document.getElementById(id).addEventListener("input", (e) => {
+            const raw = +e.target.value;
+            S[key] = key === "concentration" ? kappaFromUI(raw) : raw / scale;
+            draw();
+          });
+        }
+        document.getElementById("centerColor").addEventListener("input", (e) => {
+          S.centerColor = e.target.value;
+          draw();
+        });
+        document.getElementById("anchorColor").addEventListener("input", (e) => {
+          S.anchors[selAnchor].color = SO.hexToLinear(e.target.value);
+          draw();
+        });
+        document.getElementById("anchorStrength").addEventListener("input", (e) => {
+          S.anchors[selAnchor].strength = +e.target.value / 100;
+          draw();
+        });
+        document.getElementById("btnNormals").addEventListener("click", () => {
+          debugNormals = !debugNormals;
+          draw();
+        });
+        document.getElementById("btnReset").addEventListener("click", () => {
+          S = SO.DEFAULTS();
+          selAnchor = 0;
+          debugNormals = false;
+          syncControls();
+          draw();
+        });
+        document.getElementById("btnTests").addEventListener("click", runTests);
+      }
+
+      /* linear -> the hex a colour input expects. The model stores linear
+       * because that is what the shader interpolates; the picker is sRGB. */
+      function linToHex(lin) {
+        const f = (v) => {
+          const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(Math.max(v, 0), 1 / 2.4) - 0.055;
+          return Math.round(Math.min(1, Math.max(0, c)) * 255)
+            .toString(16)
+            .padStart(2, "0");
+        };
+        return "#" + f(lin[0]) + f(lin[1]) + f(lin[2]);
+      }
+
+      /* ---- InteractionLayer ---------------------------------------------- */
+
+      function drawHandles() {
+        handlesEl.innerHTML = "";
+        S.anchors.forEach((a, i) => {
+          const h = SO.anchorHandle(a, S, cv.width, cv.height);
+          const el = document.createElement("div");
+          el.className = "h" + (h.behind ? " behind" : "") + (i === selAnchor ? " sel" : "");
+          el.style.left = h.x * 100 + "%";
+          el.style.top = h.y * 100 + "%";
+          el.style.background = linToHex(a.color);
+          el.title = a.id + (h.behind ? " (far side)" : "");
+          el.addEventListener("pointerdown", (ev) => {
+            ev.preventDefault();
+            selAnchor = i;
+            syncControls();
+            el.setPointerCapture(ev.pointerId);
+            const move = (m) => {
+              const r = cv.getBoundingClientRect();
+              a.direction = SO.directionFromHandle(
+                (m.clientX - r.left) / r.width,
+                (m.clientY - r.top) / r.height,
+                S,
+                cv.width,
+                cv.height,
+              );
+              draw(); // live while dragging, as the brief requires
+            };
+            const up = () => {
+              el.removeEventListener("pointermove", move);
+              el.removeEventListener("pointerup", up);
+            };
+            el.addEventListener("pointermove", move);
+            el.addEventListener("pointerup", up);
+          });
+          handlesEl.appendChild(el);
+        });
+      }
+
+      function drawChips() {
+        const w = document.getElementById("chips");
+        w.innerHTML = "";
+        S.anchors.forEach((a, i) => {
+          const c = document.createElement("div");
+          c.className = "chip" + (i === selAnchor ? " sel" : "");
+          c.style.background = linToHex(a.color);
+          c.title = a.id;
+          c.addEventListener("click", () => {
+            selAnchor = i;
+            drawChips();
+            drawHandles();
+            syncControls();
+          });
+          w.appendChild(c);
+        });
+      }
+
+      function draw() {
+        const tile = SO.render(cv.width, cv.height, S, { debugNormals });
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        if (tile) ctx.drawImage(tile, 0, 0);
+        drawHandles();
+        drawChips();
+      }
+
+      /* ---- Acceptance tests ----------------------------------------------
+       * Each reads the framebuffer. The point of a lab is that a claim about
+       * the picture can be checked against the picture. */
+
+      function px(W, H, s, opts) {
+        const t = SO.render(W, H, s, opts || {});
+        const c = document.createElement("canvas");
+        c.width = W;
+        c.height = H;
+        c.getContext("2d").drawImage(t, 0, 0);
+        return c.getContext("2d").getImageData(0, 0, W, H).data;
+      }
+      const at = (d, W, x, y) => {
+        const i = (y * W + x) * 4;
+        return [d[i], d[i + 1], d[i + 2], d[i + 3]];
+      };
+      const sat = (c) => {
+        const mx = Math.max(c[0], c[1], c[2]),
+          mn = Math.min(c[0], c[1], c[2]);
+        return mx ? (mx - mn) / mx : 0;
+      };
+
+      function runTests() {
+        const out = [];
+        const say = (name, pass, detail) =>
+          out.push(
+            `<span class="${pass ? "ok" : "bad"}">${pass ? "PASS" : "FAIL"}</span>  ${name}\n      ${detail}`,
+          );
+        const base = SO.DEFAULTS();
+        const N = 384;
+
+        // 1 — sphere geometry: the normal visualisation must BE a sphere
+        {
+          const d = px(N, N, base, { debugNormals: true });
+          const c = at(d, N, N / 2, N / 2);
+          // centre normal is (0,0,1) -> encoded (0.5,0.5,1) -> blue
+          const centreOK = c[0] > 118 && c[0] < 138 && c[1] > 118 && c[1] < 138 && c[2] > 245;
+          // and |N| must be 1 everywhere: sample a ring and check the decode
+          let worst = 0;
+          for (let k = 0; k < 24; k++) {
+            const a = (k / 24) * Math.PI * 2,
+              rr = 0.6;
+            const x = Math.round((0.5 + Math.cos(a) * rr * 0.46) * N);
+            const y = Math.round((0.5 - Math.sin(a) * rr * 0.46) * N);
+            const p = at(d, N, x, y);
+            const v = [p[0] / 127.5 - 1, p[1] / 127.5 - 1, p[2] / 127.5 - 1];
+            worst = Math.max(worst, Math.abs(Math.hypot(v[0], v[1], v[2]) - 1));
+          }
+          say(
+            "1 sphere geometry",
+            centreOK && worst < 0.06,
+            `centre normal ${c.slice(0, 3)}; worst |N| error ${worst.toFixed(3)}`,
+          );
+        }
+
+        // 2 — centre wash pales the middle WITHOUT washing the perimeter
+        {
+          const s = Object.assign({}, base, { centerStrength: 1 });
+          const d = px(N, N, s);
+          const mid = at(d, N, N / 2, N / 2);
+          const rim = at(d, N, Math.round(N * 0.5), Math.round(N * 0.06));
+          const paler = sat(mid) < sat(rim) * 0.6;
+          // must NOT be a white radial gradient: the centre keeps a hue
+          const notWhite = sat(mid) > 0.02 && Math.min(...mid.slice(0, 3)) < 253;
+          say(
+            "2 centre wash",
+            paler && notWhite,
+            `centre sat ${sat(mid).toFixed(3)} vs rim ${sat(rim).toFixed(3)}; centre rgb ${mid.slice(0, 3)}`,
+          );
+        }
+
+        // 3 — rotation moves the FIELD and leaves the geometry alone
+        {
+          const a = px(N, N, base);
+          const b = px(N, N, Object.assign({}, base, { rotation: 90 }));
+          let colourMoved = 0;
+          for (let i = 0; i < a.length; i += 4)
+            colourMoved += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]);
+          colourMoved /= a.length / 4;
+          // geometry stationary: the alpha mask must be identical
+          let maskDiff = 0;
+          for (let i = 3; i < a.length; i += 4) maskDiff += Math.abs(a[i] - b[i]);
+          const na = px(N, N, base, { debugNormals: true });
+          const nb = px(N, N, Object.assign({}, base, { rotation: 90 }), { debugNormals: true });
+          let normalDiff = 0;
+          for (let i = 0; i < na.length; i += 4) normalDiff += Math.abs(na[i] - nb[i]);
+          say(
+            "3 rotation",
+            colourMoved > 6 && maskDiff === 0 && normalDiff === 0,
+            `colour moved ${colourMoved.toFixed(1)}/255; mask diff ${maskDiff}; normal diff ${normalDiff}`,
+          );
+        }
+
+        // 4 — an anchor moves smoothly, with no blurred circular spot
+        {
+          const s = JSON.parse(JSON.stringify(base));
+          const i = s.anchors.findIndex((a) => a.id === "magenta");
+          s.anchors[i].direction = SO.directionFromDisc(0.1, 0.55);
+          const d = px(N, N, s);
+          // a "spot" would be a local extremum: walk a line through the new
+          // position and check the field is monotone on each side of the peak
+          const y = Math.round((1 - (0.55 * 0.92 + 1) / 2) * N);
+          const row = [];
+          for (let x = Math.round(N * 0.2); x < Math.round(N * 0.8); x += 2)
+            row.push(at(d, N, x, y)[0]);
+          let turns = 0;
+          for (let k = 2; k < row.length; k++) {
+            const a1 = Math.sign(row[k - 1] - row[k - 2]),
+              a2 = Math.sign(row[k] - row[k - 1]);
+            if (a1 && a2 && a1 !== a2) turns++;
+          }
+          say(
+            "4 anchor movement",
+            turns <= 3,
+            `direction reversals across the field: ${turns} (a blob would ring up many)`,
+          );
+        }
+
+        // 5 — rim is optional, and only ever peripheral
+        {
+          const off = px(N, N, Object.assign({}, base, { rimStrength: 0 }));
+          const on = px(N, N, Object.assign({}, base, { rimStrength: 1 }));
+          const mid = (d) => at(d, N, N / 2, N / 2);
+          let centreDiff = 0,
+            edgeDiff = 0;
+          for (let k = 0; k < 40; k++) {
+            const a = (k / 40) * Math.PI * 2;
+            const cx = Math.round((0.5 + Math.cos(a) * 0.1) * N),
+              cy = Math.round((0.5 + Math.sin(a) * 0.1) * N);
+            const ex = Math.round((0.5 + Math.cos(a) * 0.44) * N),
+              ey = Math.round((0.5 + Math.sin(a) * 0.44) * N);
+            const c1 = at(off, N, cx, cy),
+              c2 = at(on, N, cx, cy);
+            const e1 = at(off, N, ex, ey),
+              e2 = at(on, N, ex, ey);
+            for (let j = 0; j < 3; j++) {
+              centreDiff += Math.abs(c1[j] - c2[j]);
+              edgeDiff += Math.abs(e1[j] - e2[j]);
+            }
+          }
+          const worksOff = mid(off)[3] > 250;
+          say(
+            "5 rim",
+            worksOff && centreDiff < edgeDiff * 0.2 && edgeDiff > 200,
+            `orb renders with rim off (alpha ${mid(off)[3]}); centre change ${centreDiff}, edge change ${edgeDiff}`,
+          );
+        }
+
+        // 6 — resolution independence: same picture, more pixels
+        {
+          const sizes = [256, 1024, 2048];
+          const ref = px(sizes[0], sizes[0], base);
+          let worst = 0;
+          for (const S2 of sizes.slice(1)) {
+            const d = px(S2, S2, base);
+            const k = S2 / sizes[0];
+            let sum = 0,
+              n = 0;
+            // compare at matched NORMALISED positions, away from the AA edge
+            for (let gy = 1; gy < 20; gy++)
+              for (let gx = 1; gx < 20; gx++) {
+                const u = gx / 20,
+                  v = gy / 20;
+                if (Math.hypot(u - 0.5, v - 0.5) > 0.44) continue;
+                const a = at(ref, sizes[0], Math.round(u * sizes[0]), Math.round(v * sizes[0]));
+                const b = at(d, S2, Math.round(u * S2), Math.round(v * S2));
+                sum += Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+                n += 3;
+                void k;
+              }
+            worst = Math.max(worst, sum / n);
+          }
+          say(
+            "6 resolution independence",
+            worst < 2,
+            `worst mean channel difference across 256 / 1024 / 2048: ${worst.toFixed(3)}`,
+          );
+        }
+
+        document.getElementById("tests").innerHTML = out.join("\n\n");
+      }
+
+      if (!SO.available()) {
+        document.getElementById("tests").innerHTML =
+          '<span class="bad">WebGL2 unavailable — the orb cannot render here.</span>';
+      } else {
+        bindControls();
+        syncControls();
+        draw();
+      }
+    </script>
+  </body>
+</html>

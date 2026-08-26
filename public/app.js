@@ -666,6 +666,7 @@ function normChildren(list,depth){
        * and taper only matters once there is a fade to shape. */
       msh.edge=clamp(+msh.edge||0,0,1);
       msh.taper=Number.isFinite(+msh.taper)?clamp(+msh.taper,0,1):0.5;
+      msh.softness=Number.isFinite(+msh.softness)?clamp(+msh.softness,0,1):1;
       /* The net is repaired rather than trusted: it arrives from saved files
        * and from the model as readily as from the panel. A net whose length
        * disagrees with cols*rows is not partially usable — the surface would
@@ -2677,18 +2678,23 @@ function drawOneInner(c,W,H,obj){
        *
        * The scale comes off the context's own transform rather than view.z, so
        * export and thumbnail paths — which set their own — get it right too.
-       * Capped at 3x and 4096px: past that the cost stops buying visible
-       * sharpness, and a blurred tile is expensive per pixel. */
+       * Capped at 4x and 4096px: past that the cost stops buying visible
+       * sharpness, and a blurred tile is expensive per pixel. Whatever
+       * magnification is left after the cap is resampled at high quality
+       * rather than with the default filter, which is what turns a soft
+       * enlargement into a stepped one. */
       const draw=o=>{
         const tf=c.getTransform?c.getTransform():null;
-        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,3);
+        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
         const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
         const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
         const img=window.MeshGradient.get(tw,th,
           {cols:msh.cols,rows:msh.rows,points:msh.points,scale:tw/Math.max(1,o.w),
-           edge:msh.edge,taper:msh.taper});
+           edge:msh.edge,taper:msh.taper,softness:msh.softness});
         if(!img) return;
         c.save();
+        c.imageSmoothingEnabled=true;
+        if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
         c.globalAlpha=obj.opacity;
         c.beginPath(); pathFor(c,o); c.clip();
         c.drawImage(img,o.x,o.y,o.w,o.h);
@@ -3406,28 +3412,36 @@ function paint(){
     if(!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
     if(!M.points||M.points.length!==M.cols*M.rows) return;
     const b=boxOf(o);
-    const at=(u,v)=>{ const p=ME.evalAt(M.points,M.cols,M.rows,u,v);
-      return {x:b.x+p.x*b.w, y:b.y+p.y*b.h}; };
     ctx.save();
     ctx.lineWidth=1/z;
     ctx.strokeStyle='rgba(255,255,255,.85)';
-    const STEPS=32;
-    for(let r=0;r<M.rows;r++){
+    /* SEGMENTS FOLLOW THE ZOOM. This was a flat 32, which is a segment every
+     * 12 document pixels on a 400px shape — and at 5x zoom, every 62 SCREEN
+     * pixels. The curves visibly went polygonal exactly when a user leaned in
+     * to look at them, which read as the mesh being low quality when it was
+     * only the overlay that was.
+     *
+     * Aiming at roughly one segment per 3 screen pixels puts every kink below
+     * the width of the line drawing it.
+     *
+     * That density is only affordable through sampleCurve. Walking evalAt this
+     * many times measured 32.3ms per FRAME across the eight curves of a 4x4
+     * net — a third of a second of stutter per drag, which would have traded
+     * one visible fault for a worse one. Collapsing the fixed axis once per
+     * curve makes each sample a single Catmull-Rom instead of twenty. */
+    const STEPS=Math.max(32,Math.min(2048,Math.round(Math.max(b.w,b.h)*z/3)));
+    const stroke=(pts)=>{
       ctx.beginPath();
-      for(let i=0;i<=STEPS;i++){
-        const p=at(i/STEPS, M.rows===1?0:r/(M.rows-1));
-        i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y);
+      for(let i=0;i<pts.length;i+=2){
+        const x=b.x+pts[i]*b.w, y=b.y+pts[i+1]*b.h;
+        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
       }
       ctx.stroke();
-    }
-    for(let c2=0;c2<M.cols;c2++){
-      ctx.beginPath();
-      for(let i=0;i<=STEPS;i++){
-        const p=at(M.cols===1?0:c2/(M.cols-1), i/STEPS);
-        i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y);
-      }
-      ctx.stroke();
-    }
+    };
+    for(let r=0;r<M.rows;r++)
+      stroke(ME.sampleCurve(M.points,M.cols,M.rows,'u',M.rows===1?0:r/(M.rows-1),STEPS));
+    for(let c2=0;c2<M.cols;c2++)
+      stroke(ME.sampleCurve(M.points,M.cols,M.rows,'v',M.cols===1?0:c2/(M.cols-1),STEPS));
     M.points.forEach((pt,i)=>{
       const x=b.x+pt.x*b.w, y=b.y+pt.y*b.h;
       ctx.beginPath(); ctx.arc(x,y,(i===meshSel?6:5)/z,0,Math.PI*2);
@@ -6418,14 +6432,17 @@ function buildFxSection(obj,page,add,body){
       add(`<div class="pSect">Edge</div>`);
       add(`<label class="slider">Edge blur <span id="mshEdgeV">${Math.round((M.edge||0)*100)}%</span>
         <input type="range" id="mshEdge" min="0" max="100" step="1" value="${Math.round((M.edge||0)*100)}"></label>`);
+      add(`<label class="slider">Softness <span id="mshSoftV">${Math.round((M.softness===undefined?1:M.softness)*100)}%</span>
+        <input type="range" id="mshSoft" min="0" max="100" step="1" value="${Math.round((M.softness===undefined?1:M.softness)*100)}"></label>`);
       add(`<label class="slider">Taper <span id="mshTaperV">${Math.round((M.taper===undefined?0.5:M.taper)*100)}%</span>
         <input type="range" id="mshTaper" min="0" max="100" step="1" value="${Math.round((M.taper===undefined?0.5:M.taper)*100)}"></label>`);
-      add(`<div class="fxHint">Softens the fill's own boundary, so the shape sits in the page rather than on it. Taper is the shape of that fade, not its width: below 50% it starts early and trails off, above 50% the fill holds and then leaves quickly. 50% is a straight ramp.</div>`);
+      add(`<div class="fxHint">Three separate things. <b>Edge blur</b> is how WIDE the fade is. <b>Softness</b> is its curve — at 0 a straight ramp, which arrives at full opacity abruptly enough to leave a faint contour; at 100 both ends are eased away. <b>Taper</b> is its bias: below 50% the fade starts early and trails off, above 50% the fill holds and then leaves quickly.</div>`);
       {
         const liveE=()=>{ paintCacheClear(); render(); };
         $('mshEdge').addEventListener('input',e=>{ M.edge=+e.target.value/100; $('mshEdgeV').textContent=e.target.value+'%'; liveE(); });
+        $('mshSoft').addEventListener('input',e=>{ M.softness=+e.target.value/100; $('mshSoftV').textContent=e.target.value+'%'; liveE(); });
         $('mshTaper').addEventListener('input',e=>{ M.taper=+e.target.value/100; $('mshTaperV').textContent=e.target.value+'%'; liveE(); });
-        ['mshEdge','mshTaper'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
+        ['mshEdge','mshSoft','mshTaper'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
       }
 
       add(`<div class="pSect">Selected point</div>`);
