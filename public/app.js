@@ -51,6 +51,8 @@ let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
 /* Which mesh handle is selected. View state: it says what the user is
  * pointing at, not what the document contains. */
 let meshSel=null;
+/* Analyses already paid for, this session. */
+const _analysisCache=new Map();
 let selArtboard=null;      // §6.5 the artboard whose panel is open
 let snapLines=[];        // live indicators, screen chrome only
 let gapHints=[];         // §2.11 equal-spacing indicators
@@ -6427,10 +6429,19 @@ function buildFxSection(obj,page,add,body){
             // downscaled for the same reason a generate is: the model is being
             // asked about STRUCTURE, and structure survives 512px
             const small=await shrinkForModel(dataUrl);
-            const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({imageDataUrl:small})});
-            const j=await r.json();
-            if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+            /* An analysis of the same image is the same answer, so asking
+             * twice spends a provider's rate limit on a question already
+             * answered. Keyed on the bytes actually sent, and kept for the
+             * session only — this is a convenience, not a store. */
+            let j=_analysisCache.get(small);
+            if(!j){
+              const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({imageDataUrl:small})});
+              j=await r.json();
+              if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+              _analysisCache.set(small,j);
+              if(_analysisCache.size>8) _analysisCache.delete(_analysisCache.keys().next().value);
+            }
             const applied=applyRecipe(obj,j.recipe);
             pushHistory('Apply analysed effects');
             refresh();

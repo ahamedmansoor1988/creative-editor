@@ -269,9 +269,13 @@ async function analyse(body) {
     ],
     // low, because this is a reading rather than an invention
     temperature: 0.2,
-    // small on purpose: a recipe is short, and a tight ceiling keeps the whole
-    // request inside a free tier that counts requested tokens against the limit
-    max_completion_tokens: 700,
+    /* A recipe is about 150 tokens. The ceiling matters more than the reply
+     * does: the provider counts REQUESTED tokens against a tokens-per-minute
+     * limit, so every unused token in this budget is spent anyway. Shrinking
+     * the image does not help — a vision model tokenises to a fixed patch
+     * count, and 288px measured the same 2,254 tokens as 512px did — so this
+     * is the only part of the request there is any room in. */
+    max_completion_tokens: 400,
     reasoning_effort: "none",
   };
   const r = await fetch(GROQ_URL, {
@@ -542,9 +546,19 @@ const server = http.createServer((req, res) => {
       } catch (err) {
         console.error("[analyze]", err);
         const status = err && err.status === 429 ? 429 : 502;
+        /* "Try again shortly" is not actionable. The provider says how long in
+         * its message, so pass the number through — a wait you can time is a
+         * different experience from one you cannot. */
+        const secs = status === 429 ? Number((String(err.message).match(/try again in ([\d.]+)s/) || [])[1]) : NaN;
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
-          error: status === 429 ? "Rate limit reached — try again shortly." : "The reference could not be analysed.",
+          error:
+            status === 429
+              ? Number.isFinite(secs)
+                ? `The provider's rate limit — about ${Math.ceil(secs)}s to wait.`
+                : "The provider's rate limit — about a minute to wait."
+              : "The reference could not be analysed.",
+          retryAfter: Number.isFinite(secs) ? Math.ceil(secs) : undefined,
         }));
       }
     });
