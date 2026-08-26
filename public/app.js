@@ -662,6 +662,10 @@ function normChildren(list,depth){
       msh.cols=clamp(Math.round(+msh.cols)||4,nlo,nhi);
       msh.rows=clamp(Math.round(+msh.rows)||4,nlo,nhi);
       msh.showNet=msh.showNet!==false;
+      /* Edge feather. Both default to a no-op: width 0 disables it outright,
+       * and taper only matters once there is a fade to shape. */
+      msh.edge=clamp(+msh.edge||0,0,1);
+      msh.taper=Number.isFinite(+msh.taper)?clamp(+msh.taper,0,1):0.5;
       /* The net is repaired rather than trusted: it arrives from saved files
        * and from the model as readily as from the panel. A net whose length
        * disagrees with cols*rows is not partially usable — the surface would
@@ -2663,8 +2667,26 @@ function drawOneInner(c,W,H,obj){
      * point costs one render rather than one per frame. */
     const msh=fx.mesh;
     if(msh&&fxOn(obj,'mesh')&&obj.type!=='text'&&window.MeshGradient&&window.MeshGradient.available()){
+      /* RENDER AT THE RESOLUTION THE SCREEN IS ACTUALLY USING.
+       *
+       * This asked for a tile the size of the shape in DOCUMENT units and then
+       * drew it through the zoom transform, so at 5x zoom a 400px tile was
+       * stretched across 2000 screen pixels. Every curve went polygonal and
+       * the grain turned to soft mush — the artefacts read as a broken mesh,
+       * but they were a magnified bitmap.
+       *
+       * The scale comes off the context's own transform rather than view.z, so
+       * export and thumbnail paths — which set their own — get it right too.
+       * Capped at 3x and 4096px: past that the cost stops buying visible
+       * sharpness, and a blurred tile is expensive per pixel. */
       const draw=o=>{
-        const img=window.MeshGradient.get(o.w,o.h,{cols:msh.cols,rows:msh.rows,points:msh.points});
+        const tf=c.getTransform?c.getTransform():null;
+        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,3);
+        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
+        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        const img=window.MeshGradient.get(tw,th,
+          {cols:msh.cols,rows:msh.rows,points:msh.points,scale:tw/Math.max(1,o.w),
+           edge:msh.edge,taper:msh.taper});
         if(!img) return;
         c.save();
         c.globalAlpha=obj.opacity;
@@ -6390,6 +6412,21 @@ function buildFxSection(obj,page,add,body){
       add(`<div class="fxHint">${M.cols*M.rows} handles. Fewer is easier to edit — resizing resamples the surface, so nothing is thrown away.</div>`);
       add(`<label class="slider"><input type="checkbox" id="mshNet" ${M.showNet!==false?'checked':''}> Show net while selected</label>`);
       $('mshNet').addEventListener('change',e=>{ M.showNet=e.target.checked; pushHistory(); render(); });
+
+      /* Shape-level, not per-node: it is a property of the boundary, and every
+       * node sits somewhere other than all of it. */
+      add(`<div class="pSect">Edge</div>`);
+      add(`<label class="slider">Edge blur <span id="mshEdgeV">${Math.round((M.edge||0)*100)}%</span>
+        <input type="range" id="mshEdge" min="0" max="100" step="1" value="${Math.round((M.edge||0)*100)}"></label>`);
+      add(`<label class="slider">Taper <span id="mshTaperV">${Math.round((M.taper===undefined?0.5:M.taper)*100)}%</span>
+        <input type="range" id="mshTaper" min="0" max="100" step="1" value="${Math.round((M.taper===undefined?0.5:M.taper)*100)}"></label>`);
+      add(`<div class="fxHint">Softens the fill's own boundary, so the shape sits in the page rather than on it. Taper is the shape of that fade, not its width: below 50% it starts early and trails off, above 50% the fill holds and then leaves quickly. 50% is a straight ramp.</div>`);
+      {
+        const liveE=()=>{ paintCacheClear(); render(); };
+        $('mshEdge').addEventListener('input',e=>{ M.edge=+e.target.value/100; $('mshEdgeV').textContent=e.target.value+'%'; liveE(); });
+        $('mshTaper').addEventListener('input',e=>{ M.taper=+e.target.value/100; $('mshTaperV').textContent=e.target.value+'%'; liveE(); });
+        ['mshEdge','mshTaper'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
+      }
 
       add(`<div class="pSect">Selected point</div>`);
       const sel=(meshSel!=null&&M.points[meshSel])?M.points[meshSel]:null;

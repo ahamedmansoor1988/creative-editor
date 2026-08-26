@@ -64,6 +64,11 @@
     { key: "noise", label: "Noise", def: 0 },
     // grain size in pixels, 0 -> a single pixel, which is what the per-pixel
     // hash did before there was a control for it
+    /* 1..6 DOCUMENT pixels. It was 1..14, and at the top of that range the
+     * speckle stopped reading as grain and started reading as pixelation —
+     * which is what it is, once a block is bigger than the features around
+     * it. Six is coarse enough to be obviously grain and small enough to
+     * still be grain. */
     { key: "noiseSize", label: "Noise size", def: 0 },
     /* 0 is monochrome — one signed value on all three channels, grain that
      * does not tint — and 1 is independent per channel, the colour speckle a
@@ -137,6 +142,13 @@ uniform sampler2D uFx1;                  // noise, blur, falloff, smoothness
 uniform sampler2D uFx2;                  // chromatic, metallic, glow, noiseSize
 uniform vec2 uGrid;
 uniform vec2 uSize;                      // tile pixels: the blur steps grain in screen space
+/* Tile pixels per DOCUMENT pixel. The tile is rendered at whatever resolution
+ * the current zoom needs, so anything measured in pixels has to be scaled by
+ * this or it changes size as you zoom — grain most of all. */
+uniform float uScale;
+/* Edge feather: x is the fade width in uv (0 disables it), y the taper
+ * exponent. */
+uniform vec2 uEdge;
 out vec4 fragColor;
 vec4 cr(vec4 p0,vec4 p1,vec4 p2,vec4 p3,float t){
   float t2=t*t,t3=t2*t;
@@ -272,7 +284,7 @@ vec3 materialAt(vec2 uv,Node n){
 vec3 sampleAt(vec2 uv,vec2 pxOff,Node n){
   vec3 c=materialAt(uv,n);
   if(n.nAmt>0.001){
-    float sz=mix(1.0,14.0,n.nsz);
+    float sz=max(1.0,mix(1.0,6.0,n.nsz)*uScale);
     vec2 cell=floor((gl_FragCoord.xy+pxOff)/sz);
     /* One draw for monochrome, three for colour, blended — so the grain can
      * be grey in one part of the net and speckled in another, which is what
@@ -353,6 +365,19 @@ vec3 glowAt(vec3 c,float g){
    * slider being broken. */
   return c+(c*0.72+vec3(0.28))*g*(0.35+0.65*l);
 }
+/* EDGE FEATHER. A hard-edged rectangle of gradient reads as a sticker on the
+ * page; softening the boundary is how a mesh is made to sit in a composition
+ * rather than on top of one.
+ *
+ * TAPER is the shape of that fade, not its width. Below 0.5 the fade starts
+ * early and trails off — a long, gentle vignette. Above, the fill holds opaque
+ * and then leaves quickly, which is what an out-of-focus edge actually does.
+ * A linear ramp, at 0.5, is the one profile that looks like neither. */
+float edgeAlpha(vec2 uv){
+  if(uEdge.x<=0.0005) return 1.0;
+  vec2 d=min(uv,1.0-uv);                 // distance to the nearest edge, per axis
+  return pow(clamp(min(d.x,d.y)/uEdge.x,0.0,1.0),uEdge.y);
+}
 void main(){
   vec4 f1=patch4(uFx1,vUV);
   vec4 f2=patch4(uFx2,vUV);
@@ -369,7 +394,9 @@ void main(){
   float ncol=clamp(patch4(uCol,vUV).a,0.0,1.0);
   Node n=Node(fall,smth,metl,glw,nAmt,nsz,ncol);
   vec3 c=chromAt(vUV,n,bAmt*0.18,chrm);
-  fragColor=vec4(clamp(c,0.0,1.0),1.0);
+  /* Straight alpha, not premultiplied — the context is created with
+   * premultipliedAlpha:false, so the colour must NOT be scaled by it here. */
+  fragColor=vec4(clamp(c,0.0,1.0),edgeAlpha(vUV));
 }`;
 
   /* uGrid travels as a vec2 rather than an ivec2 because `highp int` is not
@@ -413,6 +440,8 @@ void main(){
         fx1: gl.getUniformLocation(prog, "uFx1"),
         fx2: gl.getUniformLocation(prog, "uFx2"),
         grid: gl.getUniformLocation(prog, "uGrid"),
+        scale: gl.getUniformLocation(prog, "uScale"),
+        edge: gl.getUniformLocation(prog, "uEdge"),
         size: gl.getUniformLocation(prog, "uSize"),
       };
       vao = gl.createVertexArray();
@@ -640,6 +669,13 @@ void main(){
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, Fx2);
     gl.uniform2f(U.grid, cols, rows);
     gl.uniform2f(U.size, cv.width, cv.height);
+    gl.uniform1f(U.scale, Math.max(0.05, +P.scale || 1));
+    /* Half the shorter side is the widest a feather can be before the two
+     * sides meet in the middle and the fill has no opaque core left. Taper
+     * rides an exponential so 0.5 is exactly linear. */
+    const edgeW = clampf(+P.edge || 0, 0, 1) * 0.5;
+    const taper = Math.pow(2, (clampf(+P.taper, 0, 1) - 0.5) * 4);
+    gl.uniform2f(U.edge, edgeW, taper);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindVertexArray(vao);
