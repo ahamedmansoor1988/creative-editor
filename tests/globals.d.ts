@@ -35,6 +35,10 @@ declare global {
        * because a test stubs it to put the material branch in the state jsdom
        * cannot reach on its own. */
       get(w: number, h: number, opts?: any): any;
+      /* The per-node channel table. The fragment shader reads this array's
+       * ORDER as its channel layout, and the panel and the clamps are both
+       * built from it, so it is the definition rather than a copy of one. */
+      NODE_FX: { key: string; label: string; def: number }[];
     };
     /* The pixel-slot filter bank. Every pixel effect goes through apply() by
      * name, which is what makes that slot observable under jsdom — the calls

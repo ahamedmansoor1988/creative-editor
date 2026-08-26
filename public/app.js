@@ -672,12 +672,23 @@ function normChildren(list,depth){
         if(a.length!==want){
           a=(MG&&MG.defaultPoints)?MG.defaultPoints(msh.cols,msh.rows):[];
         }
-        msh.points=a.slice(0,want).map(pt=>({
-          x:clamp(+(pt&&pt.x)||0,-1,2),          // a point may sit outside the
-          y:clamp(+(pt&&pt.y)||0,-1,2),          // box; the surface still spans it
-          color:(Array.isArray(pt&&pt.color)?pt.color:[136,136,136])
-            .slice(0,3).map(v=>clamp(Math.round(+v)||0,0,255)),
-        }));
+        msh.points=a.slice(0,want).map(pt=>{
+          const o={
+            x:clamp(+(pt&&pt.x)||0,-1,2),        // a point may sit outside the
+            y:clamp(+(pt&&pt.y)||0,-1,2),        // box; the surface still spans it
+            color:(Array.isArray(pt&&pt.color)?pt.color:[136,136,136])
+              .slice(0,3).map(v=>clamp(Math.round(+v)||0,0,255)),
+          };
+          /* Per-node channels, filled from the engine's table. A point that
+           * carries none — every point in every document saved before these
+           * existed, and every point the model emits, since it is not asked
+           * for them — takes the no-op default and renders unchanged. */
+          ((MG&&MG.NODE_FX)||[]).forEach(f=>{
+            const v=+(pt&&pt[f.key]);
+            o[f.key]=clamp(Number.isFinite(v)?v:f.def,0,1);
+          });
+          return o;
+        });
       }
       const grd=Object.assign(de.gradient, ce.gradient||{});
       grd.on=!!grd.on && ['rect','ellipse','polygon','path'].includes(c.type);
@@ -6327,6 +6338,13 @@ function buildFxSection(obj,page,add,body){
     if(!ME||!ME.available()){
       add(`<div class="fxWarn">WebGL2 is unavailable, so the mesh gradient cannot render here.</div>`);
     }else if(M.on){
+      /* Default the selection when the PANEL OPENS, not only when the enable
+       * checkbox is toggled — which is where this used to live. A mesh that
+       * arrived already on, from a saved file or from the analyser, left the
+       * node section reading "click a handle to pick a point" with a net full
+       * of handles right there. The AI path produces exactly that state, so
+       * the per-node controls were unreachable in the workflow they exist for. */
+      if(meshSel==null||meshSel>=M.points.length) meshSel=0;
       const lo=ME.MIN_N, hi=ME.MAX_N;
       add(`<div class="row2">
         <label class="slider">Columns <span id="mshCV">${M.cols}</span>
@@ -6375,6 +6393,27 @@ function buildFxSection(obj,page,add,body){
         ['mshX','mshY'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
         $('mshCol').addEventListener('input',e=>{ sel.color=hexRgb(e.target.value); live(); });
         $('mshCol').addEventListener('change',()=>pushHistory());
+        /* The per-node channels, built from the engine's own table rather than
+         * repeated here — the shader reads that array as its channel layout,
+         * so a panel written from the same array cannot drift out of step with
+         * what is actually drawn. */
+        const CH=(window.MeshGradient&&window.MeshGradient.NODE_FX)||[];
+        if(CH.length){
+          add(`<div class="pSect">This node</div>`);
+          CH.forEach(f=>{
+            const v=Number.isFinite(+sel[f.key])?+sel[f.key]:f.def;
+            add(`<label class="slider">${f.label} <span id="mshfx_${f.key}V">${Math.round(v*100)}%</span>
+              <input type="range" id="mshfx_${f.key}" min="0" max="100" step="1" value="${Math.round(v*100)}"></label>`);
+            const el=$('mshfx_'+f.key);
+            el.addEventListener('input',e=>{
+              sel[f.key]=+e.target.value/100;
+              $('mshfx_'+f.key+'V').textContent=e.target.value+'%';
+              live();
+            });
+            el.addEventListener('change',()=>pushHistory());
+          });
+          add(`<div class="fxHint">These belong to the selected node, not the shape: each one is interpolated across the net the same way its colour is, so it fades out toward its neighbours. Falloff and smoothness read as neutral at 50% and 100%.</div>`);
+        }
       }
       /* Fit the net to a reference image. This is raster-to-vector inference,
        * which HANDOFF.md:78 rules out; it is here at the author's explicit

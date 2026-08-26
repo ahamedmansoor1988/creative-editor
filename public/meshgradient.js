@@ -41,6 +41,42 @@
    * may bend the surface, not for gradient quality. */
   const TESS = 96;
 
+  /* PER-NODE CHANNELS.
+   *
+   * A control point stops being {x, y, colour} and starts carrying its own
+   * parameters, interpolated across the surface by the SAME bicubic machinery
+   * that already carries colour. That is the whole idea: a value set on one
+   * node fades into its neighbourhood instead of applying to the shape as a
+   * whole, so "blur this corner" and "make that node metallic" are things the
+   * net itself can express rather than effects stacked on top of it.
+   *
+   * Seven channels ride in two RGBA textures beside the colour texture. The
+   * ORDER below IS the channel layout the fragment shader reads — reordering
+   * this array silently repaints every document, so it is not a list to tidy.
+   *
+   * Every default is a no-op: a net that has never been touched here renders
+   * exactly as it did before the channels existed. That is what makes this
+   * safe to add to documents already saved. */
+  const NODE_FX = [
+    { key: "noise", label: "Noise", def: 0 },
+    { key: "blur", label: "Blur", def: 0 },
+    { key: "falloff", label: "Falloff", def: 0.5 },
+    { key: "smooth", label: "Smoothness", def: 1 },
+    { key: "chromatic", label: "Chromatic", def: 0 },
+    { key: "metallic", label: "Metallic", def: 0 },
+    { key: "glow", label: "Glow", def: 0 },
+  ];
+  const FX_KEYS = NODE_FX.map((f) => f.key);
+  const FX_DEF = {};
+  NODE_FX.forEach((f) => (FX_DEF[f.key] = f.def));
+  /** A channel off a point, falling back to its no-op default. Points arrive
+   *  from saved files and from the model, and neither is obliged to carry
+   *  channels it never set. */
+  const fxOf = (p, k) => {
+    const v = +(p && p[k]);
+    return Number.isFinite(v) ? v : FX_DEF[k];
+  };
+
   const VS = `#version 300 es
 precision highp float;
 precision highp int;
@@ -85,6 +121,8 @@ precision highp float;
 precision highp int;
 in vec2 vUV;
 uniform sampler2D uCol;
+uniform sampler2D uFx1;                  // noise, blur, falloff, smoothness
+uniform sampler2D uFx2;                  // chromatic, metallic, glow, -
 uniform vec2 uGrid;
 out vec4 fragColor;
 vec4 cr(vec4 p0,vec4 p1,vec4 p2,vec4 p3,float t){
@@ -92,35 +130,154 @@ vec4 cr(vec4 p0,vec4 p1,vec4 p2,vec4 p3,float t){
   return 0.5*((2.0*p1)+(-p0+p2)*t+(2.0*p0-5.0*p1+4.0*p2-p3)*t2+(-p0+3.0*p1-3.0*p2+p3)*t3);
 }
 int cl(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
-vec4 rowCol(int r,int c){
+/* The reflecting fetch, now taking the sampler as a parameter: colour and the
+ * two channel textures share one net, so they share its edge behaviour too. */
+vec4 rowT(sampler2D T,int r,int c){
   int mx=int(uGrid.x)-1;
-  if(c>=0&&c<=mx) return texelFetch(uCol,ivec2(c,r),0);
-  if(c<0) return 2.0*texelFetch(uCol,ivec2(0,r),0)-texelFetch(uCol,ivec2(1,r),0);
-  return 2.0*texelFetch(uCol,ivec2(mx,r),0)-texelFetch(uCol,ivec2(mx-1,r),0);
+  if(c>=0&&c<=mx) return texelFetch(T,ivec2(c,r),0);
+  if(c<0) return 2.0*texelFetch(T,ivec2(0,r),0)-texelFetch(T,ivec2(1,r),0);
+  return 2.0*texelFetch(T,ivec2(mx,r),0)-texelFetch(T,ivec2(mx-1,r),0);
 }
-vec4 fetchCol(int r,int c){
+vec4 fetchT(sampler2D T,int r,int c){
   int my=int(uGrid.y)-1;
-  if(r>=0&&r<=my) return rowCol(r,c);
-  if(r<0) return 2.0*rowCol(0,c)-rowCol(1,c);
-  return 2.0*rowCol(my,c)-rowCol(my-1,c);
+  if(r>=0&&r<=my) return rowT(T,r,c);
+  if(r<0) return 2.0*rowT(T,0,c)-rowT(T,1,c);
+  return 2.0*rowT(T,my,c)-rowT(T,my-1,c);
 }
-void main(){
-  float fx=vUV.x*(uGrid.x-1.0), fy=vUV.y*(uGrid.y-1.0);
+/* CHANNELS CLAMP AT THE EDGE, COLOUR REFLECTS. Not an inconsistency — the two
+ * are answering different questions beyond the boundary.
+ *
+ * Reflection continues the colour's SLOPE outward, which is what keeps a
+ * uniform grid uniform and stops the corners flattening. Applied to a channel
+ * it does the opposite of what is wanted: a corner node set to 1 beside a
+ * neighbour at 0 extrapolates to 2 outside, the falloff aims at zero, and only
+ * the inward quarter of the node's basis is ever on screen. Measured on a 4x4:
+ * a corner node landed 74k of effect against an interior node's 616k, with its
+ * centre of mass dragged a fifth of the way inside. The effect visibly refused
+ * to touch the edges.
+ *
+ * Clamping asks instead "what does this node say out there", and the answer is
+ * what it says everywhere: itself. A node's setting then reaches the edge it
+ * sits on. */
+vec4 rowC(sampler2D T,int r,int c){
+  return texelFetch(T,ivec2(cl(c,0,int(uGrid.x)-1),r),0);
+}
+vec4 fetchC(sampler2D T,int r,int c){
+  return rowC(T,cl(r,0,int(uGrid.y)-1),c);
+}
+vec4 patch4(sampler2D T,vec2 uv){
+  float fx=uv.x*(uGrid.x-1.0), fy=uv.y*(uGrid.y-1.0);
   int ci=cl(int(floor(fx)),0,int(uGrid.x)-2), ri=cl(int(floor(fy)),0,int(uGrid.y)-2);
-  float tu=fx-float(ci), tv=fy-float(ri);
+  float tu=clamp(fx-float(ci),0.0,1.0), tv=clamp(fy-float(ri),0.0,1.0);
   vec4 rv[4];
   for(int j=0;j<4;j++){
     int r=ri+j-1;
-    rv[j]=cr(fetchCol(r,ci-1),fetchCol(r,ci),fetchCol(r,ci+1),fetchCol(r,ci+2),tu);
+    rv[j]=cr(fetchC(T,r,ci-1),fetchC(T,r,ci),fetchC(T,r,ci+1),fetchC(T,r,ci+2),tu);
   }
-  vec4 c=cr(rv[0],rv[1],rv[2],rv[3],tv);
-  fragColor=vec4(clamp(c.rgb,0.0,1.0),1.0);
+  return cr(rv[0],rv[1],rv[2],rv[3],tv);
+}
+/* FALLOFF reshapes WHERE inside a cell the handover happens, symmetrically
+ * about the midpoint — so the surface still passes exactly through every
+ * control point, which is the property that makes this a mesh and not a blob
+ * field. Above 0.5 the colour holds near its node and gives way late; below,
+ * it spreads early. */
+float shape(float t,float g){
+  return t<0.5 ? 0.5*pow(max(2.0*t,0.0),g) : 1.0-0.5*pow(max(2.0*(1.0-t),0.0),g);
+}
+vec3 colourAt(vec2 uv,float fall,float smth){
+  float fx=uv.x*(uGrid.x-1.0), fy=uv.y*(uGrid.y-1.0);
+  int ci=cl(int(floor(fx)),0,int(uGrid.x)-2), ri=cl(int(floor(fy)),0,int(uGrid.y)-2);
+  float tu=clamp(fx-float(ci),0.0,1.0), tv=clamp(fy-float(ri),0.0,1.0);
+  float g=pow(2.0,(fall-0.5)*4.0);
+  tu=shape(tu,g); tv=shape(tv,g);
+  vec4 rv[4];
+  for(int j=0;j<4;j++){
+    int r=ri+j-1;
+    rv[j]=cr(fetchT(uCol,r,ci-1),fetchT(uCol,r,ci),fetchT(uCol,r,ci+1),fetchT(uCol,r,ci+2),tu);
+  }
+  vec3 bic=cr(rv[0],rv[1],rv[2],rv[3],tv).rgb;
+  /* SMOOTHNESS blends the C1 surface toward the C0 one. At 0 the cells meet
+   * with a visible crease — a facet, which is a look and not a fault; the
+   * default of 1 is the bicubic surface everything else here is built on. */
+  vec3 a=mix(fetchT(uCol,ri,ci).rgb,   fetchT(uCol,ri,ci+1).rgb,   tu);
+  vec3 b=mix(fetchT(uCol,ri+1,ci).rgb, fetchT(uCol,ri+1,ci+1).rgb, tu);
+  return mix(mix(a,b,tv),bic,smth);
+}
+/* BLUR is a real blur, not a softening trick: the surface is analytic, so
+ * averaging it over a disc IS blurring it. Twelve taps on a golden-angle
+ * spiral, which spreads evenly without the banding a square kernel leaves. */
+vec3 blurAt(vec2 uv,float fall,float smth,float rad){
+  vec3 s=colourAt(uv,fall,smth);
+  if(rad<=0.0005) return s;
+  for(int i=0;i<12;i++){
+    float a=float(i)*2.39996323;
+    float rr=rad*sqrt((float(i)+0.5)/12.0);
+    s+=colourAt(uv+vec2(cos(a),sin(a))*rr,fall,smth);
+  }
+  return s/13.0;
+}
+/* CHROMATIC splits red and blue along the radius, growing toward the edges the
+ * way a lens does rather than uniformly, which would read as a print
+ * misregistration instead of glass. */
+vec3 chromAt(vec2 uv,float fall,float smth,float rad,float amt){
+  vec3 c=blurAt(uv,fall,smth,rad);
+  if(amt<=0.001) return c;
+  vec2 d=uv-vec2(0.5);
+  float L=length(d);
+  vec2 dir=L>1e-5?d/L:vec2(0.0);
+  float o=amt*0.10*L;
+  return vec3(blurAt(uv+dir*o,fall,smth,rad).r, c.g, blurAt(uv-dir*o,fall,smth,rad).b);
+}
+/* METALLIC desaturates toward luminance and rakes a periodic highlight across
+ * the tonal range — metal reads as metal because its specular response is
+ * narrow and its hue is weak, not because it is grey. */
+vec3 metalAt(vec3 c,float m){
+  if(m<=0.001) return c;
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  float band=0.5+0.5*sin(l*25.13274);
+  /* The +0.10 floor is the difference between a control and a control that
+   * works. Purely multiplying by the colour meant a node sitting in a dark
+   * part of the net rendered its own setting as nothing: metal has to catch
+   * SOME light or it is just paint. */
+  vec3 met=mix(c,vec3(l),0.5)*(0.72+0.56*band)+vec3(0.10*band*m);
+  return mix(c,clamp(met,0.0,1.0),m);
+}
+/* GLOW lifts by luminance, so a bright node blooms and a dark one stays put
+ * rather than turning grey. */
+vec3 glowAt(vec3 c,float g){
+  if(g<=0.001) return c;
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  /* Weighted toward the colour so a bright node blooms hardest, but with a
+   * floor, because c*g alone is exactly zero at black — a glow set to 92% on
+   * a dark node did nothing at all, which is indistinguishable from the
+   * slider being broken. */
+  return c+(c*0.72+vec3(0.28))*g*(0.35+0.65*l);
+}
+/* Keyed off the fragment, so a tile of a given size is identical every time it
+ * is rendered — the same reason the pixel-slot noise carries a seed. */
+float hash21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
+void main(){
+  vec4 f1=patch4(uFx1,vUV);
+  vec4 f2=patch4(uFx2,vUV);
+  /* Catmull-Rom overshoots between control values, so every channel is
+   * clamped after interpolation: a node at 0 beside a node at 1 would
+   * otherwise dip below zero and take pow() with it. */
+  float nAmt=clamp(f1.r,0.0,1.0), bAmt=clamp(f1.g,0.0,1.0);
+  float fall=clamp(f1.b,0.0,1.0), smth=clamp(f1.a,0.0,1.0);
+  float chrm=clamp(f2.r,0.0,1.0), metl=clamp(f2.g,0.0,1.0), glw=clamp(f2.b,0.0,1.0);
+  vec3 c=chromAt(vUV,fall,smth,bAmt*0.10,chrm);
+  c=metalAt(c,metl);
+  c=glowAt(c,glw);
+  if(nAmt>0.001) c+=(hash21(gl_FragCoord.xy)*2.0-1.0)*nAmt*0.22;
+  fragColor=vec4(clamp(c,0.0,1.0),1.0);
 }`;
 
   /* uGrid travels as a vec2 rather than an ivec2 because `highp int` is not
    * honoured in the fragment stage on every GPU: the two stages then disagree
    * on the precision of a shared uniform and the program refuses to link. */
 
+  let fx1Tex = null,
+    fx2Tex = null;
   let gl = null,
     prog = null,
     vao = null,
@@ -153,6 +310,8 @@ void main(){
       U = {
         pos: gl.getUniformLocation(prog, "uPos"),
         col: gl.getUniformLocation(prog, "uCol"),
+        fx1: gl.getUniformLocation(prog, "uFx1"),
+        fx2: gl.getUniformLocation(prog, "uFx2"),
         grid: gl.getUniformLocation(prog, "uGrid"),
         size: gl.getUniformLocation(prog, "uSize"),
       };
@@ -184,8 +343,12 @@ void main(){
       };
       posTex = mk(0);
       colTex = mk(1);
+      fx1Tex = mk(2);
+      fx2Tex = mk(3);
       gl.uniform1i(U.pos, 0);
       gl.uniform1i(U.col, 1);
+      gl.uniform1i(U.fx1, 2);
+      gl.uniform1i(U.fx2, 3);
       return true;
     } catch (e) {
       failed = true;
@@ -211,6 +374,7 @@ void main(){
           x: cols === 1 ? 0.5 : c / (cols - 1),
           y: rows === 1 ? 0.5 : r / (rows - 1),
           color: [(n >> 16) & 255, (n >> 8) & 255, n & 255],
+          ...FX_DEF,
         });
       }
     return out;
@@ -233,6 +397,7 @@ void main(){
   }
 
   const clampi = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const clampf = (v, lo, hi) => (!Number.isFinite(v) ? lo : v < lo ? lo : v > hi ? hi : v);
   function catmull(a, b, c, d, t) {
     const t2 = t * t,
       t3 = t2 * t;
@@ -246,11 +411,26 @@ void main(){
    *  for hit-testing a drag against what is actually on screen. */
   function evalAt(P, cols, rows, u, v) {
     const at = (r, c) => P[r * cols + c];
-    const ext = (a, b) => ({
-      x: 2 * a.x - b.x,
-      y: 2 * a.y - b.y,
-      color: [0, 1, 2].map((k) => 2 * a.color[k] - b.color[k]),
-    });
+    /* The channels ride along through every step below rather than being
+     * bolted on at the end. resample() IS evalAt at new parameters, so a net
+     * resized from 4x4 to 6x6 keeps its per-node work only if the surface
+     * being resampled includes it — otherwise adding a row silently wipes
+     * every channel on the net. */
+    const ext = (a, b) => {
+      const o = {
+        x: 2 * a.x - b.x,
+        y: 2 * a.y - b.y,
+        color: [0, 1, 2].map((k) => 2 * a.color[k] - b.color[k]),
+      };
+      /* Geometry and colour REFLECT; channels CLAMP — `a` is the edge value,
+       * and taking it unchanged is the clamp. The shader draws them the same
+       * two ways for the reason given beside its fetchC, and this is the CPU
+       * half of that surface: resample() is evalAt at new parameters, so if
+       * the two disagreed, resizing a net would move channels the shader had
+       * drawn somewhere else. */
+      for (const k of FX_KEYS) o[k] = fxOf(a, k);
+      return o;
+    };
     const inRow = (r, c) =>
       c >= 0 && c <= cols - 1
         ? at(r, c)
@@ -274,13 +454,16 @@ void main(){
         b = get(ri + j, ci),
         c2 = get(ri + j, ci + 1),
         d = get(ri + j, ci + 2);
-      rv.push({
+      const row = {
         x: catmull(a.x, b.x, c2.x, d.x, tu),
         y: catmull(a.y, b.y, c2.y, d.y, tu),
         color: [0, 1, 2].map((k) => catmull(a.color[k], b.color[k], c2.color[k], d.color[k], tu)),
-      });
+      };
+      for (const k of FX_KEYS)
+        row[k] = catmull(fxOf(a, k), fxOf(b, k), fxOf(c2, k), fxOf(d, k), tu);
+      rv.push(row);
     }
-    return {
+    const out = {
       x: catmull(rv[0].x, rv[1].x, rv[2].x, rv[3].x, tv),
       y: catmull(rv[0].y, rv[1].y, rv[2].y, rv[3].y, tv),
       color: [0, 1, 2].map((k) =>
@@ -291,6 +474,9 @@ void main(){
         ),
       ),
     };
+    for (const k of FX_KEYS)
+      out[k] = clampf(catmull(rv[0][k], rv[1][k], rv[2][k], rv[3][k], tv), 0, 1);
+    return out;
   }
 
   /* One tile per (size, parameters). The document is static, so a mesh that has
@@ -310,7 +496,9 @@ void main(){
     cv.height = Math.max(1, Math.round(H));
     gl.viewport(0, 0, cv.width, cv.height);
     const Pos = new Float32Array(cols * rows * 4),
-      Col = new Float32Array(cols * rows * 4);
+      Col = new Float32Array(cols * rows * 4),
+      Fx1 = new Float32Array(cols * rows * 4),
+      Fx2 = new Float32Array(cols * rows * 4);
     for (let i = 0; i < cols * rows; i++) {
       const p = pts[i];
       // normalised 0..1 -> the shape's own box
@@ -321,6 +509,15 @@ void main(){
       Col[i * 4 + 1] = p.color[1] / 255;
       Col[i * 4 + 2] = p.color[2] / 255;
       Col[i * 4 + 3] = 1;
+      // channel order is NODE_FX order; see the note on that array
+      Fx1[i * 4] = fxOf(p, "noise");
+      Fx1[i * 4 + 1] = fxOf(p, "blur");
+      Fx1[i * 4 + 2] = fxOf(p, "falloff");
+      Fx1[i * 4 + 3] = fxOf(p, "smooth");
+      Fx2[i * 4] = fxOf(p, "chromatic");
+      Fx2[i * 4 + 1] = fxOf(p, "metallic");
+      Fx2[i * 4 + 2] = fxOf(p, "glow");
+      Fx2[i * 4 + 3] = 0;
     }
     gl.useProgram(prog);
     gl.activeTexture(gl.TEXTURE0);
@@ -329,6 +526,12 @@ void main(){
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, colTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, Col);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, fx1Tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, Fx1);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, fx2Tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, Fx2);
     gl.uniform2f(U.grid, cols, rows);
     gl.uniform2f(U.size, cv.width, cv.height);
     gl.clearColor(0, 0, 0, 0);
@@ -609,6 +812,7 @@ void main(){
     render,
     evalAt,
     resample,
+    NODE_FX,
     defaultPoints,
     fitToImage,
     fitError,

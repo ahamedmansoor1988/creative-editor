@@ -356,3 +356,130 @@ describe("mesh does not swallow the passes below it", () => {
     expect(meshed.fills).toBe(plainFill.fills - 1);
   });
 });
+
+/* PER-NODE CHANNELS. A control point carries its own parameters — noise, blur,
+ * falloff, smoothness, chromatic, metallic, glow — interpolated across the net
+ * by the same surface that carries its colour.
+ *
+ * The shader cannot run here, so what these cover is the half a port gets
+ * wrong: that a document saved before the channels existed still renders
+ * unchanged, that a net resized keeps the work, and that the panel offers
+ * every channel the shader reads. The surface itself was measured against the
+ * framebuffer in the browser.
+ */
+describe("per-node channels", () => {
+  const MG = () => window.MeshGradient;
+
+  it("declares seven channels, every default a no-op", () => {
+    /* The defaults are the back-compatibility guarantee: a net that has never
+     * been touched here has to render exactly as it did before the channels
+     * existed, or adding them repaints every document already saved. */
+    const t = MG().NODE_FX;
+    expect(t.map((f) => f.key)).toEqual([
+      "noise",
+      "blur",
+      "falloff",
+      "smooth",
+      "chromatic",
+      "metallic",
+      "glow",
+    ]);
+    // falloff is neutral at its midpoint and smoothness at full bicubic; the
+    // rest are additive and neutral at zero
+    expect(t.map((f) => f.def)).toEqual([0, 0, 0.5, 1, 0, 0, 0]);
+  });
+
+  it("fills the defaults on a point that carries none", () => {
+    // every point in every document saved before this, and every point the
+    // model emits, since it is never asked for them
+    const o = shapeWithMesh({ cols: 2, rows: 2, points: [] });
+    for (const f of MG().NODE_FX) {
+      expect(o.effects.mesh.points[0][f.key], `${f.key} was not filled`).toBe(f.def);
+    }
+  });
+
+  it("clamps a channel that arrives out of range", () => {
+    const pts = MG()
+      .defaultPoints(2, 2)
+      .map((p) => ({ ...p, glow: 5, blur: -2, smooth: "nonsense" }));
+    const o = shapeWithMesh({ cols: 2, rows: 2, points: pts });
+    expect(o.effects.mesh.points[0].glow).toBe(1);
+    expect(o.effects.mesh.points[0].blur).toBe(0);
+    // unparseable falls back to the no-op rather than to zero, which for
+    // smoothness would silently facet the whole surface
+    expect(o.effects.mesh.points[0].smooth).toBe(1);
+  });
+
+  it("keeps a channel through a document round trip", () => {
+    const pts = MG().defaultPoints(2, 2);
+    pts[0].metallic = 0.75;
+    expect(shapeWithMesh({ cols: 2, rows: 2, points: pts }).effects.mesh.points[0].metallic).toBe(
+      0.75,
+    );
+  });
+
+  /* resample() IS evalAt at new parameters, so the channels survive a resize
+   * only because evalAt carries them. Adding a row used to be free; if this
+   * regressed it would silently wipe every channel on the net. */
+  it("carries channels through a grid resize", () => {
+    const pts = MG().defaultPoints(4, 4);
+    pts.forEach((p) => (p.glow = 0.8));
+    const bigger = MG().resample(pts, 4, 4, 6, 6);
+    expect(bigger).toHaveLength(36);
+    for (const p of bigger) expect(p.glow).toBeCloseTo(0.8, 3);
+  });
+
+  it("holds a channel at full strength out to the edge it sits on", () => {
+    /* Channels CLAMP at the boundary where colour reflects. Reflecting a
+     * channel aimed a corner node's falloff at zero off-canvas, so the effect
+     * measurably refused to reach the edges — 74k of effect on a corner node
+     * against 616k on an interior one. */
+    const pts = MG().defaultPoints(4, 4);
+    pts[0].glow = 1; // the corner node, at u=0,v=0
+    expect(MG().evalAt(pts, 4, 4, 0, 0).glow).toBeCloseTo(1, 3);
+    /* The value AT the node is 1 under either boundary rule — Catmull-Rom
+     * interpolates, so t=0 returns the control value whatever sits outside.
+     * The rules only diverge BETWEEN the node and its neighbour, which is
+     * where the falloff lives and therefore where this has to be measured.
+     * Half a cell in: clamped gives 0.5, reflected 0.4375, because reflection
+     * steepens the tangent by aiming at 2*edge - inner. Asserting at the node
+     * alone let the bug back in unnoticed. */
+    expect(MG().evalAt(pts, 4, 4, 1 / 6, 0).glow).toBeCloseTo(0.5, 2);
+  });
+
+  it("leaves a node's own value untouched by its neighbours", () => {
+    // the surface interpolates rather than approximates: a node reads back
+    // exactly what was set on it, wherever it sits
+    const pts = MG().defaultPoints(4, 4);
+    pts[5].glow = 1;
+    expect(MG().evalAt(pts, 4, 4, pts[5].x, pts[5].y).glow).toBeCloseTo(1, 3);
+    // and its neighbour is unaffected at its own position
+    expect(MG().evalAt(pts, 4, 4, pts[7].x, pts[7].y).glow).toBeCloseTo(0, 3);
+  });
+
+  it("offers a slider for every channel the shader reads", () => {
+    /* The panel hides its controls when the engine cannot run — asserted a few
+     * describes up, and correct: dead controls are worse than none. So the
+     * engine is stubbed live here, or this checks the unavailable branch and
+     * passes whatever the real panel does. */
+    const MGm = window.MeshGradient;
+    const oldAvail = MGm.available,
+      oldGet = MGm.get;
+    MGm.available = () => true;
+    MGm.get = (w, h) => ({ width: w, height: h });
+    const o = shapeWithMesh({ cols: 2, rows: 2 });
+    editor.setSelIds(new Set([o.id]));
+    editor.refresh();
+    const head = document.querySelector('#fxBody [data-fxsect="Mesh"]');
+    if (head && head.getAttribute("aria-expanded") !== "true")
+      /** @type {HTMLElement} */ (head).click();
+    for (const f of MG().NODE_FX) {
+      expect(
+        document.getElementById("mshfx_" + f.key),
+        `no control for ${f.key}; the shader reads it either way`,
+      ).toBeTruthy();
+    }
+    MGm.available = oldAvail;
+    MGm.get = oldGet;
+  });
+});
