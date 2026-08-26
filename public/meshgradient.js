@@ -156,7 +156,10 @@ uniform vec2 uSize;                      // tile pixels: the blur steps grain in
 uniform float uScale;
 /* Edge feather: x is the fade width in uv (0 disables it), y the taper
  * exponent. */
-uniform vec3 uEdge;   // width, taper exponent, softness
+uniform vec3 uEdge;   // width (doc px), taper exponent, softness
+/* x: how far the tile is grown OUTSIDE the shape, in document pixels.
+ * y, z: how much of the fade lies inside the boundary and how much outside. */
+uniform vec3 uBand;
 out vec4 fragColor;
 vec4 cr(vec4 p0,vec4 p1,vec4 p2,vec4 p3,float t){
   float t2=t*t,t3=t2*t;
@@ -393,10 +396,19 @@ vec3 glowAt(vec3 c,float g){
  * early and trails off — a long, gentle vignette. Above, the fill holds opaque
  * and then leaves quickly, which is what an out-of-focus edge actually does.
  * A linear ramp, at 0.5, is the one profile that looks like neither. */
-float edgeAlpha(vec2 uv){
-  if(uEdge.x<=0.0005) return 1.0;
-  vec2 d=min(uv,1.0-uv);                 // distance to the nearest edge, per axis
-  float t=clamp(min(d.x,d.y)/uEdge.x,0.0,1.0);
+/* MEASURED IN DOCUMENT PIXELS, not in uv. A uv distance is not a distance:
+ * on a 900x300 shape the same uv step is three times further across than it
+ * is down, so a feather specified in uv would be visibly thicker on the short
+ * sides. Working in document units makes the band the same width all the way
+ * round, which is the only thing that reads as a feather. */
+float edgeAlpha(vec2 pd,vec2 ext){
+  float inW=uBand.y, outW=uBand.z;
+  if(inW+outW<=0.0005) return 1.0;
+  float m=uBand.x;
+  // signed distance to the ORIGINAL boundary: positive inside, negative out
+  float dx=min(pd.x-m,(ext.x-m)-pd.x);
+  float dy=min(pd.y-m,(ext.y-m)-pd.y);
+  float t=clamp((min(dx,dy)+outW)/(inW+outW),0.0,1.0);
   /* SOFTNESS is the CURVE of the fade, where width is its extent and taper is
    * its bias. A raw ramp has corners at both ends — it arrives at full opacity
    * abruptly, which is visible as a faint contour line however wide the band
@@ -406,8 +418,18 @@ float edgeAlpha(vec2 uv){
   return pow(ramp,uEdge.y);
 }
 void main(){
-  vec4 f1=patch4(uFx1,vUV);
-  vec4 f2=patch4(uFx2,vUV);
+  /* The tile may be GROWN beyond the shape so an outward feather has somewhere
+   * to land. The colour field still belongs to the shape, so it is addressed
+   * through cuv — the original box remapped into the grown tile — and the skirt
+   * outside it takes the edge colour, since the surface clamps past its own
+   * net. Without this the whole gradient would stretch the moment a feather
+   * was turned on, which is a change to the artwork rather than to its edge. */
+  vec2 ext=uSize/max(uScale,1e-4);
+  vec2 pd=vUV*ext;
+  vec2 inner=max(ext-2.0*uBand.x,vec2(1e-4));
+  vec2 cuv=(pd-vec2(uBand.x))/inner;
+  vec4 f1=patch4(uFx1,cuv);
+  vec4 f2=patch4(uFx2,cuv);
   /* Catmull-Rom overshoots between control values, so every channel is
    * clamped after interpolation: a node at 0 beside a node at 1 would
    * otherwise dip below zero and take pow() with it. */
@@ -418,13 +440,13 @@ void main(){
   /* Grain size is in whole PIXELS, so the speckle is square and stable rather
    * than resampled. At 0 the block is one pixel. */
   // the ninth channel rides in the colour texture's otherwise unused alpha
-  float ncol=clamp(patch4(uCol,vUV).a,0.0,1.0);
-  float ncon=clamp(patch4(uFx3,vUV).r,0.0,1.0);
+  float ncol=clamp(patch4(uCol,cuv).a,0.0,1.0);
+  float ncon=clamp(patch4(uFx3,cuv).r,0.0,1.0);
   Node n=Node(fall,smth,metl,glw,nAmt,nsz,ncol,ncon);
-  vec3 c=chromAt(vUV,n,bAmt*0.18,chrm);
+  vec3 c=chromAt(cuv,n,bAmt*0.18,chrm);
   /* Straight alpha, not premultiplied — the context is created with
    * premultipliedAlpha:false, so the colour must NOT be scaled by it here. */
-  fragColor=vec4(clamp(c,0.0,1.0),edgeAlpha(vUV));
+  fragColor=vec4(clamp(c,0.0,1.0),edgeAlpha(pd,ext));
 }`;
 
   /* uGrid travels as a vec2 rather than an ivec2 because `highp int` is not
@@ -471,6 +493,7 @@ void main(){
         grid: gl.getUniformLocation(prog, "uGrid"),
         scale: gl.getUniformLocation(prog, "uScale"),
         edge: gl.getUniformLocation(prog, "uEdge"),
+        band: gl.getUniformLocation(prog, "uBand"),
         fx3: gl.getUniformLocation(prog, "uFx3"),
         size: gl.getUniformLocation(prog, "uSize"),
       };
@@ -779,10 +802,17 @@ void main(){
     /* Half the shorter side is the widest a feather can be before the two
      * sides meet in the middle and the fill has no opaque core left. Taper
      * rides an exponential so 0.5 is exactly linear. */
-    const edgeW = clampf(+P.edge || 0, 0, 1) * 0.5;
     const taper = Math.pow(2, (clampf(+P.taper, 0, 1) - 0.5) * 4);
     const soft = clampf(+P.softness, 0, 1);
-    gl.uniform3f(U.edge, edgeW, taper, soft);
+    gl.uniform3f(U.edge, 0, taper, soft);
+    /* The caller has already grown the tile by `margin`, because only it knows
+     * the shape's clip; the split between inward and outward comes with it. */
+    gl.uniform3f(
+      U.band,
+      Math.max(0, +P.margin || 0),
+      Math.max(0, +P.inWidth || 0),
+      Math.max(0, +P.outWidth || 0),
+    );
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindVertexArray(vao);

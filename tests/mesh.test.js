@@ -613,3 +613,46 @@ describe("sampleCurve draws the same curve as evalAt", () => {
     expect(MG().sampleCurve(warped(), 4, 4, "u", 0.5, 100)).toHaveLength(202);
   });
 });
+
+/* EDGE DIRECTION. Outward feathering needs the fill to paint beyond its own
+ * shape, which means growing the clip — exact for a rect and an ellipse, and
+ * with no honest answer for a polygon or an arbitrary path, since an offset
+ * curve is a different curve. Rather than accept the setting and silently do
+ * nothing on those shapes, it clamps, which is the difference between a
+ * limitation and a bug.
+ *
+ * The band itself is measured in DOCUMENT pixels rather than uv: on a 360x140
+ * shape the same uv step is 2.6x further across than down, so a uv feather
+ * would be visibly thicker on the short sides. Verified against the
+ * framebuffer — at 15 document pixels in, alpha reads 134 on both axes. */
+describe("edge direction", () => {
+  it("keeps all three directions on shapes whose outline can be grown", () => {
+    for (const dir of ["inside", "both", "outside"]) {
+      expect(shapeWithMesh({ edgeDir: dir }, "rect").effects.mesh.edgeDir).toBe(dir);
+      expect(shapeWithMesh({ edgeDir: dir }, "ellipse").effects.mesh.edgeDir).toBe(dir);
+    }
+  });
+
+  it("clamps to inside on a shape whose outline cannot be offset", () => {
+    for (const type of ["polygon", "path"]) {
+      expect(
+        shapeWithMesh({ edgeDir: "outside" }, type).effects.mesh.edgeDir,
+        `${type} should fall back to inside`,
+      ).toBe("inside");
+    }
+  });
+
+  it("repairs a direction it does not recognise", () => {
+    expect(shapeWithMesh({ edgeDir: "sideways" }).effects.mesh.edgeDir).toBe("inside");
+    expect(shapeWithMesh({}).effects.mesh.edgeDir).toBe("inside");
+  });
+
+  it("survives a document round trip", () => {
+    shapeWithMesh({ edgeDir: "both", edge: 0.4 });
+    const wire = editor.compactDoc({ frame: editor.doc.frame });
+    editor.doc = JSON.parse(JSON.stringify(wire));
+    const m = editor.doc.frame.children[0].effects.mesh;
+    expect(m.edgeDir).toBe("both");
+    expect(m.edge).toBeCloseTo(0.4);
+  });
+});

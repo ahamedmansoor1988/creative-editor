@@ -673,6 +673,13 @@ function normChildren(list,depth){
       msh.edge=clamp(+msh.edge||0,0,1);
       msh.taper=Number.isFinite(+msh.taper)?clamp(+msh.taper,0,1):0.5;
       msh.softness=Number.isFinite(+msh.softness)?clamp(+msh.softness,0,1):1;
+      /* Outward feathering needs the fill to paint BEYOND its own shape, which
+       * means growing the clip. That is exact for a rect and an ellipse and has
+       * no honest answer for a polygon or an arbitrary path — an offset curve
+       * is a different curve — so those clamp to inside rather than silently
+       * doing nothing. */
+      msh.edgeDir=['inside','both','outside'].includes(msh.edgeDir)?msh.edgeDir:'inside';
+      if(!['rect','ellipse'].includes(c.type)) msh.edgeDir='inside';
       /* The net is repaired rather than trusted: it arrives from saved files
        * and from the model as readily as from the panel. A net whose length
        * disagrees with cols*rows is not partially usable — the surface would
@@ -2701,20 +2708,33 @@ function drawOneInner(c,W,H,obj){
        * rather than with the default filter, which is what turns a soft
        * enlargement into a stepped one. */
       const draw=o=>{
+        /* The feather's width is a DOCUMENT length, taken from the shorter
+         * side so it reads the same on a wide shape as on a tall one. */
+        const F=(msh.edge||0)*0.5*Math.min(o.w,o.h);
+        const dir=msh.edgeDir||'inside';
+        const outW=dir==='outside'?F:dir==='both'?F*0.5:0;
+        const inW =dir==='outside'?0:dir==='both'?F*0.5:F;
+        /* Grow the box AND the clip by the outward part, or the skirt would be
+         * cut off by the very edge it is meant to soften. Exact for these two
+         * shapes: a rect offsets to a rect with a larger radius, an ellipse to
+         * a larger ellipse. */
+        const g=outW>0?{...o,x:o.x-outW,y:o.y-outW,w:o.w+2*outW,h:o.h+2*outW,
+          radius:o.radius?o.radius+outW:o.radius}:o;
         const tf=c.getTransform?c.getTransform():null;
         const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
-        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
-        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        const tw=Math.min(4096,Math.max(1,Math.round(g.w*sc)));
+        const th=Math.min(4096,Math.max(1,Math.round(g.h*sc)));
         const img=window.MeshGradient.get(tw,th,
-          {cols:msh.cols,rows:msh.rows,points:msh.points,scale:tw/Math.max(1,o.w),
-           edge:msh.edge,taper:msh.taper,softness:msh.softness});
+          {cols:msh.cols,rows:msh.rows,points:msh.points,scale:tw/Math.max(1,g.w),
+           taper:msh.taper,softness:msh.softness,
+           margin:outW,inWidth:inW,outWidth:outW});
         if(!img) return;
         c.save();
         c.imageSmoothingEnabled=true;
         if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
         c.globalAlpha=obj.opacity;
-        c.beginPath(); pathFor(c,o); c.clip();
-        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.beginPath(); pathFor(c,g); c.clip();
+        c.drawImage(img,g.x,g.y,g.w,g.h);
         c.restore();
       };
       draw(obj);
@@ -6486,7 +6506,16 @@ function buildFxSection(obj,page,add,body){
         <input type="range" id="mshSoft" min="0" max="100" step="1" value="${Math.round((M.softness===undefined?1:M.softness)*100)}"></label>`);
       add(`<label class="slider">Taper <span id="mshTaperV">${Math.round((M.taper===undefined?0.5:M.taper)*100)}%</span>
         <input type="range" id="mshTaper" min="0" max="100" step="1" value="${Math.round((M.taper===undefined?0.5:M.taper)*100)}"></label>`);
-      add(`<div class="fxHint">Three separate things. <b>Edge blur</b> is how WIDE the fade is. <b>Softness</b> is its curve — at 0 a straight ramp, which arrives at full opacity abruptly enough to leave a faint contour; at 100 both ends are eased away. <b>Taper</b> is its bias: below 50% the fade starts early and trails off, above 50% the fill holds and then leaves quickly.</div>`);
+      {
+        const DIRS=[['inside','Inside'],['both','Both'],['outside','Outside']];
+        const canOut=['rect','ellipse'].includes(obj.type);
+        add(`<label class="slider">Direction<select id="mshEdgeDir"${canOut?'':' disabled'}>`+
+          DIRS.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+        $('mshEdgeDir').value=M.edgeDir||'inside';
+        $('mshEdgeDir').addEventListener('change',e=>{ M.edgeDir=e.target.value; pushHistory(); refresh(); });
+        if(!canOut) add(`<div class="fxHint">Outward feathering grows the shape's own outline, which is exact for a rectangle and an ellipse and has no honest answer for this shape — an offset curve is a different curve. Inside only here.</div>`);
+      }
+      add(`<div class="fxHint">Three separate things. <b>Edge blur</b> is how WIDE the fade is. <b>Softness</b> is its curve — at 0 a straight ramp, which arrives at full opacity abruptly enough to leave a faint contour; at 100 both ends are eased away. <b>Taper</b> is its bias: below 50% the fade starts early and trails off, above 50% the fill holds and then leaves quickly. <b>Direction</b> places the band inside the shape, straddling its edge, or entirely outside it.</div>`);
       {
         const liveE=()=>{ paintCacheClear(); render(); };
         $('mshEdge').addEventListener('input',e=>{ M.edge=+e.target.value/100; $('mshEdgeV').textContent=e.target.value+'%'; liveE(); });
