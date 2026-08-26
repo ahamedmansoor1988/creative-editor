@@ -850,6 +850,8 @@ function normChildren(list,depth){
         const SF=window.SpectralField;
         const fixed=SF?SF.normalize(rawF):rawF;
         fixed.on=on;
+        // debug views are a working state, not a document setting
+        fixed.debug=SF&&SF.DEBUG_VIEWS.includes(rawF.debug)?rawF.debug:null;
         de.spectralField=fixed;
       }
       const li=Object.assign(de.light, ce.light||{});
@@ -1000,6 +1002,24 @@ function normChildren(list,depth){
       // its clamps ran. Structured fields must be re-normalised here; scalars
       // share the same gap and are tracked separately.
       if(EFF.flare) EFF.flare.beams=normFlareBeams(EFF.flare.beams);
+      /* The spectral field has to be repaired again for the same reason, and
+       * more sharply: the fold copies a SAVED params object over the clamped
+       * one, so a legacy orb document puts `radius` and `centerX` straight
+       * back after normalize dropped them. Geometry that returns after being
+       * deleted is the exact failure this rewrite exists to prevent.
+       *
+       * Repaired IN PLACE rather than replaced, because the dictionary object
+       * is the same object the stack entry points at — the live alias — and
+       * swapping it would leave the stack editing a copy. */
+      if(EFF.spectralField&&window.SpectralField){
+        const live=EFF.spectralField;
+        const on=live.on, dbg=live.debug;
+        const fixed=window.SpectralField.normalize(live);
+        for(const k of Object.keys(live)) delete live[k];
+        Object.assign(live, fixed);
+        live.on=on;
+        live.debug=window.SpectralField.DEBUG_VIEWS.includes(dbg)?dbg:null;
+      }
       delete c.__fxCache;
     }
     if(c.type!=='line'){
@@ -2756,26 +2776,44 @@ function drawOneInner(c,W,H,obj){
        * reaches drawObject, which paints the over-slot passes; drawObject
        * checks for an active mesh itself and skips only the fill. */
     }
-    /* §spectralField. A material on the same terms as the mesh: it IS what
-     * the shape shows, it generates its own colour rather than sampling the
-     * page, and so it caches. It RETURNS rather than falling through, because
-     * unlike the mesh it has its own alpha — the disc is round inside a
-     * rectangular tile, and letting the flat fill paint underneath would put a
-     * square behind every field. */
+    /* §spectralField. A material on the same terms as the mesh, with one
+     * difference that matters: it needs the object's PATH, not just its box.
+     * The field is solved inside the real outline, so a rectangle fills as a
+     * rectangle and a star as a star. The box is only the render extent.
+     *
+     * drawPath is a callback rather than a serialised path because only this
+     * file knows what an object is; the engine rasterises whatever it draws,
+     * which is how it supports rounded rects, stars and imported curves
+     * without knowing about any of them. */
     const sfld=fx.spectralField;
-    if(sfld&&fxOn(obj,'spectralField')&&obj.type!=='text'&&window.SpectralField&&window.SpectralField.available()){
+    if(sfld&&fxOn(obj,'spectralField')&&obj.type!=='text'&&window.SpectralField){
       const drawField=o=>{
         const tf=c.getTransform?c.getTransform():null;
         const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
         const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
         const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
-        const img=window.SpectralField.get(tw,th,sfld);
+        /* Drawn in the tile's own space: the object's outline translated to
+         * the origin and scaled to the tile. That is the local-coordinate
+         * frame the field is solved in, so position and zoom cannot detach
+         * it from the shape. */
+        const drawPath=(cx,W2,H2)=>{
+          cx.save();
+          cx.scale(W2/Math.max(1,o.w), H2/Math.max(1,o.h));
+          cx.translate(-o.x,-o.y);
+          cx.beginPath(); addPath(cx,o); cx.fill();
+          cx.restore();
+        };
+        const img=window.SpectralField.get(tw,th,sfld,{
+          drawPath,
+          pathKey:[o.type,Math.round(o.w),Math.round(o.h),o.radius||0,
+                   o.sides||0,o.inner||0,(o.d||'').length].join(':'),
+          debug:sfld.debug||null,
+        });
         if(!img) return;
         c.save();
         c.globalAlpha=obj.opacity;
         c.imageSmoothingEnabled=true;
         if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
-        c.beginPath(); pathFor(c,o); c.clip();
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
       };
@@ -6796,64 +6834,66 @@ function buildFxSection(obj,page,add,body){
   }
 
   if(page==='Spectral Field'){
-    const O=obj.effects.spectralField, SO=window.SpectralField;
+    const O=obj.effects.spectralField, SF=window.SpectralField;
     add(`<label class="slider"><input type="checkbox" id="sfOn" ${O.on?'checked':''}> Enable spectral field</label>`);
     $('sfOn').addEventListener('change',e=>{ O.on=e.target.checked; pushHistory(); refresh(); });
-    if(!SO||!SO.available()){
-      add(`<div class="fxWarn">WebGL2 is unavailable, so the spectral field cannot render here.</div>`);
-    }else if(O.on){
-      const liveO=()=>{ paintCacheClear(); render(); };
-      /* One table, three sections. The panel is generated rather than written
-       * out so a setting cannot exist in the engine and be unreachable here —
-       * the fault the shadow panel shipped with, twice. */
+    if(O.on){
+      const liveF=()=>{ paintCacheClear(); render(); };
+      /* NO GEOMETRY SECTION. Radius, centre X and centre Y are gone, along
+       * with the circle they described. Width, height, corner radius, position
+       * and outline all belong to the object; an effect that carried its own
+       * copies is exactly what made this draw a disc inside every rectangle. */
       const ROWS=[
-        ['Geometry'],
-        ['radius','Radius',5,100,100,'%'],
-        ['centerX','Centre X',-100,100,100,''],
-        ['centerY','Centre Y',-100,100,100,''],
         ['Spectral field'],
-        ['rotation','Rotation',0,360,1,'°'],
-        ['concentration','Colour spread',20,2400,100,''],
-        ['intensity','Colour intensity',0,200,100,'%'],
-        ['Centre'],
-        ['centerStrength','Centre wash',0,100,100,'%'],
-        ['centerFalloff','Centre falloff',2,120,10,''],
+        ['boundaryOffset','Boundary offset',0,100,100,'%'],
+        ['intensity','Intensity',0,200,100,'%'],
+        ['spread','Spread',0,100,100,'%'],
+        ['Pearl'],
+        ['pearlStrength','Pearl',0,100,100,'%'],
+        ['pearlDepth','Pearl depth',2,100,100,'%'],
         ['Edge'],
+        ['edgeChroma','Edge chroma',0,200,100,'%'],
+        ['rimWidth','Rim width',1,100,100,'%'],
         ['rimStrength','Rim strength',0,100,100,'%'],
-        ['rimWidth','Rim width',30,99,100,'%'],
-        ['fresnelStrength','Fresnel',0,200,100,'%'],
-        ['fresnelPower','Fresnel power',2,80,10,''],
       ];
       ROWS.forEach(r=>{
         if(r.length===1){ add(`<div class="pSect">${r[0]}</div>`); return; }
-        const [key,label,lo,hi,scale,suffix]=r;
+        const [key,label,lo,hi,scale]=r;
         const id='sf_'+key;
         const cur=Math.round(O[key]*scale);
-        const shown=v=>suffix==='%'?Math.round(v)+'%':(scale===1?Math.round(v)+suffix:(v/1).toFixed(scale>=100?2:1)+suffix);
-        add(`<label class="slider">${label} <span id="${id}V">${shown(suffix==='%'?cur:O[key]*(suffix==='°'?1:1))}</span>
+        add(`<label class="slider">${label} <span id="${id}V">${cur}%</span>
           <input type="range" id="${id}" min="${lo}" max="${hi}" step="1" value="${cur}"></label>`);
         $(id).addEventListener('input',e=>{
           O[key]=+e.target.value/scale;
-          $(id+'V').textContent=shown(suffix==='%'?+e.target.value:O[key]);
-          liveO();
+          $(id+'V').textContent=e.target.value+'%';
+          liveF();
         });
         $(id).addEventListener('change',()=>pushHistory());
       });
-      add(`<div class="pSect">Centre colour</div>`);
-      add(`<label class="slider">Colour <input type="color" id="sfCC" value="${O.centerColor}"></label>`);
-      $('sfCC').addEventListener('input',e=>{ O.centerColor=e.target.value; liveO(); });
-      $('sfCC').addEventListener('change',()=>pushHistory());
+      add(`<label class="slider">Pearl colour <input type="color" id="sfPC" value="${O.pearlColor}"></label>`);
+      $('sfPC').addEventListener('input',e=>{ O.pearlColor=e.target.value; liveF(); });
+      $('sfPC').addEventListener('change',()=>pushHistory());
 
-      add(`<div class="pSect">Anchors</div>`);
-      O.anchors.forEach((a,i)=>{
-        const hex=(()=>{const f=v=>{const cc=v<=0.0031308?v*12.92:1.055*Math.pow(Math.max(v,0),1/2.4)-0.055;
-          return Math.round(clamp(cc,0,1)*255).toString(16).padStart(2,'0');};
-          return '#'+f(a.color[0])+f(a.color[1])+f(a.color[2]);})();
-        add(`<label class="slider">${a.id} <input type="color" id="sf_a${i}" value="${hex}"></label>`);
-        $('sf_a'+i).addEventListener('input',e=>{ a.color=SO.hexToLinear(e.target.value); liveO(); });
-        $('sf_a'+i).addEventListener('change',()=>pushHistory());
+      add(`<div class="pSect">Perimeter stops</div>`);
+      O.stops.forEach((st,i2)=>{
+        add(`<div class="row2">
+          <label class="slider">${st.id} <input type="color" id="sf_c${i2}" value="${SF.linearToHex(st.color)}"></label>
+          <label class="slider">at <span id="sf_s${i2}V">${Math.round(st.s*100)}%</span>
+            <input type="range" id="sf_s${i2}" min="0" max="100" step="1" value="${Math.round(st.s*100)}"></label>
+        </div>`);
+        $('sf_c'+i2).addEventListener('input',e=>{ st.color=SF.hexToLinear(e.target.value); liveF(); });
+        $('sf_c'+i2).addEventListener('change',()=>pushHistory());
+        $('sf_s'+i2).addEventListener('input',e=>{ st.s=+e.target.value/100; $('sf_s'+i2+'V').textContent=e.target.value+'%'; liveF(); });
+        $('sf_s'+i2).addEventListener('change',()=>pushHistory());
       });
-      add(`<div class="fxHint">A chromatic field over a virtual sphere: the shape is read as a unit sphere and every colour sits on its surface, so the perimeter carries the chroma and the centre stays pale. Colour spread controls how tightly each anchor holds its own arc — low blends them all toward their average.</div>`);
+
+      add(`<div class="pSect">Debug</div>`);
+      add(`<label class="slider">View<select id="sfDebug">`+
+        [['','Off'],['domain','Domain'],['boundary','Boundary (arc length)'],['distance','Distance']]
+          .map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+      $('sfDebug').value=O.debug||'';
+      $('sfDebug').addEventListener('change',e=>{ O.debug=e.target.value||null; liveF(); });
+      add(`<div class="fxHint">Colours live on the shape's own PERIMETER, placed by arc length, and the interior is their harmonic extension — the smoothest field those edge colours can produce, solved inside the real outline. Change the object's size, corners or shape and the field follows; it owns no geometry of its own. Domain should show the whole shape filled, and Distance should show contours that match it.</div>`);
     }
   }
 
