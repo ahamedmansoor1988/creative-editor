@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadEditor } from "./helpers/load-editor.js";
 
-let editor;
+let editor, ctx;
 
 function shapeWithMesh(over, type) {
   editor.doc = {
@@ -43,7 +43,7 @@ function shapeWithMesh(over, type) {
 }
 
 beforeAll(() => {
-  ({ editor } = loadEditor());
+  ({ editor, ctx } = loadEditor());
   window.FxStack.READY.add("mesh");
 });
 afterAll(() => {
@@ -243,5 +243,111 @@ describe("applying an analysed recipe", () => {
     // grain at zero is not grain; saying it was applied would be a lie in the UI
     const o = shape();
     expect(editor.applyRecipe(o, { effects: [{ type: "grain", amount: 0 }] })).toEqual([]);
+  });
+});
+
+/* The mesh is a MATERIAL, and the other materials end their block with
+ * `return` — they have replaced the fill, and everything below it is the flat
+ * fill they are replacing. The mesh was written by copying one of them, so it
+ * returned too, and took the whole over-slot half of the pipeline with it:
+ * grain, gradient overlay, inner shadow. A mesh with grain on it drew no grain,
+ * with the effect enabled and its stack entry reporting on.
+ *
+ * The engine cannot run in jsdom, and both the material block and the fill
+ * guard hinge on available() — so available() and get() are stubbed here to
+ * put the path in the state where the bug lived. That is the whole point of
+ * the test: without the stub the branch is dead and the regression is
+ * invisible, which is how it survived the port in the first place. */
+describe("mesh does not swallow the passes below it", () => {
+  function withLiveEngine(run) {
+    const MG = window.MeshGradient;
+    const oldAvail = MG.available,
+      oldGet = MG.get;
+    MG.available = () => true;
+    MG.get = (w, h) => ({ width: w, height: h });
+    /* The cache renders the object into its own canvas and blits ONE bitmap,
+     * so every pass this test counts happens on a context it cannot see. */
+    editor.paintCacheOff = true;
+    try {
+      return run();
+    } finally {
+      MG.available = oldAvail;
+      MG.get = oldGet;
+      editor.paintCacheOff = false;
+    }
+  }
+
+  /* Assigned as a whole document rather than by poking .effects, because the
+   * fx STACK is what fxOn consults and normalizeDoc is what builds it. Poking
+   * the dictionary leaves the stack empty, and grain — whose legacy form is an
+   * amount with no `on` field — then reads as off no matter what it is set to.
+   * The test would have passed the mesh half while silently never enabling the
+   * effect it exists to check. */
+  function paint(effects) {
+    return withLiveEngine(() => {
+      editor.doc = {
+        frame: {
+          name: "F",
+          w: 900,
+          h: 600,
+          bg: "#ffffff",
+          artboards: [],
+          children: [
+            {
+              type: "rect",
+              name: "M",
+              x: 100,
+              y: 100,
+              w: 400,
+              h: 300,
+              fill: { kind: "solid", color: "#cccccc" },
+              effects,
+            },
+          ],
+        },
+      };
+      let patterns = 0;
+      const realPattern = ctx.createPattern;
+      ctx.createPattern = (...a) => {
+        patterns++;
+        return realPattern.apply(ctx, a);
+      };
+      ctx.calls.length = 0;
+      editor.render();
+      ctx.createPattern = realPattern;
+      return {
+        patterns,
+        meshBlits: ctx.calls.filter((c) => c.name === "drawImage").length,
+        fills: ctx.calls.filter((c) => c.name === "fill" || c.name === "fillRect").length,
+      };
+    });
+  }
+
+  it("still paints grain over a mesh", () => {
+    const withGrain = paint({
+      mesh: { on: true },
+      grain: { amount: 0.5 },
+    });
+    /* The grain pass is a pattern fill and nothing else in this document makes
+     * one, so the count is the pass. Before the fix it was 0. */
+    expect(withGrain.patterns).toBe(1);
+    expect(withGrain.meshBlits).toBeGreaterThan(0);
+  });
+
+  it("does not paint grain when the effect is off", () => {
+    expect(paint({ mesh: { on: true }, grain: { amount: 0 } }).patterns).toBe(0);
+  });
+
+  /* Falling through must not un-replace the fill: the mesh covers the shape,
+   * and a flat fill painted after it would bury it. */
+  it("skips the flat fill it replaces", () => {
+    const meshed = paint({ mesh: { on: true } });
+    const plainFill = paint({ mesh: { on: false } });
+    expect(meshed.meshBlits).toBeGreaterThan(0);
+    expect(plainFill.meshBlits).toBe(0);
+    /* Exactly one fill fewer: the flat one the mesh stands in for. Asserted as
+     * a difference rather than an absolute, so the number stays true when
+     * another pass is added to the shape. */
+    expect(meshed.fills).toBe(plainFill.fills - 1);
   });
 });

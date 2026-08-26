@@ -166,7 +166,20 @@
     if (!e || e.on === false) return false; // stack entry switched off
     const p = e.params || {};
     if (e.type === "grain" || e.type === "noise") return (p.amount || 0) > 0;
-    if (e.type === "blur") return (p.radius || 0) > 0 || p.kind === "zoom";
+    if (e.type === "blur") {
+      /* Each KIND is driven by a different parameter, and this checked only
+       * `radius`. A directional blur is driven by `distance`, so one set to
+       * distance 150 with radius 0 — which is what the panel and an analysed
+       * recipe both produce — reported as OFF and never drew a pixel. The
+       * effect was configured, enabled, and silently absent.
+       *
+       * Zoom was the opposite fault: `|| p.kind === "zoom"` reported it on
+       * whatever its amount, so a zoom blur at 0 cost a full pass to change
+       * nothing. */
+      if (p.kind === "directional") return (p.distance || 0) > 0;
+      if (p.kind === "zoom") return (p.amount || 0) > 0;
+      return (p.radius || 0) > 0;
+    }
     if (e.type === "distortion") return (p.amount || 0) !== 0;
     if (e.type === "warp") return (p.strength || 0) !== 0;
     if (e.type === "displacement") return (p.scaleX || 0) !== 0 || (p.scaleY || 0) !== 0;

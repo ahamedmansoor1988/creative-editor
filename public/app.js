@@ -2663,7 +2663,15 @@ function drawOneInner(c,W,H,obj){
       };
       draw(obj);
       patternInstances(obj).forEach(draw);
-      return;
+      /* Falls THROUGH rather than returning, which is the one place this
+       * material differs from the others.
+       *
+       * They return here to skip the flat fill they replace — and everything
+       * below the fill goes with it, the grain pass among them. A mesh with
+       * grain on it drew no grain at all: the effect was enabled, its stack
+       * entry was on, and the draw simply never reached it. Falling through
+       * reaches drawObject, which paints the over-slot passes; drawObject
+       * checks for an active mesh itself and skips only the fill. */
     }
     const lq=fx.liquid;
     if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
@@ -2963,7 +2971,16 @@ function drawObject(c,obj,plain){
     const b={x:obj.x,y:obj.y,w:obj.w,h:obj.h};
     // A patterned parent still draws its OWN complete fill. Instances are
     // separate complete objects drawn by the caller; nothing is segmented.
-    if(plain==='flood'){
+    /* A mesh has already covered this shape, so painting the flat fill now
+     * would bury it. Asked here rather than passed in: drawOneInner and
+     * drawObject are separate functions, and a flag set in one is not in
+     * scope in the other — which is exactly the mistake that made this
+     * necessary to write down. */
+    const meshPainted=!plain&&obj.effects&&obj.effects.mesh&&fxOn(obj,'mesh')&&
+      window.MeshGradient&&window.MeshGradient.available();
+    if(meshPainted){
+      /* nothing: the mesh is the fill */
+    } else if(plain==='flood'){
       // Blob layer: this shape's colour has to exist wherever the blend gives
       // it weight, including the neck outside its own outline.
       c.fillStyle=fillStyleFor(c,obj,b);

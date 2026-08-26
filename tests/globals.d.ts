@@ -31,6 +31,10 @@ declare global {
       resample(points: any[], fromC: number, fromR: number, toC: number, toR: number): any[];
       evalAt(points: any[], cols: number, rows: number, u: number, v: number): any;
       available(): boolean;
+      /* What the DRAW path calls — the cached surface for a box. Declared
+       * because a test stubs it to put the material branch in the state jsdom
+       * cannot reach on its own. */
+      get(w: number, h: number, opts?: any): any;
     };
     GradientEngine?: {
       MAX_STOPS: number;
