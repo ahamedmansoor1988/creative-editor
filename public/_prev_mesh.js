@@ -50,21 +50,15 @@
    * whole, so "blur this corner" and "make that node metallic" are things the
    * net itself can express rather than effects stacked on top of it.
    *
-   * Eight channels ride in two RGBA textures beside the colour texture. The
-   * order below is the order the PANEL shows them in and nothing more — the
-   * upload in render() names every channel explicitly, so this array can be
-   * arranged for the reader rather than for the GPU. (An earlier note here
-   * claimed the order was the channel layout. It was not, and a comment that
-   * overstates a constraint costs someone a wasted hour later.)
+   * Seven channels ride in two RGBA textures beside the colour texture. The
+   * ORDER below IS the channel layout the fragment shader reads — reordering
+   * this array silently repaints every document, so it is not a list to tidy.
    *
    * Every default is a no-op: a net that has never been touched here renders
    * exactly as it did before the channels existed. That is what makes this
    * safe to add to documents already saved. */
   const NODE_FX = [
     { key: "noise", label: "Noise", def: 0 },
-    // grain size in pixels, 0 -> a single pixel, which is what the per-pixel
-    // hash did before there was a control for it
-    { key: "noiseSize", label: "Noise size", def: 0 },
     { key: "blur", label: "Blur", def: 0 },
     { key: "falloff", label: "Falloff", def: 0.5 },
     { key: "smooth", label: "Smoothness", def: 1 },
@@ -209,81 +203,34 @@ vec3 colourAt(vec2 uv,float fall,float smth){
   vec3 b=mix(fetchT(uCol,ri+1,ci).rgb, fetchT(uCol,ri+1,ci+1).rgb, tu);
   return mix(mix(a,b,tv),bic,smth);
 }
-/* Declared here, defined below. Blur has to average the FINISHED material, so
- * it calls these before the file gets to them; a prototype says so without
- * shuffling the definitions into an order that reads worse. */
-vec3 metalAt(vec3 c,float m);
-vec3 glowAt(vec3 c,float g);
-/* ORDER MATTERS, AND IT WAS WRONG. Blur used to run on the bare colour with
- * everything else painted on top of it, which made the control very nearly
- * inert: a mesh surface is locally near-LINEAR, and blurring a linear ramp
- * returns the same ramp. Measured with blur at 93%, the sharpest edge beside a
- * node did not move at all — 1.7 before and after on plain colour, 1.3 either
- * way across a smoothness crease, 3.3 either way through metallic banding,
- * whose hard contours blur never saw because they were added afterwards.
- *
- * The hard edges on a mesh are never the gradient itself; they are the
- * FEATURES — metallic's banding, a crease, chromatic fringing. Blur now
- * averages the finished material, which is the only arrangement in which it
- * softens anything at all.
- *
- * Noise stays outside it deliberately: in the layered reading this engine is
- * built around, grain is the layer ON TOP of the blur, and blurring it back
- * into mush would undo the layer above.
- *
- * Cost: metallic and glow are evaluated once per tap rather than once per
- * fragment. The tile is cached, so that is paid on edit, not per frame. */
-vec3 materialAt(vec2 uv,float fall,float smth,float metl,float glw){
-  vec3 c=colourAt(uv,fall,smth);
-  c=metalAt(c,metl);
-  return glowAt(c,glw);
-}
-/* A real blur, not a softening trick: the surface is analytic, so averaging it
- * over a disc IS blurring it. Twelve taps on a golden-angle spiral, which
- * spreads evenly without the banding a square kernel leaves. */
-vec3 blurAt(vec2 uv,float fall,float smth,float metl,float glw,float rad){
-  vec3 s=materialAt(uv,fall,smth,metl,glw);
+/* BLUR is a real blur, not a softening trick: the surface is analytic, so
+ * averaging it over a disc IS blurring it. Twelve taps on a golden-angle
+ * spiral, which spreads evenly without the banding a square kernel leaves. */
+vec3 blurAt(vec2 uv,float fall,float smth,float rad){
+  vec3 s=colourAt(uv,fall,smth);
   if(rad<=0.0005) return s;
-  /* 20 taps on a FIXED golden-angle spiral. It was briefly rotated per
-   * fragment — the usual stochastic-kernel trade — to chase concentric rings
-   * around a blurred node. The rings turned out to be moire between coarse
-   * grain and a downscaled screenshot, present in no render at all, and the
-   * rotation cost real quality to fix nothing: neighbouring fragments then
-   * averaged different sample sets, and the sharpest step near a node rose
-   * from 1.7 to 3.3. A deterministic kernel measures better here, so the
-   * jitter is gone and the reason is written down. */
-  for(int i=0;i<20;i++){
+  for(int i=0;i<12;i++){
     float a=float(i)*2.39996323;
-    float rr=rad*sqrt((float(i)+0.5)/20.0);
-    s+=materialAt(uv+vec2(cos(a),sin(a))*rr,fall,smth,metl,glw);
+    float rr=rad*sqrt((float(i)+0.5)/12.0);
+    s+=colourAt(uv+vec2(cos(a),sin(a))*rr,fall,smth);
   }
-  return s/21.0;
+  return s/13.0;
 }
 /* CHROMATIC splits red and blue along the radius, growing toward the edges the
  * way a lens does rather than uniformly, which would read as a print
  * misregistration instead of glass. */
-vec3 chromAt(vec2 uv,float fall,float smth,float metl,float glw,float rad,float amt){
-  vec3 c=blurAt(uv,fall,smth,metl,glw,rad);
+vec3 chromAt(vec2 uv,float fall,float smth,float rad,float amt){
+  vec3 c=blurAt(uv,fall,smth,rad);
   if(amt<=0.001) return c;
   vec2 d=uv-vec2(0.5);
   float L=length(d);
   vec2 dir=L>1e-5?d/L:vec2(0.0);
   float o=amt*0.10*L;
-  return vec3(blurAt(uv+dir*o,fall,smth,metl,glw,rad).r, c.g,
-              blurAt(uv-dir*o,fall,smth,metl,glw,rad).b);
+  return vec3(blurAt(uv+dir*o,fall,smth,rad).r, c.g, blurAt(uv-dir*o,fall,smth,rad).b);
 }
 /* METALLIC desaturates toward luminance and rakes a periodic highlight across
  * the tonal range — metal reads as metal because its specular response is
- * narrow and its hue is weak, not because it is grey.
- *
- * REVERTED to this from a version that swept once with a specular shoulder.
- * That rewrite was made to kill concentric rings around a blurred node, and
- * those rings were moire between coarse grain and a downscaled screenshot —
- * they were in no render. It was kept anyway because it measured better on
- * edge sharpness, which is the mistake: one metric was checked and the other
- * was not. Against this version it cost 23% of the saturation on a green net
- * (0.333 -> 0.257), which is metal bleaching the colour out of the mesh. Do
- * not swap this back without measuring SATURATION as well as sharpness. */
+ * narrow and its hue is weak, not because it is grey. */
 vec3 metalAt(vec3 c,float m){
   if(m<=0.001) return c;
   float l=dot(c,vec3(0.2126,0.7152,0.0722));
@@ -318,15 +265,10 @@ void main(){
   float nAmt=clamp(f1.r,0.0,1.0), bAmt=clamp(f1.g,0.0,1.0);
   float fall=clamp(f1.b,0.0,1.0), smth=clamp(f1.a,0.0,1.0);
   float chrm=clamp(f2.r,0.0,1.0), metl=clamp(f2.g,0.0,1.0), glw=clamp(f2.b,0.0,1.0);
-  float nsz=clamp(f2.a,0.0,1.0);
-  vec3 c=chromAt(vUV,fall,smth,metl,glw,bAmt*0.18,chrm);
-  if(nAmt>0.001){
-    /* Grain size in whole PIXELS, so the speckle is square and stable rather
-     * than resampled. At 0 the block is one pixel — exactly the per-pixel hash
-     * this replaced — so the default stays a no-op. */
-    float sz=mix(1.0,14.0,nsz);
-    c+=(hash21(floor(gl_FragCoord.xy/sz))*2.0-1.0)*nAmt*0.22;
-  }
+  vec3 c=chromAt(vUV,fall,smth,bAmt*0.10,chrm);
+  c=metalAt(c,metl);
+  c=glowAt(c,glw);
+  if(nAmt>0.001) c+=(hash21(gl_FragCoord.xy)*2.0-1.0)*nAmt*0.22;
   fragColor=vec4(clamp(c,0.0,1.0),1.0);
 }`;
 
@@ -567,10 +509,7 @@ void main(){
       Col[i * 4 + 1] = p.color[1] / 255;
       Col[i * 4 + 2] = p.color[2] / 255;
       Col[i * 4 + 3] = 1;
-      // THIS is the channel layout — named, not positional, so NODE_FX can be
-      // ordered for the panel. uFx1 is (noise, blur, falloff, smooth) and
-      // uFx2 (chromatic, metallic, glow, noiseSize); the shader reads them in
-      // exactly that order.
+      // channel order is NODE_FX order; see the note on that array
       Fx1[i * 4] = fxOf(p, "noise");
       Fx1[i * 4 + 1] = fxOf(p, "blur");
       Fx1[i * 4 + 2] = fxOf(p, "falloff");
@@ -578,7 +517,7 @@ void main(){
       Fx2[i * 4] = fxOf(p, "chromatic");
       Fx2[i * 4 + 1] = fxOf(p, "metallic");
       Fx2[i * 4 + 2] = fxOf(p, "glow");
-      Fx2[i * 4 + 3] = fxOf(p, "noiseSize");
+      Fx2[i * 4 + 3] = 0;
     }
     gl.useProgram(prog);
     gl.activeTexture(gl.TEXTURE0);
