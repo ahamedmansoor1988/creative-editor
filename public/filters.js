@@ -361,7 +361,20 @@
   function blurLayer(cv, P) {
     const kind = P.kind || "gaussian";
     const r = +P.radius || 0;
-    if (r <= 0 && kind !== "zoom") return cv;
+    const dist = Math.max(0, +P.distance || 0);
+    /* Each kind is driven by a DIFFERENT quantity, so one guard cannot ask
+     * about radius alone. This read `r <= 0 && kind !== "zoom"`, which meant a
+     * directional blur — whose radius is legitimately 0, because distance is
+     * what drives it — returned the layer untouched. Measured: mean pixel
+     * difference of exactly 0 at every angle and distance tested, while
+     * gaussian and zoom both moved ~11.5. Motion blur did nothing at all.
+     *
+     * The identical wrong assumption lived in FxStack.entryOn, which reported
+     * the same effect OFF for the same reason. Fixing that one made the effect
+     * reach this function; it did not make it do anything, and nothing checked
+     * that it had. Verify the effect, not the call. */
+    if (kind === "gaussian" && r <= 0) return cv;
+    if (kind === "directional" && r <= 0 && dist <= 0) return cv;
     const w = cv.width,
       h = cv.height;
     const out = document.createElement("canvas");
@@ -376,12 +389,12 @@
     if (kind === "directional") {
       // smear along the angle by compositing offset, blurred copies
       const a = ((+P.angle || 0) * Math.PI) / 180;
-      const dist = Math.max(1, +P.distance || r);
-      const steps = Math.min(32, Math.max(4, Math.round(dist)));
+      const len = Math.max(1, dist || r);
+      const steps = Math.min(32, Math.max(4, Math.round(len)));
       c.globalAlpha = 1 / steps;
       c.filter = `blur(${Math.max(0, r * 0.3)}px)`;
       for (let i = 0; i < steps; i++) {
-        const t = (i / (steps - 1) - 0.5) * dist;
+        const t = (i / (steps - 1) - 0.5) * len;
         c.drawImage(cv, Math.cos(a) * t, Math.sin(a) * t);
       }
       return out;

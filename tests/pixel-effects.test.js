@@ -310,3 +310,60 @@ describe("the analyser and the panel agree on the ranges", () => {
     expect(o.effects.blur).toMatchObject({ kind: "directional", distance: 40 });
   });
 });
+
+/* THE FILTER MUST DO SOMETHING, NOT MERELY BE CALLED.
+ *
+ * Everything above checks that an effect reaches Filters.apply, and all of it
+ * passed while directional blur was a total no-op: blurLayer opened with
+ * `if (r <= 0 && kind !== "zoom") return cv`, so a motion blur — whose radius
+ * is legitimately 0 because DISTANCE drives it — got the layer handed straight
+ * back. Measured on a real canvas, mean pixel difference was exactly 0 at
+ * every angle and distance, against ~11.5 for gaussian and zoom.
+ *
+ * jsdom has no real 2D raster, so these cannot compare pixels. What they can
+ * compare is IDENTITY: blurLayer returns a NEW canvas when it does work and
+ * the original object when it bails. That distinction is precisely the bug,
+ * and it is checkable here.
+ */
+describe("blur does work rather than just getting called", () => {
+  const layer = () => {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 48;
+    return c;
+  };
+
+  it("does real work for a directional blur driven by distance", () => {
+    const src = layer();
+    const out = window.Filters.apply("blur", src, {
+      kind: "directional",
+      radius: 0,
+      distance: 120,
+      angle: 30,
+    });
+    expect(out, "the motion blur handed the layer straight back").not.toBe(src);
+  });
+
+  it("does real work for a gaussian blur with a radius", () => {
+    const src = layer();
+    expect(window.Filters.apply("blur", src, { kind: "gaussian", radius: 20 })).not.toBe(src);
+  });
+
+  it("does real work for a zoom blur driven by amount", () => {
+    const src = layer();
+    expect(window.Filters.apply("blur", src, { kind: "zoom", radius: 0, amount: 0.5 })).not.toBe(
+      src,
+    );
+  });
+
+  /* The other half of the guard: a blur with nothing to do must still cost
+   * nothing, or the fix above would just be "always allocate a canvas". */
+  it("leaves the layer alone when there is genuinely nothing to blur", () => {
+    const a = layer();
+    expect(window.Filters.apply("blur", a, { kind: "gaussian", radius: 0 })).toBe(a);
+    const b = layer();
+    expect(window.Filters.apply("blur", b, { kind: "directional", radius: 0, distance: 0 })).toBe(
+      b,
+    );
+  });
+});
