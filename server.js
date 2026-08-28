@@ -497,6 +497,17 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/jav
 function safeError(e) {
   if (e && e.status === 429) return { status: 429, message: "Rate limit reached — try again shortly.", retryAfter: e.retryAfter };
   if (e && e.code === "NO_KEY") return { status: 503, message: "AI is not configured on this server.", code: "NO_KEY" };
+  /* 401/403 is a CREDENTIAL problem, and the person seeing it is the one who
+   * can fix it. Folded in with every other 4xx it read as "the request was
+   * wrong" — which sent someone to the logs to discover the key had been
+   * revoked. Naming the category leaks nothing: the provider's own text still
+   * never leaves the server. */
+  if (e && (e.status === 401 || e.status === 403))
+    return {
+      status: 401,
+      code: "BAD_KEY",
+      message: "The AI key was rejected. Check GROQ_API_KEY in .env and restart.",
+    };
   if (e && e.status && e.status >= 400 && e.status < 500)
     return { status: 502, message: "The AI provider rejected the request." };
   if (e && e.status) return { status: 502, message: "The AI provider is unavailable. Try again shortly." };

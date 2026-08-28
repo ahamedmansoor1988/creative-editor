@@ -221,6 +221,29 @@ describe("POST /api/generate — failure paths", () => {
     expect(json.error).toMatch(/rate limit/i);
   });
 
+  it("tells the operator when the KEY is rejected, not just that something was", async () => {
+    /* A 401 is a configuration problem and the person reading it is the one
+     * who can fix it. Folded in with every other 4xx it read as "the request
+     * was wrong", which sent someone to the server log to find out their key
+     * had been revoked. */
+    mock.status = 401;
+    mock.body = { error: { message: "Invalid API Key" } };
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(401);
+    expect(json.code).toBe("BAD_KEY");
+    expect(json.error).toMatch(/key was rejected/i);
+    expect(json.error).toMatch(/GROQ_API_KEY/);
+  });
+
+  it("still says nothing the provider said, even about a key", async () => {
+    // the category is safe to name; the upstream text never is
+    mock.status = 403;
+    mock.body = { error: { message: "org_2xyz forbidden: quota project abc" } };
+    const { res, json } = await post("/api/generate", { prompt: "x" });
+    expect(res.status).toBe(401);
+    expect(json.error).not.toMatch(/org_2xyz|quota project/);
+  });
+
   it("maps other provider errors to 502 with a sanitized message", async () => {
     mock.status = 500;
     mock.body = { error: { message: "upstream exploded" } };
