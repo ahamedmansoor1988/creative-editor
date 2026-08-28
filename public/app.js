@@ -84,12 +84,6 @@ const DEFAULT_EFFECTS=()=>({
    * colour, and carrying that in every object's defaults would put it in the
    * compact-serialisation baseline for shapes that never touch the effect. */
   mesh:{on:false,cols:4,rows:4,points:[],showNet:true},
-  /* §spectralField. The settings object belongs to the engine, so the default
-   * here is the switch and nothing else: normalizeDoc fills the rest from
-   * SpectralField.DEFAULTS(). Carrying eight anchors in every object's
-   * defaults would put them into the compact-serialisation baseline for
-   * shapes that never touch the effect. */
-  spectralField:{on:false},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
@@ -836,24 +830,6 @@ function normChildren(list,depth){
       const nz=Object.assign(de.noise, ce.noise||{});
       fnum(nz,'amount',0,1,0); fnum(nz,'scale',1,32,1); fnum(nz,'seed',1,99999,1);
       nz.mono=nz.mono!==false;
-      /* The field repairs itself: its own normalize() owns every clamp, so a
-       * settings object from a saved file, a preset or the panel is checked in
-       * exactly one place rather than mirrored here and left to drift.
-       *
-       * `orb` is the name this shipped under for one day. Documents saved in
-       * that window are carried across rather than silently losing the effect;
-       * the fx stack is remapped alongside, below. */
-      {
-        const legacy=ce.orb&&!ce.spectralField?ce.orb:null;
-        const rawF=Object.assign({}, de.spectralField, legacy||ce.spectralField||{});
-        const on=!!rawF.on && ['rect','ellipse','polygon','path'].includes(c.type);
-        const SF=window.SpectralField;
-        const fixed=SF?SF.normalize(rawF):rawF;
-        fixed.on=on;
-        // debug views are a working state, not a document setting
-        fixed.debug=SF&&SF.DEBUG_VIEWS.includes(rawF.debug)?rawF.debug:null;
-        de.spectralField=fixed;
-      }
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -960,7 +936,7 @@ function normChildren(list,depth){
       ['bg','coreColor','tint'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
-      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, spectralField:de.spectralField, gradient:grd,
+      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
         blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
@@ -972,8 +948,6 @@ function normChildren(list,depth){
       const FS=window.FxStack;
       const known=FS?FS.types():Object.keys(EFF);
       let stack=Array.isArray(c.fx)?c.fx:null;
-      // same one-day rename, on the stack side
-      if(stack) stack.forEach(e=>{ if(e&&e.type==='orb') e.type='spectralField'; });
       if(stack){
         stack=stack.slice(0,32).filter(e=>e&&known.includes(e.type)).map(e=>({
           id:typeof e.id==='string'&&e.id?e.id:newId(),
@@ -1002,24 +976,6 @@ function normChildren(list,depth){
       // its clamps ran. Structured fields must be re-normalised here; scalars
       // share the same gap and are tracked separately.
       if(EFF.flare) EFF.flare.beams=normFlareBeams(EFF.flare.beams);
-      /* The spectral field has to be repaired again for the same reason, and
-       * more sharply: the fold copies a SAVED params object over the clamped
-       * one, so a legacy orb document puts `radius` and `centerX` straight
-       * back after normalize dropped them. Geometry that returns after being
-       * deleted is the exact failure this rewrite exists to prevent.
-       *
-       * Repaired IN PLACE rather than replaced, because the dictionary object
-       * is the same object the stack entry points at — the live alias — and
-       * swapping it would leave the stack editing a copy. */
-      if(EFF.spectralField&&window.SpectralField){
-        const live=EFF.spectralField;
-        const on=live.on, dbg=live.debug;
-        const fixed=window.SpectralField.normalize(live);
-        for(const k of Object.keys(live)) delete live[k];
-        Object.assign(live, fixed);
-        live.on=on;
-        live.debug=window.SpectralField.DEBUG_VIEWS.includes(dbg)?dbg:null;
-      }
       delete c.__fxCache;
     }
     if(c.type!=='line'){
@@ -2776,51 +2732,6 @@ function drawOneInner(c,W,H,obj){
        * reaches drawObject, which paints the over-slot passes; drawObject
        * checks for an active mesh itself and skips only the fill. */
     }
-    /* §spectralField. A material on the same terms as the mesh, with one
-     * difference that matters: it needs the object's PATH, not just its box.
-     * The field is solved inside the real outline, so a rectangle fills as a
-     * rectangle and a star as a star. The box is only the render extent.
-     *
-     * drawPath is a callback rather than a serialised path because only this
-     * file knows what an object is; the engine rasterises whatever it draws,
-     * which is how it supports rounded rects, stars and imported curves
-     * without knowing about any of them. */
-    const sfld=fx.spectralField;
-    if(sfld&&fxOn(obj,'spectralField')&&obj.type!=='text'&&window.SpectralField){
-      const drawField=o=>{
-        const tf=c.getTransform?c.getTransform():null;
-        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
-        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
-        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
-        /* Drawn in the tile's own space: the object's outline translated to
-         * the origin and scaled to the tile. That is the local-coordinate
-         * frame the field is solved in, so position and zoom cannot detach
-         * it from the shape. */
-        const drawPath=(cx,W2,H2)=>{
-          cx.save();
-          cx.scale(W2/Math.max(1,o.w), H2/Math.max(1,o.h));
-          cx.translate(-o.x,-o.y);
-          cx.beginPath(); addPath(cx,o); cx.fill();
-          cx.restore();
-        };
-        const img=window.SpectralField.get(tw,th,sfld,{
-          drawPath,
-          pathKey:[o.type,Math.round(o.w),Math.round(o.h),o.radius||0,
-                   o.sides||0,o.inner||0,(o.d||'').length].join(':'),
-          debug:sfld.debug||null,
-        });
-        if(!img) return;
-        c.save();
-        c.globalAlpha=obj.opacity;
-        c.imageSmoothingEnabled=true;
-        if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
-        c.drawImage(img,o.x,o.y,o.w,o.h);
-        c.restore();
-      };
-      drawField(obj);
-      patternInstances(obj).forEach(drawField);
-      return;
-    }
     const lq=fx.liquid;
     if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
       const draw=o=>{
@@ -4214,7 +4125,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Mesh':'mesh','Spectral Field':'spectralField','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
+  'Mesh':'mesh','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
   'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -4252,11 +4163,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Shadow'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Spectral Field','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Spectral Field','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Spectral Field','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6830,70 +6741,6 @@ function buildFxSection(obj,page,add,body){
         setActiveDoc(normalizeDoc(doc)); pushHistory(); refresh();
       });
       add(`<div class="fxHint">Two colour ramps are interleaved into bands. Split sets where one hands over to the other; drift and phase move the seam along the band.</div>`);
-    }
-  }
-
-  if(page==='Spectral Field'){
-    const O=obj.effects.spectralField, SF=window.SpectralField;
-    add(`<label class="slider"><input type="checkbox" id="sfOn" ${O.on?'checked':''}> Enable spectral field</label>`);
-    $('sfOn').addEventListener('change',e=>{ O.on=e.target.checked; pushHistory(); refresh(); });
-    if(O.on){
-      const liveF=()=>{ paintCacheClear(); render(); };
-      /* NO GEOMETRY SECTION. Radius, centre X and centre Y are gone, along
-       * with the circle they described. Width, height, corner radius, position
-       * and outline all belong to the object; an effect that carried its own
-       * copies is exactly what made this draw a disc inside every rectangle. */
-      const ROWS=[
-        ['Spectral field'],
-        ['boundaryOffset','Boundary offset',0,100,100,'%'],
-        ['intensity','Intensity',0,200,100,'%'],
-        ['spread','Spread',0,100,100,'%'],
-        ['Pearl'],
-        ['pearlStrength','Pearl',0,100,100,'%'],
-        ['pearlDepth','Pearl depth',2,100,100,'%'],
-        ['Edge'],
-        ['edgeChroma','Edge chroma',0,200,100,'%'],
-        ['rimWidth','Rim width',1,100,100,'%'],
-        ['rimStrength','Rim strength',0,100,100,'%'],
-      ];
-      ROWS.forEach(r=>{
-        if(r.length===1){ add(`<div class="pSect">${r[0]}</div>`); return; }
-        const [key,label,lo,hi,scale]=r;
-        const id='sf_'+key;
-        const cur=Math.round(O[key]*scale);
-        add(`<label class="slider">${label} <span id="${id}V">${cur}%</span>
-          <input type="range" id="${id}" min="${lo}" max="${hi}" step="1" value="${cur}"></label>`);
-        $(id).addEventListener('input',e=>{
-          O[key]=+e.target.value/scale;
-          $(id+'V').textContent=e.target.value+'%';
-          liveF();
-        });
-        $(id).addEventListener('change',()=>pushHistory());
-      });
-      add(`<label class="slider">Pearl colour <input type="color" id="sfPC" value="${O.pearlColor}"></label>`);
-      $('sfPC').addEventListener('input',e=>{ O.pearlColor=e.target.value; liveF(); });
-      $('sfPC').addEventListener('change',()=>pushHistory());
-
-      add(`<div class="pSect">Perimeter stops</div>`);
-      O.stops.forEach((st,i2)=>{
-        add(`<div class="row2">
-          <label class="slider">${st.id} <input type="color" id="sf_c${i2}" value="${SF.linearToHex(st.color)}"></label>
-          <label class="slider">at <span id="sf_s${i2}V">${Math.round(st.s*100)}%</span>
-            <input type="range" id="sf_s${i2}" min="0" max="100" step="1" value="${Math.round(st.s*100)}"></label>
-        </div>`);
-        $('sf_c'+i2).addEventListener('input',e=>{ st.color=SF.hexToLinear(e.target.value); liveF(); });
-        $('sf_c'+i2).addEventListener('change',()=>pushHistory());
-        $('sf_s'+i2).addEventListener('input',e=>{ st.s=+e.target.value/100; $('sf_s'+i2+'V').textContent=e.target.value+'%'; liveF(); });
-        $('sf_s'+i2).addEventListener('change',()=>pushHistory());
-      });
-
-      add(`<div class="pSect">Debug</div>`);
-      add(`<label class="slider">View<select id="sfDebug">`+
-        [['','Off'],['domain','Domain'],['boundary','Boundary (arc length)'],['distance','Distance']]
-          .map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
-      $('sfDebug').value=O.debug||'';
-      $('sfDebug').addEventListener('change',e=>{ O.debug=e.target.value||null; liveF(); });
-      add(`<div class="fxHint">Colours live on the shape's own PERIMETER, placed by arc length, and the interior is their harmonic extension — the smoothest field those edge colours can produce, solved inside the real outline. Change the object's size, corners or shape and the field follows; it owns no geometry of its own. Domain should show the whole shape filled, and Distance should show contours that match it.</div>`);
     }
   }
 
@@ -10490,4 +10337,308 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, allInstances, instanceBounds, normalizePattern,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR} };
+
+/* ---- engine library panel ------------------------------------------------
+ * A browsable list of what this editor can do, built on EngineCatalog for the
+ * product metadata and FxStack for whether a thing can actually be applied.
+ *
+ * WHY IT EXISTS. The Effects menu was filtered by the QA gate, so everything
+ * unpromoted vanished from it — which made the gate double as a discovery
+ * policy it was never meant to be. A person could not find out what the tool
+ * had, or what was coming. Nothing is hidden here; what varies is whether a
+ * row can be clicked and what it says about itself.
+ *
+ * WHY APPLY TURNS THE EFFECT ON. The menu items only scrolled to a section,
+ * which is fine for a menu and useless for a library: clicking "Grain" and
+ * seeing nothing change is indistinguishable from a broken button. Applying
+ * sets parameters that are visible at once, so the click has a result you can
+ * see and then adjust.
+ */
+(function(){
+  const EC=()=>window.EngineCatalog;
+  const FS=()=>window.FxStack;
+  let engFilter='all';
+  let engQuery='';
+
+  /* Starting parameters chosen to be SEEN. Several effects are "on" at a
+   * value of zero — grain, noise, blur — so applying them with their stored
+   * defaults would add a stack entry that renders nothing. */
+  const OPENING={
+    shadow:  o=>Object.assign(o.effects.shadow,{on:true}),
+    glow:    o=>Object.assign(o.effects.glow,{on:true,radius:18,alpha:0.7}),
+    grain:   o=>Object.assign(o.effects.grain,{amount:0.35}),
+    blur:    o=>Object.assign(o.effects.blur,{kind:'gaussian',radius:10}),
+    noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
+    mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
+  };
+
+  /* Catalog id -> the inspector page that edits it, so applying can open the
+   * controls rather than leaving someone to hunt for them. */
+  const PAGE_FOR={mesh:'Mesh',shadow:'Shadow',glow:'Glow',grain:'Grain',blur:'Blur',
+                  noise:'Noise',linearGradient:'Fill'};
+
+  /** The effects a freshly created layer of this type ends up with, AFTER
+   *  normalizeDoc has had its say. That is the only fair baseline for "has
+   *  the user changed anything". */
+  const _pristine={};
+  function engPristine(type){
+    if(_pristine[type]) return _pristine[type];
+    const probe=normalizeDoc({frame:{name:'p',w:10,h:10,bg:'#fff',artboards:[],
+      children:[{type,name:'p',x:0,y:0,w:10,h:10,fill:{kind:'solid',color:'#cccccc'}}]}});
+    const kid=probe&&probe.frame&&probe.frame.children&&probe.frame.children[0];
+    _pristine[type]=(kid&&kid.effects)||DEFAULT_EFFECTS();
+    return _pristine[type];
+  }
+
+  function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
+
+  /** A 26px swatch per row. Drawn rather than shipped as images: it costs
+   *  nothing, it cannot go stale against the engine, and a row with a picture
+   *  is findable by eye in a way a list of names is not. */
+  function engPreview(item){
+    const c=document.createElement('canvas');
+    c.width=c.height=52; c.style.width=c.style.height='26px';
+    const x=c.getContext('2d'), S=52;
+    const g=(a,b)=>{const gr=x.createLinearGradient(0,0,S,S); gr.addColorStop(0,a); gr.addColorStop(1,b); return gr;};
+    x.fillStyle='#f4f5f7'; x.fillRect(0,0,S,S);
+    if(item.category==='fill'){ x.fillStyle=g('#6ea8fe','#ec4899'); x.fillRect(0,0,S,S); }
+    else if(item.category==='material'){
+      x.fillStyle=g('#dfe6f2','#9fb4d6'); x.fillRect(0,0,S,S);
+      x.globalAlpha=.5; x.fillStyle='#fff';
+      for(let i=0;i<S;i+=8) x.fillRect(i,0,3,S);
+      x.globalAlpha=1;
+    } else if(item.category==='finish'){
+      x.fillStyle=g('#c7d2fe','#818cf8'); x.fillRect(0,0,S,S);
+      x.globalAlpha=.35; x.fillStyle='#000';
+      for(let i=0;i<260;i++) x.fillRect((i*7919)%S,(i*104729)%S,1,1);
+      x.globalAlpha=1;
+    } else {
+      x.fillStyle='#eef1f6'; x.fillRect(0,0,S,S);
+      x.strokeStyle='#8b93a3'; x.lineWidth=2;
+      x.strokeRect(8,8,20,20); x.strokeRect(22,22,20,20);
+    }
+    return c;
+  }
+
+  function engApply(item){
+    const C=EC(), obj=primary();
+    const compat=C.compatibility(item.id,obj);
+    if(!compat.ok){ engSay(compat.reason); return; }
+
+    if(item.kind==='fill'){
+      /* A fill is what the layer IS. It is set, not stacked — pushing a
+       * gradient onto the effect stack would put it in a slot that composites
+       * over the fill it is supposed to be. */
+      const f=obj.fill||(obj.fill={});
+      if(f.kind!=='linear'){
+        const base=firstColor(f)||'#3b6df0';
+        obj.fill={kind:'linear',angle:90,stops:[{t:0,color:base},{t:1,color:'#ffffff'}]};
+      }
+      pushHistory('Apply '+item.label);
+      refresh();
+      engOpenPage('Fill');
+      engSay(item.label+' applied.');
+      engRender();
+      return;
+    }
+
+    const type=item.rendererType;
+    if(!type||!obj.effects||!obj.effects[type]){ engSay('That engine has no renderer yet.'); return; }
+    (OPENING[type]||(()=>{}))(obj);
+    /* An entry may exist and be off, or not exist at all. Either way the
+     * parameters above are what turn it on; the stack entry is the alias. */
+    if(Array.isArray(obj.fx)&&!obj.fx.some(e=>e.type===type)){
+      obj.fx.push({id:newId(),type,on:true,params:obj.effects[type]});
+    }else if(Array.isArray(obj.fx)){
+      const e=obj.fx.find(e2=>e2.type===type); if(e) e.on=true;
+    }
+    pushHistory('Apply '+item.label);
+    refresh();
+    const page=PAGE_FOR[item.id];
+    const hasPanel=page&&FX_PAGES(obj).includes(page);
+    engOpenPage(page);
+    /* An experimental engine renders but its inspector page is still behind
+     * the QA gate, so applying one changes the artwork and leaves nothing to
+     * adjust. Saying so is the difference between "experimental" and "broken":
+     * the brief's rule is that these may be applied, never that they may be
+     * applied SILENTLY. */
+    engSay(
+      hasPanel
+        ? item.label+' applied to '+(obj.name||obj.type)+'.'
+        : item.label+' applied — experimental, no parameter controls yet.'
+    );
+    engRender();
+  }
+
+  /* CSS.escape is not universal — jsdom has no CSS object at all, and the
+   * exception it threw here was swallowed by the click listener, so applying
+   * an engine updated the model, skipped its own status message and left the
+   * panel looking inert. A quoted attribute value only needs backslashes and
+   * quotes escaped, which is a fallback rather than a reimplementation. */
+  function engCssEscape(v){
+    if(typeof CSS!=='undefined'&&CSS&&typeof CSS.escape==='function') return CSS.escape(v);
+    return String(v).replace(/["\\]/g,'\\$&');
+  }
+
+  function engOpenPage(name){
+    if(!name) return;
+    const obj=primary();
+    if(!obj||!FX_PAGES(obj).includes(name)) return;
+    _collapsed.delete(name); saveCollapsed(); syncInspector();
+    const body=$('fxBody');
+    const head=body&&body.querySelector('[data-fxsect="'+engCssEscape(name)+'"]');
+    if(head&&head.scrollIntoView) head.scrollIntoView({block:'nearest'});
+  }
+
+  function engRenderStack(){
+    const wrap=$('engStack'); if(!wrap) return;
+    wrap.innerHTML='';
+    const obj=primary(), C=EC();
+    /* No layer is the commonest state there is — it is what you get on load,
+     * after a deselect, and after deleting something. It has to READ as a
+     * state rather than throw: the first version reached straight for
+     * obj.type and took the whole panel down with it. */
+    if(!obj){
+      wrap.innerHTML='<div class="engEmpty">Select a layer to see the engines applied to it.</div>';
+      return;
+    }
+    /* WHAT COUNTS AS APPLIED. normalizeDoc appends EVERY known type to obj.fx
+     * so the stack has a slot for each, which means "has an entry" is true of
+     * everything and lists the whole registry. The first version of this did
+     * exactly that and showed Drop shadow, Glow and Mesh gradient on a layer
+     * that had only grain and blur.
+     *
+     * An effect is in use if it is ON, or if its parameters differ from the
+     * defaults — the second half is what keeps a row visible after you toggle
+     * it off, which is the whole point of having a toggle. */
+    /* Compared against a NORMALISED pristine layer, not against the raw
+     * defaults. normalizeDoc backfills things the defaults leave empty — the
+     * mesh's 4x4 net is sixteen points the stored default deliberately omits —
+     * so a raw comparison called every untouched layer "touched" and listed
+     * Mesh gradient on a plain rectangle. Cached per layer type, since the
+     * answer only depends on that. */
+    const DEF=engPristine(obj.type);
+    const touched=(type)=>{
+      const cur=obj.effects&&obj.effects[type], def=DEF[type];
+      if(!cur||!def) return false;
+      return Object.keys(def).some(k=>{
+        if(k==='on') return false;                 // covered by entryOn
+        const a=cur[k], b=def[k];
+        if(Array.isArray(a)||Array.isArray(b)) return JSON.stringify(a)!==JSON.stringify(b);
+        return a!==b;
+      });
+    };
+    const live=(obj&&Array.isArray(obj.fx))?obj.fx.filter(e=>{
+      const it=C.get(e.type);
+      if(!it||!obj.effects||!obj.effects[e.type]) return false;
+      return FS().entryOn(e)||touched(e.type);
+    }):[];
+    if(!live.length){ wrap.innerHTML='<div class="engEmpty">No engines applied to this layer.</div>'; return; }
+    live.forEach((entry,i)=>{
+      const item=C.get(entry.type);
+      const row=document.createElement('div');
+      row.className='engStackRow';
+      const on=FS().entryOn(entry);
+      row.innerHTML=
+        '<button data-act="toggle" title="Toggle">'+(on?'●':'○')+'</button>'+
+        '<span class="'+(on?'':'engOff')+'">'+(item?item.label:entry.type)+'</span>'+
+        '<button data-act="up" title="Move up" '+(i===0?'disabled':'')+'>↑</button>'+
+        '<button data-act="down" title="Move down" '+(i===live.length-1?'disabled':'')+'>↓</button>'+
+        '<button data-act="remove" title="Remove">×</button>';
+      row.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+        const act=b.dataset.act;
+        const all=obj.fx, idx=all.indexOf(entry);
+        if(act==='toggle') entry.on=!entry.on;
+        else if(act==='up'&&idx>0){ all.splice(idx,1); all.splice(idx-1,0,entry); }
+        else if(act==='down'&&idx<all.length-1){ all.splice(idx,1); all.splice(idx+1,0,entry); }
+        else if(act==='remove'){
+          /* Removed by turning the effect OFF rather than by deleting the
+           * entry: the dictionary and the stack are two views of one object,
+           * and dropping the entry alone would leave the dictionary saying the
+           * effect is still there. */
+          entry.on=false;
+          const P=obj.effects[entry.type];
+          if(P){ if('on' in P) P.on=false; if('amount' in P) P.amount=0; if('radius' in P) P.radius=0; }
+        }
+        pushHistory('Edit engine stack'); refresh(); engRender();
+      }));
+      wrap.appendChild(row);
+    });
+  }
+
+  function engRender(){
+    const panel=$('enginesPanel'); if(!panel||panel.hidden) return;
+    const C=EC(); if(!C) return;
+    const obj=primary();
+
+    const tgt=$('engTarget');
+    if(tgt) tgt.textContent=obj
+      ? 'Layer: '+(obj.name||obj.type)
+      : 'No layer selected — pick one to apply an engine.';
+
+    const cats=$('engCats');
+    if(cats&&!cats.childElementCount){
+      [{id:'all',label:'All'}].concat(C.CATEGORIES).forEach(c=>{
+        const b=document.createElement('button');
+        b.className='engCat'; b.type='button'; b.textContent=c.label;
+        b.setAttribute('aria-pressed',String(engFilter===c.id));
+        b.addEventListener('click',()=>{ engFilter=c.id;
+          cats.querySelectorAll('.engCat').forEach(x=>x.setAttribute('aria-pressed','false'));
+          b.setAttribute('aria-pressed','true'); engRender(); });
+        cats.appendChild(b);
+      });
+    }
+
+    const list=$('engList'); if(!list) return;
+    list.innerHTML='';
+    let items=C.search(engQuery);
+    if(engFilter!=='all') items=items.filter(i=>i.category===engFilter);
+    if(!items.length){ list.innerHTML='<div class="engEmpty">No engines match that search.</div>'; }
+
+    items.forEach(item=>{
+      const st=C.status(item.id);
+      const compat=C.compatibility(item.id,obj);
+      const row=document.createElement('button');
+      row.type='button'; row.className='engRow'; row.dataset.engine=item.id;
+      if(!compat.ok) row.disabled=true;
+      row.appendChild(engPreview(item));
+      const mid=document.createElement('span');
+      mid.innerHTML='<span class="engName">'+item.label+'</span><br>'+
+                    '<span class="engDesc">'+(compat.ok?(item.description||''):compat.reason)+'</span>';
+      row.appendChild(mid);
+      const badge=document.createElement('span');
+      badge.className='engBadge'; badge.dataset.status=st;
+      badge.textContent=st==='ready'?'Ready':st==='experimental'?'Experimental':'Needs migration';
+      row.appendChild(badge);
+      row.title=compat.ok?(item.description||item.label):compat.reason;
+      row.addEventListener('click',()=>engApply(item));
+      list.appendChild(row);
+    });
+
+    engRenderStack();
+  }
+
+  function engOpen(){
+    const p=$('enginesPanel'); if(!p) return;
+    p.hidden=false; engRender();
+    const s=$('engSearch'); if(s) s.focus();
+  }
+  function engClose(){ const p=$('enginesPanel'); if(p) p.hidden=true; }
+
+  const openBtn=$('enginesOpen');
+  if(openBtn) openBtn.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
+    const p=$('enginesPanel');
+    if(p&&p.hidden) engOpen(); else engClose();
+  });
+  const closeBtn=$('engClose'); if(closeBtn) closeBtn.addEventListener('click',engClose);
+  const search=$('engSearch');
+  if(search) search.addEventListener('input',e=>{ engQuery=e.target.value; engRender(); });
+
+  window.__engines={open:engOpen,close:engClose,render:engRender,apply:engApply,
+                    get filter(){return engFilter;}, set filter(v){engFilter=v;},
+                    get query(){return engQuery;}, set query(v){engQuery=v;}};
+})();
+
 })();

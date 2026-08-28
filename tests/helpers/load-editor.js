@@ -209,6 +209,7 @@ export function loadEditor() {
    * it can be tested. */
   for (const dep of [
     "fxstack.js",
+    "engine-catalog.js",
     "history.js",
     "snap.js",
     "components.js",
@@ -222,7 +223,6 @@ export function loadEditor() {
      * empty net. available() still reports false here, which is the branch a
      * machine without WebGL2 takes, so that path gets exercised too. */
     "meshgradient.js",
-    "spectralfield.js",
   ]) {
     window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
   }

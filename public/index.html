@@ -108,45 +108,37 @@
       <button data-cmd="clearGuides">Clear guides</button>
     </div>
   </div>
+  <div class="menu" data-menu="engines"><button id="enginesOpen" type="button">Engines</button></div>
   <div class="menu" data-menu="effects">Effects
     <div class="dropdown">
-      <button data-fx="Pattern">Pattern</button>
-      <button data-fx="Group">Group</button>
-      <button data-fx="Mask">Mask</button>
       <button data-fx="Effects">Effect stack</button>
       <div class="menuDivider" aria-hidden="true"></div>
-      <!-- Fill and Stroke are not effects, and since the inspector stacks its
-           sections they are both permanently on screen — a menu command to
-           "go to Fill" points at something already visible. Withdrawn from
-           this menu only; the sections themselves are untouched. -->
       <button data-fx="Mesh">Mesh gradient</button>
-      <button data-fx="Gradient">Gradient</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <button data-fx="Light">Light</button>
-      <button data-fx="Liquid">Liquid gradient</button>
-      <button data-fx="Flare">Prism flare</button>
-      <button data-fx="Glass 3D">Glass 3D</button>
-      <button data-fx="Fractal">Fractal glass</button>
-      <button data-fx="Prism">Prism</button>
-      <button data-fx="Capsule">Capsule</button>
-      <button data-fx="Strip">Strip</button>
-      <button data-fx="Blob">Blob</button>
-      <button data-fx="Glass">Glass</button>
-      <button data-fx="Glass 2">Glass 2</button>
       <div class="menuDivider" aria-hidden="true"></div>
       <button data-fx="Shadow">Shadow</button>
-      <button data-fx="Inner Shadow">Inner Shadow</button>
       <button data-fx="Glow">Glow</button>
       <button data-fx="Grain">Grain</button>
       <button data-fx="Blur">Blur</button>
-      <button data-fx="Distortion">Distortion</button>
-      <button data-fx="Warp">Warp</button>
-      <button data-fx="Displacement">Displacement</button>
-      <button data-fx="Haze">Fractal haze</button>
-      <button data-fx="Slice">Slice</button>
       <button data-fx="Noise">Noise</button>
     </div>
   </div>
+</div>
+
+<!-- The engine library. Floating like the other panels rather than modal:
+     browsing capabilities is something you do WHILE looking at the artwork,
+     and a modal would hide the layer you are choosing for. -->
+<div id="enginesPanel" class="floating" hidden aria-label="Engines">
+  <div class="engHead">
+    <span class="engTitle">Engines</span>
+    <button id="engClose" type="button" class="engX" aria-label="Close engines">&times;</button>
+  </div>
+  <input id="engSearch" type="search" placeholder="Search engines" aria-label="Search engines" autocomplete="off" />
+  <div id="engCats" class="engCats" role="group" aria-label="Categories"></div>
+  <div id="engTarget" class="engTarget"></div>
+  <div id="engList" class="engList"></div>
+  <div class="engStackHead">Applied</div>
+  <div id="engStack" class="engStack"></div>
+  <div id="engStatus" class="engStatus" role="status" aria-live="polite"></div>
 </div>
 
 <div id="appNotch" class="floating" aria-label="App links">
@@ -572,7 +564,6 @@
 </div>
 
 <script src="meshgradient.js"></script>
-<script src="spectralfield.js"></script>
 <script src="gradient.js"></script>
 <script src="glass.js"></script>
 <script src="blob.js"></script>
@@ -588,6 +579,7 @@
 <script src="components.js"></script>
 <script src="filters.js"></script>
 <script src="fxstack.js"></script>
+<script src="engine-catalog.js"></script>
 <script src="history.js"></script>
 <script type="module">
   /* clipper2.mjs is an ES module and the app is classic scripts, so a tiny
