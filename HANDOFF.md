@@ -40,7 +40,9 @@ works fully — only the Generate bar is unavailable.
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `server.js`                                                                     | Static server + `/api/generate`. Holds `BASE_SCHEMA` and the `CAPABILITIES` registry that injects per-engine docs into the prompt. |
 | `public/app.js`                                                                 | The editor. ~8,600 lines: document model, normalizer, renderer, tools, panels, persistence.                                        |
-| `public/fxstack.js`                                                             | Effect-stack registry — which effects exist, what slot each composites in.                                                         |
+| `public/fxstack.js`                                                             | Effect-stack registry — which effects exist, what slot each composites in, and the READY gate.                                     |
+| `public/engine-catalog.js`                                                      | Product metadata for the engine library: names, categories, descriptions, legacy aliases. NOT the runtime authority — see below.   |
+| `public/meshgradient.js`                                                        | Mesh gradient: bicubic Catmull-Rom surface, ten per-node channels, WebGL2.                                                         |
 | `public/history.js`                                                             | Undo/redo as structural diffs. Exposes `window.EditHistory`.                                                                       |
 | `public/components.js`                                                          | Components, symbols, constraints, stack layout.                                                                                    |
 | `public/snap.js`                                                                | Snapping via a uniform spatial grid (see §0 note below).                                                                           |
@@ -63,6 +65,24 @@ works fully — only the Generate bar is unavailable.
   affecting appearance that is not in `paintSig` will render stale. Backdrop
   materials, blend modes, containers and patterned objects are excluded
   deliberately — each for a reason stated at the exclusion.
+- **Two readiness systems will drift.** `engine-catalog.js` says what a
+  capability IS; `FxStack.isReady()` says whether it can be applied. The
+  catalog's `status()` takes the stricter of the two on purpose. Adding a
+  third — or trusting the catalog alone — is how a menu ends up offering a
+  button the renderer ignores.
+- **`normalizeDoc` appends an fx entry for EVERY known type.** So "has a stack
+  entry" is true of everything, and any UI that lists entries lists the whole
+  registry. Compare against a NORMALISED pristine layer, not against
+  `DEFAULT_EFFECTS`: normalize backfills things the defaults leave empty (the
+  mesh's 4x4 net), so a raw comparison calls every untouched layer touched.
+- **The fx-stack fold runs AFTER the clamps.** Saved params are assigned raw
+  onto the normalised dictionary, so anything an effect's normalize() deleted
+  comes straight back. `flare.beams` and the mesh are repaired again below the
+  fold for this reason. Deleting a field in normalize() alone does not delete it.
+- **`CSS.escape` does not exist in jsdom**, and an exception inside a click
+  listener is swallowed — the model updates, the rest of the handler is skipped,
+  and the UI looks inert with no error anywhere. Guard it.
+- **`node --watch` does not reload `.env`.** Changing a key needs a real restart.
 - **`compactDoc` is on the hot path.** History and autosave both call it on every
   committed edit. It must not deep-serialise the live document; that cost 108ms
   per edit before it was rewritten.
@@ -82,17 +102,79 @@ Also: shaders are original or the author's own, logged in
 
 ## Where it stands
 
-Green: `npm run verify` passes, 136 tests across 5 files.
+Green: `npm test -- --run` passes, **353 tests across 13 files**. Lint the two
+hot files directly — `npx eslint public/app.js public/engine-catalog.js` — the
+root `npm run lint` walks into the untracked nested `Shader/` project and hits
+an unrelated plugin incompatibility that is not a regression here.
 
-Done recently: an artboard properties panel (select a board and Position plus
-name/preset/background/clip/lock/visibility open) and drag-to-move for
-artboards by their canvas label; per-shape export presets (format, scale,
-suffix) that rasterise one object in isolation; reusable appearance styles —
-save a shape's fill/stroke/effects as a named style, apply it elsewhere, push
-edits back out to every linked shape; Align and Distribute moved into View as
-flyout submenus. Before that: document persistence (autosave + save/open +
-unload guard), a per-object render error boundary, a ~4x cut in the cost of
-committing an edit, and the paint cache that made dragging viable at scale.
+### The engine library
+
+There is now a browsable **Engines** panel (menubar, beside View). It exists
+because the Effects menu was filtered by `FxStack.READY`, so every unpromoted
+capability vanished from the UI — a gate meant for "is this safe to ship" was
+doubling as a discovery policy, and a user could not find out what the tool had.
+
+Nothing is hidden. What varies is whether a row can be acted on:
+
+| Status                      | Behaviour                                                                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Ready                       | Applies, opens its parameters, reports what it did                                                                         |
+| Experimental                | Applies, and SAYS it is experimental — its inspector page is still gated, so it changes the artwork with nothing to adjust |
+| Needs migration             | Visible, disabled, reason stated                                                                                           |
+| Incompatible with the layer | Disabled, reason names the layer type                                                                                      |
+
+The rule the tests hold is narrow and worth keeping: **never show a clickable
+engine that does nothing.**
+
+Seven capabilities are actionable today — linear gradient, mesh gradient, drop
+shadow, glow, blur, grain, noise. Nine say "needs migration" and are waiting on
+one thing (below). A demo composition is not an engine: `capsule` was demo
+geometry plus a glass treatment, so it resolves to `glass3d` rather than
+appearing beside it. Legacy renderer types stay valid for documents that use
+them, and searching an old name still finds the capability it became.
+
+### The mesh gradient
+
+Built out substantially: a bicubic Catmull-Rom surface with **ten per-node
+channels** (noise, noise size, noise contrast, noise colour, blur, falloff,
+smoothness, chromatic, metallic, glow), an edge feather with width, softness,
+taper and an inside/both/outside direction, and reference-image fitting.
+
+Only **metallic and glow** are shown in the panel; the other eight are withheld
+via `SHOW_CONTROL.nodeFx` — ten sliders under one node was more inspector than
+the effect earns. They are withheld, NOT removed: the shader reads all ten,
+documents carrying them render them, `?show=nodeFx` brings them back.
+
+### The next technical milestone
+
+A universal effect contract:
+
+```
+render({ sourceTexture, sourceMask, bounds, params, resolution })
+```
+
+Every "needs migration" row is blocked on it. Those engines assume a
+rectangular source, which is why they cannot yet work on arbitrary shapes,
+text, images or gradients. This is the single change that unblocks the most.
+
+### Things attempted and removed, so they are not attempted again
+
+- **Spectral Orb / Spectral Field** was built, ported, renamed, rewritten
+  around a harmonic solve over the real vector path, and then removed at the
+  author's request. It is gone from the tree; the history is in the log if the
+  approach is ever wanted. The lesson worth keeping: an effect that carries its
+  own geometry (a radius, a centre) will draw its own shape instead of filling
+  the user's, and no amount of tuning fixes that — only deleting the geometry.
+
+### AI
+
+`GROQ_API_KEY` in `.env`. Two endpoints: `/api/generate` (text or vision) and
+`/api/analyze` (reads a reference image into an effect recipe). Both verified
+working. A rejected key now returns its own code and names the file to fix,
+rather than reporting as a generic provider error — an invalid key is a
+configuration problem and the person reading the message is the one who can
+fix it. Groq revokes keys that appear in public repos; `.env` is gitignored,
+and `git log -S gsk_ --oneline --all` should stay empty.
 
 Some commands are deliberately withheld from the menus while unfinished —
 Invert Selection, Select Same Fill/Effects/Size, Crop Page to Selection,

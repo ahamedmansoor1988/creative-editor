@@ -1,6 +1,6 @@
 # Status
 
-_As of 17 Aug 2026, commit `1285b1c`. This file is the honest answer to "where
+_As of 29 Aug 2026, commit `ae50df2`. This file is the honest answer to "where
 is the app right now?" — updated when the answer changes, not on a schedule.
 `HANDOFF.md` covers architecture; `SPEC-PROGRESS.md` has the full history._
 
@@ -27,6 +27,15 @@ pass, and not yet deployable as a multi-user product.
   (path-traced), fractal glass, plus shadow/glow/grain/blur and the pixel
   stack (distortion, warp, displacement, haze, slice, noise). All
   deterministic: same document, same pixels.
+- **Engine library** — a browsable Engines panel (menubar). Every capability
+  is listed, none hidden; ready engines apply, experimental ones apply and say
+  so, needs-migration and incompatible ones are disabled with the reason
+  stated. Seven are actionable today: linear gradient, mesh gradient, drop
+  shadow, glow, blur, grain, noise.
+- **Mesh gradient** — bicubic Catmull-Rom surface with ten per-node channels,
+  an edge feather (width / softness / taper / direction), and reference-image
+  fitting. Two channels are exposed in the panel; the rest are withheld behind
+  `?show=nodeFx` rather than removed.
 - **AI generation** — prompt (plus optional reference image) to an editable
   document via Groq; a capability registry injects only the relevant engine
   docs per request.
