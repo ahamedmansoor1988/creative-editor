@@ -231,8 +231,10 @@ describe("POST /api/generate — failure paths", () => {
     const { res, json } = await post("/api/generate", { prompt: "x" });
     expect(res.status).toBe(401);
     expect(json.code).toBe("BAD_KEY");
-    expect(json.error).toMatch(/key was rejected/i);
+    expect(json.error).toMatch(/key rejected/i);
     expect(json.error).toMatch(/GROQ_API_KEY/);
+    // it has to fit the generate bar, or the actionable half is behind a hover
+    expect(json.error.length).toBeLessThan(50);
   });
 
   it("still says nothing the provider said, even about a key", async () => {

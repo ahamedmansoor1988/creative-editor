@@ -506,7 +506,10 @@ function safeError(e) {
     return {
       status: 401,
       code: "BAD_KEY",
-      message: "The AI key was rejected. Check GROQ_API_KEY in .env and restart.",
+      // Short enough to READ in the generate bar, which truncates around 50
+      // characters — the longer form needed a hover to find out it named the
+      // file, which is the one part that tells you what to do.
+      message: "AI key rejected — set GROQ_API_KEY in .env",
     };
   if (e && e.status && e.status >= 400 && e.status < 500)
     return { status: 502, message: "The AI provider rejected the request." };
