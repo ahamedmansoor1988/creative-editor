@@ -22,7 +22,7 @@
    * left open across an edit serves its cached copy, and the failure that
    * causes — the MCP client offering a tool the tab has never heard of — reads
    * as the tool being broken rather than the page being stale. */
-  const VERSION = "mcp3";
+  const VERSION = "mcp4";
 
   const LOCAL = /^(127\.0\.0\.1|localhost|\[::1\]|::1)$/.test(location.hostname);
   if (!LOCAL) return;
@@ -294,6 +294,14 @@
         );
       const was = cur[k];
       const val = patch[k];
+      if (entry.type === "channelFx" && k === "mode") {
+        const valid = ["rgbSplit", "aberration", "channelOffset"];
+        if (!valid.includes(val))
+          throw new Error(
+            "channelFx mode must be one of: " + valid.join(", ") +
+              " (got " + JSON.stringify(val) + ").",
+          );
+      }
       if (typeof was === "number") cur[k] = num(val, k, -1e6, 1e6);
       else if (typeof was === "boolean") {
         if (typeof val !== "boolean") throw new Error(k + " must be true or false.");

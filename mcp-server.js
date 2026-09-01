@@ -20,7 +20,7 @@
 
 const BASE = process.env.CE_URL || "http://127.0.0.1:" + (process.env.PORT || 8470);
 const NAME = "creative-editor";
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 /* The protocol revision this server was written against. The client states its
  * own in `initialize`; MCP expects the server to answer with a version it can
@@ -200,7 +200,8 @@ const TOOLS = [
       "'shadow', 'innerShadow', 'bloom', 'blur', 'grain', 'noise', 'colorAdjust', " +
       "'colorMap' (gradient map / duotone), 'channelFx' (RGB split and CHROMATIC ABERRATION), " +
       "'stylize' (halftone, threshold), 'distortion', 'warp', 'displacement', 'backgroundBlur'. " +
-      "For chromatic aberration use engine 'channelFx' with params {mode:'chromaticAberration'}. " +
+      "For chromatic aberration use engine 'channelFx' with params {mode:'aberration'}. " +
+      "The valid channelFx modes are 'rgbSplit', 'aberration', and 'channelOffset'. " +
       "Call list_engines for the full current set.",
     inputSchema: {
       type: "object",
