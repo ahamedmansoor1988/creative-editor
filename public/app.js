@@ -3661,6 +3661,27 @@ function aabbOf(o){
   });
   return {x:x0,y:y0,w:x1-x0,h:y1-y0};
 }
+/** Bounds of every pixel the object is allowed to paint. Export must use the
+ * same spill calculation as the live renderer; geometric bounds alone clip
+ * shadows, glows, blur and channel separation. Containers recurse because
+ * their own effect record does not describe the ink of their children. */
+function visualAabbOf(o){
+  if(CONTAINER(o)){
+    const children=(o.children||[]).filter(k=>!k.hidden);
+    if(!children.length) return aabbOf(o);
+    const boxes=children.map(visualAabbOf);
+    const x0=Math.min(...boxes.map(b=>b.x)), y0=Math.min(...boxes.map(b=>b.y));
+    const x1=Math.max(...boxes.map(b=>b.x+b.w)), y1=Math.max(...boxes.map(b=>b.y+b.h));
+    return {x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)};
+  }
+  const shapes=[o,...patternInstances(o)];
+  const boxes=shapes.map(aabbOf);
+  let x0=Math.min(...boxes.map(b=>b.x)), y0=Math.min(...boxes.map(b=>b.y));
+  let x1=Math.max(...boxes.map(b=>b.x+b.w)), y1=Math.max(...boxes.map(b=>b.y+b.h));
+  const pad=spillPad(o);
+  x0-=pad; y0-=pad; x1+=pad; y1+=pad;
+  return {x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)};
+}
 /* Inverse-rotate a page point into an object's unrotated frame, so hit tests
  * and handle grabs work on rotated objects. */
 function toLocal(o,px,py){
@@ -9578,7 +9599,7 @@ function exportAllArtboards(){
  *  doc.frame.w/h are still passed as W,H (not the small canvas size) because
  *  mask/shadow effect layers size their own offscreen buffers off them. */
 function renderObjectToBlob(obj,preset,cb){
-  const b=aabbOf(obj);
+  const b=visualAabbOf(obj);
   const scale=preset.scale||1;
   const c=document.createElement('canvas');
   c.width=Math.max(1,Math.round(b.w*scale)); c.height=Math.max(1,Math.round(b.h*scale));
@@ -11220,7 +11241,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,
   saveStyle, applyStyle, pushStyleToSource, detachStyle, deleteStyle, renameStyle,
-  renderObjectToBlob, exportObject,
+  renderObjectToBlob, exportObject, visualAabbOf,
   STROKE_PROFILES, strokePolylines, ribbonPolygon,
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],

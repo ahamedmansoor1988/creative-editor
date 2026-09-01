@@ -234,9 +234,9 @@ describe("style applied across mismatched object types", () => {
 });
 
 describe("per-shape export", () => {
-  it("renderObjectToBlob sizes the canvas to the object's bounds times the preset scale, and draws just that object", () => {
+  it("renderObjectToBlob includes the renderer's safety fringe and draws just that object", () => {
     const [r] = loadDoc([rectOf({ x: 200, y: 150, w: 80, h: 40 })]);
-    const box = editor.boxOf(r); // rot is 0, so this equals the rotated aabb too
+    const box = editor.visualAabbOf(r);
     ctx.calls.length = 0;
     let seen = null;
     editor.renderObjectToBlob(r, { format: "png", scale: 2 }, (blob) => {
@@ -249,6 +249,43 @@ describe("per-shape export", () => {
     expect(scaleCall.args).toEqual([2, 2]);
     const translateCall = ctx.calls.find((c) => c.name === "translate");
     expect(translateCall.args).toEqual([-box.x, -box.y]);
+  });
+
+  it("expands export bounds for a drop shadow instead of clipping it to geometry", () => {
+    const [r] = loadDoc([
+      rectOf({
+        x: 200,
+        y: 150,
+        w: 80,
+        h: 40,
+        fx: [{
+          type: "shadow",
+          on: true,
+          params: { on: true, type: "drop", x: 20, y: 30, blur: 12, spread: 8 },
+        }],
+      }),
+    ]);
+    const geometric = editor.boxOf(r);
+    const visual = editor.visualAabbOf(r);
+    expect(visual.x).toBeLessThan(geometric.x);
+    expect(visual.y).toBeLessThan(geometric.y);
+    expect(visual.x + visual.w).toBeGreaterThan(geometric.x + geometric.w);
+    expect(visual.y + visual.h).toBeGreaterThan(geometric.y + geometric.h);
+  });
+
+  it("includes linked pattern instances in one object's export bounds", () => {
+    const [r] = loadDoc([
+      rectOf({
+        x: 20,
+        y: 30,
+        w: 40,
+        h: 20,
+        pattern: { type: "grid", cols: 3, rows: 1, gapX: 10, gapY: 0 },
+      }),
+    ]);
+    const geometric = editor.boxOf(r);
+    const visual = editor.visualAabbOf(r);
+    expect(visual.w).toBeGreaterThan(geometric.w * 2);
   });
 
   it("passes the requested mime type through to toBlob", () => {
