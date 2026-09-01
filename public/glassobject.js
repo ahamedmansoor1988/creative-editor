@@ -363,7 +363,7 @@ void main(){
     const u = (n) => loc(pTrace, n);
     gl.uniform2f(u("uRes"), W, H);
     gl.uniform4f(u("uA"), r, ext, round * r, 1);
-    gl.uniform4f(u("uB"), 1, 1, 1, mat.ior);
+    gl.uniform4f(u("uB"), 1, 1, 1, P.ior===undefined?mat.ior:+P.ior);
     gl.uniform4f(u("uC"), 0, 0, 0, rough);
     const tint = lin(P.tint || "#c8d8ff");
     gl.uniform4f(u("uD"), tint[0], tint[1], tint[2], trans);

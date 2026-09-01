@@ -110,6 +110,7 @@ export function makeCtxStub() {
     strokeRect: noop("strokeRect"),
     clearRect: noop("clearRect"),
     fillText: noop("fillText"),
+    strokeText: noop("strokeText"),
     setTransform: noop("setTransform"),
     translate: noop("translate"),
     scale: noop("scale"),
@@ -129,6 +130,7 @@ export function makeCtxStub() {
      * now, and the most recent one is kept on ctx.lastGradient. */
     createLinearGradient: (...args) => makeGradientStub("linear", args, ctx),
     createRadialGradient: (...args) => makeGradientStub("radial", args, ctx),
+    createConicGradient: (...args) => makeGradientStub("angular", args, ctx),
     createPattern: () => ({}),
     createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
     getImageData: (x, y, w, h) => ({

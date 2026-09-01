@@ -3,11 +3,8 @@
  * The engine library — the browsable list of what this editor can do.
  *
  * WHY IT EXISTS, AND WHAT THESE GUARD. The Effects menu was filtered by the
- * QA gate, so every unpromoted capability vanished from the UI entirely. That
- * made a gate meant for "is this safe to ship" double as a discovery policy,
- * and the result was a menu that could not tell a user what the tool had or
- * what was coming. The panel lists everything; what varies is whether a row
- * can be acted on and what it says about itself.
+ * QA gate. Batch 1 now deliberately exposes only proven, editable fills and
+ * effects through one canonical entry point.
  *
  * The rule these tests exist to hold is narrow and worth stating plainly:
  * never show a clickable engine that does nothing. A row is either actionable,
@@ -52,48 +49,59 @@ function layer(type, extra) {
 const open = () => window.__engines.open();
 const rows = () => [...document.querySelectorAll(".engRow")];
 const row = (id) => document.querySelector('.engRow[data-engine="' + id + '"]');
-const stackLabels = () =>
-  [...document.querySelectorAll(".engStackRow")].map((r) =>
-    r.textContent.replace(/[●○↑↓×]/g, "").trim(),
-  );
-
 beforeAll(() => {
   ({ editor } = loadEditor());
 });
 
 describe("the panel renders", () => {
-  it("opens and lists every capability, hiding none of them", () => {
-    /* Nothing is filtered out. An empty menu teaches nobody what the tool can
-     * do, and a row that is missing is a question a user cannot ask. */
+  it("has one canonical entry point inside Effects", () => {
+    const menu = document.querySelector('[data-menu="effects"]');
+    expect(menu.querySelectorAll("#enginesOpen").length).toBe(1);
+    expect(menu.querySelectorAll("button[data-fx]").length).toBe(0);
+    expect(
+      [...menu.querySelectorAll("[data-capability]")].map((b) => b.dataset.capability),
+    ).toEqual(["imageFill", "linearGradient", "mesh", "shadow", "innerShadow", "glow", "bloom", "backgroundBlur", "blur", "grain", "noise", "distortion", "warp", "displacement", "colorAdjust", "colorMap", "channelFx", "stylize"]);
+  });
+
+  it("opens with only the capabilities a person can use now", () => {
     layer("rect");
     open();
     expect(document.getElementById("enginesPanel").hidden).toBe(false);
-    expect(rows().length).toBe(EC().all().length);
-    expect(rows().length).toBeGreaterThan(15);
+    expect(rows().map((r) => r.dataset.engine)).toEqual(
+      EC()
+        .ready()
+        .map((e) => e.id),
+    );
   });
 
-  it("offers the four categories plus All", () => {
+  it("offers only useful creation categories", () => {
     layer("rect");
     open();
-    const cats = [...document.querySelectorAll(".engCat")].map((b) => b.textContent);
-    expect(cats).toEqual(["All", "Fills", "Materials", "Finish", "Structure"]);
+    const cats = [...document.querySelectorAll(".engCat")].map((b) => b.textContent.trim());
+    expect(cats).toEqual(["All", "Fills", "Effects", "Filters"]);
+  });
+
+  it("keeps shaders inside Effects instead of hiding them behind a missing category", () => {
+    layer("rect");
+    open();
+    window.__engines.filter = "effect";
+    window.__engines.query = "gl";
+    window.__engines.render();
+    expect(row("glass")).toBeTruthy();
+    expect(row("glow")).toBeTruthy();
   });
 });
 
-describe("the seven proven capabilities are discoverable", () => {
+describe("the proven capabilities are discoverable", () => {
   it("lists exactly the engines that can be used today", () => {
     /* Derived, not declared: the catalog's claim is reconciled against
      * FxStack, which owns the gate. Two readiness systems that can disagree is
      * how a menu ends up offering something the renderer ignores. */
-    expect(EC().ready().map((e) => e.id)).toEqual([
-      "linearGradient",
-      "mesh",
-      "shadow",
-      "glow",
-      "blur",
-      "grain",
-      "noise",
-    ]);
+    expect(
+      EC()
+        .ready()
+        .map((e) => e.id),
+    ).toEqual(["imageFill", "linearGradient", "mesh", "glass", "shadow", "innerShadow", "glow", "bloom", "backgroundBlur", "colorAdjust", "colorMap", "channelFx", "stylize", "distortion", "warp", "displacement", "blur", "grain", "noise"]);
   });
 
   it("demotes a capability the gate has not passed, rather than believing itself", () => {
@@ -108,18 +116,38 @@ describe("the seven proven capabilities are discoverable", () => {
 
 describe("search", () => {
   it("finds an engine by name", () => {
-    expect(EC().search("grain").map((e) => e.id)).toContain("grain");
+    expect(
+      EC()
+        .search("grain")
+        .map((e) => e.id),
+    ).toContain("grain");
   });
 
   it("finds an engine by what it does, not only what it is called", () => {
-    expect(EC().search("shadow").map((e) => e.id)).toContain("shadow");
-    expect(EC().search("refract").map((e) => e.id)).toContain("backdropGlass");
+    expect(
+      EC()
+        .search("shadow")
+        .map((e) => e.id),
+    ).toContain("shadow");
+    expect(
+      EC()
+        .search("refract")
+        .map((e) => e.id),
+    ).toContain("glass");
   });
 
   it("finds a capability by its LEGACY name", () => {
     // someone who knows the old word should still land on the new thing
-    expect(EC().search("capsule").map((e) => e.id)).toEqual(["glass3d"]);
-    expect(EC().search("echoes").map((e) => e.id)).toEqual(["repeater"]);
+    expect(
+      EC()
+        .search("capsule")
+        .map((e) => e.id),
+    ).toEqual(["glass"]);
+    expect(
+      EC()
+        .search("echoes")
+        .map((e) => e.id),
+    ).toEqual(["repeater"]);
   });
 
   it("says so when nothing matches, rather than showing an empty box", () => {
@@ -128,38 +156,26 @@ describe("search", () => {
     window.__engines.query = "zzzznotathing";
     window.__engines.render();
     expect(rows().length).toBe(0);
-    expect(document.getElementById("engList").textContent).toMatch(/no engines match/i);
+    expect(document.getElementById("engList").textContent).toMatch(/no fills or effects match/i);
     window.__engines.query = "";
     window.__engines.render();
   });
 });
 
-describe("status is stated on every row", () => {
-  it("labels ready, experimental and needs-migration distinctly", () => {
+describe("unfinished capabilities stay out of the creation flow", () => {
+  it("does not cover ready engines with engineering status badges", () => {
     layer("rect");
     open();
-    const badge = (id) => row(id).querySelector(".engBadge").textContent;
-    expect(badge("grain")).toBe("Ready");
-    expect(badge("liquidGradient")).toBe("Experimental");
-    expect(badge("glass3d")).toBe("Needs migration");
+    expect(row("grain").querySelector(".engBadge")).toBe(null);
+    expect(row("glass3d")).toBe(null);
   });
 
-  it("disables a needs-migration row and shows why", () => {
+  it("keeps unfinished shaders and generators out of the production picker", () => {
     layer("rect");
     open();
-    const r = row("glass3d");
-    expect(r.disabled).toBe(true);
-    expect(r.querySelector(".engDesc").textContent).toMatch(/universal layer input/i);
-  });
-
-  it("keeps a needs-migration row VISIBLE, which is the point", () => {
-    // the old behaviour removed these entirely; a disabled row that explains
-    // itself is honest, a missing one is not
-    layer("rect");
-    open();
-    for (const id of ["glass3d", "reededGlass", "repeater", "mask"]) {
-      expect(row(id), id + " is missing from the library").toBeTruthy();
-    }
+    expect(row("glass3d")).toBe(null);
+    expect(row("liquidGradient")).toBe(null);
+    expect(row("symmetry")).toBe(null);
   });
 });
 
@@ -175,53 +191,30 @@ describe("applying an engine", () => {
     expect(o.effects.grain.amount).toBeGreaterThan(0);
   });
 
-  it("puts it in the applied stack", () => {
-    layer("rect");
-    open();
-    row("grain").click();
-    expect(stackLabels()).toContain("Grain");
-  });
-
-  it("lists nothing for a pristine layer", () => {
-    /* normalizeDoc appends an entry for EVERY known type, so "has a stack
-     * entry" is true of everything. An earlier version listed Drop shadow,
-     * Glow and Mesh gradient on a plain rectangle for exactly that reason. */
-    layer("rect");
-    open();
-    expect(stackLabels()).toEqual([]);
-  });
-
-  it("keeps an effect listed after it is toggled off", () => {
-    // otherwise the toggle removes the control that would toggle it back
+  it("puts it in the document effect stack", () => {
     const o = layer("rect");
     open();
     row("grain").click();
-    const entry = o.fx.find((e) => e.type === "grain");
-    entry.on = false;
-    window.__engines.render();
-    expect(stackLabels()).toContain("Grain");
+    expect(o.fx.some((e) => e.type === "grain" && window.FxStack.entryOn(e))).toBe(true);
   });
 
-  it("reports what it did", () => {
+  it("applies Inner Shadow through the reusable effect stack", () => {
+    const o = layer("ellipse");
+    open();
+    row("innerShadow").click();
+    expect(o.effects.innerShadow.on).toBe(true);
+    const entry = o.fx.find((e) => e.type === "innerShadow");
+    expect(entry).toBeTruthy();
+    expect(entry.params).toBe(o.effects.innerShadow);
+    expect(document.querySelector('[data-fxsect="Inner Shadow"]')).toBeTruthy();
+  });
+
+  it("closes after applying and opens the existing inspector controls", () => {
     layer("rect");
     open();
     row("grain").click();
-    expect(document.getElementById("engStatus").textContent).toMatch(/applied/i);
-  });
-
-  it("does not let an experimental engine apply silently", () => {
-    /* Experimental engines may be applied — they are labelled, not blocked —
-     * but they render while their inspector page is still gated, so applying
-     * one changes the artwork and leaves nothing to adjust. Saying so is the
-     * difference between "experimental" and "broken". */
-    layer("rect");
-    open();
-    const r = row("liquidGradient");
-    expect(r.disabled).toBe(false);
-    r.click();
-    expect(document.getElementById("engStatus").textContent).toMatch(
-      /experimental|no parameter controls/i,
-    );
+    expect(document.getElementById("enginesPanel").hidden).toBe(true);
+    expect(document.querySelector('[data-fxsect="Grain"]')).toBeTruthy();
   });
 
   it("sets a FILL rather than stacking one, because a fill is what a layer is", () => {
@@ -229,7 +222,57 @@ describe("applying an engine", () => {
     open();
     row("linearGradient").click();
     expect(o.fill.kind).toBe("linear");
+    expect(o.fills[0]).toBe(o.fill);
+    expect(o.fills[0].kind).toBe("linear");
+    expect(o.fill.stops.map((s) => s.pos)).toEqual([0, 1]);
+    expect(o.fill.opacity).toBe(1);
     expect((o.fx || []).some((e) => e.type === "linearGradient")).toBe(false);
+  });
+
+  it("applies Image Fill through the shared fill stack, not through an engine object", () => {
+    const o = layer("ellipse");
+    open();
+    row("imageFill").click();
+    expect(o.fill.kind).toBe("image");
+    expect(o.fills[0]).toBe(o.fill);
+    expect(o.fill).toMatchObject({
+      src: "",
+      mode: "fill",
+      x: 0.5,
+      y: 0.5,
+      scale: 1,
+      rotation: 0,
+      tileScale: 1,
+    });
+    expect((o.fx || []).some((e) => e.type === "imageFill")).toBe(false);
+    expect(document.querySelector('.fxSect .apImgPick[data-i="0"]')).toBeTruthy();
+  });
+
+  it("applies Image Fill from the quick menu through that same fill stack", () => {
+    const o = layer("path", {
+      closed: true,
+      fillOn: true,
+      points: [
+        { x: 100, y: 100 },
+        { x: 300, y: 100 },
+        { x: 250, y: 260 },
+      ],
+    });
+    document.querySelector('[data-menu="effects"] [data-capability="imageFill"]').click();
+    expect(o.fill.kind).toBe("image");
+    expect(o.fills[0]).toBe(o.fill);
+    expect((o.fx || []).some((e) => e.type === "imageFill")).toBe(false);
+  });
+
+  it("updates the live gradient stop when its color control changes", () => {
+    const o = layer("rect");
+    open();
+    row("linearGradient").click();
+    const color = document.querySelector('.fxSect .apSC[data-s="0"]');
+    color.value = "#ff0066";
+    color.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(o.fill.stops[0].color).toBe("#ff0066");
+    expect(o.fills[0].stops[0].color).toBe("#ff0066");
   });
 });
 
@@ -255,7 +298,6 @@ describe("compatibility is explained, never silently ignored", () => {
     expect(document.getElementById("engTarget").textContent).toMatch(/no layer selected/i);
     expect(row("grain").disabled).toBe(true);
     expect(row("grain").querySelector(".engDesc").textContent).toMatch(/select a layer/i);
-    expect(document.getElementById("engStack").textContent).toMatch(/select a layer/i);
   });
 });
 
@@ -266,10 +308,10 @@ describe("legacy names keep resolving", () => {
      * types stay valid for documents that use them; they are simply not
      * separate rows in a library a person browses. */
     const R = EC().resolve;
-    expect(R("capsule")).toBe("glass3d");
-    expect(R("glassobject")).toBe("glass3d");
-    expect(R("strip")).toBe("reededGlass");
-    expect(R("glass")).toBe("backdropGlass");
+    expect(R("capsule")).toBe("glass");
+    expect(R("glassobject")).toBe("glass");
+    expect(R("strip")).toBe("glass");
+    expect(R("backdropGlass")).toBe("glass");
     expect(R("pattern")).toBe("repeater");
     expect(R("echoes")).toBe("repeater");
     expect(R("repeatTransform")).toBe("repeater");
@@ -284,7 +326,7 @@ describe("legacy names keep resolving", () => {
     const ids = EC()
       .all()
       .map((e) => e.id);
-    for (const legacy of ["capsule", "strip", "glass", "pattern", "echoes"]) {
+    for (const legacy of ["capsule", "strip", "backdropGlass", "reededGlass", "glass3d", "pattern", "echoes"]) {
       expect(ids, legacy + " is duplicated as its own row").not.toContain(legacy);
     }
   });

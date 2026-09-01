@@ -63,41 +63,6 @@ declare global {
       hash2(x: number, y: number, seed: number): number;
       grain3(x: number, y: number, seed: number): number;
     };
-    /* The spectral field engine. Loaded in tests for its plain-JS half — the
-     * settings model and its clamps — while available() reports false, since
-     * jsdom has no WebGL2. */
-    /* The spectral field engine. Its numerical half — the distance
-     * transform, the boundary trace and the solver — is exported so it can be
-     * tested on masks built by hand: jsdom has no rasteriser, and those are
-     * where the architecture actually lives. */
-    SpectralField?: {
-      STOP_LIMIT: number;
-      DEBUG_VIEWS: string[];
-      DEFAULTS(): any;
-      DEFAULT_STOPS(): any[];
-      normalize(s: any): any;
-      available(): boolean;
-      render(w: number, h: number, s: any, opts?: any): any;
-      get(w: number, h: number, s: any, opts?: any): any;
-      stopHandle(stop: any, s: any, opts: any, w: number, h: number): any;
-      sFromPoint(x: number, y: number, s: any, opts: any, w: number, h: number): number;
-      hexToLinear(hex: string): number[];
-      linearToHex(lin: number[]): string;
-      srgbToLinear(c: number): number;
-      linearToSrgb(c: number): number;
-      rasterMask(drawPath: any, w: number, h: number): Float32Array;
-      distanceInside(mask: Float32Array, w: number, h: number): Float32Array;
-      traceBoundary(mask: Float32Array, w: number, h: number): number[][];
-      arcLength(pts: number[][]): { s: Float32Array; total: number };
-      solveHarmonic(
-        mask: Float32Array,
-        bnd: Float32Array,
-        w: number,
-        h: number,
-        sweeps: number,
-      ): Float32Array;
-      solveSize(w: number, h: number): number[];
-    };
     GradientEngine?: {
       MAX_STOPS: number;
       PRESETS: { name: string; g1: any[]; g2: any[] }[];

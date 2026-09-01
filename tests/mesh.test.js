@@ -140,9 +140,10 @@ describe("mesh — the panel", () => {
     return { o, sect: head && head.nextElementSibling };
   }
 
-  it("always offers the enable switch", () => {
+  it("does not crowd the inspector with an inactive mesh placeholder", () => {
     const { sect } = openMesh({ on: false });
-    expect(sect.querySelector("#mshOn")).toBeTruthy();
+    expect(sect).toBeNull();
+    expect(document.querySelector('#fxBody [data-fxsect="Effects"]')).toBeTruthy();
   });
 
   it("says so plainly when the engine cannot run, rather than showing dead controls", () => {

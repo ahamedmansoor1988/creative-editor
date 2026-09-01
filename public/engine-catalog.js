@@ -37,6 +37,7 @@
    * a hard-coded check in the panel would have to be found and edited then. */
   const ALL_LAYERS = ["rect", "ellipse", "polygon", "path", "text", "image", "group"];
   const SHAPES = ["rect", "ellipse", "polygon", "path"];
+  const PAINTABLE_SHAPES = SHAPES.concat("boolean");
 
   const CATALOG = [
     /* ---- fills ---------------------------------------------------------
@@ -46,14 +47,26 @@
      * that is not being changed to suit a menu heading — it is shown here
      * because that is where someone would look for it. */
     {
+      id: "imageFill",
+      label: "Image fill",
+      category: "fill",
+      status: READY,
+      kind: "fill",
+      fillKind: "image",
+      rendererType: null,
+      supportedInputs: PAINTABLE_SHAPES,
+      description: "Place, crop, fit, stretch, or tile an image inside any shape.",
+    },
+    {
       id: "linearGradient",
-      label: "Linear gradient",
+      label: "Gradient",
       category: "fill",
       status: READY,
       kind: "fill", // sets obj.fill, does not push a stack entry
+      fillKind: "linear",
       rendererType: null,
       supportedInputs: SHAPES.concat("text"),
-      description: "A straight ramp between colour stops, at any angle.",
+      description: "One editable gradient fill for every supported layer.",
     },
     {
       id: "mesh",
@@ -70,31 +83,19 @@
      * All of these read or refract what is behind them, and all of them
      * currently assume a rectangular source. That is the migration. */
     {
-      id: "backdropGlass",
-      label: "Backdrop glass",
-      category: "material",
-      status: MIGRATION,
+      id: "glass",
+      label: "Glass",
+      category: "shader",
+      status: READY,
       kind: "effect",
       rendererType: "glass",
-      supportedInputs: SHAPES,
-      statusReason: "Needs the universal layer input before it works on arbitrary shapes.",
-      description: "Refracts and blurs whatever sits behind the layer.",
-    },
-    {
-      id: "glass3d",
-      label: "Glass 3D",
-      category: "material",
-      status: MIGRATION,
-      kind: "effect",
-      rendererType: "glass3d",
-      supportedInputs: SHAPES,
-      statusReason: "Requires universal layer input.",
-      description: "A thick glass body with depth, edges and internal falloff.",
+      supportedInputs: ["rect", "ellipse"],
+      description: "Refract a layer as backdrop, frosted, reeded, or 3D glass from one editable material.",
     },
     {
       id: "innerLens",
       label: "Inner lens",
-      category: "material",
+      category: "shader",
       status: MIGRATION,
       kind: "effect",
       rendererType: "glass2",
@@ -103,20 +104,9 @@
       description: "Magnifies the layer's own contents from within.",
     },
     {
-      id: "reededGlass",
-      label: "Reeded glass",
-      category: "material",
-      status: MIGRATION,
-      kind: "effect",
-      rendererType: "strip",
-      supportedInputs: SHAPES,
-      statusReason: "Requires universal layer input.",
-      description: "Fluted vertical ribs that slice and offset what is behind.",
-    },
-    {
       id: "chromaticVolume",
       label: "Chromatic volume",
-      category: "material",
+      category: "shader",
       status: MIGRATION,
       kind: "effect",
       rendererType: "prism",
@@ -127,7 +117,7 @@
     {
       id: "liquidGradient",
       label: "Liquid gradient",
-      category: "material",
+      category: "generator",
       status: EXPERIMENTAL,
       kind: "effect",
       rendererType: "liquid",
@@ -136,8 +126,8 @@
     },
     {
       id: "stripField",
-      label: "Strip field",
-      category: "material",
+      label: "Gradient bands",
+      category: "generator",
       status: EXPERIMENTAL,
       kind: "effect",
       rendererType: "blob",
@@ -150,7 +140,7 @@
     {
       id: "shadow",
       label: "Drop shadow",
-      category: "finish",
+      category: "effect",
       status: READY,
       kind: "effect",
       rendererType: "shadow",
@@ -158,9 +148,19 @@
       description: "Offset, blurred silhouette behind the layer.",
     },
     {
+      id: "innerShadow",
+      label: "Inner shadow",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "innerShadow",
+      supportedInputs: PAINTABLE_SHAPES,
+      description: "Offset, blurred shading clipped inside the layer.",
+    },
+    {
       id: "glow",
       label: "Glow",
-      category: "finish",
+      category: "effect",
       status: READY,
       kind: "effect",
       rendererType: "glow",
@@ -168,9 +168,99 @@
       description: "Light spreading inward or outward from the edge.",
     },
     {
+      id: "bloom",
+      label: "Bloom",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "bloom",
+      supportedInputs: ALL_LAYERS,
+      description: "Soft light generated from the layer's brightest pixels.",
+    },
+    {
+      id: "backgroundBlur",
+      label: "Background blur",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "backgroundBlur",
+      supportedInputs: SHAPES,
+      description: "Softens layers behind the selected shape without blurring the shape itself.",
+    },
+    {
+      id: "colorAdjust",
+      label: "Color adjustments",
+      category: "filter",
+      status: READY,
+      kind: "effect",
+      rendererType: "colorAdjust",
+      supportedInputs: ALL_LAYERS,
+      description: "Exposure, brightness, contrast, saturation, vibrance, highlights, and shadows in one reusable pass.",
+    },
+    {
+      id: "colorMap",
+      label: "Color mapping",
+      category: "filter",
+      status: READY,
+      kind: "effect",
+      rendererType: "colorMap",
+      supportedInputs: ALL_LAYERS,
+      description: "Gradient Map, Duotone, and Color Overlay in one reusable colour filter.",
+    },
+    {
+      id: "channelFx",
+      label: "Channel effects",
+      category: "filter",
+      status: READY,
+      kind: "effect",
+      rendererType: "channelFx",
+      supportedInputs: ALL_LAYERS,
+      description: "RGB Split, Chromatic Aberration, and per-channel offsets in one reusable sampler.",
+    },
+    {
+      id: "stylize",
+      label: "Stylize",
+      category: "filter",
+      status: READY,
+      kind: "effect",
+      rendererType: "stylize",
+      supportedInputs: ALL_LAYERS,
+      description: "Posterize, Threshold, Halftone, and Pixelate in one reusable stylize filter.",
+    },
+    {
+      id: "distortion",
+      label: "Distortion",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "distortion",
+      supportedInputs: ALL_LAYERS,
+      description: "Wave, Twirl, Bulge/Pinch, and Ripple in one reusable distortion effect.",
+    },
+    {
+      id: "warp",
+      label: "Warp",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "warp",
+      supportedInputs: ALL_LAYERS,
+      description: "Editable Arc, Arch, Bulge, Flag, Wave, and Fisheye envelope warps.",
+    },
+    {
+      id: "displacement",
+      label: "Displacement",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "displacement",
+      supportedInputs: ALL_LAYERS,
+      description: "Seeded procedural displacement with independent horizontal and vertical scale.",
+    },
+    {
       id: "blur",
       label: "Blur",
-      category: "finish",
+      category: "effect",
       status: READY,
       kind: "effect",
       rendererType: "blur",
@@ -180,7 +270,7 @@
     {
       id: "grain",
       label: "Grain",
-      category: "finish",
+      category: "effect",
       status: READY,
       kind: "effect",
       rendererType: "grain",
@@ -190,7 +280,7 @@
     {
       id: "noise",
       label: "Noise",
-      category: "finish",
+      category: "effect",
       status: READY,
       kind: "effect",
       rendererType: "noise",
@@ -200,7 +290,7 @@
     {
       id: "chromaticDispersion",
       label: "Chromatic dispersion",
-      category: "finish",
+      category: "filter",
       status: MIGRATION,
       kind: "effect",
       rendererType: "distortion",
@@ -214,7 +304,7 @@
     {
       id: "repeater",
       label: "Repeater",
-      category: "structure",
+      category: "generator",
       status: MIGRATION,
       kind: "effect",
       rendererType: "pattern",
@@ -225,7 +315,7 @@
     {
       id: "symmetry",
       label: "Symmetry",
-      category: "structure",
+      category: "generator",
       status: MIGRATION,
       kind: "effect",
       rendererType: null,
@@ -236,7 +326,7 @@
     {
       id: "mask",
       label: "Mask",
-      category: "structure",
+      category: "composition",
       status: MIGRATION,
       kind: "effect",
       rendererType: null,
@@ -248,20 +338,24 @@
 
   const CATEGORIES = [
     { id: "fill", label: "Fills" },
-    { id: "material", label: "Materials" },
-    { id: "finish", label: "Finish" },
-    { id: "structure", label: "Structure" },
+    { id: "effect", label: "Effects" },
+    { id: "filter", label: "Filters" },
+    { id: "shader", label: "Shaders" },
+    { id: "generator", label: "Generators" },
+    { id: "composition", label: "Composition" },
   ];
 
   /* Old names that must keep resolving. These were demo compositions or
    * earlier spellings; documents saved with them still load, and a search for
    * the old name still finds the capability it became. */
   const ALIASES = Object.freeze({
-    capsule: "glass3d",
-    glassobject: "glass3d",
-    glassObject: "glass3d",
-    strip: "reededGlass",
-    glass: "backdropGlass",
+    capsule: "glass",
+    glassobject: "glass",
+    glassObject: "glass",
+    strip: "glass",
+    backdropGlass: "glass",
+    reededGlass: "glass",
+    glass3d: "glass",
     glass2: "innerLens",
     pattern: "repeater",
     echoes: "repeater",
@@ -269,7 +363,6 @@
     prism: "chromaticVolume",
     liquid: "liquidGradient",
     blob: "stripField",
-    distortion: "chromaticDispersion",
   });
 
   function resolve(id) {
@@ -338,8 +431,7 @@
       .trim()
       .toLowerCase();
     if (!needle) return all();
-    const legacyFor = (id) =>
-      Object.keys(ALIASES).filter((k) => ALIASES[k] === id);
+    const legacyFor = (id) => Object.keys(ALIASES).filter((k) => ALIASES[k] === id);
     return CATALOG.filter((item) => {
       const hay = [
         item.id,

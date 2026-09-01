@@ -7,6 +7,9 @@ const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 const crypto = require("crypto");
+/* The cable to an MCP client. Self-contained and loopback-only; when nothing
+ * is connected it costs one string comparison per request. */
+const mcpRelay = require("./mcp-relay.js");
 
 const PORT = Number(process.env.PORT) || 8470;
 /* Binds LOOPBACK unless told otherwise. The previous listen(PORT) bound
@@ -522,6 +525,10 @@ function safeError(e) {
 }
 
 const server = http.createServer((req, res) => {
+  /* /mcp/* belongs to the relay. Taken first because one of its routes is a
+   * long-lived event stream, which must not fall through to the static handler
+   * and be answered with a 404. */
+  if (mcpRelay.handle(req, res)) return;
   /* Capability probe. Lets the UI disable Generate BEFORE the user submits.
    * Reports only whether AI is usable — never the key or any part of it. */
   if (req.method === "GET" && req.url === "/api/config") {

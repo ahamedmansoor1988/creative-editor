@@ -24,6 +24,8 @@ function recordShadowAtPaint(c) {
     c[op] = (...args) => {
       seen.push({
         op,
+        fill: c.fillStyle,
+        stroke: c.strokeStyle,
         color: c.shadowColor,
         blur: c.shadowBlur,
         dx: c.shadowOffsetX,
@@ -153,6 +155,13 @@ describe("shadow — the document model", () => {
     expect(entry, "shadow must have a stack entry").toBeTruthy();
     expect(entry.params).toBe(o.effects.shadow);
   });
+
+  it("normalizes long-shadow geometry", () => {
+    const s = boxWithShadow({ type: "long", angle: 405, length: 5000 }).effects.shadow;
+    expect(s.type).toBe("long");
+    expect(s.angle).toBe(45);
+    expect(s.length).toBe(1000);
+  });
 });
 
 describe("shadow — the panel reaches the whole model", () => {
@@ -176,9 +185,17 @@ describe("shadow — the panel reaches the whole model", () => {
     // spread and blend were modelled, clamped and drawn — with no control, so
     // spread could only ever be 0 and blend only ever normal
     const { sect } = openShadow({ blur: 10 });
-    for (const id of ["shX", "shY", "shBlur", "shSpread", "shA", "shC", "shBlend"]) {
+    for (const id of ["shType", "shX", "shY", "shBlur", "shSpread", "shA", "shC", "shBlend"]) {
       expect(sect.querySelector("#" + id), `${id} is missing from the panel`).toBeTruthy();
     }
+  });
+
+  it("shows angle and length instead of offset and blur for a long shadow", () => {
+    const { sect } = openShadow({ type: "long", angle: 60, length: 140 });
+    expect(sect.querySelector("#shAngle")).toBeTruthy();
+    expect(sect.querySelector("#shLength")).toBeTruthy();
+    expect(sect.querySelector("#shX")).toBe(null);
+    expect(sect.querySelector("#shBlur")).toBe(null);
   });
 
   it("lets the sliders reach the model's full clamped range", () => {
@@ -206,19 +223,35 @@ describe("shadow — the panel reaches the whole model", () => {
     expect(o.effects.shadow.alpha).toBeCloseTo(0.6);
   });
 
-  it("carries spread into the draw, where it strokes the caster", () => {
-    // spread grows the shadow WITHOUT blurring: the caster is stroked at
-    // spread*2 before the fill, so a spread shadow paints one more stroke
-    const seen = [];
-    const countStrokes = () => ctx.calls.filter((c) => c.name === "stroke").length;
+  it("expands spread softly without adding a geometric outline", () => {
     boxWithShadow({ blur: 8, spread: 0 });
     ctx.calls.length = 0;
     editor.render();
-    seen.push(countStrokes());
+    const baseStrokes = ctx.calls.filter((c) => c.name === "stroke").length;
     boxWithShadow({ blur: 8, spread: 20 });
     ctx.calls.length = 0;
+    const seen = recordShadowAtPaint(ctx);
     editor.render();
-    seen.push(countStrokes());
-    expect(seen[1], "spread must add a stroked pass").toBeGreaterThan(seen[0]);
+    expect(shadowed(seen)[0].blur).toBe(28);
+    expect(ctx.calls.filter((c) => c.name === "stroke")).toHaveLength(baseStrokes);
+  });
+
+  it("keeps the caster translucent instead of painting an opaque black frame", () => {
+    boxWithShadow({ blur: 12, spread: 38, color: "#000000", alpha: 0.25 });
+    const seen = recordShadowAtPaint(ctx);
+    editor.render();
+    const spread = seen.find((s) => s.op === "fill" && s.blur === 50);
+    expect(spread).toBeTruthy();
+    expect(spread.fill).toMatch(/rgba\(/);
+    expect(spread.fill).toMatch(/0?\.25/);
+    expect(spread.fill).not.toBe("#000");
+  });
+
+  it("builds a long shadow from repeated translated silhouettes", () => {
+    boxWithShadow({ type: "long", angle: 30, length: 80, blur: 0, spread: 0 });
+    ctx.calls.length = 0;
+    editor.render();
+    expect(ctx.calls.filter((c) => c.name === "translate").length).toBeGreaterThan(10);
+    expect(ctx.calls.filter((c) => c.name === "fill").length).toBeGreaterThan(10);
   });
 });

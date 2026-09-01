@@ -33,6 +33,8 @@ describe("boot", () => {
     expect(f.h).toBe(600);
     expect(f.bg).toBe("#ffffff");
     expect(f.children).toEqual([]);
+    expect(f.artboards[0].fill.color).toBe("#ffffff");
+    expect(f.artboards[0].bg).toBe("#ffffff");
   });
 
   it("exposes a selection index that starts unset", () => {
@@ -63,6 +65,37 @@ describe("normalizeDoc — frame", () => {
       children: Array.from({ length: 400 }, () => ({ type: "rect", w: 5, h: 5 })),
     }).frame.children;
     expect(kids).toHaveLength(400);
+  });
+});
+
+describe("normalizeDoc — artboard appearance", () => {
+  it("uses a solid fill as the source of truth for the legacy background alias", () => {
+    const f = norm({
+      artboards: [{
+        id: "board", name: "Board", x: 0, y: 0, w: 900, h: 600,
+        bg: "#cccccc", fill: { kind: "solid", color: "#ffffff" },
+      }],
+    }).frame;
+    expect(f.artboards[0].fill.color).toBe("#ffffff");
+    expect(f.artboards[0].bg).toBe("#ffffff");
+  });
+
+  it("migrates a legacy background into a missing artboard fill", () => {
+    const f = norm({
+      artboards: [{ id: "board", name: "Board", x: 0, y: 0, w: 900, h: 600, bg: "#123456" }],
+    }).frame;
+    expect(f.artboards[0].fill.color).toBe("#123456");
+    expect(f.artboards[0].bg).toBe("#123456");
+  });
+
+  it.each(["angular", "diamond"])("preserves the %s gradient type", (kind) => {
+    const f = norm({ artboards: [{ id: "board", x: 0, y: 0, w: 900, h: 600,
+      fill: { kind, angle: 45, stops: [
+        { pos: 0, color: "#ff0000" }, { pos: 1, color: "#0000ff" },
+      ] },
+    }] }).frame;
+    expect(f.artboards[0].fill.kind).toBe(kind);
+    expect(f.artboards[0].fill.stops).toHaveLength(2);
   });
 });
 
@@ -612,6 +645,15 @@ describe("artboard naming", () => {
     const A = withBoards([]);
     for (let i = 0; i < 5; i++) editor.addArtboard(200, 200);
     expect(new Set(A.map((a) => a.name)).size).toBe(5);
+  });
+});
+
+describe("new artboard appearance", () => {
+  it("creates a white solid fill instead of the generic grey shape fallback", () => {
+    const f = norm({ artboards: [] }).frame;
+    editor.addArtboard(400, 300, "New board");
+    expect(f.artboards[0].fill).toMatchObject({ kind: "solid", color: "#ffffff" });
+    expect(f.artboards[0].bg).toBe("#ffffff");
   });
 });
 

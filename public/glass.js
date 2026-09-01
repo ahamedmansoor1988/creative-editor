@@ -32,9 +32,17 @@ const FRAG = `#version 300 es
       uniform float hasGlass;
       uniform float depth;
       uniform float refraction;
+      uniform float ior;
+      uniform float roughness;
+      uniform float absorption;
+      uniform float backdropDistance;
+      uniform float bevel;
+      uniform float quality;
       uniform float frost;
       uniform float reflection;
       uniform float light;
+      uniform float edgeWidth;
+      uniform float edgeSoftness;
       uniform float edgeMode;
       uniform float edgeGlow;
       uniform float edgeBlur;
@@ -53,7 +61,7 @@ const FRAG = `#version 300 es
       uniform float debugView;
 
       // ------------------------------------------------------------ shape --
-      // objectShape: 0 rectangle, 1 circle, 2 pill, 3 triangle.
+      // objectShape: 0 rectangle, 1 circle, 2 pill, 3 ellipse, 4 triangle.
       float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
         vec2 q = abs(p) - halfSize + radius;
         return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
@@ -74,6 +82,29 @@ const FRAG = `#version 300 es
         float denom = dot(ba, ba);
         float h = denom > 0.0 ? clamp(dot(pa, ba) / denom, 0.0, 1.0) : 0.0;
         return length(pa - ba * h);
+      }
+
+      /* Signed Euclidean distance to an axis-aligned ellipse. A short Newton
+         solve finds the closest point on the first-quadrant ellipse; unlike a
+         scaled circle SDF this keeps a uniform pixel-width optical boundary at
+         high aspect ratios. */
+      float sdEllipse(vec2 p, vec2 ab) {
+        vec2 q = abs(p);
+        ab = max(ab, vec2(1.0));
+        if (dot(q, q) < 1e-8) return -min(ab.x, ab.y);
+        float t = atan(q.y * ab.x, q.x * ab.y);
+        for (int i = 0; i < 6; i++) {
+          vec2 cs = vec2(cos(t), sin(t));
+          vec2 ep = ab * cs;
+          vec2 dp = vec2(-ab.x * cs.y, ab.y * cs.x);
+          vec2 ddp = -ep;
+          vec2 delta = ep - q;
+          float denom = dot(dp, dp) + dot(delta, ddp);
+          t = clamp(t - dot(delta, dp) / (abs(denom) > 1e-5 ? denom : 1e-5), 0.0, 1.57079632679);
+        }
+        vec2 closest = ab * vec2(cos(t), sin(t));
+        float side = dot(q / ab, q / ab) >= 1.0 ? 1.0 : -1.0;
+        return length(q - closest) * side;
       }
 
       // iq's exact signed distance to a triangle (any winding); rounding a
@@ -115,6 +146,9 @@ const FRAG = `#version 300 es
         if (objectShape < 2.5) {
           return distToPillCore(local, pillSegHalf(half_)) - min(half_.x, half_.y);
         }
+        if (objectShape < 3.5) {
+          return sdEllipse(local, half_);
+        }
         vec2 p0, p1, p2;
         triVerts(half_, p0, p1, p2);
         return sdTriangle(local, p0, p1, p2) - min(size.x, size.y) * objectRadius * 0.6;
@@ -131,8 +165,8 @@ const FRAG = `#version 300 es
          this). A hard-stopped band reads as a tray lip; a smooth decay reads
          as thick polished glass. */
       float bevelPx() {
-        float d01 = min(abs(depth) / 200.0, 1.0);
-        return max(1.5, mix(0.02, 0.10, d01) * minSizePx());
+        float b01 = clamp(bevel / 100.0, 0.0, 1.0);
+        return max(1.5, mix(0.01, 0.18, b01) * minSizePx());
       }
 
       /* Edge-proximity field for the SURFACE PROFILE and body glow: 0 at the
@@ -164,6 +198,9 @@ const FRAG = `#version 300 es
           // has at its centre.
           float r = min(half_.x, half_.y);
           return distToPillCore(local, pillSegHalf(half_)) / max(r, 1.0);
+        }
+        if (objectShape < 3.5) {
+          return length(local / max(half_, vec2(1.0)));
         }
         // Triangle: a smooth-minimum of the three perpendicular edge
         // distances, normalised by the incircle radius. An earlier version
@@ -230,13 +267,21 @@ const FRAG = `#version 300 es
          stays smooth instead of blocky trilinear. */
       vec3 frosted(vec2 fragPx, float lod, float frostPx) {
         vec3 c = tapBackdrop(fragPx, lod);
-        if (frostPx > 0.5) {
+        if (quality > 0.5 && frostPx > 0.5) {
           float r = frostPx * 0.55;
           c += tapBackdrop(fragPx + vec2( r,  r * 0.35), lod);
           c += tapBackdrop(fragPx + vec2(-r * 0.35,  r), lod);
           c += tapBackdrop(fragPx + vec2(-r, -r * 0.35), lod);
           c += tapBackdrop(fragPx + vec2( r * 0.35, -r), lod);
           c /= 5.0;
+        }
+        if (quality > 1.5 && frostPx > 0.5) {
+          float r2 = frostPx * 0.82;
+          c = (c * 5.0
+            + tapBackdrop(fragPx + vec2( r2, 0.0), lod)
+            + tapBackdrop(fragPx + vec2(-r2, 0.0), lod)
+            + tapBackdrop(fragPx + vec2(0.0,  r2), lod)
+            + tapBackdrop(fragPx + vec2(0.0, -r2), lod)) / 9.0;
         }
         return c;
       }
@@ -288,14 +333,23 @@ const FRAG = `#version 300 es
         // reference's normal map is one shade almost everywhere) — the wide
         // smooth face gradient is light (glow + sheen), not curvature.
         float sEdge = min(edgeField(frag), 1.0);
-        float kPow = mix(24.0, 4.5, depth01k);
-        float tilt = pow(sEdge, kPow);
+        /* User-controlled, shape-relative optical boundary. The old profile
+           was a fixed power of a superellipse field: its width was only
+           indirectly related to the object and did not follow rounded-box
+           corners. Distance from the TRUE SDF boundary gives a uniform band
+           around rectangles, rounded corners, circles and pills. */
+        float edgeWidth01 = clamp(edgeWidth / 100.0, 0.0, 1.0);
+        float edgeSoft01 = clamp(edgeSoftness / 100.0, 0.0, 1.0);
+        float edgeWidthPx = max(0.75, mix(0.004, 0.10, edgeWidth01) * minSizePx());
+        float edgeT = clamp(d / edgeWidthPx, 0.0, 1.0);
+        float edgePower = mix(7.0, 1.15, edgeSoft01);
+        float tilt = pow(1.0 - edgeT, edgePower);
         float h = 1.0 - tilt;                        // ~1 across the body
 
         vec2 e = vec2(1.2, 0.0);
         vec2 g = vec2(
-          edgeField(frag + e.xy) - edgeField(frag - e.xy),
-          edgeField(frag + e.yx) - edgeField(frag - e.yx)
+          objectSdf(frag + e.xy) - objectSdf(frag - e.xy),
+          objectSdf(frag + e.yx) - objectSdf(frag - e.yx)
         );
         vec2 outward = g / max(length(g), 1e-5);
         float normalK = 0.55 + 0.85 * depth01k;
@@ -409,9 +463,9 @@ const FRAG = `#version 300 es
         float facing = dot(outward, normalize(L.xy + vec2(1e-4)));
         float arcDirectional = pow(max(facing, 0.0), 2.0) + 0.22 * pow(max(-facing, 0.0), 3.0);
         float arc = mix(arcDirectional, 1.0, clamp(edgeMode, 0.0, 1.0));
-        float r1a = 0.65 + min(B * 0.055, 1.25);
-        float rimWidthPx = mix(0.75, 1.85, d01p);
-        float rim1 = smoothstep(0.0, 0.85, d) * (1.0 - smoothstep(r1a, r1a + rimWidthPx, d));
+        float r1a = max(0.45, edgeWidthPx * 0.24 + min(B * 0.012, 0.35));
+        float rimFeatherPx = mix(0.18, max(0.45, r1a * 0.9), edgeSoft01);
+        float rim1 = 1.0 - smoothstep(r1a, r1a + rimFeatherPx, d);
         // Built from sEdge (the kneeless field), NOT d (the exact SDF): d's
         // gradient genuinely kinks along a polygon's internal bisectors
         // (the Voronoi split between edges), invisible in d's own VALUE but
@@ -514,10 +568,12 @@ const FRAG = `#version 300 es
         // pixel->sample mapping coherent (no mirrored duplicates) up there.
         float refractPx = sign(refractionSigned) * pow(refraction01, 1.1) * B * 1.8;
         float maxOff = abs(refractPx) * 1.5 + 2.0;
-        float frostPx = pow(frost01, 1.5) * 0.12 * minSizePx();
+        float rough01 = clamp(roughness, 0.0, 1.0);
+        float frostPx = (pow(frost01, 1.5) * 0.12 + rough01 * 0.045) * minSizePx();
         float maxLod = floor(log2(max(resolution.x, resolution.y)));
         float lodBase = frostPx > 0.5 ? clamp(log2(frostPx), 0.0, maxLod) : 0.0;
-        float eta = 1.0 / 1.52;
+        float eta = 1.0 / clamp(ior, 1.0, 2.4);
+        refractPx *= clamp(backdropDistance / 8.0, 0.125, 3.75);
 
         vec3 trans;
         if (disp01 > 0.001) {
@@ -550,13 +606,14 @@ const FRAG = `#version 300 es
         vec3 absorb = -log(clamp(tintLin, vec3(0.02), vec3(1.0)));
         vec3 edgeAbsorb = vec3(0.040, 0.018, 0.010) * d01p;
         float path = 0.35 + 1.15 * (1.0 - h);
-        trans *= exp(-(absorb + edgeAbsorb) * path);
+        trans *= exp(-(absorb * absorption + edgeAbsorb) * path);
 
         /* ---- opacity + composite ---------------------------------------- */
         // Lower opacity lightens BOTH the transmitted backdrop (toward a
         // milky body) and the reflections — per the material spec sheet.
         vec3 milk = tintLin * 0.92;
         vec3 body = mix(milk, trans, op01);
+        body = mix(body, milk, frost01 * 0.42);
 
         float fade = mix(0.3, 1.0, op01);
         vec3 glassLin = body * (1.0 - F * 0.48) + (refl + glowC + sheenC + rimC + edgeGlowC) * fade;
@@ -589,7 +646,7 @@ function init(){
     gl.linkProgram(prog);
     if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
     const names=['backdrop','resolution','objectCenter','objectSize','objectRadius','objectShape',
-      'fillA','fillB','hasGlass','depth','refraction','frost','reflection','light','edgeMode',
+      'fillA','fillB','hasGlass','depth','refraction','ior','roughness','absorption','backdropDistance','bevel','quality','frost','reflection','light','edgeWidth','edgeSoftness','edgeMode',
       'edgeGlow','edgeBlur','edgeBlurOffset','flutes','fluteWidth','fluteAngle','fluteMode',
       'fluteCount','fluteRandom','lightAngle','lightElevation','dispersion','tint','opacity','debugView'];
     loc={position:gl.getAttribLocation(prog,'position')};
@@ -646,10 +703,10 @@ function render(frameCanvas, W, H, geoms, P){
   gl.uniform1f(loc.edgeBlur,20);
   gl.uniform1f(loc.edgeBlurOffset,0);
   gl.uniform1f(loc.flutes,P.flutes||0);
-  gl.uniform1f(loc.fluteWidth,26);
-  gl.uniform1f(loc.fluteAngle,0);
-  gl.uniform1f(loc.fluteMode,0);
-  gl.uniform1f(loc.fluteCount,10);
+  gl.uniform1f(loc.fluteWidth,P.fluteWidth||26);
+  gl.uniform1f(loc.fluteAngle,P.fluteAngle||0);
+  gl.uniform1f(loc.fluteMode,P.fluteMode||0);
+  gl.uniform1f(loc.fluteCount,P.fluteCount||10);
   gl.uniform1f(loc.fluteRandom,0);
   gl.uniform1f(loc.lightAngle,45);
   gl.uniform1f(loc.lightElevation,30);
@@ -657,9 +714,19 @@ function render(frameCanvas, W, H, geoms, P){
 
   gl.uniform1f(loc.depth,P.depth);
   gl.uniform1f(loc.refraction,P.refraction);
+  gl.uniform1f(loc.ior,P.ior===undefined?1.52:P.ior);
+  gl.uniform1f(loc.roughness,P.roughness||0);
+  gl.uniform1f(loc.absorption,P.absorption===undefined?.45:P.absorption);
+  gl.uniform1f(loc.backdropDistance,P.backdropDistance===undefined?8:P.backdropDistance);
+  gl.uniform1f(loc.bevel,P.bevel===undefined?15:P.bevel);
+  gl.uniform1f(loc.quality,P.quality==='high'?2:P.quality==='draft'?0:1);
   gl.uniform1f(loc.frost,P.frost);
   gl.uniform1f(loc.reflection,P.reflection);
-  gl.uniform1f(loc.light,P.light);
+  /* edgeIntensity is the public source of truth. `light` remains only as a
+     migration fallback for documents saved before the control was renamed. */
+  gl.uniform1f(loc.light,P.edgeIntensity===undefined?(P.light===undefined?35:P.light):P.edgeIntensity);
+  gl.uniform1f(loc.edgeWidth,P.edgeWidth===undefined?8:P.edgeWidth);
+  gl.uniform1f(loc.edgeSoftness,P.edgeSoftness===undefined?55:P.edgeSoftness);
   gl.uniform1f(loc.dispersion,P.dispersion);
   const t=hexToRgb01(P.tint);
   gl.uniform3f(loc.tint,t[0],t[1],t[2]);

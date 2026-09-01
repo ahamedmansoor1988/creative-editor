@@ -49,7 +49,6 @@
      * standing liquid and flare have. Marking it "over" would paint it on top
      * of a fill that is then invisible but still casting the shadow. */
     mesh: { slot: "material", label: "Mesh gradient", multi: false },
-    spectralField: { slot: "material", label: "Spectral Field", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -66,6 +65,12 @@
      * (blur-then-warp is not warp-then-blur), which is exactly what the stack
      * is for. */
     blur: { slot: "pixel", label: "Blur", multi: true },
+    bloom: { slot: "pixel", label: "Bloom", multi: true },
+    colorAdjust: { slot: "pixel", label: "Color adjustments", multi: true },
+    colorMap: { slot: "pixel", label: "Color mapping", multi: true },
+    channelFx: { slot: "pixel", label: "Channel effects", multi: true },
+    stylize: { slot: "pixel", label: "Stylize", multi: true },
+    backgroundBlur: { slot: "backdrop", label: "Background blur", multi: false, backdrop: true },
     distortion: { slot: "pixel", label: "Distortion", multi: true },
     warp: { slot: "pixel", label: "Warp", multi: true },
     displacement: { slot: "pixel", label: "Displacement", multi: true },
@@ -80,7 +85,6 @@
     "shadow",
     "glow",
     "mesh",
-    "spectralField",
     "blob",
     "glass2",
     "light",
@@ -95,6 +99,12 @@
     "gradient",
     "innerShadow",
     "grain",
+    "backgroundBlur",
+    "bloom",
+    "colorAdjust",
+    "colorMap",
+    "channelFx",
+    "stylize",
     "blur",
     "distortion",
     "warp",
@@ -117,14 +127,9 @@
   const READY = new Set([
     // promoted effects go here, one per fix
     "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
+    "innerShadow", // same reusable shadow family, clipped inside the target path
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
     "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
-    /* Ported from lab-field.html, where all six of the brief's acceptance tests
-     * pass against a real framebuffer — sphere geometry, centre wash, rotation
-     * moving the field and not the geometry, anchor movement without a blob,
-     * an optional rim, and identical output at 256/1024/2048. The editor-side
-     * wiring, clamps and panel are covered in tests/spectral-field.test.js. */
-    "spectralField",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran
@@ -132,8 +137,18 @@
      * changed by hand, which is an engine you can trigger and not steer.
      * See tests/pixel-effects.test.js. */
     "blur", // incl. directional, which is the motion blur
+    "bloom",
+    "colorAdjust",
+    "colorMap",
+    "channelFx",
+    "stylize",
+    "distortion",
+    "warp",
+    "displacement",
+    "backgroundBlur",
     "grain",
     "noise",
+    "glass",
     /* "gradient" (the stripe engine) is QA'd and now HAS the panel it never
      * had — see tests/gradient.test.js — but it is not being offered: it is
      * the effect slated for retirement once fractal glass replaces it, so
@@ -197,6 +212,20 @@
       if (p.kind === "zoom") return (p.amount || 0) > 0;
       return (p.radius || 0) > 0;
     }
+    if (e.type === "bloom") return (p.amount || 0) > 0 && (p.radius || 0) > 0;
+    if (e.type === "colorAdjust") {
+      return ["exposure", "blackPoint", "brightness", "contrast", "brilliance", "saturation",
+        "vibrance", "temperature", "tint", "highlights", "shadows", "filterAmount", "definition"]
+        .some((k) => Math.abs(+p[k] || 0) > 0.0001) || Math.abs((+p.whitePoint||1)-1)>.0001 || Math.abs((+p.gamma||1)-1)>.0001;
+    }
+    if (e.type === "colorMap") return (p.amount || 0) > 0;
+    if (e.type === "channelFx") {
+      if ((p.mix || 0) <= 0) return false;
+      if (p.mode === "channelOffset") return ["redX","redY","greenX","greenY","blueX","blueY"].some(k=>(+p[k]||0)!==0);
+      return (p.amount || 0) > 0;
+    }
+    if (e.type === "stylize") return (p.mix || 0) > 0;
+    if (e.type === "backgroundBlur") return p.on !== false && (p.radius || 0) > 0;
     if (e.type === "distortion") return (p.amount || 0) !== 0;
     if (e.type === "warp") return (p.strength || 0) !== 0;
     if (e.type === "displacement") return (p.scaleX || 0) !== 0 || (p.scaleY || 0) !== 0;

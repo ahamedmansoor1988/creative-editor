@@ -63,16 +63,38 @@ const RULER=22;          // px
  * is far too slow to run on every pointer move. Slider `input` renders a
  * draft; the `change` that ends the drag renders properly. */
 let fxDraft=false;
+let fxDraftFrame=0;
+function requestFxDraftRender(){
+  if(fxDraftFrame) return;
+  const raf=window.requestAnimationFrame||((fn)=>setTimeout(fn,16));
+  fxDraftFrame=raf(()=>{
+    fxDraftFrame=0; fxDraft=true;
+    try{ render(); }finally{ fxDraft=false; }
+  });
+}
+function finishFxDraftRender(){
+  if(fxDraftFrame){
+    const cancel=window.cancelAnimationFrame||clearTimeout;
+    cancel(fxDraftFrame); fxDraftFrame=0;
+  }
+  fxDraft=false; render();
+}
 
 const DEFAULT_EFFECTS=()=>({
-  shadow:{on:false,x:0,y:6,blur:18,spread:0,color:'#000000',alpha:0.25,blend:'normal'},
+  shadow:{on:false,type:'drop',x:0,y:6,blur:18,spread:0,angle:45,length:80,
+    color:'#000000',alpha:0.25,blend:'normal'},
   // §4.10 inner shadow — same parameter set, cast inward from the edges
   innerShadow:{on:false,x:0,y:4,blur:12,spread:0,color:'#000000',alpha:0.35,blend:'normal'},
   // §4.11 glow — outer or inner, with a falloff curve
   glow:{on:false,type:'outer',radius:18,spread:0,color:'#ffffff',alpha:0.7,falloff:1,blend:'normal'},
   grain:{amount:0},
   // Clear Glass defaults from the locked standalone glass app
-  glass:{on:false,depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
+  glass:{on:false,mode:'backdrop',depth:40,refraction:35,ior:1.52,roughness:0.04,
+    absorption:0.45,backdropDistance:8,bevel:15,quality:'standard',
+    frost:0,reflection:25,edgeIntensity:35,edgeWidth:8,edgeSoftness:55,
+    light:35,dispersion:0,tint:'#ffffff',opacity:100,
+    reedStrength:70,reedWidth:26,reedAngle:0,reedCount:10,reedByCount:false,
+    size:0.62,extrude:0,round:1,rotateX:-25,rotateY:0,rotateZ:0},
   // Funnel light cone, ported from the Funnel Light Figma plugin
   light:{on:false,mode:0,throat:0.39,mouth:0.95,curve:2.07,intensity:0.62,density:2.0,
          bloom:0,innerGlow:2.5,falloff:2.33,leftFade:0.45,meshMix:1.62,bandFlow:0,
@@ -167,6 +189,18 @@ const DEFAULT_EFFECTS=()=>({
          ior:1.55,dispersion:0.048,slopeLimit:6,smear:1.6},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
+  // Bloom isolates bright rendered pixels, softens them, then adds the light back.
+  bloom:{amount:0,radius:24,threshold:0.65,knee:0.25},
+  backgroundBlur:{on:false,radius:20,opacity:1},
+  colorAdjust:{exposure:0,blackPoint:0,whitePoint:1,brightness:0,contrast:0,brilliance:0,gamma:1,
+    saturation:0,vibrance:0,temperature:0,tint:0,highlights:0,shadows:0,
+    filterColor:'#ffffff',filterAmount:0,definition:0},
+  colorMap:{mode:'gradientMap',shadow:'#1b103d',highlight:'#ffdc7a',overlay:'#3b6df0',amount:0,
+    mapOffset:0,darkStrength:1,lightStrength:.55,darkGamma:1.25,lightGamma:.65},
+  channelFx:{mode:'rgbSplit',amount:0,angle:0,falloff:1,cx:0,cy:0,mix:1,edge:'mirror',
+    redX:0,redY:0,greenX:0,greenY:0,blueX:0,blueY:0},
+  stylize:{mode:'posterize',mix:0,levels:6,threshold:.5,softness:0,
+    pixelSize:12,dotSize:10,angle:45,foreground:'#111111',background:'#ffffff'},
   // §5.10 distortion — wave / twirl / bulge / pinch / ripple
   distortion:{mode:'wave',amount:0,wavelength:0.2,phase:0,axis:'both',
               radius:0.5,cx:0,cy:0,edge:'clamp'},
@@ -276,12 +310,20 @@ const STROKE_ALIGN=['center','inside','outside'];
 /** One fill entry: solid / linear / radial, with its own opacity + blend. */
 function normPaint(f,dflt){
   f=f&&typeof f==='object'?f:{};
-  const kind=['solid','linear','radial'].includes(f.kind)?f.kind:'solid';
+  const kind=['solid','linear','radial','angular','diamond','image'].includes(f.kind)?f.kind:'solid';
   const out={kind, on:f.on!==false,
     opacity:clamp(f.opacity===undefined?1:+f.opacity,0,1),
     blend:BLEND_MODES.includes(f.blend)?f.blend:'normal'};
   if(kind==='solid'){
     out.color=/^#[0-9a-fA-F]{6}$/.test(f.color||'')?f.color:(dflt||'#cccccc');
+  }else if(kind==='image'){
+    out.src=typeof f.src==='string'?f.src:'';
+    out.mode=['fill','fit','crop','stretch','tile'].includes(f.mode)?f.mode:'fill';
+    out.x=clamp(f.x===undefined ? 0.5 : +f.x,0,1);
+    out.y=clamp(f.y===undefined ? 0.5 : +f.y,0,1);
+    out.scale=clamp(f.scale===undefined?1:+f.scale,.05,20);
+    out.rotation=((+f.rotation||0)%360+360)%360;
+    out.tileScale=clamp(f.tileScale===undefined?1:+f.tileScale,.05,10);
   }else{
     out.stops=(Array.isArray(f.stops)?f.stops:[]).slice(0,8).map(st=>({
       pos:clamp(+st.pos||0,0,1),
@@ -292,6 +334,9 @@ function normPaint(f,dflt){
     while(out.stops.length<2) out.stops.push({pos:out.stops.length?1:0,
       color:out.stops.length?'#333333':(dflt||'#cccccc'),opacity:1,mid:0.5});
     out.angle=((+f.angle||0)%360+360)%360;
+    out.gx=clamp(f.gx===undefined ? 0.5 : +f.gx,0,1);
+    out.gy=clamp(f.gy===undefined ? 0.5 : +f.gy,0,1);
+    out.axisScale=clamp(f.axisScale===undefined?1:+f.axisScale,.1,4);
     out.space=['srgb','linear','oklab'].includes(f.space)?f.space:'srgb';
     if(kind==='radial'){
       out.fx=clamp(+f.fx||0,-1,1); out.fy=clamp(+f.fy||0,-1,1);
@@ -416,6 +461,7 @@ function normStyleDef(s,i){
     .map(e=>({
       id:typeof e.id==='string'&&e.id?e.id:newId(),
       type:e.type, on:e.on!==false,
+      added:e.added===true,
       params:(e.params&&typeof e.params==='object')?e.params:{},
     }));
   return out;
@@ -445,25 +491,35 @@ function normalizeDoc(d){
    * explicit empty array and must stay empty — the presence of the key is what
    * separates "never had any" from "deliberately has none". */
   const hadArtboardKey=Array.isArray(f.artboards);
-  f.artboards=(hadArtboardKey?f.artboards:[]).slice(0,32).map((a,i)=>({
+  f.artboards=(hadArtboardKey?f.artboards:[]).slice(0,32).map((a,i)=>{
+    const legacyBg=/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff';
+    const fill=normArtPaint(a.fill,legacyBg);
+    /* `fill` is the source of truth. `bg` only remains as a compatibility
+     * alias for exporters and thumbnails that still need one flat colour.
+     * Keeping an independently-normalised bg allowed the inspector to show
+     * white while older readers saw grey. */
+    const bg=fill.kind==='solid'?fill.color:legacyBg;
+    return {
     id:typeof a.id==='string'&&a.id?a.id:newId(),
     name:String(a.name||('Artboard '+(i+1))).slice(0,60),
     x:Math.round(+a.x||0), y:Math.round(+a.y||0),
     w:clamp(Math.round(+a.w)||400,20,8000), h:clamp(Math.round(+a.h)||300,20,8000),
-    bg:/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff',
+    bg,
     /* An artboard paints like a frame, not like a coloured rectangle: fill can
      * be a gradient, it can carry a stroke, and its corners can round. `bg`
      * stays the solid colour so older files keep working and so anything that
      * only wants one colour (export background, the swatch) has it — `fill` is
      * the richer paint and wins whenever it is present. Shared shape with
      * objects on purpose: paintStyle/strokeStyleFor already understand it. */
-    fill:normArtPaint(a.fill,/^#[0-9a-fA-F]{6}$/.test(a.bg||'')?a.bg:'#ffffff'),
+    fill,
     stroke:normArtStroke(a.stroke),
     radius:clamp(Math.round(+a.radius||0),0,4000),
     clip:a.clip!==false, show:a.show!==false, locked:!!a.locked,
-  }));
+  };});
   if(!f.artboards.length&&!hadArtboardKey)
-    f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,clip:false,show:true}];
+    f.artboards=[{id:newId(),name:'Artboard 1',x:0,y:0,w:f.w,h:f.h,bg:f.bg,
+      fill:normArtPaint({kind:'solid',color:f.bg},f.bg),
+      stroke:normArtStroke(null),radius:0,clip:false,show:true,locked:false}];
   /* §6.7/§6.8 definitions live with the page. An instance stores only which
    * definition it points at plus its own transform and overrides. */
   const C=window.Components;
@@ -636,6 +692,9 @@ function normChildren(list,depth){
       const de=DEFAULT_EFFECTS(), ce=c.effects||{};
       const sh=Object.assign(de.shadow, ce.shadow||{});
       sh.on=!!sh.on; sh.x=clamp(+sh.x||0,-100,100); sh.y=clamp(+sh.y||0,-100,100);
+      sh.type=sh.type==='long'?'long':'drop';
+      sh.angle=((+sh.angle||0)%360+360)%360;
+      sh.length=clamp(+sh.length||0,0,1000);
       sh.blur=clamp(+sh.blur||0,0,150); sh.alpha=clamp(+sh.alpha||0,0,1);
       sh.spread=clamp(+sh.spread||0,0,100);
       sh.blend=BLEND_MODES.includes(sh.blend)?sh.blend:'normal';
@@ -647,8 +706,9 @@ function normChildren(list,depth){
       ish.blend=BLEND_MODES.includes(ish.blend)?ish.blend:'normal';
       if(!/^#[0-9a-fA-F]{6}$/.test(ish.color||'')) ish.color='#000000';
       const glw=Object.assign(de.glow, ce.glow||{});
-      glw.on=!!glw.on&&c.type!=='text';
+      glw.on=!!glw.on;
       glw.type=glw.type==='inner'?'inner':'outer';
+      if(c.type==='text'&&glw.type==='inner') glw.on=false;
       glw.radius=clamp(+glw.radius||0,0,200); glw.spread=clamp(+glw.spread||0,0,100);
       glw.alpha=clamp(+glw.alpha||0,0,1); glw.falloff=clamp(+glw.falloff||1,0.2,4);
       glw.blend=BLEND_MODES.includes(glw.blend)?glw.blend:'normal';
@@ -726,13 +786,34 @@ function normChildren(list,depth){
       });
       const gla=Object.assign(de.glass, ce.glass||{});
       gla.on=!!gla.on && (c.type==='rect'||c.type==='ellipse');
+      gla.mode=['backdrop','frosted','reeded','solid3d'].includes(gla.mode)?gla.mode:'backdrop';
       gla.depth=clamp(+gla.depth||0,-200,200);
       gla.refraction=clamp(+gla.refraction||0,-200,200);
+      gla.ior=clamp(Number.isFinite(+gla.ior)?+gla.ior:1.52,1,2.4);
+      gla.roughness=clamp(Number.isFinite(+gla.roughness)?+gla.roughness:.04,0,1);
+      gla.absorption=clamp(Number.isFinite(+gla.absorption)?+gla.absorption:.45,0,6);
+      gla.backdropDistance=clamp(Number.isFinite(+gla.backdropDistance)?+gla.backdropDistance:8,1,30);
+      gla.bevel=clamp(Number.isFinite(+gla.bevel)?+gla.bevel:15,0,100);
+      gla.quality=['draft','standard','high'].includes(gla.quality)?gla.quality:'standard';
       gla.frost=clamp(+gla.frost||0,0,100);
       gla.reflection=clamp(+gla.reflection||0,0,100);
-      gla.light=clamp(+gla.light||0,0,100);
+      gla.edgeIntensity=clamp(Number.isFinite(+gla.edgeIntensity)?+gla.edgeIntensity:(+gla.light||0),0,100);
+      gla.edgeWidth=clamp(Number.isFinite(+gla.edgeWidth)?+gla.edgeWidth:8,0,100);
+      gla.edgeSoftness=clamp(Number.isFinite(+gla.edgeSoftness)?+gla.edgeSoftness:55,0,100);
+      gla.light=gla.edgeIntensity; // backward-compatible alias for saved documents
       gla.dispersion=clamp(+gla.dispersion||0,0,200);
       gla.opacity=clamp(gla.opacity===undefined?100:+gla.opacity,0,100);
+      gla.reedStrength=clamp(Number.isFinite(+gla.reedStrength)?+gla.reedStrength:70,0,100);
+      gla.reedWidth=clamp(Number.isFinite(+gla.reedWidth)?+gla.reedWidth:26,2,160);
+      gla.reedAngle=clamp(Number.isFinite(+gla.reedAngle)?+gla.reedAngle:0,-90,90);
+      gla.reedCount=clamp(Math.round(+gla.reedCount)||10,2,80);
+      gla.reedByCount=!!gla.reedByCount;
+      gla.size=clamp(Number.isFinite(+gla.size)?+gla.size:.62,.1,1.6);
+      gla.extrude=clamp(Number.isFinite(+gla.extrude)?+gla.extrude:0,0,1.6);
+      gla.round=clamp(Number.isFinite(+gla.round)?+gla.round:1,0,1);
+      gla.rotateX=clamp(Number.isFinite(+gla.rotateX)?+gla.rotateX:-25,-180,180);
+      gla.rotateY=clamp(Number.isFinite(+gla.rotateY)?+gla.rotateY:0,-180,180);
+      gla.rotateZ=clamp(Number.isFinite(+gla.rotateZ)?+gla.rotateZ:0,-180,180);
       if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
       const nb=(o,_d)=>{
         o.on=!!o.on && (c.type==='rect'||c.type==='ellipse');
@@ -799,6 +880,60 @@ function normChildren(list,depth){
       fnum(blur,'radius',0,200,0); fnum(blur,'angle',-180,180,0);
       fnum(blur,'distance',0,400,20); fnum(blur,'amount',0,1,0.2);
       fnum(blur,'cx',-0.5,0.5,0); fnum(blur,'cy',-0.5,0.5,0);
+      const bloom=Object.assign(de.bloom, ce.bloom||{});
+      fnum(bloom,'amount',0,3,0); fnum(bloom,'radius',0,200,24);
+      fnum(bloom,'threshold',0,1,.65); fnum(bloom,'knee',0,1,.25);
+      const backgroundBlur=Object.assign(de.backgroundBlur, ce.backgroundBlur||{});
+      backgroundBlur.on=!!backgroundBlur.on&&['rect','ellipse','polygon','path'].includes(c.type);
+      fnum(backgroundBlur,'radius',0,100,20); fnum(backgroundBlur,'opacity',0,1,1);
+      const colorAdjust=Object.assign(de.colorAdjust, ce.colorAdjust||{});
+      fnum(colorAdjust,'exposure',-3,3,0); fnum(colorAdjust,'brightness',-1,1,0);
+      fnum(colorAdjust,'blackPoint',0,.99,0); fnum(colorAdjust,'whitePoint',.01,1,1);
+      if(colorAdjust.whitePoint<=colorAdjust.blackPoint) colorAdjust.whitePoint=Math.min(1,colorAdjust.blackPoint+.01);
+      fnum(colorAdjust,'contrast',-1,1,0); fnum(colorAdjust,'saturation',-1,1,0);
+      fnum(colorAdjust,'vibrance',-1,1,0); fnum(colorAdjust,'highlights',-1,1,0);
+      fnum(colorAdjust,'shadows',-1,1,0);
+      fnum(colorAdjust,'brilliance',-1,1,0); fnum(colorAdjust,'gamma',.2,4,1);
+      fnum(colorAdjust,'temperature',-1,1,0); fnum(colorAdjust,'tint',-1,1,0);
+      fnum(colorAdjust,'filterAmount',0,1,0); fnum(colorAdjust,'definition',0,1,0);
+      if(!/^#[0-9a-fA-F]{6}$/.test(colorAdjust.filterColor||'')) colorAdjust.filterColor='#ffffff';
+      const colorMap=Object.assign(de.colorMap, ce.colorMap||{});
+      colorMap.mode=['gradientMap','duotone','overlay'].includes(colorMap.mode)?colorMap.mode:'gradientMap';
+      const mapDefaults={shadow:'#1b103d',highlight:'#ffdc7a',overlay:'#3b6df0'};
+      ['shadow','highlight','overlay'].forEach(k=>{
+        if(!/^#[0-9a-fA-F]{6}$/.test(colorMap[k]||'')) colorMap[k]=mapDefaults[k];
+      });
+      fnum(colorMap,'amount',0,1,0);
+      fnum(colorMap,'mapOffset',-1,1,0);
+      fnum(colorMap,'darkStrength',0,1,1); fnum(colorMap,'lightStrength',0,1,.55);
+      fnum(colorMap,'darkGamma',.2,4,1.25); fnum(colorMap,'lightGamma',.2,4,.65);
+      const channelFx=Object.assign(de.channelFx, ce.channelFx||{});
+      channelFx.mode=['rgbSplit','aberration','channelOffset'].includes(channelFx.mode)?channelFx.mode:'rgbSplit';
+      /* No longer offered in the panel, but still READ, so a document saved
+       * while the control existed keeps rendering the way it was authored.
+       * The default moved from clamp to mirror: clamp streaks the border
+       * colour outward, which on a gradient reads as smearing, and mirror is
+       * the one of the three that adds nothing of its own.
+       *
+       * It was removed because it is a compositing control, not a design one —
+       * Photoshop's Offset filter and Nuke's filter nodes expose it, Figma and
+       * Sketch do not — and because measurement showed it inert where it would
+       * actually be used: on a padded layer at separation 4, all three modes
+       * produced identical pixels. A control that does nothing at ordinary
+       * settings teaches the user that controls do nothing. */
+      channelFx.edge=['clamp','wrap','mirror'].includes(channelFx.edge)?channelFx.edge:'mirror';
+      fnum(channelFx,'amount',0,200,0); fnum(channelFx,'angle',-180,180,0);
+      fnum(channelFx,'falloff',.2,4,1); fnum(channelFx,'cx',-.5,.5,0); fnum(channelFx,'cy',-.5,.5,0);
+      fnum(channelFx,'mix',0,1,1);
+      ['redX','redY','greenX','greenY','blueX','blueY'].forEach(k=>fnum(channelFx,k,-200,200,0));
+      const stylize=Object.assign(de.stylize, ce.stylize||{});
+      stylize.mode=['posterize','threshold','halftone','pixelate'].includes(stylize.mode)?stylize.mode:'posterize';
+      fnum(stylize,'mix',0,1,0); fnum(stylize,'levels',2,32,6); stylize.levels=Math.round(stylize.levels);
+      fnum(stylize,'threshold',0,1,.5); fnum(stylize,'softness',0,.5,0);
+      fnum(stylize,'pixelSize',2,100,12); stylize.pixelSize=Math.round(stylize.pixelSize);
+      fnum(stylize,'dotSize',2,100,10); stylize.dotSize=Math.round(stylize.dotSize);
+      fnum(stylize,'angle',-180,180,45);
+      ['foreground','background'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(stylize[k]||'')) stylize[k]=de.stylize[k]; });
       const dis=Object.assign(de.distortion, ce.distortion||{});
       dis.mode=['wave','twirl','bulge','ripple'].includes(dis.mode)?dis.mode:'wave';
       dis.axis=['x','y','both'].includes(dis.axis)?dis.axis:'both';
@@ -939,7 +1074,7 @@ function normChildren(list,depth){
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
-        blur, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
+        blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
        * used to apply them — nothing moves on screen on first load. Entries
@@ -953,13 +1088,20 @@ function normChildren(list,depth){
           id:typeof e.id==='string'&&e.id?e.id:newId(),
           type:e.type, on:e.on!==false,
           params:(e.params&&typeof e.params==='object')?e.params:{},
+          added:e.added===true,
         }));
-        // a saved stack carries the params; fold them back into the
-        // normalised dictionary objects so both views agree
-        stack.forEach(e=>{ if(EFF[e.type]) Object.assign(EFF[e.type],e.params); });
+        /* Only the FIRST entry is the legacy dictionary alias. Folding every
+         * duplicate into effects[type] made two glows overwrite one another
+         * on load, even though the renderer supports independent entries. */
+        const folded={};
+        stack.forEach(e=>{
+          if(EFF[e.type]&&!folded[e.type]){
+            Object.assign(EFF[e.type],e.params); folded[e.type]=1;
+          }
+        });
       }else{
         stack=(FS?FS.LEGACY_ORDER:known).filter(t=>EFF[t]).map(t=>({
-          id:newId(), type:t, on:true, params:EFF[t],
+          id:newId(), type:t, on:true, params:EFF[t], added:false,
         }));
       }
       // re-link: entry params ARE the dictionary objects (first of each type)
@@ -969,7 +1111,7 @@ function normChildren(list,depth){
       });
       // any known type missing from a saved stack is appended, off
       (FS?FS.LEGACY_ORDER:known).forEach(t=>{
-        if(!seen[t]&&EFF[t]){ stack.push({id:newId(),type:t,on:true,params:EFF[t]}); seen[t]=1; }
+        if(!seen[t]&&EFF[t]){ stack.push({id:newId(),type:t,on:true,params:EFF[t],added:false}); seen[t]=1; }
       });
       c.fx=stack;
       // The fold above assigned saved params RAW onto the dictionary, after
@@ -1124,8 +1266,8 @@ function compactObj(c,defs){
     const keep=[];
     for(let i=0;i<c.fx.length;i++){
       const e=c.fx[i];
-      if(sameAsDefault(e.type,e.params,defs)) continue;
-      keep.push({id:e.id,type:e.type,on:e.on!==false,params:cloneVal(e.params)});
+      if(!e.added&&sameAsDefault(e.type,e.params,defs)) continue;
+      keep.push({id:e.id,type:e.type,on:e.on!==false,added:e.added===true,params:cloneVal(e.params)});
     }
     if(keep.length) out.fx=keep;
   }
@@ -1468,6 +1610,63 @@ function makeGrain(){
   g.putImageData(img,0,0);
   return c;
 }
+/* Grain is a reusable surface pass. Material renderers call this after they
+ * paint their pixels, just like the ordinary fill renderer does. */
+function paintGrainOverlay(c,obj){
+  const gr=obj.effects&&obj.effects.grain;
+  if(!gr||gr.amount<=0||!fxOn(obj,'grain')) return;
+  if(!grainTile) grainTile=makeGrain();
+  const b=boxOf(obj);
+  c.save();
+  pathFor(c,obj); c.clip();
+  c.globalAlpha=obj.opacity*gr.amount*0.35;
+  c.globalCompositeOperation='overlay';
+  c.fillStyle=c.createPattern(grainTile,'repeat');
+  c.fillRect(b.x,b.y,b.w,b.h);
+  c.restore();
+}
+/* Capture the real backdrop before Glass changes it. Backdrop materials cannot
+ * be rendered in the ordinary empty object crop: that is the source of the
+ * black padded rectangles previously produced by Blur and other filters. */
+function captureBackdropGlassPixels(c,obj){
+  const FS=window.FxStack;
+  if(!FS||!obj.fx||!window.Filters) return null;
+  const entries=FS.inSlot(obj.fx,'pixel');
+  if(!entries.length) return null;
+  const shapes=[obj,...patternInstances(obj)];
+  const boxes=shapes.map(boxOf);
+  const minX=Math.min(...boxes.map(b=>b.x)), minY=Math.min(...boxes.map(b=>b.y));
+  const maxX=Math.max(...boxes.map(b=>b.x+b.w)), maxY=Math.max(...boxes.map(b=>b.y+b.h));
+  const pad=pixelPad(entries);
+  const lx=Math.floor(minX-pad), ly=Math.floor(minY-pad);
+  const lw=Math.max(1,Math.ceil(maxX-minX+pad*2));
+  const lh=Math.max(1,Math.ceil(maxY-minY+pad*2));
+  if(lw>=6000||lh>=6000) return null;
+  const backdrop=document.createElement('canvas'); backdrop.width=lw; backdrop.height=lh;
+  backdrop.getContext('2d').drawImage(c.canvas,lx,ly,lw,lh,0,0,lw,lh);
+  return {entries,shapes,lx,ly,lw,lh,backdrop};
+}
+/* Isolate the finished Glass through its true geometry mask, process every
+ * pixel effect in recipe order, restore the captured backdrop, then composite
+ * the filtered material. Transparent padding allows Blur/Bloom/channel shifts
+ * to grow without revealing the rectangular work canvas. */
+function paintBackdropGlassPixels(c,state){
+  if(!state) return;
+  const {entries,shapes,lx,ly,lw,lh,backdrop}=state;
+  let cv=document.createElement('canvas'); cv.width=lw; cv.height=lh;
+  const cc=cv.getContext('2d');
+  cc.drawImage(c.canvas,lx,ly,lw,lh,0,0,lw,lh);
+  /* Remove every backdrop pixel outside the glass silhouette before Bloom.
+   * Otherwise the padded crop itself becomes a visible rectangle. */
+  const mask=document.createElement('canvas'); mask.width=lw; mask.height=lh;
+  const mc=mask.getContext('2d'); mc.translate(-lx,-ly); mc.fillStyle='#fff';
+  shapes.forEach(o=>{ pathFor(mc,o); mc.fill(); });
+  cc.save(); cc.globalCompositeOperation='destination-in'; cc.drawImage(mask,0,0); cc.restore();
+  entries.forEach(e=>{ cv=window.Filters.apply(e.type,cv,e.params,{draft:fxDraft}); });
+  c.save(); c.globalAlpha=1; c.globalCompositeOperation='source-over';
+  c.drawImage(backdrop,lx,ly);
+  c.drawImage(cv,lx,ly); c.restore();
+}
 /* §4.4 blend modes: the exact separable + non-separable set from
  * W3C Compositing and Blending Level 1
  * (https://www.w3.org/TR/compositing-1/) — that spec carries a royalty-free
@@ -1587,11 +1786,46 @@ function addStops(g,stops,space){
 }
 function paintStyle(c,f,b){
   if(!f||f.kind==='solid') return (f&&f.color)||'#cccccc';
+  if(f.kind==='angular'&&typeof c.createConicGradient==='function'){
+    const g=c.createConicGradient(((f.angle||0)-90)*Math.PI/180,
+      b.x+b.w*(f.gx??.5),b.y+b.h*(f.gy??.5));
+    addStops(g,f.stops,f.space); return g;
+  }
+  if(f.kind==='diamond'){
+    const tw=Math.max(2,Math.min(256,Math.round(b.w)));
+    const th=Math.max(2,Math.min(256,Math.round(b.h)));
+    const tile=document.createElement('canvas'); tile.width=tw; tile.height=th;
+    const tc=tile.getContext('2d'), im=tc.createImageData(tw,th), data=im.data;
+    const S=[...f.stops].sort((x,y)=>x.pos-y.pos);
+    const sample=t=>{
+      t=clamp(t,0,1); let i=0;
+      while(i<S.length-2&&t>S[i+1].pos)i++;
+      const a=S[i], d=S[i+1]||a, span=Math.max(.0001,d.pos-a.pos);
+      let u=clamp((t-a.pos)/span,0,1), m=clamp(a.mid??.5,.05,.95);
+      u=u<=m?.5*u/m:.5+.5*(u-m)/(1-m);
+      return {rgb:hexRgb(mixIn(a.color,d.color,u,f.space||'srgb')),
+        alpha:(a.opacity??1)+((d.opacity??1)-(a.opacity??1))*u};
+    };
+    const gx=f.gx??.5, gy=f.gy??.5, sc=clamp(f.axisScale??1,.1,4);
+    const ca=Math.cos(-(f.angle||0)*Math.PI/180), sa=Math.sin(-(f.angle||0)*Math.PI/180);
+    for(let y=0;y<th;y++) for(let x=0;x<tw;x++){
+      const nx=x/(tw-1)-gx, ny=y/(th-1)-gy;
+      const rx=nx*ca-ny*sa, ry=nx*sa+ny*ca;
+      const q=sample((Math.abs(rx)+Math.abs(ry))*2/sc);
+      const k=(y*tw+x)*4; data[k]=q.rgb[0]; data[k+1]=q.rgb[1];
+      data[k+2]=q.rgb[2]; data[k+3]=Math.round(q.alpha*255);
+    }
+    tc.putImageData(im,0,0);
+    const p=c.createPattern(tile,'no-repeat');
+    if(p&&p.setTransform&&typeof DOMMatrix!=='undefined')
+      p.setTransform(new DOMMatrix().translate(b.x,b.y).scale(b.w/tw,b.h/th));
+    return p||'#cccccc';
+  }
   if(f.kind==='radial'){
     // §4.6: focal point offset + elliptical aspect
-    const cx=b.x+b.w/2, cy=b.y+b.h/2;
+    const cx=b.x+b.w*(f.gx??.5), cy=b.y+b.h*(f.gy??.5);
     const asp=clamp(+f.aspect||1,0.2,5);
-    const r=Math.max(b.w,b.h)/2;
+    const r=Math.max(b.w,b.h)/2*(f.axisScale??1);
     const fx=cx+(+f.fx||0)*b.w/2, fy=cy+(+f.fy||0)*b.h/2;
     let g;
     /* Taper is the inner circle's radius. The two-circle cone is only
@@ -1616,7 +1850,8 @@ function paintStyle(c,f,b){
     return g;
   }
   const a=(f.angle||0)*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
-  const cx=b.x+b.w/2, cy=b.y+b.h/2, ext=Math.abs(dx)*b.w/2+Math.abs(dy)*b.h/2;
+  const cx=b.x+b.w*(f.gx??.5), cy=b.y+b.h*(f.gy??.5);
+  const ext=(Math.abs(dx)*b.w/2+Math.abs(dy)*b.h/2)*(f.axisScale??1);
   const g=c.createLinearGradient(cx-dx*ext,cy-dy*ext,cx+dx*ext,cy+dy*ext);
   addStops(g,f.stops,f.space);
   return g;
@@ -1865,9 +2100,9 @@ function paintAppearance(c,obj,mk,b,objBlend){
     c.save();
     c.globalAlpha=base*fo*f.opacity;
     c.globalCompositeOperation=bl(f.blend);
-    const st=paintStyle(c,f,b);
     c.beginPath(); mk(c);
-    c.fillStyle=st; c.fill(fr);
+    if(f.kind==='image') paintImageFill(c,f,b,mk,fr);
+    else { c.fillStyle=paintStyle(c,f,b); c.fill(fr); }
     if(c.__ellipticalGrad){ delete c.__ellipticalGrad; c.restore(); c.restore(); return; }
     c.restore();
   });
@@ -1936,6 +2171,38 @@ function paintAppearance(c,obj,mk,b,objBlend){
   });
   c.globalAlpha=base;
 }
+
+function paintImageFill(c,f,b,mk,rule){
+  const im=imageFor(f.src);
+  if(!im||!im.complete||!im.naturalWidth) return false;
+  c.save(); c.beginPath(); mk(c); c.clip(rule);
+  const iw=im.naturalWidth, ih=im.naturalHeight;
+  if(f.mode==='stretch'){
+    c.translate(b.x+b.w/2,b.y+b.h/2); c.rotate((f.rotation||0)*Math.PI/180);
+    c.drawImage(im,-b.w/2,-b.h/2,b.w,b.h); c.restore(); return true;
+  }
+  if(f.mode==='tile'){
+    const p=c.createPattern(im,'repeat');
+    if(p&&p.setTransform&&typeof DOMMatrix!=='undefined'){
+      const sc=(f.tileScale||1)*(f.scale||1);
+      p.setTransform(new DOMMatrix().translate(b.x+b.w*(f.x??.5),b.y+b.h*(f.y??.5))
+        .rotate(f.rotation||0).scale(sc));
+    }
+    c.fillStyle=p; c.beginPath(); mk(c); c.fill(rule); c.restore(); return true;
+  }
+  const angle=(f.rotation||0)*Math.PI/180;
+  const ca=Math.abs(Math.cos(angle)), sa=Math.abs(Math.sin(angle));
+  /* Fit contains the rotated bitmap's complete bounding box. Cover projects
+   * the target box onto the bitmap's rotated axes, which prevents uncovered
+   * corners when a Fill/Crop image is rotated. */
+  const base=f.mode==='fit'
+    ? Math.min(b.w/(iw*ca+ih*sa),b.h/(iw*sa+ih*ca))
+    : Math.max((b.w*ca+b.h*sa)/iw,(b.w*sa+b.h*ca)/ih);
+  const sc=base*(f.scale||1), dw=iw*sc, dh=ih*sc;
+  const cx=b.x+b.w*(f.x??.5), cy=b.y+b.h*(f.y??.5);
+  c.translate(cx,cy); c.rotate(angle);
+  c.drawImage(im,-dw/2,-dh/2,dw,dh); c.restore(); return true;
+}
 /* Append-only path builder. Callers begin the path themselves, which is what
  * lets a shape be combined with another subpath (the inverse-region fill that
  * casts an inner shadow) instead of replacing it. */
@@ -1952,6 +2219,21 @@ function pathFor(c,obj){ c.beginPath(); addPath(c,obj); }
 function hexAlpha(hex,a){
   const n=parseInt(hex.slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+/* A continuous glow profile built from three Gaussian bands. Falloff changes
+ * their weights smoothly instead of rounding to a pass count, so adjacent
+ * slider values cannot collapse to the same rendering. Weights sum to one,
+ * preserving the requested opacity. */
+function glowKernel(p){
+  const base=Math.max(0,(+p.radius||0)+(+p.spread||0));
+  const f=clamp(((+p.falloff||.2)-.2)/3.8,0,1);
+  const raw=[1,f*.9,f*1.6], sum=raw.reduce((a,b)=>a+b,0);
+  return [
+    {blur:base,alpha:(+p.alpha||0)*raw[0]/sum},
+    {blur:base*.56,alpha:(+p.alpha||0)*raw[1]/sum},
+    {blur:base*.24,alpha:(+p.alpha||0)*raw[2]/sum},
+  ].filter(x=>x.alpha>.0001&&x.blur>0);
 }
 
 /* ---- linked pattern layout ----
@@ -2152,9 +2434,17 @@ function drawDoc(c,W,H,opts){
   // gradient rect are the same code — and rounds/strokes like a frame.
   (f.artboards||[]).forEach(a=>{
     if(!a.show) return;
-    artboardPath(c,a);
-    c.fillStyle=paintStyle(c,a.fill,{x:a.x,y:a.y,w:a.w,h:a.h})||a.bg;
-    c.fill();
+    c.save();
+    c.globalAlpha=clamp(a.fill?(a.fill.opacity??1):1,0,1);
+    c.globalCompositeOperation=(a.fill&&BLEND_MODES.includes(a.fill.blend))?a.fill.blend:'normal';
+    const abox={x:a.x,y:a.y,w:a.w,h:a.h};
+    if(a.fill&&a.fill.kind==='image') paintImageFill(c,a.fill,abox,cc=>artboardPath(cc,a),'nonzero');
+    else {
+      artboardPath(c,a);
+      c.fillStyle=a.fill?paintStyle(c,a.fill,abox):(a.bg||'#ffffff');
+      c.fill();
+    }
+    c.restore();
     const st=a.stroke;
     if(st&&st.on&&st.width>0){
       c.save();
@@ -2430,10 +2720,16 @@ function pixelPad(entries){
   entries.forEach(e=>{
     const p=e.params||{};
     if(e.type==='blur') pad=Math.max(pad,(+p.radius||0)*3+(+p.distance||0));
+    if(e.type==='bloom') pad=Math.max(pad,(+p.radius||0)*3+8);
     if(e.type==='distortion') pad=Math.max(pad,Math.abs(+p.amount||0)+12);
     if(e.type==='warp') pad=Math.max(pad,Math.abs(+p.strength||0)*2);
     if(e.type==='displacement') pad=Math.max(pad,Math.abs(+p.scaleX||0)+Math.abs(+p.scaleY||0));
     if(e.type==='slice') pad=Math.max(pad,Math.abs(+p.offset||0));
+    if(e.type==='channelFx'){
+      const explicit=Math.max(Math.abs(+p.redX||0),Math.abs(+p.redY||0),Math.abs(+p.greenX||0),
+        Math.abs(+p.greenY||0),Math.abs(+p.blueX||0),Math.abs(+p.blueY||0));
+      pad=Math.max(pad,p.mode==='channelOffset'?explicit+4:(+p.amount||0)+4);
+    }
   });
   return Math.min(400,Math.ceil(pad));
 }
@@ -2502,8 +2798,12 @@ function spillPad(obj){
   if(FS&&obj.fx) obj.fx.forEach(e=>{
     if(!FS.entryOn(e)) return;
     const p=e.params||{};
-    if(e.type==='shadow') pad=Math.max(pad,Math.abs(+p.x||0)+Math.abs(+p.y||0)+(+p.blur||0)+(+p.spread||0)+4);
-    if(e.type==='glow') pad=Math.max(pad,(+p.radius||0)+(+p.spread||0)+4);
+    if(e.type==='shadow') pad=Math.max(pad,p.type==='long'
+      ? (+p.length||0)+(+p.spread||0)+4
+      : Math.abs(+p.x||0)+Math.abs(+p.y||0)+(+p.blur||0)+(+p.spread||0)+4);
+    /* Canvas blur can extend to roughly three radii. Reserving only one
+     * radius clipped large glows into the hard rectangle visible in the UI. */
+    if(e.type==='glow') pad=Math.max(pad,(+p.radius||0)*3+(+p.spread||0)+8);
   });
   if(FS&&obj.fx){
     const pix=FS.inSlot(obj.fx,'pixel');
@@ -2517,6 +2817,7 @@ function paintCacheable(obj){
   if(!FS||!obj.fx||obj.__inPixelPass) return false;
   if(CONTAINER(obj)||obj.type==='instance') return false;
   if(obj.blend&&obj.blend!=='normal') return false;
+  if(obj.fx.some(e=>FS.entryOn(e)&&FS.isBackdrop(e.type))) return false;
   const m=FS.activeMaterial(obj.fx);
   if(m&&FS.isBackdrop(m.type)) return false;
   if(window.BlobEngine&&window.BlobEngine.available()&&inBlobGroup(obj)) return false;
@@ -2559,21 +2860,35 @@ function drawOne(c,W,H,obj){
 }
 function drawOneUncached(c,W,H,obj){
   const FS=window.FxStack;
-  const pix=(FS&&obj.fx)?FS.inSlot(obj.fx,'pixel'):[];
+  if(!obj.__inPixelPass) paintBackdropEffects(c,obj);
+  const material=(FS&&obj.fx)?FS.activeMaterial(obj.fx):null;
+  const backdropGlass=!!(material&&material.type==='glass'&&FS.isBackdrop('glass'));
+  /* Every pixel effect uses the geometry-masked post-material path for
+   * backdrop Glass. None may render the material against an empty crop. */
+  const pix=(FS&&obj.fx)?(backdropGlass?[]:FS.inSlot(obj.fx,'pixel')):[];
   if(pix.length&&window.Filters&&!obj.__inPixelPass){
+    /* Behind effects are layer styles, not source pixels. Previously the
+     * offscreen source included Drop Shadow and Outer Glow, so Bloom blurred
+     * and added the glow back into itself until it became a solid slab. Paint
+     * the behind slot once on the destination, then filter only the layer's
+     * material/over/content pixels. */
     const b=aabbOf(obj);
     const pad=pixelPad(pix);
     const lx=Math.floor(b.x-pad), ly=Math.floor(b.y-pad);
     const lw=Math.ceil(b.w+pad*2), lh=Math.ceil(b.h+pad*2);
     if(lw>0&&lh>0&&lw<6000&&lh<6000){
+      obj.__inPixelPass=true; obj.__behindOnly=true;
+      try{ drawOneInner(c,W,H,obj); }
+      finally{ delete obj.__behindOnly; delete obj.__inPixelPass; }
       let lay=fxLayer(lw,lh);
       const lc=lay.getContext('2d');
       lc.setTransform(1,0,0,1,-lx,-ly);
-      obj.__inPixelPass=true;                 // re-entry guard
-      try{ drawOneUncached(lc,W,H,obj); } finally{ delete obj.__inPixelPass; }
+      obj.__inPixelPass=true; obj.__skipBehind=true; // re-entry guard
+      try{ drawOneUncached(lc,W,H,obj); }
+      finally{ delete obj.__skipBehind; delete obj.__inPixelPass; }
       lc.setTransform(1,0,0,1,0,0);
       // filters run in STACK ORDER — blur-then-warp differs from warp-then-blur
-      pix.forEach(e=>{ lay=Filters.apply(e.type,lay,e.params); });
+      pix.forEach(e=>{ lay=Filters.apply(e.type,lay,e.params,{draft:fxDraft}); });
       c.save();
       c.globalAlpha=obj.opacity===undefined?1:obj.opacity;
       if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
@@ -2583,6 +2898,41 @@ function drawOneUncached(c,W,H,obj){
     }
   }
   drawOneInner(c,W,H,obj);
+}
+
+function applyObjectTransform(c,obj){
+  if(!(obj.rot||obj.mirrorX||obj.mirrorY||obj.skewX||obj.skewY)) return;
+  const bb=boxOf(obj), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
+  c.translate(cx,cy);
+  if(obj.rot) c.rotate(obj.rot*Math.PI/180);
+  if(obj.skewX||obj.skewY)
+    c.transform(1,Math.tan((obj.skewY||0)*Math.PI/180),Math.tan((obj.skewX||0)*Math.PI/180),1,0,0);
+  if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1,obj.mirrorY?-1:1);
+  c.translate(-cx,-cy);
+}
+
+/* True backdrop blur: read pixels already present on the destination, blur
+ * that snapshot, then reveal it only through this layer's transformed path.
+ * It runs before the layer's own pixel pipeline so Blur still means “blur the
+ * layer” while Background blur means “blur what is behind the layer”. */
+function paintBackdropEffects(c,obj){
+  if(!obj.fx||obj.type==='text'||obj.type==='line'||obj.type==='image') return;
+  const entries=fxEntries(obj,'backdrop');
+  if(!entries.length) return;
+  entries.forEach(entry=>{
+    const p=entry.params||{}; if(!p.on||p.radius<=0) return;
+    const src=document.createElement('canvas'); src.width=c.canvas.width; src.height=c.canvas.height;
+    src.getContext('2d').drawImage(c.canvas,0,0);
+    const soft=document.createElement('canvas'); soft.width=src.width; soft.height=src.height;
+    const sc=soft.getContext('2d'); sc.filter=`blur(${p.radius}px)`; sc.drawImage(src,0,0);
+    c.save(); applyObjectTransform(c,obj);
+    c.beginPath(); addPath(c,obj); c.clip();
+    c.setTransform(1,0,0,1,0,0);
+    c.globalAlpha=clamp(p.opacity===undefined?1:p.opacity,0,1);
+    c.globalCompositeOperation='source-over';
+    c.drawImage(soft,0,0);
+    c.restore();
+  });
 }
 function drawOneInner(c,W,H,obj){
     const fx=obj.effects||{};
@@ -2848,6 +3198,33 @@ function drawOneInner(c,W,H,obj){
       }
     }
     const gla=fx.glass;
+    if(gla&&fxOn(obj,'glass')&&obj.type!=='text'){
+      /* Material renderers return before the ordinary shape painter, where
+       * behind-slot effects normally run. Paint only that slot first so a
+       * Glass layer can cast shadows and outer glows without painting its
+       * ordinary fill. drawObject's backdrop isolation also removes the
+       * caster interior, preventing Glass from refracting its own shadow. */
+      obj.__behindOnly=true;
+      try{ drawObject(c,obj); }finally{ delete obj.__behindOnly; }
+    }
+    const glassPixelState=(gla&&fxOn(obj,'glass')&&obj.type!=='text')
+      ?captureBackdropGlassPixels(c,obj):null;
+    if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&gla.mode==='solid3d'&&window.GlassObjectEngine&&window.GlassObjectEngine.available()){
+      const base=DEFAULT_EFFECTS().glass3d;
+      const g3=Object.assign({},base,{on:true,mat:(gla.frost||0)>8?'frosted':'glass',tint:gla.tint,
+        size:gla.size,ext:gla.extrude,round:gla.round,rx:gla.rotateX,ry:gla.rotateY,rz:gla.rotateZ,
+        ior:gla.ior,rough:clamp(gla.roughness+(gla.frost||0)/180,0,1),
+        trans:clamp(Math.abs(gla.refraction||0)/100,0,1),dens:gla.absorption,
+        samples:({draft:12,standard:36,high:96})[gla.quality]||36,
+        exposure:.7+clamp((gla.edgeIntensity||0)/100,0,1)*.8});
+      const img=window.GlassObjectEngine.render(obj.w,obj.h,g3);
+      if(img){
+        c.save(); c.globalAlpha=obj.opacity*(gla.opacity/100); c.drawImage(img,obj.x,obj.y,obj.w,obj.h); c.restore();
+        paintGrainOverlay(c,obj);
+        paintBackdropGlassPixels(c,glassPixelState);
+        return;
+      }
+    }
     if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&window.GlassEngine&&window.GlassEngine.available()){
       // Glass replaces the fill entirely: the shader refracts everything
       // painted so far (page bg + layers below), so the object's own
@@ -2859,31 +3236,51 @@ function drawOneInner(c,W,H,obj){
         // shader shapes: 0 rect, 1 circle, 2 pill. An elongated ellipse maps
         // to the pill (closest smooth footprint); rotation is not supported
         // by the shader and is ignored for the glass pass.
-        shape: o.type==='ellipse' ? (Math.abs(o.w-o.h)<2?1:2) : 0,
+        shape: o.type==='ellipse' ? (Math.abs(o.w-o.h)<2?1:3) : 0,
         radius01: o.type==='ellipse'?0.5:clamp((o.radius||0)/Math.max(1,Math.min(o.w,o.h)),0,0.5),
       }));
-      window.GlassEngine.render(c.canvas,W,H,geoms,gla);
+      const glassParams=Object.assign({},gla,{
+        frost:gla.mode==='frosted'?Math.max(35,gla.frost||0):gla.frost,
+        flutes:gla.mode==='reeded'?gla.reedStrength:0,
+        fluteWidth:gla.reedWidth,fluteAngle:gla.reedAngle,
+        fluteMode:gla.reedByCount?1:0,fluteCount:gla.reedCount,
+      });
+      window.GlassEngine.render(c.canvas,W,H,geoms,glassParams);
+      paintGrainOverlay(c,obj);
+      paintBackdropGlassPixels(c,glassPixelState);
       return;
     }
     drawObject(c,obj);
     patternInstances(obj).forEach(inst=>drawObject(c,inst));
 }
 
+function drawTextGlyphs(c,obj,mode){
+  const L=textLayout(obj);
+  c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
+  c.letterSpacing=(obj.tracking||0)+'px'; c.textBaseline='top'; c.textAlign=obj.align;
+  const area=obj.mode==='area';
+  let ty=obj.y;
+  if(area&&obj.autosize==='fixed'){
+    if(obj.valign==='middle') ty+=Math.max(0,(obj.h-L.contentH)/2);
+    else if(obj.valign==='bottom') ty+=Math.max(0,obj.h-L.contentH);
+  }
+  const tx=!area?obj.x:obj.align==='center'?obj.x+obj.w/2:obj.align==='right'?obj.x+obj.w:obj.x;
+  if(area&&obj.autosize==='fixed'){ c.save(); c.beginPath(); c.rect(obj.x,obj.y,obj.w,obj.h); c.clip(); }
+  L.lines.forEach((ln,li)=>mode==='stroke'
+    ? c.strokeText(ln,tx,ty+li*L.lh)
+    : c.fillText(ln,tx,ty+li*L.lh));
+  if(area&&obj.autosize==='fixed') c.restore();
+  c.letterSpacing='0px';
+}
+
 function drawObject(c,obj,plain){
   {
+    const FS=window.FxStack;
     c.save();
     // Rotation/mirror are applied about the instance centre BEFORE anything is
     // drawn, so geometry, gradient and effects all transform together.
-    if(obj.rot||obj.mirrorX||obj.mirrorY||obj.skewX||obj.skewY){
-      const bb=boxOf(obj), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
-      c.translate(cx,cy);
-      if(obj.rot) c.rotate(obj.rot*Math.PI/180);
-      if(obj.skewX||obj.skewY)
-        c.transform(1,Math.tan((obj.skewY||0)*Math.PI/180),Math.tan((obj.skewX||0)*Math.PI/180),1,0,0);
-      if(obj.mirrorX||obj.mirrorY) c.scale(obj.mirrorX?-1:1, obj.mirrorY?-1:1);
-      c.translate(-cx,-cy);
-    }
-    c.globalAlpha=(plain||obj.__inPixelPass)?1:obj.opacity;
+    applyObjectTransform(c,obj);
+    c.globalAlpha=(plain||(obj.__inPixelPass&&!obj.__behindOnly))?1:obj.opacity;
     // §4.4 object-level blend. Shapes and paths apply it per fill/stroke
     // inside paintAppearance (so an entry can override it); text and lines
     // paint in one pass, so it is set here for them.
@@ -2892,76 +3289,110 @@ function drawObject(c,obj,plain){
     // Defensive: an object that reached the renderer without passing through
     // normalizeDoc has no effects dictionary, and an uncaught TypeError here
     // takes the whole frame down rather than dropping one object's shadow.
-    const sh=(obj.effects&&obj.effects.shadow)||{on:false};
     const mkPath=cc=>addPath(cc,obj);
     // §5.15 behind slot, walked in STACK ORDER — stacking two shadows or a
     // shadow plus a glow now works, and their order is the user's choice.
-    if(!plain&&obj.type!=='text') fxEntries(obj,'behind').forEach(entry=>{
+    if(!plain&&!obj.__skipBehind&&obj.type!=='text') fxEntries(obj,'behind').forEach(entry=>{
       const gl=entry.type==='glow'?entry.params:null;
       if(gl&&gl.type==='outer'&&gl.radius>0){
         // §4.11 outer glow: a zero-offset shadow laid under the object.
-        // Falloff is applied by repeating the pass — each repeat concentrates
-        // the core, which is what a falloff curve does to the profile.
         c.save();
         c.globalCompositeOperation=blendOp(gl.blend);
-        const reps=Math.max(1,Math.round(gl.falloff*2));
-        for(let i=0;i<reps;i++){
-          c.shadowColor=hexAlpha(gl.color,gl.alpha/reps*1.4);
-          c.shadowBlur=gl.radius; c.shadowOffsetX=0; c.shadowOffsetY=0;
+        glowKernel(gl).forEach(pass=>{
+          const ink=hexAlpha(gl.color,pass.alpha);
+          c.shadowColor=ink;
+          c.shadowBlur=pass.blur; c.shadowOffsetX=0; c.shadowOffsetY=0;
           c.beginPath(); mkPath(c);
-          c.fillStyle='#000';
-          if(gl.spread>0){ c.lineWidth=gl.spread*2; c.strokeStyle='#000'; c.stroke(); }
+          c.fillStyle=ink;
           c.fill();
-        }
+        });
         c.restore();
       }
       const sd=entry.type==='shadow'?entry.params:null;
       if(sd&&sd.on){
-        c.save();
-        c.shadowColor=hexAlpha(sd.color,sd.alpha); c.shadowBlur=sd.blur;
-        c.shadowOffsetX=sd.x; c.shadowOffsetY=sd.y;
-        c.globalCompositeOperation=blendOp(sd.blend);
-        c.beginPath(); mkPath(c);
-        if(sd.spread>0){ c.lineWidth=sd.spread*2; c.strokeStyle='#000'; c.stroke(); }
-        c.fillStyle='#000'; c.fill();
-        c.restore();
+        /* Canvas shadows include a painted copy of the caster itself. A
+         * normal fill covers that copy later; a backdrop material samples
+         * the canvas instead, so it used to refract its OWN dark caster and
+         * produced the horizontal band visible at the bottom of glass. For a
+         * backdrop material, build the behind effect on an isolated layer and
+         * remove the caster interior before compositing it. */
+        const activeMat=FS&&obj.fx&&FS.activeMaterial(obj.fx);
+        const isolate=!!(activeMat&&FS.isBackdrop(activeMat.type));
+        const shadowLayer=isolate?document.createElement('canvas'):null;
+        let sc=c;
+        if(shadowLayer){
+          shadowLayer.width=c.canvas.width; shadowLayer.height=c.canvas.height;
+          sc=shadowLayer.getContext('2d'); sc.setTransform(c.getTransform());
+        }
+        sc.save();
+        const ink=hexAlpha(sd.color,sd.alpha);
+        sc.globalCompositeOperation=blendOp(sd.blend);
+        if(sd.type==='long'&&sd.length>0){
+          /* Long shadow is the same silhouette capability sampled along one
+           * vector. It lives in Shadow rather than becoming another engine,
+           * so colour/opacity/blend and stack ordering remain reusable. */
+          const a=sd.angle*Math.PI/180;
+          const steps=Math.max(2,Math.min(240,Math.ceil(sd.length/2)));
+          const passInk=hexAlpha(sd.color,sd.alpha/Math.max(1,steps/8));
+          sc.shadowColor='transparent'; sc.fillStyle=passInk; sc.strokeStyle=passInk;
+          for(let i=steps;i>=1;i--){
+            const d=sd.length*i/steps;
+            sc.save(); sc.translate(Math.cos(a)*d,Math.sin(a)*d);
+            sc.beginPath(); mkPath(sc);
+            if(sd.spread>0){ sc.lineWidth=sd.spread*2; sc.stroke(); }
+            sc.fill(); sc.restore();
+          }
+        }else{
+          /* Creative-editor Spread is a SOFT expansion. A geometric stroke
+           * around the caster produces a solid frame at high opacity (the
+           * screenshot failure); expanding the shadow kernel widens coverage
+           * while keeping the edge continuous. */
+          sc.shadowColor=ink; sc.shadowBlur=sd.blur+sd.spread;
+          sc.shadowOffsetX=sd.x; sc.shadowOffsetY=sd.y;
+          sc.beginPath(); mkPath(sc);
+          sc.fillStyle=ink; sc.fill();
+        }
+        sc.restore();
+        if(shadowLayer){
+          sc.save(); sc.shadowColor='transparent'; sc.shadowBlur=0;
+          sc.shadowOffsetX=sc.shadowOffsetY=0;
+          sc.globalCompositeOperation='destination-out';
+          sc.beginPath(); mkPath(sc); sc.fillStyle='#000'; sc.fill(); sc.restore();
+          c.save(); c.setTransform(1,0,0,1,0,0); c.drawImage(shadowLayer,0,0); c.restore();
+        }
       }
     });
-    // the legacy single-shadow path stays for text, which has no stack slot
-    if(sh.on&&!plain&&obj.type==='text'){
-      c.shadowColor=hexAlpha(sh.color,sh.alpha); c.shadowBlur=sh.blur;
-      c.shadowOffsetX=sh.x; c.shadowOffsetY=sh.y;
-      if(sh.spread>0&&obj.type!=='text'){
-        // §4.9 spread: thicken the caster so the shadow grows without blurring
-        c.save();
-        c.globalCompositeOperation=blendOp(sh.blend);
-        c.beginPath(); mkPath(c);
-        c.lineWidth=sh.spread*2; c.strokeStyle='#000'; c.fillStyle='#000';
-        c.stroke(); c.fill();
-        c.restore();
-        c.shadowColor='transparent';
-      }
-    }
+    if(obj.__behindOnly&&obj.type!=='text'){ c.restore(); return; }
     if(obj.type==='text'){
-      const L=textLayout(obj);
-      c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
-      c.letterSpacing=(obj.tracking||0)+'px';
-      c.fillStyle=obj.color; c.textBaseline='top';
-      c.textAlign=obj.align;
-      const area=obj.mode==='area';
-      let ty=obj.y;
-      if(area&&obj.autosize==='fixed'){
-        if(obj.valign==='middle') ty+=Math.max(0,(obj.h-L.contentH)/2);
-        else if(obj.valign==='bottom') ty+=Math.max(0,obj.h-L.contentH);
-      }
-      const tx=!area?obj.x
-        : obj.align==='center'?obj.x+obj.w/2
-        : obj.align==='right'?obj.x+obj.w
-        : obj.x;
-      if(area&&obj.autosize==='fixed'){ c.save(); c.beginPath(); c.rect(obj.x,obj.y,obj.w,obj.h); c.clip(); }
-      L.lines.forEach((ln,li)=>c.fillText(ln,tx,ty+li*L.lh));
-      if(area&&obj.autosize==='fixed') c.restore();
-      c.letterSpacing='0px';
+      if(!plain&&!obj.__skipBehind) fxEntries(obj,'behind').forEach(entry=>{
+        const p=entry.params||{};
+        if(entry.type==='shadow'&&p.on){
+          c.save(); c.globalCompositeOperation=blendOp(p.blend);
+          if(p.type==='long'&&p.length>0){
+            const a=p.angle*Math.PI/180, steps=Math.max(2,Math.min(240,Math.ceil(p.length/2)));
+            c.fillStyle=hexAlpha(p.color,p.alpha/Math.max(1,steps/8));
+            for(let i=steps;i>=1;i--){ const d=p.length*i/steps;
+              c.save(); c.translate(Math.cos(a)*d,Math.sin(a)*d); drawTextGlyphs(c,obj,'fill'); c.restore(); }
+          }else{
+            const ink=hexAlpha(p.color,p.alpha);
+            c.shadowColor=ink; c.shadowBlur=p.blur+p.spread; c.shadowOffsetX=p.x; c.shadowOffsetY=p.y;
+            c.fillStyle=ink; drawTextGlyphs(c,obj,'fill');
+          }
+          c.restore();
+        }
+        if(entry.type==='glow'&&p.on&&p.type==='outer'&&p.radius>0){
+          c.save(); c.globalCompositeOperation=blendOp(p.blend);
+          glowKernel(p).forEach(pass=>{
+            const ink=hexAlpha(p.color,pass.alpha);
+            c.shadowColor=ink; c.shadowBlur=pass.blur; c.shadowOffsetX=0; c.shadowOffsetY=0;
+            c.fillStyle=ink; drawTextGlyphs(c,obj,'fill');
+          });
+          c.restore();
+        }
+      });
+      if(obj.__behindOnly){ c.restore(); return; }
+      c.shadowColor='transparent'; c.shadowBlur=0; c.shadowOffsetX=c.shadowOffsetY=0;
+      c.fillStyle=obj.color; drawTextGlyphs(c,obj,'fill');
       c.restore(); return;
     }
     if(obj.type==='instance'){
@@ -3055,29 +3486,33 @@ function drawObject(c,obj,plain){
         const p=entry.params;
         if(entry.type==='innerShadow'&&p.on&&(p.blur>0||p.spread>0))
           inners.push({x:p.x,y:p.y,blur:p.blur,spread:p.spread,
-            color:p.color,alpha:p.alpha,blend:p.blend,reps:1});
+            color:p.color,alpha:p.alpha,blend:p.blend,falloff:null});
         if(entry.type==='glow'&&p.on&&p.type==='inner'&&p.radius>0)
           inners.push({x:0,y:0,blur:p.radius,spread:p.spread,
-            color:p.color,alpha:p.alpha,blend:p.blend,reps:Math.max(1,Math.round(p.falloff*2))});
+            color:p.color,alpha:p.alpha,blend:p.blend,falloff:p.falloff});
       });
       inners.forEach(S=>{
         c.save();
         c.beginPath(); mkPath(c); c.clip();
         c.globalCompositeOperation=blendOp(S.blend);
         const R=1e4;
-        for(let i=0;i<S.reps;i++){
-          c.shadowColor=hexAlpha(S.color,S.alpha/S.reps*(S.reps>1?1.4:1));
-          c.shadowBlur=S.blur; c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
+        const passes=S.falloff===null
+          ? [{blur:S.blur+S.spread,alpha:S.alpha}]
+          : glowKernel({radius:S.blur,spread:S.spread,alpha:S.alpha,falloff:S.falloff});
+        passes.forEach(pass=>{
+          c.shadowColor=hexAlpha(S.color,pass.alpha);
+          /* Spread belongs to the shadow kernel, not to the object's visible
+           * geometry. The previous pass stroked the clipped shape in opaque
+           * black, producing a hard frame (especially obvious on pills) that
+           * ignored the chosen shadow colour and softness. Keep the inverse
+           * caster unchanged and broaden its shadow, matching Drop Shadow's
+           * shared spread semantics. */
+          c.shadowBlur=pass.blur; c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
           c.beginPath();
           c.rect(-R,-R,R*2,R*2);      // everything...
           mkPath(c);                   // ...minus the shape (even-odd)
           c.fillStyle='#000'; c.fill('evenodd');
-          if(S.spread>0){
-            c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
-            c.beginPath(); mkPath(c);
-            c.lineWidth=S.spread*2; c.strokeStyle='#000'; c.stroke();
-          }
-        }
+        });
         c.restore();
       });
       c.shadowColor='transparent';
@@ -3097,17 +3532,7 @@ function drawObject(c,obj,plain){
         }
       }
     }
-    const gr=obj.effects.grain;
-    if(gr.amount>0&&fxOn(obj,'grain')){
-      if(!grainTile) grainTile=makeGrain();
-      c.save();
-      pathFor(c,obj); c.clip();
-      c.globalAlpha=obj.opacity*gr.amount*0.35;
-      c.globalCompositeOperation='overlay';
-      c.fillStyle=c.createPattern(grainTile,'repeat');
-      c.fillRect(b.x,b.y,b.w,b.h);
-      c.restore();
-    }
+    paintGrainOverlay(c,obj);
     c.restore();
   }
 }
@@ -3334,7 +3759,7 @@ function renderDoc(){
 }
 const RASTER_PREVIEW_FX=new Set([
   'light','liquid','flare','prism','capsule','strip','blob','glass','glass2',
-  'blur','distortion','warp','displacement','haze','slice','noise',
+  'blur','bloom','distortion','warp','displacement','haze','slice','noise',
 ]);
 function rasterPreviewNeeded(){
   return allObjects().some(o=>{
@@ -3347,6 +3772,34 @@ function rasterPreviewNeeded(){
     for(const k of RASTER_PREVIEW_FX) if(fxOn(o,k)) return true;
     return false;
   });
+}
+function activeGradientHandles(){
+  let target=primary(), fill=target&&target.fill, b=target&&boxOf(target);
+  if(!target&&selArtboard){ target=posArtboard(); fill=target&&target.fill;
+    if(target) b={x:target.x,y:target.y,w:target.w,h:target.h}; }
+  if(!target||!fill||!['linear','radial','angular','diamond'].includes(fill.kind)) return null;
+  const cx=b.x+b.w*clamp(fill.gx??.5,0,1), cy=b.y+b.h*clamp(fill.gy??.5,0,1);
+  const a=(fill.angle||0)*Math.PI/180;
+  const base=Math.max(24,Math.min(b.w,b.h)*.42);
+  const len=base*clamp(fill.axisScale??1,.1,4);
+  const axial=fill.kind==='linear';
+  const x0=axial?cx-Math.cos(a)*len:cx, y0=axial?cy-Math.sin(a)*len:cy;
+  const x1=cx+Math.cos(a)*len, y1=cy+Math.sin(a)*len;
+  const focal=fill.kind==='radial'?{x:cx+(fill.fx||0)*b.w/2,y:cy+(fill.fy||0)*b.h/2}:null;
+  return {target,fill,b,cx,cy,x0,y0,x1,y1,focal,stops:(fill.stops||[]).map((s,i)=>({
+    i,x:x0+(x1-x0)*s.pos,y:y0+(y1-y0)*s.pos,color:s.color}))};
+}
+function activeImageHandles(){
+  let target=primary(), fill=target&&target.fill, b=target&&boxOf(target);
+  if(!target&&selArtboard){ target=posArtboard(); fill=target&&target.fill;
+    if(target) b={x:target.x,y:target.y,w:target.w,h:target.h}; }
+  if(!target||!fill||fill.kind!=='image'||fill.mode==='stretch') return null;
+  const cx=b.x+b.w*clamp(fill.x??.5,0,1), cy=b.y+b.h*clamp(fill.y??.5,0,1);
+  const angle=(fill.rotation||0)*Math.PI/180;
+  const base=Math.max(28,Math.min(b.w,b.h)*.25);
+  const radius=base*Math.sqrt(clamp(fill.scale??1,.05,20));
+  return {target,fill,b,cx,cy,base,
+    sx:cx+Math.cos(angle)*radius,sy:cy+Math.sin(angle)*radius};
 }
 function paint(){
   const has=!!doc && doc.frame.children!==undefined;
@@ -3364,16 +3817,9 @@ function paint(){
   ctx.clearRect(0,0,W,H);
   ctx.setTransform(z*dpr,0,0,z*dpr,view.x*dpr,view.y*dpr);
   const f=doc.frame;
-  /* Surface + shadow. With artboards, EACH board is a surface — the single
-   * page-sized slab used to paint underneath them all, leaving a ghost of
-   * white "deleted canvas" wherever it outsized or outlived an artboard. */
-  ctx.save();
-  ctx.shadowColor='rgba(0,0,0,.13)'; ctx.shadowBlur=18/z; ctx.shadowOffsetY=3/z;
-  ctx.fillStyle='#ffffff';
-  // No artboards means an empty canvas, not a page-sized sheet: nothing to
-  // paint, and no drop shadow around a surface that is not there.
-  (f.artboards||[]).forEach(a=>{ if(a.show){ artboardPath(ctx,a); ctx.fill(); } });
-  ctx.restore();
+  /* drawDoc/frameBuf paints the artboard itself. Do not add a second preview
+   * surface here: besides duplicating the fill, that pass gave every artboard
+   * a permanent drop shadow which was not part of the document. */
   if(rasterPreviewNeeded()){
     ctx.imageSmoothingEnabled=true;
     ctx.drawImage(frameBuf,0,0);
@@ -3502,6 +3948,40 @@ function paint(){
       ctx.fillRect(h.x-hs/2,h.y-hs/2,hs,hs);
       ctx.strokeRect(h.x-hs/2,h.y-hs/2,hs,hs);
     });
+  }
+  if(tool==='select'){
+    const gh=activeGradientHandles();
+    if(gh){
+      ctx.save(); ctx.lineWidth=1.5/z; ctx.strokeStyle='rgba(37,99,235,.9)';
+      ctx.beginPath(); ctx.moveTo(gh.x0,gh.y0); ctx.lineTo(gh.x1,gh.y1); ctx.stroke();
+      gh.stops.forEach(h=>{
+        ctx.beginPath(); ctx.arc(h.x,h.y,6/z,0,Math.PI*2);
+        ctx.fillStyle=h.color; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=2/z; ctx.stroke();
+      });
+      ctx.beginPath(); ctx.arc(gh.x1,gh.y1,5/z,0,Math.PI*2);
+      ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#2563eb'; ctx.lineWidth=1.5/z; ctx.stroke();
+      if(gh.fill.kind!=='linear'){
+        const hs=8/z; ctx.fillStyle='#fff'; ctx.strokeStyle='#2563eb';
+        ctx.fillRect(gh.cx-hs/2,gh.cy-hs/2,hs,hs); ctx.strokeRect(gh.cx-hs/2,gh.cy-hs/2,hs,hs);
+      }
+      if(gh.focal){
+        ctx.beginPath(); ctx.arc(gh.focal.x,gh.focal.y,4.5/z,0,Math.PI*2);
+        ctx.fillStyle='#f59e0b'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    const ih=activeImageHandles();
+    if(ih){
+      ctx.save(); ctx.lineWidth=1.5/z; ctx.strokeStyle='rgba(37,99,235,.9)';
+      ctx.setLineDash([4/z,3/z]);
+      ctx.beginPath(); ctx.moveTo(ih.cx,ih.cy); ctx.lineTo(ih.sx,ih.sy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(ih.cx,ih.cy,7/z,0,Math.PI*2);
+      ctx.fillStyle='rgba(37,99,235,.92)'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=2/z; ctx.stroke();
+      const hs=9/z; ctx.fillStyle='#fff'; ctx.strokeStyle='#2563eb'; ctx.lineWidth=1.5/z;
+      ctx.fillRect(ih.sx-hs/2,ih.sy-hs/2,hs,hs); ctx.strokeRect(ih.sx-hs/2,ih.sy-hs/2,hs,hs);
+      ctx.restore();
+    }
   }
   // live numeric readout during a transform drag (§2.6)
   if(drag&&drag.readout){
@@ -4129,12 +4609,47 @@ const PAGE_TYPE={
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
   'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
-  'Blur':'blur','Distortion':'distortion','Warp':'warp',
+  'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
   'Displacement':'displacement','Haze':'haze','Slice':'slice','Noise':'noise',
 };
+const TYPE_PAGE=Object.fromEntries(Object.entries(PAGE_TYPE).map(([page,type])=>[type,page]));
+let _activeFxEntryId=null;
+function visibleRecipeEntries(obj){
+  const FS=window.FxStack;
+  return (obj&&Array.isArray(obj.fx)?obj.fx:[]).filter(e=>
+    (!FS||FS.isReady(e.type))&&(e.added===true||!FS||FS.entryOn(e)));
+}
+function activeFxEntry(obj,type){
+  const list=obj&&Array.isArray(obj.fx)?obj.fx:[];
+  let entry=list.find(e=>e.id===_activeFxEntryId&&(!type||e.type===type));
+  if(!entry&&type) entry=list.find(e=>e.type===type&&(e.added===true||!window.FxStack||window.FxStack.entryOn(e)))||list.find(e=>e.type===type);
+  return entry||null;
+}
+function fxParams(obj,type){
+  const entry=activeFxEntry(obj,type);
+  return entry?entry.params:obj.effects[type];
+}
+function fxEntryLabel(entry){
+  if(!entry) return '';
+  const FS=window.FxStack, p=entry.params||{};
+  if(entry.type==='glow') return p.type==='inner'?'Inner glow':'Outer glow';
+  if(entry.type==='shadow') return p.type==='long'?'Long shadow':'Drop shadow';
+  if(entry.type==='blur') return ({gaussian:'Gaussian blur',directional:'Directional blur',zoom:'Zoom blur'})[p.kind]||'Blur';
+  if(entry.type==='stylize') return ({posterize:'Posterize',threshold:'Threshold',halftone:'Halftone',pixelate:'Pixelate'})[p.mode]||'Stylize';
+  if(entry.type==='colorMap') return ({gradientMap:'Gradient map',duotone:'Duotone',overlay:'Color overlay'})[p.mode]||'Color mapping';
+  return FS?FS.label(entry.type):entry.type;
+}
+function focusFxEntry(obj,entry){
+  _activeFxEntryId=entry?entry.id:null;
+  if(entry){ entry.added=true; _collapsed.delete(TYPE_PAGE[entry.type]); }
+}
 const FX_PAGES=obj=>{
   const FS=window.FxStack;
   const live=FX_PAGES_RAW(obj).filter(p=>!(p in PAGE_TYPE)||!FS||FS.isReady(PAGE_TYPE[p]));
+  const recipe=visibleRecipeEntries(obj);
+  let active=recipe.find(e=>e.id===_activeFxEntryId);
+  if(!active&&recipe.length){ active=recipe[recipe.length-1]; _activeFxEntryId=active.id; }
+  const activePage=active&&TYPE_PAGE[active.type];
   /* 'Effects' is not an effect — it is the STACK page, a list of applied
    * effects plus a menu for adding one, and that menu is built from the very
    * pages filtered above. With every effect gated off it renders as a control
@@ -4159,15 +4674,15 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='boolean') return ['Boolean','Fill','Stroke','Effects','Shadow','Glow'];
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
-  if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Blur'];
-  if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  if(obj.type==='text') return ['Text','Shadow'];
+  if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
+  if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -4679,17 +5194,73 @@ function syncArtboardPanel(ab){
    * the first stop keeps it meaningful instead of disabling it. */
   const F=ab.fill||{kind:'solid',color:ab.bg};
   $('abFillKind').value=F.kind||'solid';
-  const grad=F.kind==='linear'||F.kind==='radial';
+  const grad=['linear','radial','angular','diamond'].includes(F.kind);
   $('abGradRow').style.display=grad?'':'none';
+  $('abImageFillRow').style.display=F.kind==='image'?'':'none';
+  if(F.kind==='image') $('abImageFillRow').innerHTML=imageFillEditorHTML(F,'abImg');
   $('abBg').value=grad
     ? ((F.stops&&F.stops[0]&&F.stops[0].color)||'#ffffff')
     : (/^#[0-9a-fA-F]{6}$/.test(F.color||'')?F.color:'#ffffff');
-  if(grad) $('abGradAngle').value=Math.round(F.angle||0);
+  $('abBg').style.visibility=F.kind==='image'?'hidden':'';
+  $('abFillOpacity').value=Math.round((F.opacity??1)*100);
+  $('abFillOpacityValue').textContent=Math.round((F.opacity??1)*100)+'%';
+  $('abFillBlend').value=BLEND_MODES.includes(F.blend)?F.blend:'normal';
+  if(grad){
+    $('abGradAngle').value=Math.round(F.angle||0);
+    $('abGradAngleValue').textContent=Math.round(F.angle||0)+'°';
+    $('abGradSpace').value=F.space||'srgb';
+    const host=$('abGradStops');
+    host.innerHTML='';
+    (F.stops||[]).forEach((st,si)=>{
+      host.insertAdjacentHTML('beforeend',`<div class="stopRow">
+        <input type="color" class="abGColor" data-s="${si}" value="${st.color}">
+        <input type="range" class="abGPos" data-s="${si}" min="0" max="100" value="${Math.round(st.pos*100)}">
+        <button class="stopDel abGDel" data-s="${si}" title="Remove stop" aria-label="Remove stop" ${(F.stops||[]).length<=2?'disabled':''}>${IC('x',12)}</button>
+      </div><div class="row2" style="margin:-4px 0 6px">
+        <label class="slider" style="font-size:10px">Stop opacity
+          <input type="range" class="abGOpacity" data-s="${si}" min="0" max="100" value="${Math.round((st.opacity??1)*100)}"></label>
+        <label class="slider" style="font-size:10px">Midpoint
+          <input type="range" class="abGMid" data-s="${si}" min="5" max="95" value="${Math.round((st.mid??.5)*100)}"></label>
+      </div>`);
+    });
+  }
   $('abRadius').value=Math.round(ab.radius||0);
   const S=ab.stroke||{};
   $('abStrokeW').value=Math.round(S.on?(S.width||0):0);
   $('abStrokeAlign').value=S.align||'center';
   $('abStrokeColor').value=/^#[0-9a-fA-F]{6}$/.test(S.color||'')?S.color:'#111111';
+}
+
+function imageFillEditorHTML(f,prefix,fi){
+  const at=fi===undefined?'':` data-i="${fi}"`;
+  return `<div class="imageFillEditor">
+    <div class="imageFillPreview">${f.src?`<img src="${esc(f.src)}" alt="Image fill preview">`:'<span>No image selected</span>'}</div>
+    <button type="button" class="rollBtn ${prefix}Pick"${at}>${f.src?'Replace image':'Choose image'}</button>
+    <label class="slider">Mode<select class="${prefix}Mode"${at}>
+      <option value="fill" ${f.mode==='fill'?'selected':''}>Fill</option><option value="fit" ${f.mode==='fit'?'selected':''}>Fit</option>
+      <option value="crop" ${f.mode==='crop'?'selected':''}>Crop</option><option value="stretch" ${f.mode==='stretch'?'selected':''}>Stretch</option>
+      <option value="tile" ${f.mode==='tile'?'selected':''}>Tile</option></select></label>
+    <div class="row2">
+      <label class="slider">Position X<input type="range" class="${prefix}X"${at} min="0" max="100" value="${Math.round((f.x??.5)*100)}"></label>
+      <label class="slider">Position Y<input type="range" class="${prefix}Y"${at} min="0" max="100" value="${Math.round((f.y??.5)*100)}"></label>
+    </div>
+    <label class="slider">Scale <span>${Math.round((f.scale??1)*100)}%</span>
+      <input type="range" class="${prefix}Scale"${at} min="5" max="400" value="${Math.round((f.scale??1)*100)}"></label>
+    <label class="slider">Rotation <span>${Math.round(f.rotation||0)}°</span>
+      <input type="range" class="${prefix}Rotation"${at} min="0" max="359" value="${Math.round(f.rotation||0)}"></label>
+    <button type="button" class="rollBtn ${prefix}Reset"${at}>Reset crop</button>
+  </div>`;
+}
+
+function chooseImageForFill(fill,done){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.addEventListener('change',()=>{
+    const file=inp.files&&inp.files[0]; if(!file)return;
+    const rd=new FileReader();
+    rd.onload=()=>{ fill.src=String(rd.result||''); fill.x=.5; fill.y=.5; fill.scale=1; fill.rotation=0; done(); };
+    rd.readAsDataURL(file);
+  });
+  inp.click();
 }
 
 /* Is this engine doing anything on this object? Drives the dot in the engine
@@ -4803,7 +5374,10 @@ const IC=(n,sz)=>window.Icons?Icons.svg(n,{size:sz||14}):'';
 
 /* ---- engines panel ---- */
 function buildFx(obj){
-  const pages=FX_PAGES(obj);
+  const allPages=FX_PAGES(obj);
+  const focused=activeFxEntry(obj);
+  const focusedPage=focused&&TYPE_PAGE[focused.type];
+  const pages=allPages.filter(name=>!(name in PAGE_TYPE)||name===focusedPage);
   /* EVERY page renders at once, as a stack of folding sections, rather than
    * one page at a time behind a title dropdown and a pair of arrows. Paging
    * made the panel's own contents modal: seeing Fill and Stroke together —
@@ -4834,6 +5408,16 @@ function buildFx(obj){
    * .fxSect is display:contents, so the container scopes lookups without
    * changing the layout by a pixel; collapsing sets display:none over it. */
   pages.forEach(name=>{
+    if(name===focusedPage){
+      body.insertAdjacentHTML('beforeend',
+        '<div class="fxSettingsHead" data-fxsect="'+esc(name)+'"><span>Settings</span><b>'+esc(fxEntryLabel(focused))+'</b></div>');
+      const sect=document.createElement('div');
+      sect.className='fxSect fxFocusedEditor';
+      body.appendChild(sect);
+      buildFxSection(obj,name,h=>sect.insertAdjacentHTML('beforeend',h),sect);
+      wireSectionCollapse(sect);
+      return;
+    }
     body.insertAdjacentHTML('beforeend',
       '<div class="pSect" data-fxsect="'+esc(name)+'">'+esc(name)+'</div>');
     const sect=document.createElement('div');
@@ -5142,10 +5726,15 @@ function buildFxSection(obj,page,add,body){
         </div>`);
         add(`<label class="slider">Type<select class="apKind" data-i="${fi}">
           <option value="solid">Solid</option><option value="linear">Linear gradient</option>
-          <option value="radial">Radial gradient</option></select></label>`);
+          <option value="radial">Radial gradient</option>
+          <option value="angular">Angular gradient</option>
+          <option value="diamond">Diamond gradient</option>
+          ${isFill?'<option value="image">Image fill</option>':''}</select></label>`);
         body.querySelectorAll('.apKind')[fi].value=f.kind;
         if(f.kind==='solid'){
           add(`<label class="slider">Color <input type="color" class="apColor" data-i="${fi}" value="${f.color}"></label>`);
+        }else if(f.kind==='image'){
+          add(imageFillEditorHTML(f,'apImg',fi));
         }else{
           /* Interpolation space applies to both gradient kinds, so it sits
            * above the kind-specific controls. It was in the model from the
@@ -5156,7 +5745,7 @@ function buildFxSection(obj,page,add,body){
             <option value="linear">Linear light</option>
             <option value="oklab">OKLab (perceptual)</option></select></label>`);
           body.querySelectorAll('.apSpace')[fi].value=f.space||'srgb';
-          if(f.kind==='linear'){
+          if(f.kind==='linear'||f.kind==='angular'||f.kind==='diamond'){
             add(`<label class="slider">Angle <span id="apAng${fi}">${Math.round(f.angle)}°</span>
               <input type="range" class="apAngle" data-i="${fi}" min="0" max="359" value="${Math.round(f.angle)}"></label>`);
           }else{
@@ -5267,6 +5856,29 @@ function buildFxSection(obj,page,add,body){
       each('apOn','change',(f,e)=>f.on=e.target.checked);
       each('apKind','change',(f,e)=>{ f.kind=e.target.value; },true);
       each('apColor','input',(f,e)=>f.color=e.target.value);
+      each('apImgX','input',(f,e)=>f.x=+e.target.value/100);
+      each('apImgY','input',(f,e)=>f.y=+e.target.value/100);
+      each('apImgScale','input',(f,e)=>{
+        f.scale=+e.target.value/100;
+        const sp=e.target.closest('label')&&e.target.closest('label').querySelector('span');
+        if(sp) sp.textContent=e.target.value+'%';
+      });
+      each('apImgRotation','input',(f,e)=>{
+        f.rotation=+e.target.value;
+        const sp=e.target.closest('label')&&e.target.closest('label').querySelector('span');
+        if(sp) sp.textContent=e.target.value+'°';
+      });
+      body.querySelectorAll('.apImgMode').forEach(el=>el.addEventListener('change',()=>{
+        list[I(el)].mode=el.value; pushHistory('Edit image fill'); render();
+      }));
+      body.querySelectorAll('.apImgPick').forEach(el=>el.addEventListener('click',()=>{
+        const f=list[I(el)];
+        chooseImageForFill(f,()=>{ pushHistory('Choose image fill'); refresh(); });
+      }));
+      body.querySelectorAll('.apImgReset').forEach(el=>el.addEventListener('click',()=>{
+        Object.assign(list[I(el)],{x:.5,y:.5,scale:1,rotation:0});
+        pushHistory('Reset image fill'); refresh();
+      }));
       each('apSpace','change',(f,e)=>{ f.space=e.target.value; },true);
       each('apAngle','input',(f,e,el)=>{ f.angle=+e.target.value; const sp=$('apAng'+I(el)); if(sp) sp.textContent=e.target.value+'°'; });
       each('apFx','input',(f,e)=>f.fx=+e.target.value/100);
@@ -5319,7 +5931,7 @@ function buildFxSection(obj,page,add,body){
        * you save once the appearance is set, not before. */
       if(isFill){
         const linkedStyle=(doc.frame.styles||[]).find(s=>s.id===obj.styleId);
-        add(`<div class="pSect">Style</div>`);
+        add(`<div class="appearanceSubhead">Saved style</div>`);
         if(linkedStyle){
           add(`<div class="fxHint">Linked to style "${esc(linkedStyle.name)}".</div>`);
           add(`<div class="gsBtns">
@@ -5366,74 +5978,65 @@ function buildFxSection(obj,page,add,body){
     else{
       const mat=FS.activeMaterial(obj.fx);
       const shadowed=FS.shadowedMaterials(obj.fx);
-      add(`<div class="fxHint">Effects apply bottom to top. Drag order with the
-        arrows; the eye toggles an entry without losing its settings. Click a
-        name to open its own panel.</div>`);
+      const recipe=visibleRecipeEntries(obj);
+      add(`<div class="recipeHead"><div><b>Effect recipe</b><span>${recipe.length} step${recipe.length===1?'':'s'}</span></div>
+        <button class="rollBtn" id="recipeAdd">${IC('plus',12)} Add effect</button></div>`);
+      add(`<div class="fxHint recipeHint">Processed bottom to top. Select a step to edit it.</div>`);
       if(shadowed.length){
         add(`<div class="fxWarn">${shadowed.length} material effect${shadowed.length===1?' is':'s are'}
           enabled below <b>${FS.label(mat.type)}</b> and cannot show —
           only the topmost material renders. Reorder or switch the others off.</div>`);
       }
-      // top of stack listed FIRST, the way layers read
-      [...obj.fx].reverse().forEach((e,ri)=>{
-        const i=obj.fx.length-1-ri;
-        const on=FS.entryOn(e);
+      recipe.forEach((e,step)=>{
+        const i=obj.fx.indexOf(e);
+        const enabled=e.on!==false;
         const isMat=FS.slotOf(e.type)==='material';
         const wins=mat&&mat.id===e.id;
-        add(`<div class="fxRow${on?' on':''}">
+        add(`<div class="fxRow${enabled?' on':''}${e.id===_activeFxEntryId?' active':''}" data-id="${esc(e.id)}">
+          <span class="fxStep">${String(step+1).padStart(2,'0')}</span>
           <button class="fxEye" data-i="${i}" title="${e.on===false?'Enable':'Disable'}"
             aria-label="${e.on===false?'Enable':'Disable'} ${FS.label(e.type)}">${IC(e.on===false?'eyeOff':'eye',13)}</button>
-          <button class="fxName" data-i="${i}">${FS.label(e.type)}</button>
+          <button class="fxName" data-i="${i}">${fxEntryLabel(e)}</button>
           <span class="fxSlot">${isMat?(wins?'material':'hidden'):FS.slotOf(e.type)}</span>
-          <button class="fxUp" data-i="${i}" title="Move up" aria-label="Move up" ${i===obj.fx.length-1?'disabled':''}>${IC('chevronUp',12)}</button>
-          <button class="fxDn" data-i="${i}" title="Move down" aria-label="Move down" ${i===0?'disabled':''}>${IC('chevronDown',12)}</button>
+          <button class="fxMore" data-i="${i}" title="Effect actions" aria-label="Actions for ${FS.label(e.type)}">${IC('moreHorizontal',14)}</button>
+          <span class="fxActions">
+            <button class="fxDn" data-i="${i}" title="Move earlier" aria-label="Move earlier" ${step===0?'disabled':''}>${IC('chevronUp',12)}</button>
+            <button class="fxUp" data-i="${i}" title="Move later" aria-label="Move later" ${step===recipe.length-1?'disabled':''}>${IC('chevronDown',12)}</button>
+            <button class="fxDup" data-i="${i}" title="Duplicate" aria-label="Duplicate ${FS.label(e.type)}">${IC('copy',12)}</button>
+            <button class="fxDel" data-i="${i}" title="Delete" aria-label="Delete ${FS.label(e.type)}">${IC('trash',12)}</button>
+          </span>
         </div>`);
       });
+      if(!recipe.length) add(`<div class="recipeEmpty">No effects yet. Add one to build a reusable recipe.</div>`);
       const wire=(cls,fn)=>body.querySelectorAll('.'+cls).forEach(el=>
         el.addEventListener('click',ev=>{ ev.stopPropagation(); fn(+el.dataset.i,el); }));
-      wire('fxEye',i=>{ obj.fx[i].on=obj.fx[i].on===false; pushHistory(); refresh(); });
-      wire('fxUp',i=>{ const a=obj.fx; [a[i],a[i+1]]=[a[i+1],a[i]]; pushHistory(); refresh(); });
-      wire('fxDn',i=>{ const a=obj.fx; [a[i],a[i-1]]=[a[i-1],a[i]]; pushHistory(); refresh(); });
-      wire('fxName',i=>{
-        const PAGE={shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',grain:'Grain',
-          gradient:'Gradient',light:'Light',prism:'Prism',capsule:'Capsule',strip:'Strip',
-          blob:'Blob',glass2:'Glass 2',glass:'Glass'};
-        const nm=PAGE[obj.fx[i].type];
-        // every section is on screen, so "go to that effect" unfolds it and
-        // scrolls to it rather than switching pages
-        if(nm&&FX_PAGES(obj).includes(nm)){
-          _collapsed.delete(nm); saveCollapsed(); syncInspector();
-          const head=$('fxBody').querySelector('[data-fxsect="'+CSS.escape(nm)+'"]');
-          if(head) head.scrollIntoView({block:'nearest'});
+      $('recipeAdd').addEventListener('click',()=>{ const b=$('enginesOpen'); if(b) b.click(); });
+      wire('fxMore',(i,el)=>{
+        const row=el.closest('.fxRow'), open=!row.classList.contains('menuOpen');
+        body.querySelectorAll('.fxRow.menuOpen').forEach(r=>r.classList.remove('menuOpen'));
+        row.classList.toggle('menuOpen',open);
+      });
+      wire('fxEye',i=>{ obj.fx[i].on=obj.fx[i].on===false; obj.fx[i].added=true; pushHistory(); refresh(); });
+      wire('fxUp',i=>{ const a=obj.fx; const next=recipe[recipe.indexOf(a[i])+1]; if(next){const j=a.indexOf(next); [a[i],a[j]]=[a[j],a[i]];} pushHistory(); refresh(); });
+      wire('fxDn',i=>{ const a=obj.fx; const prev=recipe[recipe.indexOf(a[i])-1]; if(prev){const j=a.indexOf(prev); [a[i],a[j]]=[a[j],a[i]];} pushHistory(); refresh(); });
+      wire('fxDup',i=>{
+        const src=obj.fx[i], copy={id:newId(),type:src.type,on:src.on!==false,added:true,
+          params:JSON.parse(JSON.stringify(src.params||{}))};
+        obj.fx.splice(i+1,0,copy); focusFxEntry(obj,copy); pushHistory('Duplicate '+fxEntryLabel(src)); refresh();
+      });
+      wire('fxDel',i=>{
+        const gone=obj.fx.splice(i,1)[0];
+        if(gone&&obj.effects[gone.type]===gone.params){
+          const next=obj.fx.find(e=>e.type===gone.type);
+          if(next) obj.effects[gone.type]=next.params;
+          else obj.effects[gone.type]=JSON.parse(JSON.stringify(DEFAULT_EFFECTS()[gone.type]||{}));
         }
+        if(gone&&gone.id===_activeFxEntryId) _activeFxEntryId=null;
+        pushHistory('Delete '+(gone?fxEntryLabel(gone):'effect')); refresh();
       });
-      add(`<div class="pSect">Presets</div>`);
-      add(`<div class="gsBtns">
-        <button class="rollBtn" id="fxSave">Save preset</button>
-        <button class="rollBtn" id="fxLoad">Apply preset…</button></div>`);
-      $('fxSave').addEventListener('click',()=>{
-        const nm=prompt('Preset name:','Effect preset');
-        if(!nm) return;
-        const P=JSON.parse(localStorage.getItem('ce.fxPresets')||'{}');
-        P[nm]=JSON.parse(JSON.stringify(obj.fx.map(e=>({type:e.type,on:e.on,params:e.params}))));
-        localStorage.setItem('ce.fxPresets',JSON.stringify(P));
-        status('Preset saved: '+nm);
+      wire('fxName',i=>{
+        focusFxEntry(obj,obj.fx[i]); saveCollapsed(); syncInspector();
       });
-      $('fxLoad').addEventListener('click',()=>{
-        const P=JSON.parse(localStorage.getItem('ce.fxPresets')||'{}');
-        const names=Object.keys(P);
-        if(!names.length){ status('No saved presets yet',true); return; }
-        const nm=prompt('Apply which preset?\n\n'+names.join('\n'),names[0]);
-        if(!nm||!P[nm]) return;
-        selObjs().filter(o=>!o.locked&&o.fx).forEach(o=>{ o.fx=JSON.parse(JSON.stringify(P[nm])); });
-        setActiveDoc(normalizeDoc(doc));
-        pushHistory(); refresh();
-      });
-      add(`<button class="rollBtn danger" id="fxFlatten">Flatten to raster…</button>`);
-      $('fxFlatten').addEventListener('click',flattenSelToRaster);
-      add(`<div class="fxHint">Flattening is destructive and opt-in: it bakes the
-        object and its whole stack into a pixel layer, and the vector data is gone
-        (undo still gets it back).</div>`);
     }
   }
 
@@ -5611,6 +6214,59 @@ function buildFxSection(obj,page,add,body){
   }
 
   const PIXEL_PANELS={
+    Stylize:['stylize',[
+      ['sel','mode','Mode',[['posterize','Posterize'],['threshold','Threshold'],['halftone','Halftone'],['pixelate','Pixelate']]],
+      ['when','mode','posterize',[['num','levels','Levels',2,32,1]]],
+      ['when','mode','threshold',[['num','threshold','Threshold',0,1,.01],['num','softness','Softness',0,.5,.01],
+        ['col','foreground','Foreground'],['col','background','Background']]],
+      ['when','mode','halftone',[['num','dotSize','Cell size',2,100,1],['num','angle','Angle',-180,180,1],
+        ['col','foreground','Ink'],['col','background','Paper']]],
+      ['when','mode','pixelate',[['num','pixelSize','Block size',2,100,1]]],
+      ['num','mix','Mix',0,1,.01],
+    ],'Posterize, Threshold, Halftone, and Pixelate share one ordered stylize pass. Each mode transforms the rendered layer and remains editable.'],
+    'Channel Effects':['channelFx',[
+      ['sel','mode','Mode',[['rgbSplit','RGB split'],['aberration','Chromatic aberration'],['channelOffset','Channel offset']]],
+      ['when','mode','rgbSplit',[['num','amount','Separation',0,200,1],['num','angle','Angle',-180,180,1]]],
+      ['when','mode','aberration',[['num','amount','Edge separation',0,200,1],['num','falloff','Falloff',.2,4,.01],
+        ['num','cx','Centre X',-.5,.5,.01],['num','cy','Centre Y',-.5,.5,.01]]],
+      ['when','mode','channelOffset',[['num','redX','Red X',-200,200,1],['num','redY','Red Y',-200,200,1],
+        ['num','greenX','Green X',-200,200,1],['num','greenY','Green Y',-200,200,1],
+        ['num','blueX','Blue X',-200,200,1],['num','blueY','Blue Y',-200,200,1]]],
+      ['num','mix','Mix',0,1,.01],
+    ],'Red and blue shift in opposite directions; green stays put, as it does in a real lens.'],
+    'Color Mapping':['colorMap',[
+      ['sel','mode','Mode',[['gradientMap','Gradient map'],['duotone','Duotone'],['overlay','Color overlay']]],
+      ['when','mode','gradientMap',[['col','shadow','Shadow color'],['col','highlight','Highlight color'],['num','mapOffset','Tone offset',-1,1,.01]]],
+      ['when','mode','duotone',[['col','shadow','Dark ink'],['num','darkStrength','Dark ink strength',0,1,.01],
+        ['num','darkGamma','Dark ink curve',.2,4,.01],['col','highlight','Light ink'],
+        ['num','lightStrength','Light ink strength',0,1,.01],['num','lightGamma','Light ink curve',.2,4,.01]]],
+      ['when','mode','overlay',[['col','overlay','Overlay color']]],
+      ['num','amount','Amount',0,1,0.01],
+    ],'Gradient Map, Duotone, and Color Overlay share one luminance-aware colour-mapping pass.'],
+    'Color Adjustments':['colorAdjust',[
+      ['num','exposure','Exposure',-3,3,0.01],
+      ['num','blackPoint','Black point',0,.99,0.01],
+      ['num','whitePoint','White point',.01,1,0.01],
+      ['num','brightness','Brightness',-1,1,0.01],
+      ['num','contrast','Contrast',-1,1,0.01],
+      ['num','brilliance','Brilliance',-1,1,0.01],
+      ['num','gamma','Gamma',.2,4,0.01],
+      ['num','saturation','Saturation',-1,1,0.01],
+      ['num','vibrance','Vibrance',-1,1,0.01],
+      ['num','temperature','Temperature',-1,1,0.01],
+      ['num','tint','Tint',-1,1,0.01],
+      ['num','highlights','Highlights',-1,1,0.01],
+      ['num','shadows','Shadows',-1,1,0.01],
+      ['col','filterColor','Color filter'],
+      ['num','filterAmount','Filter amount',0,1,0.01],
+      ['num','definition','Definition',0,1,0.01],
+    ],'One reusable tonal, colour, and detail pass for shapes, text, and images. Neutral values leave pixels unchanged.'],
+    Bloom:['bloom',[
+      ['num','amount','Intensity',0,3,0.01],
+      ['num','radius','Radius',0,200,1],
+      ['num','threshold','Threshold',0,1,0.01],
+      ['num','knee','Soft knee',0,1,0.01],
+    ],'Bloom reads the rendered pixels, isolates highlights, and adds softened light back. It is different from Glow, which follows the layer edge.'],
     Blur:['blur',[
       ['sel','kind','Type',[['gaussian','Gaussian'],['directional','Directional'],['zoom','Zoom']]],
       ['num','radius','Radius',0,200,1],
@@ -5620,29 +6276,30 @@ function buildFxSection(obj,page,add,body){
     ],'Gaussian and directional use the compositor\'s own blur; zoom accumulates scaled copies, which a CSS filter cannot express.'],
     Distortion:['distortion',[
       ['sel','mode','Mode',[['wave','Wave'],['twirl','Twirl'],['bulge','Bulge / pinch'],['ripple','Ripple']]],
-      ['num','amount','Amount',-200,200,1],
-      ['num','wavelength','Wavelength',0.01,2,0.01],
-      ['num','phase','Phase',-360,360,1],
-      ['num','radius','Radius',0.05,2,0.01],
-      ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01],
-      ['sel','axis','Axis',[['both','Both'],['x','X only'],['y','Y only']]],
-      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+      ['when','mode','wave',[['num','amount','Amount',-200,200,1],['num','wavelength','Wavelength',0.01,2,0.01],
+        ['num','phase','Phase',-360,360,1],['sel','axis','Axis',[['both','Both'],['x','X only'],['y','Y only']]]]],
+      ['when','mode','twirl',[['num','amount','Amount',-200,200,1],['num','radius','Radius',0.05,2,0.01],
+        ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01]]],
+      ['when','mode','bulge',[['num','amount','Bulge / pinch',-200,200,1],['num','radius','Radius',0.05,2,0.01],
+        ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01]]],
+      ['when','mode','ripple',[['num','amount','Amount',-200,200,1],['num','wavelength','Wavelength',0.01,2,0.01],
+        ['num','phase','Phase',-360,360,1],['num','radius','Radius',0.05,2,0.01],
+        ['num','cx','Centre X',-0.5,0.5,0.01],['num','cy','Centre Y',-0.5,0.5,0.01]]],
+      ['sel','edge','Outside pixels',[['clamp','Clamp edge'],['wrap','Wrap opposite edge'],['mirror','Mirror edge']]],
     ],'Bulge and pinch are the same control: positive bulges, negative pinches.'],
     Warp:['warp',[
       ['sel','envelope','Envelope',[['arc','Arc'],['arch','Arch'],['bulge','Bulge'],
         ['flag','Flag'],['wave','Wave'],['fisheye','Fisheye']]],
       ['num','strength','Strength',-100,100,1],
       ['sel','axis','Axis',[['horizontal','Horizontal'],['vertical','Vertical']]],
-      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+      ['sel','edge','Outside pixels',[['clamp','Clamp edge'],['wrap','Wrap opposite edge'],['mirror','Mirror edge']]],
     ],'The whole rendered object bends — its material, stripes and grain together.'],
     Displacement:['displacement',[
       ['num','scaleX','X scale',-300,300,1],
       ['num','scaleY','Y scale',-300,300,1],
-      ['sel','channel','Channel',[['luminance','Luminance'],['red','Red'],['green','Green'],
-        ['blue','Blue'],['alpha','Alpha']]],
       ['num','mapScale','Map scale',0.05,10,0.05],
-      ['num','seed','Seed',1,9999,1],
-      ['sel','edge','Edges',[['clamp','Clamp'],['wrap','Wrap'],['mirror','Mirror']]],
+      ['num','seed','Seed',1,99999,1],
+      ['sel','edge','Outside pixels',[['clamp','Clamp edge'],['wrap','Wrap opposite edge'],['mirror','Mirror edge']]],
     ],'With no source map chosen the displacement is driven by procedural fBm noise, so it is usable on its own.'],
     Haze:['haze',[
       ['num','density','Density',0,1,0.01],
@@ -5676,29 +6333,42 @@ function buildFxSection(obj,page,add,body){
   };
   if(PIXEL_PANELS[page]){
     const [key,rows,hint]=PIXEL_PANELS[page];
-    const E2=obj.effects[key];
+    const E2=fxParams(obj,key);
+    /* Old documents and duplicated stack entries can arrive with a params
+     * object that is equal to, but not the SAME object as, effects[key]. The
+     * inspector used to update only the dictionary while the renderer read
+     * the stack copy: the number moved and the artwork did not. Re-link the
+     * active entry on every edit and invalidate the bitmap cache explicitly. */
+    const syncPixelEntry=()=>{
+      const entry=activeFxEntry(obj,key);
+      if(entry) entry.params=E2;
+      paintCacheClear();
+    };
     const put=(r)=>{
       const [kind,k,label,a,b2,st]=r;
-      const id='px_'+k;
+      /* All effect sections are mounted together. Bloom shares field names
+       * such as amount/radius with Blur and Noise, so it needs its own DOM
+       * namespace or document.getElementById wires another panel's slider. */
+      const id=(key==='bloom'?'pxBloom_':key==='colorAdjust'?'pxColor_':key==='colorMap'?'pxMap_':key==='channelFx'?'pxChannel_':key==='stylize'?'pxStylize_':key==='distortion'?'pxDistort_':key==='warp'?'pxWarp_':key==='displacement'?'pxDisplace_':'px_')+k;
       if(kind==='num'){
         const fmt=v=>(st<1?(+v).toFixed(2):String(Math.round(v)));
         add(`<label class="slider">${label} <span id="${id}V">${fmt(E2[k])}</span>
           <input type="range" id="${id}" min="${a}" max="${b2}" step="${st}" value="${E2[k]}"></label>`);
         $(id).addEventListener('input',e=>{ E2[k]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value);
-          fxDraft=true; render(); fxDraft=false; });
-        $(id).addEventListener('change',()=>{ pushHistory(); render(); });
+          syncPixelEntry(); requestFxDraftRender(); });
+        $(id).addEventListener('change',()=>{ syncPixelEntry(); pushHistory(); finishFxDraftRender(); });
       }else if(kind==='sel'){
         add(`<label class="slider">${label}<select id="${id}">`+
           a.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
         $(id).value=E2[k];
-        $(id).addEventListener('change',e=>{ E2[k]=e.target.value; pushHistory(); refresh(); });
+        $(id).addEventListener('change',e=>{ E2[k]=e.target.value; syncPixelEntry(); pushHistory(); refresh(); });
       }else if(kind==='col'){
         add(`<label class="slider">${label} <input type="color" id="${id}" value="${E2[k]}"></label>`);
-        $(id).addEventListener('input',e=>{ E2[k]=e.target.value; render(); });
-        $(id).addEventListener('change',()=>pushHistory());
+        $(id).addEventListener('input',e=>{ E2[k]=e.target.value; syncPixelEntry(); render(); });
+        $(id).addEventListener('change',()=>{ syncPixelEntry(); pushHistory(); });
       }else if(kind==='chk'){
         add(`<label class="chk"><input type="checkbox" id="${id}" ${E2[k]?'checked':''}> ${label}</label>`);
-        $(id).addEventListener('change',e=>{ E2[k]=e.target.checked; pushHistory(); render(); });
+        $(id).addEventListener('change',e=>{ E2[k]=e.target.checked; syncPixelEntry(); pushHistory(); render(); });
       }else if(kind==='when'){
         if(E2[k]===label) a.forEach(put);   // label holds the value to match
       }
@@ -5710,11 +6380,38 @@ function buildFxSection(obj,page,add,body){
     add(`<div class="fxHint">${hint}</div>`);
   }
 
+  if(page==='Background Blur'){
+    const B=fxParams(obj,'backgroundBlur');
+    add(`<label class="chk"><input type="checkbox" id="bbOn" ${B.on?'checked':''}> Enable background blur</label>`);
+    $('bbOn').addEventListener('change',e=>{ B.on=e.target.checked; pushHistory(); refresh(); });
+    if(B.on){
+      add(`<label class="slider">Radius <span id="bbRadiusV">${Math.round(B.radius)}</span>
+        <input type="range" id="bbRadius" min="0" max="100" value="${B.radius}"></label>`);
+      add(`<label class="slider">Opacity <span id="bbOpacityV">${Math.round(B.opacity*100)}%</span>
+        <input type="range" id="bbOpacity" min="0" max="100" value="${Math.round(B.opacity*100)}"></label>`);
+      $('bbRadius').addEventListener('input',e=>{ B.radius=+e.target.value; $('bbRadiusV').textContent=e.target.value; render(); });
+      $('bbOpacity').addEventListener('input',e=>{ B.opacity=+e.target.value/100; $('bbOpacityV').textContent=e.target.value+'%'; render(); });
+      $('bbRadius').addEventListener('change',()=>pushHistory());
+      $('bbOpacity').addEventListener('change',()=>pushHistory());
+      add(`<div class="fxHint">Blurs layers already rendered behind this shape. Lower the Fill opacity to reveal more of the softened backdrop.</div>`);
+    }
+  }
+
   if(page==='Inner Shadow'||page==='Glow'){
     const isGlow=page==='Glow';
-    const E2=isGlow?obj.effects.glow:obj.effects.innerShadow;
-    add(`<label class="slider"><input type="checkbox" id="fxOn" ${E2.on?'checked':''}> Enable ${page.toLowerCase()}</label>`);
-    $('fxOn').addEventListener('change',e=>{ E2.on=e.target.checked; pushHistory(); refresh(); });
+    /* PANEL-SCOPED IDS. Inner Shadow and Glow are built by this one block, and
+     * both used to emit id="${pre}On", id="${pre}Col" and id="${pre}Blend" — so the second
+     * section rendered a control the DOM already had, and getElementById
+     * handed back the FIRST one. The glow half then bound its handlers to the
+     * inner shadow's controls: clicking "Enable glow" did nothing at all,
+     * while toggling the inner shadow silently switched glow on, which is
+     * exactly how an outer glow appears on a layer whose glow box is
+     * unchecked. The per-slider ids below were already prefixed; these three
+     * were the ones missed. */
+    const pre=isGlow?'gl':'is';
+    const E2=fxParams(obj,isGlow?'glow':'innerShadow');
+    add(`<label class="slider"><input type="checkbox" id="${pre}On" ${E2.on?'checked':''}> Enable ${page.toLowerCase()}</label>`);
+    $(pre+'On').addEventListener('change',e=>{ E2.on=e.target.checked; pushHistory(); refresh(); });
     if(E2.on){
       const sl=(id,label,min,max,step,k,fmt)=>{
         add(`<label class="slider">${label} <span id="${id}V">${fmt(E2[k])}</span>
@@ -5738,13 +6435,13 @@ function buildFxSection(obj,page,add,body){
         sl('isS','Spread',0,100,1,'spread',int);
       }
       sl(isGlow?'glA':'isA','Opacity',0,1,0.01,'alpha',pct);
-      add(`<label class="slider">Color <input type="color" id="fxCol" value="${E2.color}"></label>`);
-      $('fxCol').addEventListener('input',e=>{ E2.color=e.target.value; render(); });
-      $('fxCol').addEventListener('change',()=>pushHistory());
-      add(`<label class="slider">Blend<select id="fxBlend">`+
+      add(`<label class="slider">Color <input type="color" id="${pre}Col" value="${E2.color}"></label>`);
+      $(pre+'Col').addEventListener('input',e=>{ E2.color=e.target.value; render(); });
+      $(pre+'Col').addEventListener('change',()=>pushHistory());
+      add(`<label class="slider">Blend<select id="${pre}Blend">`+
         BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>`);
-      $('fxBlend').value=E2.blend;
-      $('fxBlend').addEventListener('change',e=>{ E2.blend=e.target.value; pushHistory(); render(); });
+      $(pre+'Blend').value=E2.blend;
+      $(pre+'Blend').addEventListener('change',e=>{ E2.blend=e.target.value; pushHistory(); render(); });
       add(`<div class="fxHint">${isGlow
         ? 'Outer glow lays under the object; inner glow is clipped inside it. Falloff concentrates the core.'
         : 'Cast inward from every edge by shadowing the inverse region through a clip.'}</div>`);
@@ -6002,23 +6699,33 @@ function buildFxSection(obj,page,add,body){
   }
 
   if(page==='Glass'){
-    const G=obj.effects.glass;
-    if(!(window.GlassEngine&&window.GlassEngine.available())){
+    const G=fxParams(obj,'glass');
+    if(!(window.GlassEngine&&window.GlassEngine.available())&&!(window.GlassObjectEngine&&window.GlassObjectEngine.available())){
       add(`<div class="fxHint">Glass needs WebGL2, which this browser doesn't provide.</div>`);
     } else {
       add(`<label class="slider"><input type="checkbox" id="glOn" ${G.on?'checked':''}> Enable glass</label>`);
       $('glOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
       if(G.on){
+        add(`<label class="slider">Mode<select id="glMode"><option value="backdrop">Backdrop</option><option value="frosted">Frosted</option><option value="reeded">Reeded</option><option value="solid3d">3D solid</option></select></label>`);
+        $('glMode').value=G.mode||'backdrop';
+        $('glMode').addEventListener('change',e=>{ G.mode=e.target.value; pushHistory(); refresh(); });
         const sl=(id,label,min,max,val,fmt)=>{
           add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
             <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
         };
-        sl('glDepth','Depth',-200,200,G.depth,v=>v);
+        sl('glDepth','Thickness',-200,200,G.depth,v=>v);
         sl('glRefr','Refraction',-200,200,G.refraction,v=>v);
+        sl('glIor','IOR',100,240,Math.round(G.ior*100),v=>(v/100).toFixed(2));
+        sl('glRough','Roughness',0,100,Math.round(G.roughness*100),v=>v+'%');
+        sl('glAbsorb','Absorption',0,600,Math.round(G.absorption*100),v=>(v/100).toFixed(2));
+        sl('glBackD','Backdrop distance',1,30,G.backdropDistance,v=>v);
+        sl('glBevel','Edge bevel',0,100,G.bevel,v=>v+'%');
         sl('glFrost','Frost',0,100,G.frost,v=>v);
         sl('glRefl','Reflection',0,100,G.reflection,v=>v);
-        sl('glLight','Light',0,100,G.light,v=>v);
-        sl('glDisp','Dispersion',0,200,G.dispersion,v=>v);
+        sl('glEdgeIntensity','Edge intensity',0,100,G.edgeIntensity,v=>v+'%');
+        sl('glEdgeWidth','Edge width',0,100,G.edgeWidth,v=>v+'%');
+        sl('glEdgeSoftness','Edge softness',0,100,G.edgeSoftness,v=>v+'%');
+        sl('glDisp','Optical dispersion',0,200,G.dispersion,v=>v);
         sl('glOp','Opacity',0,100,G.opacity,v=>v+'%');
         const wire=(id,f,fmt)=>{
           $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=fmt(+e.target.value); render(); });
@@ -6026,24 +6733,49 @@ function buildFxSection(obj,page,add,body){
         };
         wire('glDepth',v=>G.depth=v,v=>v);
         wire('glRefr',v=>G.refraction=v,v=>v);
+        wire('glIor',v=>G.ior=v/100,v=>(v/100).toFixed(2));
+        wire('glRough',v=>G.roughness=v/100,v=>v+'%');
+        wire('glAbsorb',v=>G.absorption=v/100,v=>(v/100).toFixed(2));
+        wire('glBackD',v=>G.backdropDistance=v,v=>v);
+        wire('glBevel',v=>G.bevel=v,v=>v+'%');
         wire('glFrost',v=>G.frost=v,v=>v);
         wire('glRefl',v=>G.reflection=v,v=>v);
-        wire('glLight',v=>G.light=v,v=>v);
+        wire('glEdgeIntensity',v=>{ G.edgeIntensity=v; G.light=v; },v=>v+'%');
+        wire('glEdgeWidth',v=>G.edgeWidth=v,v=>v+'%');
+        wire('glEdgeSoftness',v=>G.edgeSoftness=v,v=>v+'%');
         wire('glDisp',v=>G.dispersion=v,v=>v);
         wire('glOp',v=>G.opacity=v,v=>v+'%');
-        add(`<label class="slider">Tint <input type="color" id="glTint" value="${G.tint}"></label>`);
+        add(`<label class="slider">Absorption tint <input type="color" id="glTint" value="${G.tint}"></label>`);
         $('glTint').addEventListener('input',e=>{ G.tint=e.target.value; render(); });
         $('glTint').addEventListener('change',()=>pushHistory());
-        add(`<div class="fxHint">Physically-based glass: refracts the layers behind this shape (IOR 1.52). Replaces the Fill while enabled; pattern copies become glass too.</div>`);
+        add(`<label class="slider">Quality<select id="glQuality"><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>`);
+        $('glQuality').value=G.quality||'standard';
+        $('glQuality').addEventListener('change',e=>{ G.quality=e.target.value; pushHistory(); render(); });
+        if(G.mode==='reeded'){
+          sl('glReed','Rib strength',0,100,G.reedStrength,v=>v); wire('glReed',v=>G.reedStrength=v,v=>v);
+          sl('glReedW','Rib width',2,160,G.reedWidth,v=>v+' px'); wire('glReedW',v=>G.reedWidth=v,v=>v+' px');
+          sl('glReedA','Rib angle',-90,90,G.reedAngle,v=>v+'°'); wire('glReedA',v=>G.reedAngle=v,v=>v+'°');
+        }
+        if(G.mode==='solid3d'){
+          sl('glSize','Object size',10,160,Math.round(G.size*100),v=>v+'%'); wire('glSize',v=>G.size=v/100,v=>v+'%');
+          sl('glExt','Extrude',0,160,Math.round(G.extrude*100),v=>(v/100).toFixed(2)); wire('glExt',v=>G.extrude=v/100,v=>(v/100).toFixed(2));
+          sl('glRound','Roundness',0,100,Math.round(G.round*100),v=>v+'%'); wire('glRound',v=>G.round=v/100,v=>v+'%');
+        }
+        add(`<div class="fxHint">Optical dispersion belongs to the glass material. Grain, noise, glow, blur and screen-space RGB/channel effects remain independent recipe steps.</div>`);
       }
     }
   }
 
   if(page==='Shadow'){
-    const sh=obj.effects.shadow;
+    const sh=fxParams(obj,'shadow');
     add(`<label class="slider"><input type="checkbox" id="shOn" ${sh.on?'checked':''}> Enable shadow</label>`);
     $('shOn').addEventListener('change',e=>{ sh.on=e.target.checked; pushHistory(); refresh(); });
     if(sh.on){
+      add(`<label class="slider">Type<select id="shType">
+        <option value="drop">Drop shadow</option><option value="long">Long shadow</option>
+      </select></label>`);
+      $('shType').value=sh.type||'drop';
+      $('shType').addEventListener('change',e=>{ sh.type=e.target.value; pushHistory(); refresh(); });
       const sl=(id,label,min,max,val)=>{
         add(`<label class="slider">${label} <span id="${id}V">${val}</span>
           <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
@@ -6053,8 +6785,13 @@ function buildFxSection(obj,page,add,body){
        * third of each documented range was unreachable from the panel and a
        * document carrying a larger value could not be edited back down
        * without the slider silently re-clamping it. */
-      sl('shX','Offset X',-100,100,sh.x); sl('shY','Offset Y',-100,100,sh.y);
-      sl('shBlur','Blur',0,150,sh.blur);
+      if(sh.type==='long'){
+        sl('shAngle','Angle',0,359,Math.round(sh.angle));
+        sl('shLength','Length',0,1000,Math.round(sh.length));
+      }else{
+        sl('shX','Offset X',-100,100,sh.x); sl('shY','Offset Y',-100,100,sh.y);
+        sl('shBlur','Blur',0,150,sh.blur);
+      }
       // §4.9 spread thickens the caster so the shadow grows WITHOUT blurring.
       // It is in the model, it is clamped, the draw path strokes with it — it
       // simply had no control, so it could only ever be 0.
@@ -6064,7 +6801,11 @@ function buildFxSection(obj,page,add,body){
         $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=e.target.value; render(); });
         $(id).addEventListener('change',()=>pushHistory());
       };
-      wire('shX',v=>sh.x=v); wire('shY',v=>sh.y=v); wire('shBlur',v=>sh.blur=v);
+      if(sh.type==='long'){
+        wire('shAngle',v=>sh.angle=v); wire('shLength',v=>sh.length=v);
+      }else{
+        wire('shX',v=>sh.x=v); wire('shY',v=>sh.y=v); wire('shBlur',v=>sh.blur=v);
+      }
       wire('shSpread',v=>sh.spread=v); wire('shA',v=>sh.alpha=v/100);
       add(`<label class="slider">Color <input type="color" id="shC" value="${sh.color}"></label>`);
       $('shC').addEventListener('input',e=>{ sh.color=e.target.value; render(); });
@@ -6745,7 +7486,7 @@ function buildFxSection(obj,page,add,body){
   }
 
   if(page==='Grain'){
-    const gr=obj.effects.grain;
+    const gr=fxParams(obj,'grain');
     add(`<label class="slider">Amount <span id="grAV">${Math.round(gr.amount*100)}%</span>
       <input type="range" id="grA" min="0" max="100" value="${Math.round(gr.amount*100)}"></label>`);
     $('grA').addEventListener('input',e=>{ gr.amount=+e.target.value/100; $('grAV').textContent=e.target.value+'%'; render(); });
@@ -6959,7 +7700,7 @@ $('abBg').addEventListener('input',e=>{
    * whose thumbnail disagreed with the canvas. On a gradient the swatch edits
    * the FIRST STOP, which is what it displays. */
   const F=ab.fill;
-  if(F&&(F.kind==='linear'||F.kind==='radial')){
+  if(F&&F.kind!=='solid'){
     if(F.stops&&F.stops[0]) F.stops[0].color=v;
   }else{
     ab.bg=v;
@@ -6979,6 +7720,8 @@ $('abFillKind').addEventListener('change',e=>{
     const first=(F.stops&&F.stops[0]&&F.stops[0].color)||ab.bg||'#ffffff';
     ab.bg=first;
     ab.fill=normArtPaint({kind:'solid',color:first},first);
+  }else if(kind==='image'){
+    ab.fill=normArtPaint({kind:'image',src:F.kind==='image'?F.src:'',mode:'fill'},ab.bg||'#ffffff');
   }else{
     const base=(F.kind==='solid'&&F.color)||ab.bg||'#ffffff';
     const stops=(F.stops&&F.stops.length>=2)?F.stops:[
@@ -6988,15 +7731,85 @@ $('abFillKind').addEventListener('change',e=>{
   }
   syncArtboardPanel(ab); pushHistory('Artboard fill'); render();
 });
+$('abImageFillRow').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.kind!=='image')return;
+  const F=ab.fill;
+  if(e.target.classList.contains('abImgX')) F.x=+e.target.value/100;
+  if(e.target.classList.contains('abImgY')) F.y=+e.target.value/100;
+  if(e.target.classList.contains('abImgScale')) F.scale=+e.target.value/100;
+  if(e.target.classList.contains('abImgRotation')) F.rotation=+e.target.value;
+  if(e.target.classList.contains('abImgScale')||e.target.classList.contains('abImgRotation')){
+    const sp=e.target.closest('label')&&e.target.closest('label').querySelector('span');
+    if(sp) sp.textContent=e.target.classList.contains('abImgScale')?e.target.value+'%':e.target.value+'°';
+  }
+  render();
+});
+$('abImageFillRow').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.kind!=='image')return;
+  if(e.target.classList.contains('abImgMode')) ab.fill.mode=e.target.value;
+  pushHistory('Edit image fill'); render();
+});
+$('abImageFillRow').addEventListener('click',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.kind!=='image')return;
+  if(e.target.closest('.abImgPick')) chooseImageForFill(ab.fill,()=>{
+    syncArtboardPanel(ab); pushHistory('Choose image fill'); render();
+  });
+  if(e.target.closest('.abImgReset')){
+    Object.assign(ab.fill,{x:.5,y:.5,scale:1,rotation:0});
+    syncArtboardPanel(ab); pushHistory('Reset image fill'); render();
+  }
+});
 $('abGradAngle').addEventListener('input',e=>{
   const ab=posArtboard(); if(!ab||!ab.fill)return;
   ab.fill.angle=((+e.target.value||0)%360+360)%360;
+  $('abGradAngleValue').textContent=Math.round(ab.fill.angle)+'°';
   render();
 });
 $('abGradAngle').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Gradient angle'); });
-$('abGradEdit').addEventListener('click',()=>{
-  const ab=posArtboard(); if(!ab)return;
-  status('Gradient stops for an artboard are edited here: use the angle and the colour swatch. A full stop editor lives on a shape’s Fill engine.');
+$('abGradSpace').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  ab.fill.space=e.target.value; pushHistory('Gradient blend space'); render();
+});
+$('abGradStops').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  const i=+e.target.dataset.s, st=ab.fill.stops&&ab.fill.stops[i]; if(!st)return;
+  if(e.target.classList.contains('abGColor')) st.color=e.target.value;
+  if(e.target.classList.contains('abGPos')) st.pos=+e.target.value/100;
+  if(e.target.classList.contains('abGOpacity')) st.opacity=+e.target.value/100;
+  if(e.target.classList.contains('abGMid')) st.mid=+e.target.value/100;
+  render();
+});
+$('abGradStops').addEventListener('change',e=>{
+  if(e.target.matches('input')) pushHistory('Edit gradient stop');
+});
+$('abGradStops').addEventListener('click',e=>{
+  const b=e.target.closest('.abGDel'); if(!b)return;
+  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.stops.length<=2)return;
+  ab.fill.stops.splice(+b.dataset.s,1); syncArtboardPanel(ab);
+  pushHistory('Remove gradient stop'); render();
+});
+$('abGradAdd').addEventListener('click',()=>{
+  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.stops.length>=8)return;
+  const S=ab.fill.stops, last=S[S.length-1];
+  S.push({pos:1,color:last.color,opacity:1,mid:.5});
+  S.forEach((st,i)=>st.pos=i/(S.length-1));
+  syncArtboardPanel(ab); pushHistory('Add gradient stop'); render();
+});
+$('abGradReverse').addEventListener('click',()=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  const S=ab.fill.stops, cols=S.map(s=>s.color).reverse(), ops=S.map(s=>s.opacity).reverse();
+  S.forEach((st,i)=>{st.color=cols[i];st.opacity=ops[i];});
+  syncArtboardPanel(ab); pushHistory('Reverse gradient'); render();
+});
+$('abFillOpacity').addEventListener('input',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  ab.fill.opacity=+e.target.value/100;
+  $('abFillOpacityValue').textContent=e.target.value+'%'; render();
+});
+$('abFillOpacity').addEventListener('change',()=>{ if(posArtboard()) pushHistory('Fill opacity'); });
+$('abFillBlend').addEventListener('change',e=>{
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  ab.fill.blend=e.target.value; pushHistory('Fill blend'); render();
 });
 $('abRadius').addEventListener('input',e=>{
   const ab=posArtboard(); if(!ab||ab.locked)return;
@@ -7493,6 +8306,31 @@ canvas.addEventListener('pointerdown',e=>{
     canvas.style.cursor='grabbing'; cap(); return;
   }
   if(e.button!==0) return;
+  if(tool==='select'){
+    const ih=activeImageHandles();
+    if(ih){
+      const tol=11/view.z;
+      if(Math.hypot(p.x-ih.sx,p.y-ih.sy)<=tol){
+        drag={mode:'imageScale',ih}; cap(); return;
+      }
+      if(Math.hypot(p.x-ih.cx,p.y-ih.cy)<=tol){
+        drag={mode:'imagePosition',ih,dx:ih.cx-p.x,dy:ih.cy-p.y}; cap(); return;
+      }
+    }
+    const gh=activeGradientHandles();
+    if(gh){
+      const tol=9/view.z;
+      /* Endpoints own the gradient geometry. They coincide with 0%/100%
+       * stops, so test them FIRST; otherwise the stop drag clamps at an edge
+       * and the handle appears dead. */
+      if(gh.focal&&Math.hypot(p.x-gh.focal.x,p.y-gh.focal.y)<=tol){ drag={mode:'gradientFocal',gh}; cap(); return; }
+      if(gh.fill.kind!=='linear'&&Math.hypot(p.x-gh.cx,p.y-gh.cy)<=tol){ drag={mode:'gradientCenter',gh}; cap(); return; }
+      if(gh.fill.kind==='linear'&&Math.hypot(p.x-gh.x0,p.y-gh.y0)<=tol){ drag={mode:'gradientAxis',gh,end:-1}; cap(); return; }
+      if(Math.hypot(p.x-gh.x1,p.y-gh.y1)<=tol){ drag={mode:'gradientAxis',gh,end:1}; cap(); return; }
+      const stop=gh.stops.find(h=>h.i>0&&h.i<gh.stops.length-1&&Math.hypot(p.x-h.x,p.y-h.y)<=tol);
+      if(stop){ drag={mode:'gradientStop',gh,index:stop.i}; cap(); return; }
+    }
+  }
   if(tool==='zoom'||tool==='zoomOut'){
     drag={mode:'zoomRect',x0:p.x,y0:p.y,x1:p.x,y1:p.y,sx:s.x,sy:s.y,moved:false,out:tool==='zoomOut'};
     cap(); return;
@@ -7737,6 +8575,45 @@ canvas.addEventListener('pointermove',e=>{
     }
     g.pos=Math.round(v);
     paint(); return;
+  }
+  if(drag&&drag.mode==='gradientStop'){
+    const p2=evtPage(e), g=drag.gh, dx=g.x1-g.x0, dy=g.y1-g.y0;
+    g.fill.stops[drag.index].pos=clamp(((p2.x-g.x0)*dx+(p2.y-g.y0)*dy)/(dx*dx+dy*dy),0,1);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='imagePosition'){
+    const p2=evtPage(e), h=drag.ih;
+    h.fill.x=clamp((p2.x+drag.dx-h.b.x)/h.b.w,0,1);
+    h.fill.y=clamp((p2.y+drag.dy-h.b.y)/h.b.h,0,1);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='imageScale'){
+    const p2=evtPage(e), h=drag.ih;
+    h.fill.scale=clamp(Math.pow(Math.hypot(p2.x-h.cx,p2.y-h.cy)/h.base,2),.05,20);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='gradientAxis'){
+    const p2=evtPage(e), g=drag.gh;
+    const cx=g.b.x+g.b.w*clamp(g.fill.gx??.5,0,1);
+    const cy=g.b.y+g.b.h*clamp(g.fill.gy??.5,0,1);
+    const raw=Math.atan2(p2.y-cy,p2.x-cx)*180/Math.PI;
+    g.fill.angle=((raw+(drag.end<0?180:0))%360+360)%360;
+    const base=Math.max(24,Math.min(g.b.w,g.b.h)*.42);
+    g.fill.axisScale=clamp(Math.hypot(p2.x-cx,p2.y-cy)/base,.1,4);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='gradientCenter'){
+    const p2=evtPage(e), g=drag.gh;
+    g.fill.gx=clamp((p2.x-g.b.x)/g.b.w,0,1);
+    g.fill.gy=clamp((p2.y-g.b.y)/g.b.h,0,1);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='gradientFocal'){
+    const p2=evtPage(e), g=drag.gh;
+    const cx=g.b.x+g.b.w*(g.fill.gx??.5), cy=g.b.y+g.b.h*(g.fill.gy??.5);
+    g.fill.fx=clamp((p2.x-cx)/(g.b.w/2),-1,1);
+    g.fill.fy=clamp((p2.y-cy)/(g.b.h/2),-1,1);
+    render(); syncInspector(); return;
   }
   if(!drag){
     if(tool==='pen'&&penDraft&&doc){ penHover=evtPage(e); paint(); }
@@ -8058,6 +8935,12 @@ const endDrag=e=>{
       doc.frame.guides.splice(guideDrag.index,1);
     guideDrag=null;
     pushHistory(); refresh(); return;
+  }
+  if(['imagePosition','imageScale'].includes(d.mode)){
+    pushHistory('Edit image fill'); refresh(); return;
+  }
+  if(['gradientStop','gradientAxis','gradientCenter','gradientFocal'].includes(d.mode)){
+    pushHistory('Edit gradient'); refresh(); return;
   }
   if(d.mode==='pan'){ canvas.style.cursor=spaceDown?'grab':cursorForTool(); return; }
   if(d.mode==='zoomRect'){
@@ -8621,7 +9504,9 @@ function addArtboard(w,h,name){
   const A=doc.frame.artboards;
   const at=nextArtboardSpot(A);
   const a={id:newId(),name:name||nextArtboardName(A),
-    x:at.x, y:at.y, w:w||900, h:h||600, bg:'#ffffff', clip:true, show:true};
+    x:at.x, y:at.y, w:w||900, h:h||600, bg:'#ffffff',
+    fill:normArtPaint({kind:'solid',color:'#ffffff'},'#ffffff'),
+    stroke:normArtStroke(null),radius:0,clip:true,show:true,locked:false};
   A.push(a);
   growFrameToArtboards();
   selArtboard=a.id;
@@ -9341,7 +10226,8 @@ function syncFxMenuAvailability(){
     const menu=dd.closest('.menu');
     if(!menu) return;
     menu.style.display='';
-    const any=[...dd.querySelectorAll('button[data-fx]')].some(b=>b.style.display!=='none');
+    const any=!!dd.querySelector('#enginesOpen')||
+      [...dd.querySelectorAll('button[data-fx]')].some(b=>b.style.display!=='none');
     let note=dd.querySelector('.menuNote');
     if(!any){
       if(!note){
@@ -9763,7 +10649,7 @@ const CMDS={
    * else. The dev door accepts their page names: ?fx=Pattern. When nothing
    * at all is visible, the Effects MENU itself hides — an empty dropdown is
    * worse than no menu. */
-  let visible=0;
+  let visible=document.getElementById('enginesOpen')?1:0;
   document.querySelectorAll('.dropdown button[data-fx]').forEach(b=>{
     const name=b.dataset.fx;
     const t=PAGE_TYPE[name]||name;
@@ -10316,6 +11202,12 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   placeInstance, detachInstances, resetInstances, makeDefinition,
   updateDefinitionFrom, addVariant, deleteDefinition, defsChanged, instanceTree,
   placeObject, boxOf, translateObj, CHELP, normalizeDoc, setActiveDoc,
+  /* The shape factory and the fill validator. Exported so the agent bridge
+   * creates objects through the SAME constructor the draw tools use, and
+   * clamps fills through the same function the inspector does — a second
+   * door into one model has to use that model's own locks, or the two
+   * doors disagree about what a valid object is. */
+  makeShape, normPaint, DEFAULT_EFFECTS,
   compactDoc, compactPages, paintCacheClear,
   autosaveNow, restoreAutosave, clearAutosave, saveDocument, openDocument,
   loadDocumentFromText, serializeDocument,
@@ -10343,10 +11235,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
  * product metadata and FxStack for whether a thing can actually be applied.
  *
  * WHY IT EXISTS. The Effects menu was filtered by the QA gate, so everything
- * unpromoted vanished from it — which made the gate double as a discovery
- * policy it was never meant to be. A person could not find out what the tool
- * had, or what was coming. Nothing is hidden here; what varies is whether a
- * row can be clicked and what it says about itself.
+ * unpromoted vanished from it. Batch 1 deliberately shows only capabilities
+ * that work now; future filters, shaders and generators enter this same
+ * picker only after they have editable controls and pass the runtime gate.
  *
  * WHY APPLY TURNS THE EFFECT ON. The menu items only scrolled to a section,
  * which is fine for a menu and useless for a library: clicking "Grain" and
@@ -10356,7 +11247,6 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
  */
 (function(){
   const EC=()=>window.EngineCatalog;
-  const FS=()=>window.FxStack;
   let engFilter='all';
   let engQuery='';
 
@@ -10365,63 +11255,51 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
    * defaults would add a stack entry that renders nothing. */
   const OPENING={
     shadow:  o=>Object.assign(o.effects.shadow,{on:true}),
+    innerShadow:o=>Object.assign(o.effects.innerShadow,{on:true,blur:12,alpha:.35}),
     glow:    o=>Object.assign(o.effects.glow,{on:true,radius:18,alpha:0.7}),
+    bloom:   o=>Object.assign(o.effects.bloom,{amount:1,radius:24,threshold:.65,knee:.25}),
+    backgroundBlur:o=>Object.assign(o.effects.backgroundBlur,{on:true,radius:20,opacity:1}),
+    colorAdjust:o=>Object.assign(o.effects.colorAdjust,{exposure:0,blackPoint:0,whitePoint:1,
+      brightness:.1,contrast:0,brilliance:0,gamma:1,saturation:0,vibrance:0,
+      temperature:0,tint:0,highlights:0,shadows:0,filterAmount:0,definition:0}),
+    colorMap:o=>Object.assign(o.effects.colorMap,{mode:'gradientMap',shadow:'#1b103d',highlight:'#ffdc7a',amount:1}),
+    channelFx:o=>Object.assign(o.effects.channelFx,{mode:'rgbSplit',amount:12,angle:0,mix:1}),
+    stylize:o=>Object.assign(o.effects.stylize,{mode:'posterize',levels:6,mix:1}),
+    distortion:o=>Object.assign(o.effects.distortion,{mode:'wave',amount:24,wavelength:.2,phase:0,axis:'x'}),
+    warp:o=>Object.assign(o.effects.warp,{envelope:'arc',strength:24,axis:'horizontal'}),
+    displacement:o=>Object.assign(o.effects.displacement,{scaleX:28,scaleY:18,mapScale:1,seed:1}),
     grain:   o=>Object.assign(o.effects.grain,{amount:0.35}),
     blur:    o=>Object.assign(o.effects.blur,{kind:'gaussian',radius:10}),
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
+    glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',shadow:'Shadow',glow:'Glow',grain:'Grain',blur:'Blur',
-                  noise:'Noise',linearGradient:'Fill'};
-
-  /** The effects a freshly created layer of this type ends up with, AFTER
-   *  normalizeDoc has had its say. That is the only fair baseline for "has
-   *  the user changed anything". */
-  const _pristine={};
-  function engPristine(type){
-    if(_pristine[type]) return _pristine[type];
-    const probe=normalizeDoc({frame:{name:'p',w:10,h:10,bg:'#fff',artboards:[],
-      children:[{type,name:'p',x:0,y:0,w:10,h:10,fill:{kind:'solid',color:'#cccccc'}}]}});
-    const kid=probe&&probe.frame&&probe.frame.children&&probe.frame.children[0];
-    _pristine[type]=(kid&&kid.effects)||DEFAULT_EFFECTS();
-    return _pristine[type];
-  }
+  const PAGE_FOR={mesh:'Mesh',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+                  noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  /** A 26px swatch per row. Drawn rather than shipped as images: it costs
-   *  nothing, it cannot go stale against the engine, and a row with a picture
-   *  is findable by eye in a way a list of names is not. */
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+                  blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
+
+  /** Reuse the app's vendored Lucide set rather than introducing a second
+   * icon language for one picker. */
   function engPreview(item){
-    const c=document.createElement('canvas');
-    c.width=c.height=52; c.style.width=c.style.height='26px';
-    const x=c.getContext('2d'), S=52;
-    const g=(a,b)=>{const gr=x.createLinearGradient(0,0,S,S); gr.addColorStop(0,a); gr.addColorStop(1,b); return gr;};
-    x.fillStyle='#f4f5f7'; x.fillRect(0,0,S,S);
-    if(item.category==='fill'){ x.fillStyle=g('#6ea8fe','#ec4899'); x.fillRect(0,0,S,S); }
-    else if(item.category==='material'){
-      x.fillStyle=g('#dfe6f2','#9fb4d6'); x.fillRect(0,0,S,S);
-      x.globalAlpha=.5; x.fillStyle='#fff';
-      for(let i=0;i<S;i+=8) x.fillRect(i,0,3,S);
-      x.globalAlpha=1;
-    } else if(item.category==='finish'){
-      x.fillStyle=g('#c7d2fe','#818cf8'); x.fillRect(0,0,S,S);
-      x.globalAlpha=.35; x.fillStyle='#000';
-      for(let i=0;i<260;i++) x.fillRect((i*7919)%S,(i*104729)%S,1,1);
-      x.globalAlpha=1;
-    } else {
-      x.fillStyle='#eef1f6'; x.fillRect(0,0,S,S);
-      x.strokeStyle='#8b93a3'; x.lineWidth=2;
-      x.strokeRect(8,8,20,20); x.strokeRect(22,22,20,20);
-    }
-    return c;
+    const el=document.createElement('span');
+    el.className='engIcon';
+    el.innerHTML=window.Icons?Icons.svg(ENG_ICON[item.id]||'sparkles'):'';
+    return el;
   }
 
   function engApply(item){
     const C=EC(), obj=primary();
+    if(C.status(item.id)!==C.READY){
+      engSay('This capability is not available in this batch.');
+      return;
+    }
     const compat=C.compatibility(item.id,obj);
     if(!compat.ok){ engSay(compat.reason); return; }
 
@@ -10429,45 +11307,58 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
       /* A fill is what the layer IS. It is set, not stacked — pushing a
        * gradient onto the effect stack would put it in a slot that composites
        * over the fill it is supposed to be. */
-      const f=obj.fill||(obj.fill={});
-      if(f.kind!=='linear'){
+      let f=obj.fill;
+      if(!f){
+        f={}; obj.fill=f;
+        if(Array.isArray(obj.fills)) obj.fills[0]=f; else obj.fills=[f];
+      }
+      const fillKind=item.fillKind||'solid';
+      if(f.kind!==fillKind){
         const base=firstColor(f)||'#3b6df0';
-        obj.fill={kind:'linear',angle:90,stops:[{t:0,color:base},{t:1,color:'#ffffff'}]};
+        /* Keep the live alias intact: obj.fill IS obj.fills[0]. Replacing
+         * obj.fill leaves the renderer reading the old solid from fills[0]. */
+        Object.keys(f).forEach(k=>delete f[k]);
+        Object.assign(f,fillKind==='image'
+          ? normPaint({kind:'image',src:'',mode:'fill'},base)
+          : normPaint({kind:'linear',angle:90,stops:[
+              {pos:0,color:base,opacity:1,mid:0.5},
+              {pos:1,color:'#ffffff',opacity:1,mid:0.5},
+            ]},base));
       }
       pushHistory('Apply '+item.label);
       refresh();
       engOpenPage('Fill');
-      engSay(item.label+' applied.');
-      engRender();
+      status(item.label+' applied. Adjust it in Fill.');
+      engClose();
       return;
     }
 
     const type=item.rendererType;
     if(!type||!obj.effects||!obj.effects[type]){ engSay('That engine has no renderer yet.'); return; }
-    (OPENING[type]||(()=>{}))(obj);
-    /* An entry may exist and be off, or not exist at all. Either way the
-     * parameters above are what turn it on; the stack entry is the alias. */
-    if(Array.isArray(obj.fx)&&!obj.fx.some(e=>e.type===type)){
-      obj.fx.push({id:newId(),type,on:true,params:obj.effects[type]});
-    }else if(Array.isArray(obj.fx)){
-      const e=obj.fx.find(e2=>e2.type===type); if(e) e.on=true;
+    const FS=window.FxStack, meta=FS&&FS.meta(type);
+    const present=visibleRecipeEntries(obj).filter(e=>e.type===type);
+    let entry;
+    if(meta&&meta.multi&&present.length){
+      const source=present[present.length-1].params||obj.effects[type];
+      const params=JSON.parse(JSON.stringify(source));
+      const facade={effects:{[type]:params}};
+      (OPENING[type]||(()=>{}))(facade);
+      entry={id:newId(),type,on:true,added:true,params};
+      obj.fx.push(entry);
+    }else{
+      entry=(obj.fx||[]).find(e=>e.type===type);
+      if(!entry){ entry={id:newId(),type,on:true,added:true,params:obj.effects[type]}; obj.fx.push(entry); }
+      (OPENING[type]||(()=>{}))({effects:{[type]:entry.params}});
+      entry.on=true; entry.added=true;
+      if(!obj.effects[type]) obj.effects[type]=entry.params;
     }
+    focusFxEntry(obj,entry);
     pushHistory('Apply '+item.label);
     refresh();
     const page=PAGE_FOR[item.id];
-    const hasPanel=page&&FX_PAGES(obj).includes(page);
     engOpenPage(page);
-    /* An experimental engine renders but its inspector page is still behind
-     * the QA gate, so applying one changes the artwork and leaves nothing to
-     * adjust. Saying so is the difference between "experimental" and "broken":
-     * the brief's rule is that these may be applied, never that they may be
-     * applied SILENTLY. */
-    engSay(
-      hasPanel
-        ? item.label+' applied to '+(obj.name||obj.type)+'.'
-        : item.label+' applied — experimental, no parameter controls yet.'
-    );
-    engRender();
+    status(item.label+' applied. Adjust it in the inspector.');
+    engClose();
   }
 
   /* CSS.escape is not universal — jsdom has no CSS object at all, and the
@@ -10490,82 +11381,6 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     if(head&&head.scrollIntoView) head.scrollIntoView({block:'nearest'});
   }
 
-  function engRenderStack(){
-    const wrap=$('engStack'); if(!wrap) return;
-    wrap.innerHTML='';
-    const obj=primary(), C=EC();
-    /* No layer is the commonest state there is — it is what you get on load,
-     * after a deselect, and after deleting something. It has to READ as a
-     * state rather than throw: the first version reached straight for
-     * obj.type and took the whole panel down with it. */
-    if(!obj){
-      wrap.innerHTML='<div class="engEmpty">Select a layer to see the engines applied to it.</div>';
-      return;
-    }
-    /* WHAT COUNTS AS APPLIED. normalizeDoc appends EVERY known type to obj.fx
-     * so the stack has a slot for each, which means "has an entry" is true of
-     * everything and lists the whole registry. The first version of this did
-     * exactly that and showed Drop shadow, Glow and Mesh gradient on a layer
-     * that had only grain and blur.
-     *
-     * An effect is in use if it is ON, or if its parameters differ from the
-     * defaults — the second half is what keeps a row visible after you toggle
-     * it off, which is the whole point of having a toggle. */
-    /* Compared against a NORMALISED pristine layer, not against the raw
-     * defaults. normalizeDoc backfills things the defaults leave empty — the
-     * mesh's 4x4 net is sixteen points the stored default deliberately omits —
-     * so a raw comparison called every untouched layer "touched" and listed
-     * Mesh gradient on a plain rectangle. Cached per layer type, since the
-     * answer only depends on that. */
-    const DEF=engPristine(obj.type);
-    const touched=(type)=>{
-      const cur=obj.effects&&obj.effects[type], def=DEF[type];
-      if(!cur||!def) return false;
-      return Object.keys(def).some(k=>{
-        if(k==='on') return false;                 // covered by entryOn
-        const a=cur[k], b=def[k];
-        if(Array.isArray(a)||Array.isArray(b)) return JSON.stringify(a)!==JSON.stringify(b);
-        return a!==b;
-      });
-    };
-    const live=(obj&&Array.isArray(obj.fx))?obj.fx.filter(e=>{
-      const it=C.get(e.type);
-      if(!it||!obj.effects||!obj.effects[e.type]) return false;
-      return FS().entryOn(e)||touched(e.type);
-    }):[];
-    if(!live.length){ wrap.innerHTML='<div class="engEmpty">No engines applied to this layer.</div>'; return; }
-    live.forEach((entry,i)=>{
-      const item=C.get(entry.type);
-      const row=document.createElement('div');
-      row.className='engStackRow';
-      const on=FS().entryOn(entry);
-      row.innerHTML=
-        '<button data-act="toggle" title="Toggle">'+(on?'●':'○')+'</button>'+
-        '<span class="'+(on?'':'engOff')+'">'+(item?item.label:entry.type)+'</span>'+
-        '<button data-act="up" title="Move up" '+(i===0?'disabled':'')+'>↑</button>'+
-        '<button data-act="down" title="Move down" '+(i===live.length-1?'disabled':'')+'>↓</button>'+
-        '<button data-act="remove" title="Remove">×</button>';
-      row.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
-        const act=b.dataset.act;
-        const all=obj.fx, idx=all.indexOf(entry);
-        if(act==='toggle') entry.on=!entry.on;
-        else if(act==='up'&&idx>0){ all.splice(idx,1); all.splice(idx-1,0,entry); }
-        else if(act==='down'&&idx<all.length-1){ all.splice(idx,1); all.splice(idx+1,0,entry); }
-        else if(act==='remove'){
-          /* Removed by turning the effect OFF rather than by deleting the
-           * entry: the dictionary and the stack are two views of one object,
-           * and dropping the entry alone would leave the dictionary saying the
-           * effect is still there. */
-          entry.on=false;
-          const P=obj.effects[entry.type];
-          if(P){ if('on' in P) P.on=false; if('amount' in P) P.amount=0; if('radius' in P) P.radius=0; }
-        }
-        pushHistory('Edit engine stack'); refresh(); engRender();
-      }));
-      wrap.appendChild(row);
-    });
-  }
-
   function engRender(){
     const panel=$('enginesPanel'); if(!panel||panel.hidden) return;
     const C=EC(); if(!C) return;
@@ -10578,9 +11393,11 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
 
     const cats=$('engCats');
     if(cats&&!cats.childElementCount){
-      [{id:'all',label:'All'}].concat(C.CATEGORIES).forEach(c=>{
+      [{id:'all',label:'All'},{id:'fill',label:'Fills'},{id:'effect',label:'Effects'},{id:'filter',label:'Filters'}].forEach(c=>{
         const b=document.createElement('button');
-        b.className='engCat'; b.type='button'; b.textContent=c.label;
+        b.className='engCat'; b.type='button';
+        const icon=c.id==='fill'?'palette':c.id==='effect'?'sparkles':c.id==='filter'?'sliders':'layers';
+        b.innerHTML=(window.Icons?Icons.svg(icon,{size:12}):'')+'<span>'+c.label+'</span>';
         b.setAttribute('aria-pressed',String(engFilter===c.id));
         b.addEventListener('click',()=>{ engFilter=c.id;
           cats.querySelectorAll('.engCat').forEach(x=>x.setAttribute('aria-pressed','false'));
@@ -10588,34 +11405,30 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
         cats.appendChild(b);
       });
     }
-
     const list=$('engList'); if(!list) return;
     list.innerHTML='';
-    let items=C.search(engQuery);
-    if(engFilter!=='all') items=items.filter(i=>i.category===engFilter);
-    if(!items.length){ list.innerHTML='<div class="engEmpty">No engines match that search.</div>'; }
+    let items=C.search(engQuery).filter(i=>C.status(i.id)===C.READY);
+    if(engFilter!=='all') items=items.filter(i=>
+      engFilter==='effect'
+        ? i.category==='effect'||i.category==='shader'
+        : i.category===engFilter);
+    if(!items.length){ list.innerHTML='<div class="engEmpty">No fills or effects match that search.</div>'; }
 
     items.forEach(item=>{
-      const st=C.status(item.id);
       const compat=C.compatibility(item.id,obj);
       const row=document.createElement('button');
       row.type='button'; row.className='engRow'; row.dataset.engine=item.id;
       if(!compat.ok) row.disabled=true;
       row.appendChild(engPreview(item));
       const mid=document.createElement('span');
-      mid.innerHTML='<span class="engName">'+item.label+'</span><br>'+
+      mid.innerHTML='<span class="engName">'+item.label+'</span>'+
                     '<span class="engDesc">'+(compat.ok?(item.description||''):compat.reason)+'</span>';
       row.appendChild(mid);
-      const badge=document.createElement('span');
-      badge.className='engBadge'; badge.dataset.status=st;
-      badge.textContent=st==='ready'?'Ready':st==='experimental'?'Experimental':'Needs migration';
-      row.appendChild(badge);
       row.title=compat.ok?(item.description||item.label):compat.reason;
       row.addEventListener('click',()=>engApply(item));
       list.appendChild(row);
     });
 
-    engRenderStack();
   }
 
   function engOpen(){
@@ -10623,7 +11436,10 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     p.hidden=false; engRender();
     const s=$('engSearch'); if(s) s.focus();
   }
-  function engClose(){ const p=$('enginesPanel'); if(p) p.hidden=true; }
+  function engClose(){
+    const p=$('enginesPanel'); if(p) p.hidden=true;
+    engFilter='all';
+  }
 
   const openBtn=$('enginesOpen');
   if(openBtn) openBtn.addEventListener('click',e=>{
@@ -10633,6 +11449,13 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     if(p&&p.hidden) engOpen(); else engClose();
   });
   const closeBtn=$('engClose'); if(closeBtn) closeBtn.addEventListener('click',engClose);
+  document.querySelectorAll('[data-capability]').forEach(b=>b.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
+    const item=EC().get(b.dataset.capability);
+    if(!primary()){ engOpen(); engSay('Select a layer first.'); return; }
+    if(item) engApply(item);
+  }));
   const search=$('engSearch');
   if(search) search.addEventListener('input',e=>{ engQuery=e.target.value; engRender(); });
 

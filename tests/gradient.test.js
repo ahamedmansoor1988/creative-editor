@@ -129,10 +129,10 @@ describe("gradient — the panel exists at all", () => {
     });
   });
 
-  it("hides the controls while the effect is off, but keeps the switch", () => {
+  it("keeps an inactive placeholder out of the compact recipe", () => {
     const { sect } = openGradient({ on: false });
-    expect(sect.querySelector("#grdOn"), "the enable switch must always show").toBeTruthy();
-    expect(sect.querySelector("#grdBH"), "parameters should not show when off").toBeFalsy();
+    expect(sect).toBeNull();
+    expect(document.querySelector('#fxBody [data-fxsect="Effects"]')).toBeTruthy();
   });
 });
 
