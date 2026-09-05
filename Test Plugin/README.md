@@ -1,169 +1,105 @@
 # Editable Creative Test (Figma plugin prototype)
 
-One idea under test: **can a plugin build a fully editable Figma artwork out of native Figma
-shapes, gradient paints, effects, the native Glass effect and shaders, with no images, no
-canvas rendering, no flattening?**
+```
+REFERENCE IMAGE + USER'S VISION
+        ↓  (Groq: vision model reads the reference into a brief, text model writes a layer plan)
+FIGMA PLUGIN  (ui.html + ai.js → code.js)
+        ↓
+SHAPES + GRADIENTS + SHADERS + GLASS + EFFECTS + TEXT
+        ↓
+FULLY EDITABLE FIGMA ARTWORK  (every layer a native Figma node, nothing rasterised)
+```
 
-Result of the build: yes for everything the current Plugin API exposes. Details below.
+v0.1 proved the bottom half: a plugin can build an editable creative from native Figma
+objects (shapes, gradients, effects, native Glass, imported shaders). v0.2 adds the top half:
+a reference image and a written vision go to an AI that returns a **plan**, and the plugin
+builds that plan with the same code path as the built-in test creative.
 
 ---
 
-## Phase 1 — Plugin API capability report
+## Phase 1 — Plugin API capability report (unchanged, still current)
 
-Checked 5 Sep 2026 against:
-
-- `@figma/plugin-typings` **1.138.0** (published 3 Sep 2026, latest on npm) — the compiler
-  enforces these types on `code.ts`, so nothing in the plugin uses an API that is not declared.
-- developers.figma.com/docs/plugins/api/Effect, /Paint, /Shader, /figma, /manifest
-- Plugin API changelog: shaders arrived in **Version 1, Update 130 (23 Jun 2026)**;
-  nothing shader-related changed in updates 131–138.
-- Figma Help Center: "Quick start guide to generative plugins and shaders",
-  "Built by the Figma team: shaders and plugins".
-- Figma forum thread 42969 (Glass via Plugin API missing the rim reflection) — resolved by
-  Figma with no plugin-side change.
+Checked 5 Sep 2026 against `@figma/plugin-typings` 1.138.0 (3 Sep 2026), the developer docs
+for Effect / Paint / Shader / figma / manifest, and the Plugin API changelog (shaders arrived in
+Version 1, Update 130 on 23 Jun 2026; nothing shader-related changed in 131–138).
 
 ### SUPPORTED
 
 | Capability | API |
 |---|---|
-| Vector / shape creation | `figma.createFrame()`, `createRectangle()`, `createEllipse()`, `createVector()` + `VectorNode.vectorPaths` (`M L Q C Z` path syntax) |
-| Gradient fills | `GradientPaint` with `type` `GRADIENT_LINEAR` / `GRADIENT_RADIAL` / `GRADIENT_ANGULAR` / `GRADIENT_DIAMOND`, `gradientStops[{position, color: RGBA}]`, `gradientTransform` (2×3 matrix) |
-| Blur / shadow / effects | `DropShadowEffect`, `InnerShadowEffect`, `BlurEffect` (`LAYER_BLUR`, `BACKGROUND_BLUR`, normal or progressive), `NoiseEffect`, `TextureEffect`; `node.blendMode` |
-| **Glass** | `GlassEffect { type: 'GLASS', visible, lightIntensity (0–1), lightAngle (deg), refraction (0–1), depth (>= 1), dispersion (0–1), radius (frost) }` — set on `node.effects` of any shape |
-| **ShaderEffect** | `{ type: 'SHADER', id, visible, properties? }` on `node.effects` |
-| **ShaderPaint** | `{ type: 'SHADER', id, properties?, visible?, opacity?, blendMode? }` on `node.fills` / `node.strokes` |
-| **Shader discovery** | `figma.listAvailableShaders(): Promise<Shader[]>` — shaders in the file, in subscribed libraries and owned by the user. `Shader = { id, name, type: 'effect' \| 'fill', imported, propertyDefinitions? }` |
-| **Shader import** | `figma.importShaderById(id): Promise<Shader>` — materialises the shader into the file, idempotent, returns `propertyDefinitions`. Applying an un-imported id throws `Shader not imported. Call figma.importShaderById(id) first.` |
-| **Shader parameter editing** | `properties` is a read/write map keyed by property-definition **id** (not name). Reading it back after applying returns the current values including author defaults; writing a new `fills` / `effects` array updates the render immediately. |
-| Manifest | No extra permission is needed for shaders or Glass. `documentAccess: "dynamic-page"` is required for new plugins. |
+| Vector / shape / text creation | `createFrame`, `createRectangle`, `createEllipse`, `createVector` + `vectorPaths`, `createText` + `loadFontAsync` |
+| Gradient fills | `GradientPaint` (`GRADIENT_LINEAR/RADIAL/ANGULAR/DIAMOND`), `gradientStops`, `gradientTransform` |
+| Blur / shadow / effects | `DropShadowEffect`, `InnerShadowEffect`, `BlurEffect` (layer / background, normal / progressive), `NoiseEffect`, `TextureEffect`; `node.blendMode`, `node.opacity` |
+| **Glass** | `GlassEffect { type:'GLASS', lightIntensity 0–1, lightAngle, refraction 0–1, depth ≥ 1, dispersion 0–1, radius (frost) }` |
+| **ShaderEffect / ShaderPaint** | `{ type:'SHADER', id, properties? }` on `effects`, `fills`, `strokes` |
+| **Shader discovery / import** | `figma.listAvailableShaders()` (file + subscribed libraries + owned), `figma.importShaderById(id)` (required before applying; returns `propertyDefinitions`) |
+| **Shader parameter editing** | `properties` map keyed by property-definition **id**; read back returns current values incl. defaults; writing a new `fills`/`effects` array updates live |
+| Manifest | no permission needed for shaders/Glass; `documentAccess: "dynamic-page"`; `networkAccess.allowedDomains` for the AI call |
 
 ### PARTIALLY SUPPORTED
+- `ShaderPropertyDefinition` has `name`, `type`, `defaultValue?`, `description?` — **no min/max/step**. Slider ranges are guessed from the default.
+- 13 property types exist; the plugin edits `NUMBER`, `COLOR`, `BOOLEAN`, `TEXT`, `POINT` (the AI sets NUMBER/COLOR/BOOLEAN; sliders show NUMBER).
+- Shaders are open beta, need WebGPU, and Figma's first-party shaders must be added to a file once (Tools → Source: From Figma). Your account library has 37 (26 effects, 11 fills) incl. your *Frosted glass* and *Fluid gradient*.
+- Glass / Noise / Texture cannot bind variables.
 
-- **Parameter ranges.** `ShaderPropertyDefinition` only exposes `name`, `type`, `defaultValue?`,
-  `description?`. There is **no min / max / step**. The plugin guesses slider ranges from the
-  author default (default <= 1 → 0…1, otherwise 0…2×default). The editor's own ranges are
-  not readable.
-- **Parameter types.** 13 property types exist (`BOOLEAN, TEXT, NUMBER, IMAGE, INSTANCE_SWAP,
-  SLOT, COLOR, POINT, LINE, CIRCLE, CIRCLE_POINT, COLOR_POINT, GRADIENT`). This prototype only
-  drives `NUMBER` properties from the UI; the others are listed but not editable here.
-- **Availability of shaders.** Shaders are in open beta and need WebGPU. Figma's first-party
-  shaders are **not** automatically in every file; a user adds them from Tools → Source:
-  *From Figma*, from Community, or from a library. Your account library currently lists 37
-  shaders (26 effects, 11 fills) including your own *Frosted glass* (effect) and *Fluid
-  gradient* (fill), so `listAvailableShaders()` should not be empty for you.
-- **Variables.** Glass, Noise and Texture effects cannot bind variables. Shader property
-  values *can* be a `VariableAlias`.
-- **Animated shaders.** Only one animated or interactive shader runs per page at a time.
-
-### NOT SUPPORTED (from a plugin)
-
-- Creating or editing shader source (WGSL). Shaders are authored in the Figma editor (Figma
-  agent) or through Figma's MCP `create_shader` / `update_shader`; the Plugin API can only
-  list, import and apply them.
-- Reading a shader's source, thumbnail or the author-defined UI ranges.
-- Importing a shader by Community URL or library key — only by the `id` returned from
-  `listAvailableShaders()`.
-- Glass in SVG export (the effect is skipped on SVG). Not relevant to this test.
-
-Nothing in the plugin is faked: if no shader is available it says
-**"No compatible Figma shaders found"** and continues.
+### NOT SUPPORTED from a plugin
+- Creating or editing shader source (WGSL), reading it, or importing by Community URL — only list / import / apply.
 
 ---
 
-## Phase 2 — what the plugin does
+## Phase 2 — the plugin
 
-Panel: **Generate Test Creative**, **Randomize**, **Reset**, a Shader section (chosen shader,
-all exposed parameter names, up to 4 live sliders for NUMBER parameters), and the debug
-panel **Plugin API test** with Shapes / Gradients / Effects / Glass / Shaders = PASS / FAIL.
-Every PASS is decided by reading the values back from the document, not from what was sent.
+### Panel
+1. **Reference image + your vision** — pick an image (downscaled to 1024 px in the panel, only to send to the model), write what you want, **Generate with AI**. Status line shows the models, token use, or a rate-limit countdown.
+2. **Test creative** — **Generate Test Creative** (the fixed 5-layer proof), **Randomize**, **Reset**.
+3. **Shader** — the shader on the first shader-bearing layer, all its exposed parameters, up to 4 live sliders for NUMBER parameters.
+4. **Plugin API test** — Shapes / Gradients / Effects / Glass / Shaders = PASS / FAIL / N/A, decided by reading values back from the document. N/A means the current plan did not ask for that capability.
 
-**Generate** creates a new 1080 × 1350 frame:
+### AI flow (Groq, key taken from the creative-editor `.env`)
+1. **Brief** — `qwen/qwen3.8-27b` (falls back to `qwen3.6-27b`) reads the reference image into compact JSON: palette, mood, composition, lighting, texture, text. ~150 output tokens.
+2. **Plan** — `openai/gpt-oss-120b` gets the brief + your vision + the list of shader names available in the file, and returns the layer plan (5–9 layers; rect / ellipse / blob / text; solid, linear, radial or **shader** fills; glow, shadow, inner shadow, blur, background blur, **glass**, **shader** effects; blend mode; opacity). Without an image only this step runs.
+3. **Build** — the main thread creates the nodes, resolves shader names against `listAvailableShaders()`, imports them, applies everything, places the reference image beside the frame, and re-reads the document for the PASS/FAIL panel.
+4. **Tune** — for each shader the plan used (max 2), the text model gets the shader's real parameter names, types and defaults and returns values; the plugin maps names → property ids and writes them live. Tuned values are stored in the plan so **Reset** keeps the AI look.
 
-| Layer (bottom → top) | Node | Fill / effect |
-|---|---|---|
-| Background | Rectangle | 4-stop linear gradient, dark navy → purple → violet → cyan |
-| Gradient Shape | Vector (7-point cubic-Bézier blob) | 3-stop linear gradient |
-| Shader Shape | Ellipse | First compatible shader: `ShaderPaint` if it is a fill shader, gradient fill + `ShaderEffect` if it is an effect shader |
-| Glass Shape | Rounded rectangle (pill) | white 12 % fill + native `GlassEffect` (refraction 0.7, depth 24, dispersion 0.5, frost 1.5) |
-| Highlight | Ellipse | radial white → cyan gradient, blend mode SCREEN, drop-shadow glow + inner shadow + layer blur |
+Why two stages: Groq's free tier allows 8,000 tokens/minute per model and only ~1,000 **output** tokens/minute on the vision models (measured 5 Sep 2026: `OTPM Limit 1000`). A full plan does not fit, a brief does. Each stage runs on a different model, so one generation fits in one minute; a second generation inside the same minute shows a countdown.
 
-The Layers panel lists top-most first, so it reads Highlight, Glass Shape, Shader Shape,
-Gradient Shape, Background — the same five layers as the brief, in reverse.
+The plan is normalised before it reaches Figma (types, ranges, hex colours, unknown layers dropped, background guaranteed) and every layer is built in its own try/catch, so one bad layer or an unknown shader name degrades to a gradient instead of killing the frame.
 
-"First compatible shader" = the first shader returned by `listAvailableShaders()` that imports
-and exposes at least one `NUMBER` property (so the slider test is possible). If none of the
-first six have a numeric property, the first importable shader is used without sliders.
-
-**Randomize** keeps the same five nodes (same node ids) and re-writes: gradient stop
-positions and colours (from the same blue/purple/cyan palette), gradient angle, shape sizes,
-rotations, positions, all six Glass parameters and the numeric shader parameters. The vector
-outline itself is kept so manual point edits survive.
-
-**Reset** deletes the current generated frame and recreates the default version at the same
-position. If the plugin is reopened it picks up the last frame it generated on the page.
-
-Everything is logged to the plugin console with the `[ECT]` prefix: the shader list with
-ids, the imported shader with its `propertyDefinitions`, the Glass effect read back, the
-shader `properties` read back.
-
-## Files
-
+### Files
 ```
 Test Plugin/
-├── manifest.json   plugin manifest (main: code.js, ui: ui.html, dynamic-page, no network)
-├── code.ts         main thread — everything above
-├── code.js         compiled output that Figma loads (built by `npm run build`)
-├── ui.html         the panel, plain HTML/CSS/JS, no framework
-├── package.json    scripts: build / watch; devDeps: typescript, @figma/plugin-typings
-├── tsconfig.json   strict TypeScript, Figma typings
-└── README.md
+├── manifest.json     main: code.js, ui: ui.html, dynamic-page, networkAccess api.groq.com
+├── src/code.ts       main thread: plan → native nodes, shaders, glass, checks, randomize/reset
+├── src/ui.html       panel (plain HTML/CSS/JS); build inlines ai.js at <!--AI_JS-->
+├── src/ai.js         Groq client: brief, plan, tune, plan normalisation (also used by tests)
+├── build.mjs         tsc → build/code.js → code.js (+ ECT_ENV key), src/ui.html → ui.html
+├── test/smoke.js     offline tests against a mock Figma API           npm test
+├── test/ai-live.js   real Groq call + mock build                      npm run test:live -- <image> "vision"
+├── code.js, ui.html  BUILD OUTPUTS (gitignored; code.js contains the key)
+└── .env              optional GROQ_API_KEY override (gitignored); default: ../.env
 ```
 
-## Build
-
+### Build
 ```bash
-cd "~/Desktop/creative-editor/Test Plugin"
-npm install
-npm run build
+cd ~/Desktop/creative-editor/"Test Plugin" && npm install && npm run build
 ```
+The build reads `GROQ_API_KEY` from `./.env`, else from `../.env` (the creative-editor app).
+Rebuild after editing anything in `src/`. `npm test` runs the offline suite.
 
-`code.js` is already built and committed alongside the source; rebuild after editing `code.ts`.
+### Install and test in Figma desktop
+1. Build (above). If the plugin was imported before v0.2, remove it (Plugins → Development → Manage plugins) and import again so Figma picks up the new `networkAccess`.
+2. Plugins → Development → **Import plugin from manifest…** → `Test Plugin/manifest.json`.
+3. Plugins → Development → **Show/Hide console** to see the `[ECT]` logs (shader list, imported shader definitions, AI plan, Glass read-back).
+4. Run **Editable Creative Test**.
+5. Click **Generate Test Creative** → the 5-layer proof appears; all rows PASS.
+6. Pick a reference image, write a vision (e.g. "dark cinematic poster, glowing glass capsule over purple-to-cyan gradients, headline EDITABLE"), click **Generate with AI**. Expect ~10 s: reading the reference, planning, building, then one or two "Tuning …" steps.
+7. In the Layers panel every AI layer is a normal node: edit gradients, vector points, text, Glass parameters and shader parameters in Figma's own panels; move the sliders in the plugin to see the shader update live.
+8. **Randomize** re-rolls colours/positions/glass/shader values on the same layers; **Reset** deletes the frame and rebuilds the same plan.
 
-## Install and test in Figma desktop
+If the Shaders row says *No compatible Figma shaders found*: open Tools → Source: From Figma, add any shader to the file once, run again. If the AI status says rate limit: wait for the countdown (free tier, per minute).
 
-1. Open the Figma desktop app and open (or create) a Design file. Shaders need WebGPU, which
-   the desktop app has.
-2. Menu → **Plugins → Development → Import plugin from manifest…**
-3. Pick `~/Desktop/creative-editor/Test Plugin/manifest.json`.
-4. Optional but useful: **Plugins → Development → Show/Hide console** to watch the `[ECT]` logs.
-5. Run **Plugins → Development → Editable Creative Test**.
-6. Click **Generate Test Creative**. A frame named *Editable Creative Test* appears and the
-   viewport zooms to it. The debug panel fills in PASS / FAIL for each capability.
-7. Open the Layers panel: expand the frame and click each of the five layers — each is an
-   independent node.
-8. Select **Background**, open the Fill section, click the gradient swatch and drag a stop:
-   the gradient is a normal editable Figma gradient.
-9. Double-click **Gradient Shape** to enter vector editing and move a point: it is a real
-   vector path.
-10. Select **Glass Shape**: the Effects section shows a native **Glass** effect with light
-    angle, intensity, refraction, depth, dispersion and frost. Drag the pill over the other
-    shapes and watch it refract them.
-11. Select **Shader Shape**: the Fill (or Effects) section shows a native shader with its
-    parameters. The plugin panel shows the same shader name and its parameter list.
-12. Move a slider in the plugin panel: the shape on the canvas updates live. Check the
-    shader's parameter in Figma's own panel — it changed to the same value.
-13. Click **Randomize** a few times: same five layers, new colours / positions / glass /
-    shader values. Click **Reset**: the frame is deleted and the default recreated.
-
-If the Shaders row says *No compatible Figma shaders found*: in the same file open
-**Tools**, set Source to **From Figma**, add any shader effect or fill once (or use one from
-your library), then click **Generate** again.
-
-## What was verified before handing over
-
-- `code.ts` compiles under `strict` against `@figma/plugin-typings` 1.138.0 — every effect,
-  paint and shader call matches the declared API.
-- A Node smoke test drove the compiled `code.js` against a mock of the Plugin API through
-  generate → live slider → randomize → reset → reopen, plus the cases: effect shader first,
-  shader without numeric parameters, no shaders at all, and Figma build without the shader API.
-- Not yet verified: rendering inside the real Figma app. That is step 6 onwards above.
+## Verified
+- Strict TypeScript build against `@figma/plugin-typings` 1.138.0.
+- `npm test`: 10 offline scenarios (default plan, AI plan with text + glass + named shaders + fallbacks + reference image + tuning, reopen/adopt, broken layer, effect-shader-first, no shaders, no shader API, plan normalisation).
+- Live Groq run: real reference (`images/glass.jpg`) → brief → 7-layer plan with two shader fills, a glass capsule and a headline → built through the mock Figma → shader tuned.
+- v0.1 was confirmed working inside Figma by Mansoor on 5 Sep 2026. v0.2 rendering in Figma is step 5 onward above.

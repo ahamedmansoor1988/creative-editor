@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+.env
+# build outputs (code.js carries the injected API key)
+build/
+code.js
+ui.html

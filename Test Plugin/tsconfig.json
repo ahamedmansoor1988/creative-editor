@@ -4,7 +4,8 @@
     "lib": ["ES2019"],
     "strict": true,
     "skipLibCheck": true,
+    "outDir": "build",
     "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
   },
-  "files": ["code.ts"]
+  "files": ["src/code.ts"]
 }

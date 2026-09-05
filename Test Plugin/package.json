@@ -1,11 +1,12 @@
 {
   "name": "editable-creative-test",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Figma plugin prototype: builds a fully editable creative from native shapes, gradients, effects, Glass and shaders.",
+  "description": "Figma plugin prototype: reference image + vision -> AI plan -> fully editable creative built from native shapes, gradients, effects, Glass and shaders.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "watch": "tsc -p tsconfig.json --watch"
+    "build": "node build.mjs",
+    "test": "node test/smoke.js",
+    "test:live": "node test/ai-live.js"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.138.0",
