@@ -1,0 +1,131 @@
+<style>
+  body {
+    margin: 0; padding: 12px;
+    font: 11px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--figma-color-text, #222);
+    background: var(--figma-color-bg, #fff);
+  }
+  h1 { font-size: 12px; font-weight: 600; margin: 0 0 10px; }
+  button {
+    width: 100%; padding: 8px; margin-bottom: 6px;
+    border: 1px solid var(--figma-color-border, #d5d5d5); border-radius: 6px;
+    background: var(--figma-color-bg-secondary, #f2f2f2); color: inherit; font: inherit; cursor: pointer;
+  }
+  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border-color: transparent; }
+  .row { display: flex; gap: 6px; }
+  .row button { flex: 1; }
+  section { border-top: 1px solid var(--figma-color-border, #e5e5e5); margin-top: 10px; padding-top: 10px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--figma-color-text-secondary, #777); margin-bottom: 6px; }
+  .muted { color: var(--figma-color-text-secondary, #777); }
+  .param { margin-bottom: 8px; }
+  .param .name { display: flex; justify-content: space-between; margin-bottom: 2px; }
+  .param input { width: 100%; margin: 0; }
+  #allParams { font-size: 10px; margin: 6px 0 8px; }
+  .tests div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .tests .detail { display: block; font-size: 10px; color: var(--figma-color-text-secondary, #777); margin: -2px 0 4px; }
+  .PASS { color: var(--figma-color-text-success, #1a8a4a); font-weight: 600; }
+  .FAIL { color: var(--figma-color-text-danger, #d23a3a); font-weight: 600; }
+  pre {
+    font: 10px/1.35 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+    max-height: 110px; overflow: auto; margin: 6px 0 0; padding: 6px; border-radius: 4px;
+    background: var(--figma-color-bg-secondary, #f5f5f5);
+  }
+</style>
+
+<h1>Editable Creative Test</h1>
+<button id="generate" class="primary">Generate Test Creative</button>
+<div class="row">
+  <button id="randomize">Randomize</button>
+  <button id="reset">Reset</button>
+</div>
+
+<section>
+  <div class="label">Shader</div>
+  <div id="shaderName" class="muted">Run Generate to look for shaders.</div>
+  <div id="allParams"></div>
+  <div id="sliders"></div>
+</section>
+
+<section>
+  <div class="label">Plugin API test</div>
+  <div class="tests" id="tests"></div>
+  <pre id="log"></pre>
+</section>
+
+<script>
+  const TESTS = [['shapes', 'Shapes'], ['gradients', 'Gradients'], ['effects', 'Effects'], ['glass', 'Glass'], ['shaders', 'Shaders']]
+  const $ = (id) => document.getElementById(id)
+  const post = (msg) => parent.postMessage({ pluginMessage: msg }, '*')
+
+  $('generate').onclick = () => post({ type: 'generate' })
+  $('randomize').onclick = () => post({ type: 'randomize' })
+  $('reset').onclick = () => post({ type: 'reset' })
+
+  // Coalesce slider moves to one message per frame; the main thread writes it straight to the node.
+  let pending = null, scheduled = false
+  function sendParam(defId, value) {
+    pending = { type: 'set-shader-param', defId, value }
+    if (scheduled) return
+    scheduled = true
+    requestAnimationFrame(() => { scheduled = false; post(pending) })
+  }
+
+  function renderTests(results) {
+    $('tests').innerHTML = ''
+    for (const [key, label] of TESTS) {
+      const r = results[key]
+      const row = document.createElement('div')
+      row.innerHTML = `<span>${label}:</span><span class="${r.status}">${r.status}</span>`
+      const detail = document.createElement('span')
+      detail.className = 'detail'
+      detail.textContent = r.detail
+      $('tests').appendChild(row)
+      $('tests').appendChild(detail)
+    }
+  }
+
+  function renderShader(m) {
+    if (!m.shader) {
+      $('shaderName').textContent = m.shaderMessage
+      $('shaderName').className = 'FAIL'
+      $('allParams').textContent = ''
+      $('sliders').innerHTML = ''
+      return
+    }
+    $('shaderName').className = ''
+    $('shaderName').textContent = `${m.shader.name} (${m.shader.type} shader)`
+    $('allParams').textContent = m.allParams.length
+      ? 'Exposed: ' + m.allParams.map((p) => `${p.name} [${p.type}]`).join(', ')
+      : 'No exposed parameters.'
+    $('sliders').innerHTML = ''
+    for (const p of m.params) {
+      const wrap = document.createElement('div')
+      wrap.className = 'param'
+      const name = document.createElement('div')
+      name.className = 'name'
+      const val = document.createElement('span')
+      val.textContent = p.value
+      name.innerHTML = `<span>${p.name}</span>`
+      name.appendChild(val)
+      const input = document.createElement('input')
+      input.type = 'range'
+      input.min = p.min; input.max = p.max; input.step = p.step; input.value = p.value
+      input.oninput = () => { val.textContent = input.value; sendParam(p.defId, parseFloat(input.value)) }
+      wrap.appendChild(name)
+      wrap.appendChild(input)
+      $('sliders').appendChild(wrap)
+    }
+  }
+
+  window.onmessage = (e) => {
+    const m = e.data.pluginMessage
+    if (!m || m.type !== 'state') return
+    renderTests(m.results)
+    renderShader(m)
+    $('log').textContent = m.log.join('\n')
+    $('log').scrollTop = $('log').scrollHeight
+  }
+
+  renderTests({ shapes: { status: '—', detail: '' }, gradients: { status: '—', detail: '' }, effects: { status: '—', detail: '' }, glass: { status: '—', detail: '' }, shaders: { status: '—', detail: '' } })
+  post({ type: 'ui-ready' })
+</script>
