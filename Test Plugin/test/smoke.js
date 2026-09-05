@@ -61,6 +61,7 @@ function makeFigma(opts) {
         if (e.type === 'GLASS' && (e.depth < 1 || e.refraction > 1 || e.dispersion > 1 || e.lightIntensity > 1)) throw new Error('glass out of range ' + JSON.stringify(e))
         if ((e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && !(e.color && e.offset && typeof e.radius === 'number' && e.blendMode)) throw new Error('bad shadow')
         if ((e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') && typeof e.radius !== 'number') throw new Error('bad blur')
+        if (e.type === 'NOISE' && !(e.noiseType === 'MONOTONE' && e.color && typeof e.density === 'number' && e.density >= 0 && e.density <= 1 && typeof e.noiseSize === 'number' && e.blendMode)) throw new Error('bad noise ' + JSON.stringify(e))
         return e.type === 'SHADER' ? checkShader(e) : e
       }) } })
     if (type === 'VECTOR') Object.defineProperty(n, 'vectorPaths', { get: () => paths, set(v) {
@@ -148,10 +149,28 @@ async function main() {
     const b = p.layers[3]
     assert(b.wobble === 0.6 && b.points === 12 && b.fill.shader === 'Mesh gradient', 'blob clamped, shader trimmed')
   })
+  await run('ai: repeat expands to independent grouped layers; grain effect; text guard', () => {
+    const p = AI.normalizePlan({ palette: ['#000000', '#FFFFFF'], layers: [
+      { kind: 'rect', w: 1080, h: 1350 },
+      { name: 'Streak', kind: 'rect', x: 100, y: 675, w: 12, h: 1200, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#fff', alpha: 0 }, { pos: .5, hex: '#fff' }, { pos: 1, hex: '#fff', alpha: 0 }] }, effects: [{ type: 'blur', radius: 8 }], blend: 'SCREEN', repeat: { count: 5, dx: 200, dy: 0 } },
+      { name: 'Grain', kind: 'rect', w: 1080, h: 1350, fill: { type: 'solid', hex: '#000', alpha: 0.01 }, effects: [{ type: 'grain', amount: 0.8 }] },
+      { kind: 'text', text: 'SHOULD DROP' },
+      { name: 'Dots', kind: 'ellipse', x: 50, y: 50, w: 20, h: 20, repeat: { count: 99, dx: 30 } },
+    ] }, 1080, 1350, { allowText: false })
+    const streaks = p.layers.filter((L) => L.group === 'Streak')
+    assert(streaks.length === 5 && streaks[0].name === 'Streak 1' && streaks[4].x === 900 && streaks[4].y === 675 && streaks[4].effects[0].type === 'blur', 'repeat expanded: ' + JSON.stringify(streaks.map((L) => [L.name, L.x])))
+    assert(p.layers.some((L) => L.effects.some((e) => e.type === 'grain' && e.amount === 0.8)), 'grain kept')
+    assert(!p.layers.some((L) => L.kind === 'text'), 'text dropped when vision has no words')
+    assert(p.layers.length <= 48 && p.layers.filter((L) => L.group === 'Dots').length === 24, 'repeat capped at 24 and total at 48: ' + p.layers.length)
+    const withText = AI.normalizePlan({ palette: ['#000000', '#FFFFFF'], layers: [{ kind: 'rect', w: 1080, h: 1350 }, { kind: 'text', text: 'KEEP' }] }, 1080, 1350)
+    assert(withText.layers.some((L) => L.kind === 'text'), 'text kept by default')
+    assert(AI.wantsText('a poster with the headline EDITABLE') && AI.wantsText('say "hello"') && !AI.wantsText('mesh gradient and glass effect with yellow and blue palette'), 'wantsText heuristic')
+  })
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])
     assert(/Shader fills available: Mesh gradient/.test(s) && /Shader effects available: Bloom/.test(s), 'catalog in prompt')
-    assert(s.length < 3200, 'prompt length ' + s.length)
+    assert(s.length < 5200, 'prompt length ' + s.length)
+    assert(/repeat/.test(s) && /grain/.test(s) && /Precedence/.test(s), 'prompt has repeat, grain, precedence')
   })
 
   // ---- plugin flows ----
@@ -201,13 +220,18 @@ async function main() {
       { name: 'Bloomed', kind: 'rect', x: 300, y: 300, w: 400, h: 400, cornerRadius: 40, fill: { type: 'radial', stops: [{ pos: 0, hex: '#F0ABFC' }, { pos: 1, hex: '#7C3AED', alpha: 0 }] }, effects: [{ type: 'shader', shader: 'Bloom' }, { type: 'shader', shader: 'Nope' }] },
       { name: 'Capsule', kind: 'rect', x: 540, y: 760, w: 600, h: 300, rotation: -10, cornerRadius: 150, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.1 }, effects: [{ type: 'glass', lightIntensity: .8, lightAngle: 30, refraction: .7, depth: 30, dispersion: .5, frost: 2 }, { type: 'bgBlur', radius: 10 }] },
       { name: 'Headline', kind: 'text', x: 540, y: 1150, w: 900, h: 200, text: 'EDITABLE', fontSize: 120, weight: 'Black', align: 'CENTER', fill: { type: 'solid', hex: '#FFFFFF' }, effects: [{ type: 'shadow', hex: '#000000', alpha: .5, x: 0, y: 8, blur: 24 }], blend: 'SCREEN', opacity: .9 },
+      { name: 'Grain', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#000000', alpha: 0.01 }, effects: [{ type: 'grain', amount: 0.7 }] },
+      { name: 'Streak', kind: 'rect', x: 140, y: 675, w: 10, h: 1300, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#FFFFFF', alpha: 0 }, { pos: 0.5, hex: '#F0ABFC', alpha: 0.9 }, { pos: 1, hex: '#FFFFFF', alpha: 0 }] }, effects: [{ type: 'blur', radius: 6 }], blend: 'SCREEN', repeat: { count: 3, dx: 400 } },
     ] }
     const plan = AI.normalizePlan(raw, 1080, 1350)
     await send({ type: 'build-plan', plan, vision: 'neon poster', image: new Uint8Array([1, 2, 3, 4]) })
     const st = last()
     const f = frames()[0]
-    assert(f.name === 'Neon Bloom' && f.children.length === 6, 'frame built: ' + f.children.length)
-    assert(f.children.map((c) => c.type).join('|') === 'RECTANGLE|ELLIPSE|VECTOR|RECTANGLE|RECTANGLE|TEXT', 'types: ' + f.children.map((c) => c.type).join('|'))
+    assert(f.name === 'Neon Bloom' && f.children.length === 10, 'frame built: ' + f.children.length)
+    assert(f.children.map((c) => c.type).join('|') === 'RECTANGLE|ELLIPSE|VECTOR|RECTANGLE|RECTANGLE|TEXT|RECTANGLE|RECTANGLE|RECTANGLE|RECTANGLE', 'types: ' + f.children.map((c) => c.type).join('|'))
+    assert(f.children[6].effects[0].type === 'NOISE' && f.children[6].effects[0].noiseType === 'MONOTONE', 'grain -> native NOISE effect')
+    assert(f.children[7].name === 'Streak 1' && f.children[9].name === 'Streak 3' && f.children[9].blendMode === 'SCREEN' && f.children[9].effects[0].type === 'LAYER_BLUR', 'repeat copies are independent nodes')
+    const sx = f.children.slice(7).map((c) => c.relativeTransform[0][2]); assert(sx[1] - sx[0] === 400 && sx[2] - sx[1] === 400, 'streaks stepped by dx: ' + sx)
     assert(f.children[1].fills[0].type === 'SHADER' && f.children[1].fills[0].id === 'mesh-1', 'named shader fill resolved case-insensitively')
     assert(f.children[2].fills[0].type === 'GRADIENT_LINEAR', 'unknown shader fill falls back to gradient')
     assert(f.children[3].effects.length === 1 && f.children[3].effects[0].type === 'SHADER' && f.children[3].effects[0].id === 'fx-1', 'named shader effect applied, unknown dropped')
@@ -233,10 +257,11 @@ async function main() {
     const ids = f.children.map((c) => c.id).join(',')
     await send({ type: 'randomize' })
     assert(frames().length === 1 && f.children.map((c) => c.id).join(',') === ids && f.children[5].characters === 'EDITABLE', 'randomize keeps AI nodes + text')
+    const rx = f.children.slice(7).map((c) => c.relativeTransform[0][2]); assert(Math.abs((rx[1] - rx[0]) - (rx[2] - rx[1])) < 1e-6, 'randomize moves a repeat group together: ' + rx)
     for (const k of PASSING) assert(last().results[k].status === 'PASS', `${k} PASS after randomize: ${last().results[k].detail}`)
     await send({ type: 'reset' })
     const g = frames()[0]
-    assert(g !== f && g.name === 'Neon Bloom' && g.children.length === 6 && g.children[1].fills[0].properties.m1 === 0.55, 'reset rebuilt AI plan with tuned shader values')
+    assert(g !== f && g.name === 'Neon Bloom' && g.children.length === 10 && g.children[1].fills[0].properties.m1 === 0.55, 'reset rebuilt AI plan with tuned shader values')
     assert(last().planSource === 'ai', 'still ai after reset')
   })
 

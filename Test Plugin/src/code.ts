@@ -54,8 +54,8 @@ interface PlanFill {
   shader?: string; params?: Record<string, unknown>
 }
 interface PlanEffect {
-  type: 'glow' | 'shadow' | 'innerShadow' | 'blur' | 'bgBlur' | 'glass' | 'shader'
-  hex?: string; alpha?: number; x?: number; y?: number; blur?: number; radius?: number
+  type: 'glow' | 'shadow' | 'innerShadow' | 'blur' | 'bgBlur' | 'grain' | 'glass' | 'shader'
+  hex?: string; alpha?: number; x?: number; y?: number; blur?: number; radius?: number; amount?: number
   lightIntensity?: number; lightAngle?: number; refraction?: number; depth?: number; dispersion?: number; frost?: number
   shader?: string; params?: Record<string, unknown>
 }
@@ -66,6 +66,7 @@ interface PlanLayer {
   cornerRadius?: number
   wobble?: number; points?: number; seed?: number
   text?: string; fontSize?: number; weight?: string; align?: string
+  group?: string // set on layers expanded from a "repeat"; Randomize moves a group together
 }
 interface Plan { name: string; width: number; height: number; palette: string[]; layers: PlanLayer[] }
 
@@ -291,14 +292,22 @@ function jitterPlan(p: Plan): Plan {
     const pos = [0, ...inner, 1]
     return pos.map((position, i) => ({ pos: position, hex: c[i % c.length], alpha: 1 }))
   }
+  const groupMoves: { [g: string]: { s: number; dx: number; dy: number; rot: number } } = {}
+  const moveFor = (g: string | undefined): { s: number; dx: number; dy: number; rot: number } => {
+    const fresh = { s: rand(0.85, 1.15), dx: rand(-0.08, 0.08) * q.width, dy: rand(-0.08, 0.08) * q.height, rot: rand(-15, 15) }
+    if (!g) return fresh
+    if (!groupMoves[g]) groupMoves[g] = fresh
+    return groupMoves[g]
+  }
   q.layers.forEach((L, i) => {
     if (i > 0) {
-      const s = rand(0.85, 1.15)
-      L.w = r2(clamp(L.w * s, 4, q.width * 3))
-      L.h = r2(clamp(L.h * s, 4, q.height * 3))
-      L.x = r2(clamp(L.x + rand(-0.08, 0.08) * q.width, 0, q.width))
-      L.y = r2(clamp(L.y + rand(-0.08, 0.08) * q.height, 0, q.height))
-      L.rotation = r2(L.rotation + rand(-15, 15))
+      const mv = moveFor(L.group)
+      const s = mv.s
+      L.w = r2(clamp(L.w * s, 1, q.width * 3))
+      L.h = r2(clamp(L.h * s, 1, q.height * 3))
+      L.x = r2(clamp(L.x + mv.dx, -q.width * 0.5, q.width * 1.5))
+      L.y = r2(clamp(L.y + mv.dy, -q.height * 0.5, q.height * 1.5))
+      L.rotation = r2(L.rotation + mv.rot)
       if (L.kind === 'text' && L.fontSize) L.fontSize = r2(clamp(L.fontSize * s, 6, 600))
     }
     const f = L.fill
@@ -308,7 +317,7 @@ function jitterPlan(p: Plan): Plan {
         f.scale = r2(rand(0.6, 1.6))
         const keepAlpha = f.stops || []
         f.stops = stopsFrom(keepAlpha.length || 2).map((s, k) => ({ ...s, alpha: keepAlpha[k] ? keepAlpha[k].alpha : 1 }))
-      } else if (f.type === 'solid' && i > 0 && L.kind !== 'text' && (f.alpha === undefined || f.alpha > 0.5)) f.hex = pick(cols)
+      } else if (f.type === 'solid' && i > 0 && L.kind !== 'text' && !L.group && (f.alpha === undefined || f.alpha > 0.5)) f.hex = pick(cols)
     }
     for (const e of L.effects) {
       if (e.type === 'glass') {
@@ -520,7 +529,9 @@ function setEffectsSafely(node: Placeable, effects: Effect[], layerName: string,
   const noShader = effects.filter((e) => e.type !== 'SHADER')
   try { node.effects = noShader; report.shaderIssues.push(`${layerName}: shader effect dropped`); return } catch (e) { /* keep degrading */ }
   const noGlass = noShader.filter((e) => e.type !== 'GLASS')
-  try { node.effects = noGlass; report.glassErrors.push(`${layerName}: GLASS effect rejected`); return } catch (e) { report.errors.push(`${layerName}: all effects rejected (${String(e)})`) }
+  try { node.effects = noGlass; report.glassErrors.push(`${layerName}: GLASS effect rejected`); return } catch (e) { /* keep degrading */ }
+  const noNoise = noGlass.filter((e) => e.type !== 'NOISE')
+  try { node.effects = noNoise; report.errors.push(`${layerName}: grain (NOISE) effect rejected`); return } catch (e) { report.errors.push(`${layerName}: all effects rejected (${String(e)})`) }
   node.effects = []
 }
 
@@ -582,6 +593,10 @@ async function effectsFor(list: PlanEffect[], p: Plan, report: BuildReport, inde
     else if (e.type === 'innerShadow') out.push({ type: 'INNER_SHADOW', color: rgba(hex, alpha), offset: { x: e.x || 0, y: e.y === undefined ? 8 : e.y }, radius: Math.max(0, e.blur || 24), spread: 0, visible: true, blendMode: 'NORMAL' })
     else if (e.type === 'blur') out.push({ type: 'LAYER_BLUR', blurType: 'NORMAL', radius: Math.max(0, e.radius || 20), visible: true })
     else if (e.type === 'bgBlur') out.push({ type: 'BACKGROUND_BLUR', blurType: 'NORMAL', radius: Math.max(0, e.radius || 20), visible: true })
+    else if (e.type === 'grain') {
+      const amount = clamp(e.amount === undefined ? 0.5 : e.amount, 0, 1)
+      out.push({ type: 'NOISE', noiseType: 'MONOTONE', color: rgba('#FFFFFF', 0.25 + 0.6 * amount), visible: true, blendMode: 'OVERLAY', noiseSize: 1, density: 0.3 + 0.6 * amount })
+    }
     else if (e.type === 'glass') {
       out.push({
         type: 'GLASS', visible: true,

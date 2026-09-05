@@ -45,7 +45,8 @@ function imageDataUrl(file) {
   for (const L of res.plan.layers) {
     const fill = L.fill ? (L.fill.type === 'shader' ? `shader:${L.fill.shader}` : L.fill.type === 'solid' ? `solid ${L.fill.hex}@${L.fill.alpha}` : `${L.fill.type} ${L.fill.stops.map((s) => s.hex).join('>')}`) : 'none'
     const fx = L.effects.map((e) => (e.type === 'shader' ? `shader:${e.shader}` : e.type)).join('+') || '-'
-    console.log(`  ${L.kind.padEnd(7)} ${L.name.padEnd(22).slice(0, 22)} ${Math.round(L.x)},${Math.round(L.y)} ${Math.round(L.w)}x${Math.round(L.h)} rot ${L.rotation}  fill=${fill}  fx=${fx}  blend=${L.blend}${L.kind === 'text' ? `  text="${L.text}"` : ''}`)
+    if (L.group && !/ 1$/.test(L.name)) continue // print a repeat group once
+    console.log(`  ${L.kind.padEnd(7)} ${(L.group ? L.group + ' x' + res.plan.layers.filter((k) => k.group === L.group).length : L.name).padEnd(22).slice(0, 22)} ${Math.round(L.x)},${Math.round(L.y)} ${Math.round(L.w)}x${Math.round(L.h)} rot ${L.rotation}  fill=${fill}  fx=${fx}  blend=${L.blend}${L.kind === 'text' ? `  text="${L.text}"` : ''}`)
   }
   fs.writeFileSync(path.join(os.tmpdir(), 'ect-last-plan.json'), JSON.stringify({ raw: res.raw, plan: res.plan }, null, 2))
 

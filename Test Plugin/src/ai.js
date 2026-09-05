@@ -12,21 +12,41 @@ const ECT_AI = (() => {
   const KINDS = ['rect', 'ellipse', 'blob', 'text']
   const BLENDS = ['NORMAL', 'SCREEN', 'OVERLAY', 'MULTIPLY', 'SOFT_LIGHT', 'HARD_LIGHT', 'LIGHTEN', 'DARKEN', 'COLOR_DODGE', 'COLOR_BURN', 'DIFFERENCE', 'EXCLUSION', 'HUE', 'SATURATION', 'COLOR', 'LUMINOSITY']
   const WEIGHTS = ['Regular', 'Medium', 'Semi Bold', 'Bold', 'Black']
+  const MAX_LAYERS = 48
+  const MAX_REPEAT = 24
+
+  // Stage 1 prompt: a STRUCTURAL reconstruction brief, not a mood description. Geometry is in
+  // percent of the canvas so it survives any output size.
+  const BRIEF_SYSTEM = [
+    'You analyse a reference image for a designer who will REBUILD it in Figma from shapes, gradients, blur, glow, grain, glass and shader effects. Describe structure and geometry, not feelings. Reply with ONLY compact JSON:',
+    '{"background":{"kind":"gradient|solid","direction":"top-to-bottom|bottom-to-top|left-to-right|diagonal|radial","colors":["#start","#mid","#end"],"dark":true|false},',
+    ' "elements":[{"what":"<=6 words","shape":"rect|ellipse|blob|line","count":1-24,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"color":"#rrggbb","alpha":0-1,"soft":0-1,"glow":true|false,"blend":"screen|normal|overlay|multiply","spacing":"even|random|none"}],',
+    ' "lighting":"<=15 words: where light comes from, glow zones, vignette",',
+    ' "texture":{"grain":0-1,"blur":0-1,"glass":0-1,"metal":0-1},',
+    ' "text":[{"content":"...","x":0-100,"y":0-100,"size":1-40,"weight":"regular|bold","color":"#rrggbb"}],',
+    ' "mood":"<=8 words"}',
+    'x,y = element CENTRE in % of canvas width/height; w,h = size in % (a thin vertical streak might be w 1, h 90). Up to 8 elements, most visually important first; group repeated things as one element with count and spacing. "soft" 1 = very blurred. Sizes as percent of canvas height for text. Use [] for text when there is none.',
+    'Describe only the artwork. Ignore interface chrome: buttons, badges, icons, cursors, status bars, page counters, device or browser frames.',
+  ].join('\n')
 
   function systemPrompt(w, h, catalog) {
     const names = (t) => (catalog || []).filter((s) => s.type === t).map((s) => s.name).join(', ') || 'none'
     return [
-      'You are an art director. Plan one poster-style creative that a Figma plugin will build from NATIVE, EDITABLE Figma layers (no raster images). Reply with ONLY a JSON object.',
-      `Canvas ${w}x${h} px. "x","y" = layer CENTER in px. "rotation" in degrees. Build 5-9 layers bottom to top; the first layer is a full-canvas background rect.`,
-      'Layer: {"name","kind","x","y","w","h","rotation","fill","effects","blend","opacity"}',
+      'You are an art director turning a brief into a build plan for one poster-style creative that a Figma plugin will construct from NATIVE, EDITABLE Figma layers (no raster images). Reply with ONLY a JSON object.',
+      'Inputs: an optional REFERENCE ANALYSIS (structured description of a reference image, geometry in % of canvas) and the user\'s VISION.',
+      'Precedence: first rebuild the reference\'s structure - background direction and colours, then every element with its shape, position, size, softness, blend and count - then apply the vision as overrides and additions (palette swap, add glass, add a shader, change mood). If the vision names colours, remap the reference\'s colour roles (background, streaks, glow, accents) onto those colours but keep its light/dark structure. Convert % to px for the canvas.',
+      `Canvas ${w}x${h} px. "x","y" = layer CENTER in px. "rotation" in degrees. Build 6-14 layers bottom to top (a repeat counts as one); the first layer is a full-canvas background rect.`,
+      'Layer: {"name","kind","x","y","w","h","rotation","fill","effects","blend","opacity","repeat"?}',
       'kind: "rect" (+"cornerRadius") | "ellipse" | "blob" (organic vector: "wobble" 0.1-0.5, "points" 5-9, "seed" int) | "text" (+"text","fontSize","weight":"Regular"|"Medium"|"Bold"|"Black","align":"LEFT"|"CENTER"|"RIGHT"; fill = text colour)',
-      'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
-      'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
-      "glass = Figma native glass: it refracts the layers below it, so give that layer a white fill with alpha 0.05-0.2. Effect shaders only process the layer's own pixels; shader fills generate the fill themselves.",
+      '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px} builds count copies of the layer stepped by dx,dy (jitter = random offset per copy). Use it for streaks, bands, dots, grids.',
+      'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
+      'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
+      'Recipes: light streak = thin tall rect (w 6-30 px), vertical linear gradient with transparent ends and a bright middle, blur 4-14, blend SCREEN, repeat across the width; glow zone = ellipse with radial gradient fading to alpha 0, blur 30-80, SCREEN; grain = full-canvas rect with solid fill alpha 0.01 and effect grain, near the top of the stack; vignette = full-canvas rect with radial gradient (centre alpha 0 to dark edges), MULTIPLY; glass panel = rounded rect, white fill alpha 0.05-0.2, glass effect, placed over busy areas so the refraction shows; shader fill = put it on a large shape or the background.',
+      'glass = Figma native glass, it refracts the layers below it. Effect shaders only process the layer\'s own pixels; shader fills generate the fill themselves.',
       'blend: NORMAL|SCREEN|OVERLAY|MULTIPLY|SOFT_LIGHT|LIGHTEN|COLOR_DODGE. opacity 0-1.',
       `Shader fills available: ${names('fill')}`,
       `Shader effects available: ${names('effect')}`,
-      "Rules: match the reference image's palette, mood, composition and lighting, and follow the user's vision. Unless the vision says otherwise, ALWAYS include at least one shader (a shader fill on a big shape, or a shader effect) and exactly one glass layer over other shapes. Big overlapping soft shapes read well; gradients over solids; spread layers across the canvas (vary x, y, size, rotation) instead of centring everything. Only add text the user's vision asks for; never copy words from the reference. 6-digit hex only. No keys other than those listed.",
+      'Text: add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline. Unless the vision says otherwise, include at least one shader (fill or effect) and exactly one glass layer over other shapes. 6-digit hex only. No keys other than those listed.',
       'Output: {"name":"...","palette":["#..","#..","#..","#.."],"layers":[...]}',
     ].join('\n')
   }
@@ -44,7 +64,7 @@ const ECT_AI = (() => {
       const msg = (data && data.error && data.error.message) || text.slice(0, 200) || 'HTTP ' + r.status
       const err = new Error(msg)
       err.status = r.status
-      err.detail = msg // raw provider message (e.g. "Limit 8000, Requested 9120")
+      err.detail = msg // raw provider message (e.g. "OTPM: Limit 1000, Requested 1005")
       if (r.status === 429) {
         const m = /try again in ([\d.]+)\s*s/i.exec(msg)
         err.retryAfter = m ? Math.ceil(parseFloat(m[1])) : parseInt(r.headers.get('retry-after') || '20', 10) || 20
@@ -64,12 +84,18 @@ const ECT_AI = (() => {
     return JSON.parse(t.slice(a, b + 1))
   }
 
+  // Text layers are allowed only when the vision asks for words.
+  function wantsText(vision) {
+    return /["“”„«»']|\b(headline|title|text|copy|label|caption|word|words|says|saying|typograph\w*|font|letter\w*|quote|slogan|tagline|wordmark|logo)\b/i.test(vision || '')
+  }
+
   // ---- plan normalisation: clamp everything, drop what we cannot build ----
   const num = (v, d, lo, hi) => {
     let n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
     if (!isFinite(n)) n = d
     return Math.min(hi, Math.max(lo, n))
   }
+  const round1 = (n) => Math.round(n * 10) / 10
   function hex(v, d) {
     if (typeof v !== 'string') return d
     const s = v.trim()
@@ -107,24 +133,28 @@ const ECT_AI = (() => {
     if (t === 'innershadow') return { type: 'innerShadow', hex: c, alpha: a, x: num(e.x, 0, -500, 500), y: num(e.y, 8, -500, 500), blur: num(e.blur, 24, 0, 500) }
     if (t === 'blur' || t === 'layerblur') return { type: 'blur', radius: num(e.radius, 20, 0, 500) }
     if (t === 'bgblur' || t === 'backgroundblur') return { type: 'bgBlur', radius: num(e.radius, 20, 0, 500) }
+    if (t === 'grain' || t === 'noise') return { type: 'grain', amount: num(e.amount, 0.5, 0, 1) }
     if (t === 'glass') return { type: 'glass', lightIntensity: num(e.lightIntensity, 0.7, 0, 1), lightAngle: num(e.lightAngle, 45, -360, 360), refraction: num(e.refraction, 0.6, 0, 1), depth: num(e.depth, 20, 1, 100), dispersion: num(e.dispersion, 0.4, 0, 1), frost: num(e.frost, 1, 0, 50) }
     if (t === 'shader') return typeof e.shader === 'string' && e.shader.trim() ? { type: 'shader', shader: e.shader.trim(), params: params(e.params) } : null
     return null
   }
-  function normalizePlan(raw, w, h) {
+  function normalizePlan(raw, w, h, opts) {
+    const allowText = !opts || opts.allowText !== false
     if (!raw || typeof raw !== 'object') throw new Error('plan is not an object')
     const palette = (Array.isArray(raw.palette) ? raw.palette : []).map((c) => hex(c, null)).filter(Boolean).slice(0, 8)
     while (palette.length < 2) palette.push(palette.length ? '#22D3EE' : '#1B1F3B')
     const layers = []
     for (const L of Array.isArray(raw.layers) ? raw.layers : []) {
+      if (layers.length >= MAX_LAYERS) break
       if (!L || typeof L !== 'object') continue
       const kind = String(L.kind || '').toLowerCase()
       if (KINDS.indexOf(kind) < 0) continue
+      if (kind === 'text' && !allowText) continue
       const layer = {
         name: typeof L.name === 'string' && L.name.trim() ? L.name.trim().slice(0, 60) : kind,
         kind,
         x: num(L.x, w / 2, -w, 2 * w), y: num(L.y, h / 2, -h, 2 * h),
-        w: num(L.w, w / 2, 4, 4 * w), h: num(L.h, h / 2, 4, 4 * h),
+        w: num(L.w, w / 2, 1, 4 * w), h: num(L.h, h / 2, 1, 4 * h),
         rotation: num(L.rotation, 0, -360, 360),
         fill: normFill(L.fill, palette),
         effects: (Array.isArray(L.effects) ? L.effects : []).map((e) => normEffect(e, palette)).filter(Boolean).slice(0, 6),
@@ -143,8 +173,22 @@ const ECT_AI = (() => {
       } else if (!layer.fill) {
         layer.fill = { type: 'solid', hex: palette[layers.length % palette.length], alpha: 1 }
       }
-      layers.push(layer)
-      if (layers.length >= 12) break
+      // repeat -> N independent layers (streaks, bands, dots); each stays its own editable node
+      const rep = L.repeat && typeof L.repeat === 'object' ? { count: Math.round(num(L.repeat.count, 1, 1, MAX_REPEAT)), dx: num(L.repeat.dx, 0, -w, w), dy: num(L.repeat.dy, 0, -h, h), jitter: num(L.repeat.jitter, 0, 0, Math.max(w, h)) } : null
+      if (rep && rep.count > 1 && kind !== 'text') {
+        const spread = Math.min(rep.count, MAX_LAYERS - layers.length)
+        for (let i = 0; i < spread; i++) {
+          const copy = JSON.parse(JSON.stringify(layer))
+          copy.name = `${layer.name} ${i + 1}`
+          copy.group = layer.name
+          copy.x = round1(layer.x + rep.dx * i + (rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0))
+          copy.y = round1(layer.y + rep.dy * i + (rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0))
+          if (copy.seed !== undefined) copy.seed = (layer.seed + i * 7919) % 1000000007
+          layers.push(copy)
+        }
+      } else {
+        layers.push(layer)
+      }
     }
     if (!layers.length) throw new Error('plan has no usable layers')
     const first = layers[0]
@@ -154,11 +198,9 @@ const ECT_AI = (() => {
     return { name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 80) : 'AI Creative', width: w, height: h, palette, layers }
   }
 
-  // Stage 1 (only with a reference image): the vision model reads the image into a compact
-  // brief. Groq's free tier caps vision models at ~1,000 OUTPUT tokens per minute, which is far
-  // too small for a full plan, so the image never goes to the planner directly.
-  const BRIEF_SYSTEM = 'You are an art director analysing a reference image for a designer who will rebuild its feel with shapes, gradients, glass and shader effects in Figma. Reply with ONLY compact JSON: {"palette":["#rrggbb" x4-6, dominant first],"mood":"<=12 words","composition":"<=30 words: main shapes, where they sit, relative sizes","lighting":"<=15 words","texture":"<=12 words: grain, blur, glass, metal, flat...","text":"<=12 words: any text and its style, or none"}'
-
+  // Stage 1 (only with a reference image): the vision model reads the image into a structural
+  // brief. Groq's free tier caps vision models at ~1,000 OUTPUT tokens per minute, far too small
+  // for a full plan, so the image never goes to the planner directly.
   async function describeReference(apiKey, imageDataUrl, onStatus) {
     let lastErr = null
     for (const model of VISION_MODELS) {
@@ -168,16 +210,16 @@ const ECT_AI = (() => {
           model,
           messages: [
             { role: 'system', content: BRIEF_SYSTEM },
-            { role: 'user', content: [{ type: 'image_url', image_url: { url: imageDataUrl } }, { type: 'text', text: 'Analyse this reference.' }] },
+            { role: 'user', content: [{ type: 'image_url', image_url: { url: imageDataUrl } }, { type: 'text', text: 'Analyse this reference for reconstruction.' }] },
           ],
-          temperature: 0.3,
-          max_completion_tokens: 350,
+          temperature: 0.2,
+          max_completion_tokens: 900, // must stay under the 1,000 OTPM cap
           response_format: { type: 'json_object' },
-          reasoning_effort: 'none', // reasoning would eat the tiny output budget
+          reasoning_effort: 'none', // reasoning would eat the output budget
         })
         const text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : ''
         let brief
-        try { brief = extractJSON(text) } catch (_) { brief = { notes: String(text).slice(0, 600) } }
+        try { brief = extractJSON(text) } catch (_) { brief = { notes: String(text).slice(0, 900) } }
         return { brief, model, usage: data.usage || null }
       } catch (e) {
         lastErr = e
@@ -194,14 +236,14 @@ const ECT_AI = (() => {
     let ref = null
     if (imageDataUrl) ref = await describeReference(apiKey, imageDataUrl, onStatus)
     const sys = systemPrompt(width, height, catalog || [])
-    const wish = (vision || '').trim() || (ref ? 'An abstract, premium, editorial composition in the spirit of the reference.' : 'An abstract, premium, editorial poster.')
-    const userText = `${ref ? 'Reference analysis (from the image; treat its palette, composition and lighting as the visual truth): ' + JSON.stringify(ref.brief) + '\n' : ''}Vision: ${wish}\nCanvas: ${width}x${height}. Return the JSON plan.`
+    const wish = (vision || '').trim() || (ref ? 'Rebuild the reference faithfully as editable layers.' : 'An abstract, premium, editorial poster.')
+    const userText = `${ref ? 'REFERENCE ANALYSIS (geometry in % of canvas; rebuild this structure first): ' + JSON.stringify(ref.brief) + '\n' : ''}VISION: ${wish}\nCanvas: ${width}x${height} px. Return the JSON plan.`
     if (onStatus) onStatus(`Planning with ${TEXT_MODEL}…`)
     const data = await request(apiKey, {
       model: TEXT_MODEL,
       messages: [{ role: 'system', content: sys }, { role: 'user', content: userText }],
-      temperature: 0.7,
-      max_completion_tokens: 3000,
+      temperature: 0.6,
+      max_completion_tokens: 3400,
       response_format: { type: 'json_object' },
     })
     const text = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : ''
@@ -212,10 +254,11 @@ const ECT_AI = (() => {
       completion_tokens: (u1.completion_tokens || 0) + (u2.completion_tokens || 0),
       total_tokens: (u1.total_tokens || 0) + (u2.total_tokens || 0),
     }
-    return { plan: normalizePlan(raw, width, height), raw, brief: ref ? ref.brief : null, model: ref ? `${ref.model} + ${TEXT_MODEL}` : TEXT_MODEL, usage }
+    const normalized = normalizePlan(raw, width, height, { allowText: wantsText(vision) })
+    return { plan: normalized, raw, brief: ref ? ref.brief : null, model: ref ? `${ref.model} + ${TEXT_MODEL}` : TEXT_MODEL, usage }
   }
 
-  // Second, text-only pass: set the chosen shader's parameters to fit the brief.
+  // Third, text-only pass: set the chosen shader's parameters to fit the brief.
   async function tune({ apiKey, vision, palette, shader, defs, onStatus }) {
     if (!apiKey) throw new Error('No Groq API key')
     const list = defs.map((d) => `- ${d.name} (${d.type}${d.default !== undefined ? ', default ' + JSON.stringify(d.default) : ''}${d.description ? ': ' + d.description : ''})`).join('\n')
@@ -234,6 +277,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

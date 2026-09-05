@@ -56,14 +56,16 @@ Version 1, Update 130 on 23 Jun 2026; nothing shader-related changed in 131–13
 4. **Plugin API test** — Shapes / Gradients / Effects / Glass / Shaders = PASS / FAIL / N/A, decided by reading values back from the document. N/A means the current plan did not ask for that capability.
 
 ### AI flow (Groq, key taken from the creative-editor `.env`)
-1. **Brief** — `qwen/qwen3.8-27b` (falls back to `qwen3.6-27b`) reads the reference image into compact JSON: palette, mood, composition, lighting, texture, text. ~150 output tokens.
-2. **Plan** — `openai/gpt-oss-120b` gets the brief + your vision + the list of shader names available in the file, and returns the layer plan (5–9 layers; rect / ellipse / blob / text; solid, linear, radial or **shader** fills; glow, shadow, inner shadow, blur, background blur, **glass**, **shader** effects; blend mode; opacity). Without an image only this step runs.
+1. **Brief** — `qwen/qwen3.8-27b` (falls back to `qwen3.6-27b`) reads the reference image into a *structural* JSON brief: background kind/direction/colours, up to 8 elements with shape, count, centre and size in % of the canvas, colour, alpha, softness, glow, blend; lighting; grain/blur/glass amounts; any text. Interface chrome (buttons, badges, cursors) is ignored. Up to ~900 output tokens.
+2. **Plan** — `openai/gpt-oss-120b` gets the brief + your vision + the list of shader names available in the file, and returns the layer plan. Precedence is explicit: rebuild the reference's structure first (background, every element, counts), then apply the vision as overrides and additions; if the vision names colours, the reference's colour roles are remapped onto them. Layers: rect / ellipse / blob / text; solid, linear, radial or **shader** fills; glow, shadow, inner shadow, blur, background blur, **grain** (native Noise), **glass**, **shader** effects; blend mode; opacity; a `repeat` field expands one layer into up to 24 independent copies (streaks, bands, dots). Text layers are only allowed when the vision asks for words (quotes, "headline", "title", "label"). Without an image only this step runs.
 3. **Build** — the main thread creates the nodes, resolves shader names against `listAvailableShaders()`, imports them, applies everything, places the reference image beside the frame, and re-reads the document for the PASS/FAIL panel.
 4. **Tune** — for each shader the plan used (max 2), the text model gets the shader's real parameter names, types and defaults and returns values; the plugin maps names → property ids and writes them live. Tuned values are stored in the plan so **Reset** keeps the AI look.
 
 Why two stages: Groq's free tier allows 8,000 tokens/minute per model and only ~1,000 **output** tokens/minute on the vision models (measured 5 Sep 2026: `OTPM Limit 1000`). A full plan does not fit, a brief does. Each stage runs on a different model, so one generation fits in one minute; a second generation inside the same minute shows a countdown.
 
-The plan is normalised before it reaches Figma (types, ranges, hex colours, unknown layers dropped, background guaranteed) and every layer is built in its own try/catch, so one bad layer or an unknown shader name degrades to a gradient instead of killing the frame.
+The plan is normalised before it reaches Figma (types, ranges, hex colours, unknown layers dropped, repeats expanded, background guaranteed, up to 48 layers) and every layer is built in its own try/catch, so one bad layer or an unknown shader name degrades to a gradient instead of killing the frame. Randomize moves the copies of a repeat together so a streak field stays a streak field.
+
+First real run (5 Sep 2026) taught the lesson behind this design: a mood-style brief ("vibrant, energetic, smooth gradient") produced output unrelated to the reference and the planner turned the vision text into a headline. The structural brief, the precedence rule and the text guard fixed both; the same reference then came back as 12 streaks + glow + vignette + grain + glass, recoloured to the requested palette.
 
 ### Files
 ```
@@ -100,6 +102,6 @@ If the Shaders row says *No compatible Figma shaders found*: open Tools → Sour
 
 ## Verified
 - Strict TypeScript build against `@figma/plugin-typings` 1.138.0.
-- `npm test`: 10 offline scenarios (default plan, AI plan with text + glass + named shaders + fallbacks + reference image + tuning, reopen/adopt, broken layer, effect-shader-first, no shaders, no shader API, plan normalisation).
-- Live Groq run: real reference (`images/glass.jpg`) → brief → 7-layer plan with two shader fills, a glass capsule and a headline → built through the mock Figma → shader tuned.
+- `npm test`: 11 offline scenarios (default plan, AI plan with text + glass + named shaders + fallbacks + reference image + tuning, reopen/adopt, broken layer, effect-shader-first, no shaders, no shader API, plan normalisation).
+- Live Groq runs: `images/glass.jpg` + "mesh gradient and glass effect with yellow and blue palette" → structural brief → 20-layer plan (12 repeated streaks, glow, shade, vignette, grain, Mesh gradient shader background, one glass panel, no text) → built 20/20 through the mock Figma → shader tuned. `images/gradient-02.jpg` → Mesh gradient + glass pill + requested headline.
 - v0.1 was confirmed working inside Figma by Mansoor on 5 Sep 2026. v0.2 rendering in Figma is step 5 onward above.
