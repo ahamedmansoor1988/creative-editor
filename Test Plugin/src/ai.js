@@ -188,17 +188,49 @@ const ECT_AI = (() => {
   }
   // When to copy the reference's pixels instead of the planner's guess: the
   // vision asks for the reference itself (or a mesh gradient), or the reference
-  // is a colour field and the vision does not ask for other colours.
-  function wantsMatch(vision, brief) {
-    if (MATCH_WORDS.test(vision || '')) return true
-    return colourField(brief) && !COLOUR_WORDS.test(vision || '')
+  // is a colour field. "match": colours as they are. "recolour": the vision
+  // names colours, so the structure is matched and the cells are recoloured to
+  // the planner's palette for that vision, each keeping its own lightness.
+  function matchMode(vision, brief) {
+    const explicit = MATCH_WORDS.test(vision || ''), field = colourField(brief), colours = COLOUR_WORDS.test(vision || '')
+    if (!explicit && !field) return null
+    return colours ? 'recolour' : 'match'
+  }
+  function wantsMatch(vision, brief) { return !!matchMode(vision, brief) }
+  const hexToHsl = (hx) => {
+    const n = parseInt(hx.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2
+    let h = 0
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+    return { h: ((h * 60) % 360 + 360) % 360, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }
+  }
+  const hslToHex = (h, s, l) => {
+    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2
+    const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+    return '#' + [r, g, b].map((v) => Math.round(Math.min(1, Math.max(0, v + m)) * 255).toString(16).padStart(2, '0')).join('').toUpperCase()
+  }
+  // Recolour matched cells to a palette: each cell takes the hue and saturation
+  // of the palette colour nearest its own lightness and keeps that lightness,
+  // so "the same picture in blue shades" keeps its gradients and its light.
+  function recolourCells(cells, palette) {
+    const pal = (palette || []).map(hexToHsl).filter((c) => c.s > 0.12)
+    if (!pal.length) return cells
+    return cells.map((L) => {
+      if (!L.fill || L.fill.type !== 'solid') return L
+      const c = hexToHsl(L.fill.hex)
+      let best = pal[0]
+      for (const p of pal) if (Math.abs(p.l - c.l) < Math.abs(best.l - c.l)) best = p
+      const sat = Math.max(best.s * 0.85, Math.min(best.s, c.s))
+      return { ...L, fill: { ...L.fill, hex: hslToHex(best.h, sat, c.l) } }
+    })
   }
   // The matched cells replace the planner's background and soft bands (and any
   // shader fill it reached for); glass, grain, text and thin streaks stay on top.
-  function applyMatch(plan, cells) {
+  function applyMatch(plan, cells, mode) {
+    const painted = mode === 'recolour' ? recolourCells(cells, plan.palette) : cells
     const keep = plan.layers.slice(1).filter((L) => L.kind === 'text' || L.effects.some((e) => e.type === 'glass' || e.type === 'grain') || (Math.min(L.w, L.h) < 60 && !(L.fill && L.fill.type === 'shader')))
-    const layers = cells.concat(keep).slice(0, 96) // matched plans may carry more layers than the planner's 48
-    return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + ' (matched)', layers, matched: cells.length - 1 }
+    const layers = painted.concat(keep).slice(0, 96) // matched plans may carry more layers than the planner's 48
+    return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + (mode === 'recolour' ? ' (matched, recoloured)' : ' (matched)'), layers, matched: cells.length - 1, matchMode: mode || 'match' }
   }
 
   // Text layers are allowed only when the vision asks for words.
@@ -489,6 +521,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, applyMatch, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

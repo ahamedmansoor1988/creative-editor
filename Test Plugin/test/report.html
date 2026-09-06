@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><title>ECT pipeline report</title>
+<style>
+body{margin:0;padding:16px;background:#1b1b1d;color:#ddd;font:12px/1.4 system-ui}
+h1{font-size:14px;margin:0 0 12px}
+.case{display:grid;grid-template-columns:216px 216px 216px 1fr;gap:12px;align-items:start;padding:12px;margin-bottom:12px;background:#242427;border-radius:10px}
+.case img,.case canvas{width:216px;height:270px;border-radius:6px;display:block;background:#000}
+.cap{color:#999;font-size:11px;margin-top:4px}
+.pass{color:#6ee7a8;font-weight:700}.fail{color:#ff7b72;font-weight:700}.warn{color:#f5c542}
+ul{margin:6px 0 0 16px;padding:0} li{margin:2px 0}
+.score{font-size:22px;font-weight:700}
+small{color:#888}
+</style>
+<h1>Editable Creative Test — pipeline report <small id="sum"></small></h1>
+<div id="cases"></div>
+<script>
+const BLEND={SCREEN:'screen',MULTIPLY:'multiply',OVERLAY:'overlay',SOFT_LIGHT:'soft-light',HARD_LIGHT:'hard-light',LIGHTEN:'lighten',DARKEN:'darken',COLOR_DODGE:'color-dodge',COLOR_BURN:'color-burn',DIFFERENCE:'difference',EXCLUSION:'exclusion',HUE:'hue',SATURATION:'saturation',COLOR:'color',LUMINOSITY:'luminosity'}
+const rgba=(hex,a)=>{const n=parseInt(hex.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a===undefined?1:a})`}
+// Approximate render of a plan: canvas 2D stands in for Figma. Blur = layer blur, drop-shadow = glow/shadow,
+// glass = translucent white, shader fills = the palette as a diagonal gradient, grain skipped.
+function render(plan, canvas, S){
+  const W=plan.width,H=plan.height; canvas.width=Math.round(W*S); canvas.height=Math.round(H*S)
+  const x=canvas.getContext('2d'); x.scale(S,S)
+  for(const L of plan.layers){
+    x.save(); x.globalAlpha=L.opacity; x.globalCompositeOperation=BLEND[L.blend]||'source-over'
+    const f=[]; for(const e of L.effects){ if(e.type==='blur') f.push(`blur(${e.radius*S}px)`); if(e.type==='glow'||e.type==='shadow') f.push(`drop-shadow(${(e.x||0)*S}px ${(e.y||0)*S}px ${e.blur*S}px ${rgba(e.hex,e.alpha)})`) }
+    x.filter=f.length?f.join(' '):'none'
+    x.translate(L.x,L.y); x.rotate(L.rotation*Math.PI/180)
+    const w=L.w,h=L.h
+    let fill
+    const F=L.fill
+    if(!F) fill='transparent'
+    else if(F.type==='solid') fill=rgba(F.hex,F.alpha)
+    else if(F.type==='linear'){const a=(F.angle||0)*Math.PI/180,dx=Math.cos(a)*w/2,dy=Math.sin(a)*h/2;const g=x.createLinearGradient(-dx,-dy,dx,dy);F.stops.forEach(s=>g.addColorStop(Math.min(1,Math.max(0,s.pos)),rgba(s.hex,s.alpha)));fill=g}
+    else if(F.type==='radial'){const g=x.createRadialGradient(0,0,0,0,0,Math.max(w,h)/2*(F.scale||1));F.stops.forEach(s=>g.addColorStop(Math.min(1,Math.max(0,s.pos)),rgba(s.hex,s.alpha)));fill=g}
+    else if(F.type==='shader'){const g=x.createLinearGradient(-w/2,-h/2,w/2,h/2);(plan.palette||['#444','#888']).forEach((c,i,a)=>g.addColorStop(i/Math.max(1,a.length-1),c));fill=g}
+    x.fillStyle=fill
+    if(L.effects.some(e=>e.type==='glass')){ x.fillStyle='rgba(255,255,255,0.10)' }
+    x.beginPath()
+    if(L.kind==='rect'){ const r=Math.min(L.cornerRadius||0,w/2,h/2); x.roundRect(-w/2,-h/2,w,h,r) }
+    else if(L.kind==='ellipse'||L.kind==='blob'){ x.ellipse(0,0,w/2,h/2,0,0,Math.PI*2) }
+    else if(L.kind==='text'){ x.font=`${L.weight==='Black'||L.weight==='Bold'?'700':'400'} ${L.fontSize}px system-ui`; x.textAlign=(L.align||'left').toLowerCase(); x.textBaseline='middle'; x.fillText(L.text,0,0); x.restore(); continue }
+    x.fill(); x.restore()
+  }
+}
+// Similarity: both pictures at 24x30, mean absolute RGB difference (0 = identical, 255 = opposite).
+function score(refImg, canvas){
+  const w=24,h=30; const a=document.createElement('canvas'); a.width=w; a.height=h; const b=document.createElement('canvas'); b.width=w; b.height=h
+  const ax=a.getContext('2d'), bx=b.getContext('2d')
+  const ia=refImg.naturalWidth/refImg.naturalHeight, ca=w/h; let sx=0,sy=0,sw=refImg.naturalWidth,sh=refImg.naturalHeight
+  if(ia>ca){sw=sh*ca;sx=(refImg.naturalWidth-sw)/2}else{sh=sw/ca;sy=(refImg.naturalHeight-sh)/2}
+  ax.drawImage(refImg,sx,sy,sw,sh,0,0,w,h); bx.drawImage(canvas,0,0,w,h)
+  const A=ax.getImageData(0,0,w,h).data,B=bx.getImageData(0,0,w,h).data; let sum=0
+  for(let i=0;i<A.length;i+=4) sum+=Math.abs(A[i]-B[i])+Math.abs(A[i+1]-B[i+1])+Math.abs(A[i+2]-B[i+2])
+  return sum/(A.length/4*3)
+}
+(async()=>{
+  const list=await (await fetch('index.json?'+Date.now())).json()
+  const host=document.getElementById('cases'); let pass=0, scores=[]
+  for(const item of list){
+    const rec=await (await fetch(item.id+'.json?'+Date.now())).json()
+    const el=document.createElement('div'); el.className='case'
+    const ref=new Image(); ref.src=rec.image
+    const cv=document.createElement('canvas'); const cv2=document.createElement('canvas')
+    const info=document.createElement('div')
+    el.append(wrap(ref,'reference'),wrap(cv,'plan, approximate render'),wrap(cv2,'plan without match cells' ),info)
+    host.append(el)
+    await new Promise(r=>{ if(ref.complete) r(); else ref.onload=r })
+    let sc='—', sc2=''
+    if(rec.plan){ render(rec.plan,cv,0.25); sc=score(ref,cv).toFixed(1); scores.push(+sc)
+      if(rec.matched){ const p2={...rec.plan,layers:rec.plan.layers.filter(L=>!/^Match /.test(L.name))}; render(p2,cv2,0.25); sc2=score(ref,cv2).toFixed(1) } else cv2.remove() }
+    const q=rec.qc||{pass:false,fail:[rec.error||'no result'],warn:[]}; if(q.pass) pass++
+    const grade=+sc<=40?'good':+sc<=60?'fair':'poor'
+    info.innerHTML=`<div><b>${rec.id}</b> · “${esc(rec.vision)}” ${rec.must&&rec.must.length?'<small>must: '+rec.must.join(', ')+'</small>':''}</div>
+      <div class="score ${grade==='good'?'pass':grade==='poor'?'fail':'warn'}">${sc} <small>mean colour error, ${grade}${sc2?' · planner alone '+sc2:''}</small></div>
+      <div class="${q.pass?'pass':'fail'}">${q.pass?'QC PASS':'QC FAIL'}</div>
+      <ul>${q.fail.map(f=>`<li class="fail">${esc(f)}</li>`).join('')}${q.warn.map(w=>`<li class="warn">${esc(w)}</li>`).join('')}</ul>
+      <div class="cap">${rec.plan?rec.plan.layers.length+' layers'+(rec.matched?', '+rec.matched+' matched cells':''):''}${rec.model?' · '+esc(rec.model):''}${rec.usage?' · '+rec.usage.total_tokens+' tokens':''}${rec.seconds?' · '+rec.seconds.toFixed(1)+' s':''}</div>
+      ${rec.brief?`<details><summary class="cap">brief</summary><pre style="white-space:pre-wrap;font-size:10px;color:#aaa">${esc(JSON.stringify(rec.brief,null,1))}</pre></details>`:''}
+      ${rec.plan?`<details><summary class="cap">layers</summary><pre style="white-space:pre-wrap;font-size:10px;color:#aaa">${esc(rec.plan.layers.filter(L=>!/^Match /.test(L.name)||/1\\.1$/.test(L.name)).map(L=>`${L.kind} ${L.name} ${Math.round(L.x)},${Math.round(L.y)} ${Math.round(L.w)}x${Math.round(L.h)} ${L.fill?L.fill.type:''} ${L.effects.map(e=>e.type).join('+')} ${L.blend}`).join('\\n'))}</pre></details>`:''}`
+  }
+  const mean=scores.length?(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1):'—'
+  document.getElementById('sum').textContent=`${pass}/${list.length} QC pass · mean colour error ${mean}`
+  function wrap(node,cap){const d=document.createElement('div');d.append(node);const c=document.createElement('div');c.className='cap';c.textContent=cap;d.append(c);return d}
+  function esc(s){return String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}
+})()
+</script>
