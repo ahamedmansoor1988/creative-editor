@@ -71,7 +71,12 @@ function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const els = brief && Array.isArray(brief.elements) ? brief.elements : []
   const briefSays = (re) => els.some((e) => re.test(String(e.what || '')))
   const mustHave = new Set(must || [])
-  if (briefSays(/fluted|rib|reeded|slat/i) || mustHave.has('fluted')) { if (glassCount < 6) fail.push(`fluted glass expected, ${glassCount} glass layers`); else if (layers.some((L) => L.effects.some((e) => e.type === 'glass') && Math.min(L.w, L.h) > 0.5 * Math.min(W, H))) warn.push('a large glass panel besides the ribs') }
+  if (briefSays(/fluted|reeded|ribbed|\bribs?\b/i) || mustHave.has('fluted')) { if (glassCount < 6) fail.push(`fluted glass expected, ${glassCount} glass layers`); else if (layers.some((L) => L.effects.some((e) => e.type === 'glass') && Math.min(L.w, L.h) > 0.5 * Math.min(W, H))) warn.push('a large glass panel besides the ribs') }
+  else if (briefSays(/slat|stripe|band|louver/i)) {
+    // slats, stripes and bands: a repeated group of at least 6, glass optional
+    const groups = {}; layers.forEach((L) => { if (L.group) groups[L.group] = (groups[L.group] || 0) + 1 })
+    if (!Object.values(groups).some((n) => n >= 6)) fail.push('repeated slats/bands expected, no repeat group of 6+')
+  }
   // matched cells carry the reference's light themselves; the glow rule is for planned layers
   if (!(plan.matched > 0) && (els.some((e) => e.glow) || mustHave.has('glow'))) { if (!layers.some((L) => isGlowish(L, W, H))) fail.push('glow expected, no glow-like layer'); else if (!layers.some((L) => /core$/i.test(L.name))) warn.push('glow without a core') }
   if (mustHave.has('match') && !(plan.matched > 0)) fail.push('match expected, plan not matched')
@@ -97,6 +102,7 @@ async function runCase(c, idx, total) {
   if (saved && saved.raw) {
     console.log('   replaying the saved plan through the current normaliser')
     res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.wantsText(c.vision) }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
+    AI.ensureBriefElements(res.plan, saved.brief, W, H)
   } else if (noAI) res = { plan: AI.normalizePlan({ name: 'match only', palette: measured, layers: [{ kind: 'rect', w: W, h: H }] }, W, H), raw: null, brief: null, model: 'none', usage: null }
   else res = await AI.plan({ apiKey: key, vision: c.vision, imageDataUrl: img.dataUrl, measuredPalette: measured, width: W, height: H, catalog: c.catalog || [], onStatus: (s) => console.log('   ' + s) })
   let plan = res.plan

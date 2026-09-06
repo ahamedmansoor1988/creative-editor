@@ -198,6 +198,14 @@ async function main() {
     const names = merged.layers.map((L) => L.name)
     assert(names[0] === 'Background' && names.filter((n) => /^Match /.test(n)).length === 80 && names.includes('Grain') && names.includes('Panel') && !names.includes('Band') && merged.matched === 80, 'merged: ' + names.slice(-3).join(','))
   })
+  await run('ai: a soft glow zone the planner dropped is synthesised from the brief', () => {
+    const plan = AI.normalizePlan({ palette: ['#05050A', '#7C3AED'], layers: [{ name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#05050A' } }, { name: 'Grain', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: 0.5 }] }] }, 1080, 1350)
+    const brief = { elements: [{ what: 'deep purple glow zone', shape: 'blob', count: 1, x: 50, y: 60, w: 40, h: 40, soft: 1, glow: true, color: '#7C3AED', alpha: 0.9 }, { what: 'a chair', shape: 'rect', count: 1, x: 50, y: 50, w: 30, h: 50, soft: 0 }] }
+    const added = AI.ensureBriefElements(plan, brief, 1080, 1350)
+    const names = plan.layers.map((L) => L.name)
+    assert(added === 1 && names[1] === 'deep purple glow zone (from brief)' && names[2] === 'deep purple glow zone (from brief) core' && names[names.length - 1] === 'Grain', 'glow synthesised with a core, grain kept on top: ' + names.join('|'))
+    assert(AI.ensureBriefElements(plan, brief, 1080, 1350) === 0, 'idempotent')
+  })
   await run('ai: repeat budget is shared and copies can fan around a pivot', () => {
     const slat = (name, hex) => ({ name, kind: 'rect', x: 540, y: 40, w: 1080, h: 60, fill: { type: 'solid', hex }, repeat: { count: 18, dx: 0, dy: 72 } })
     const p = AI.normalizePlan({ palette: ['#000000', '#FF9900'], layers: [

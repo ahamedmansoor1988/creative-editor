@@ -242,6 +242,47 @@ const ECT_AI = (() => {
     return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + (mode === 'recolour' ? ' (matched, recoloured)' : ' (matched)'), layers, matched: cells.length - 1, matchMode: mode || 'match' }
   }
 
+  // ---- brief reconciliation: what the analysis saw, the plan must contain ----
+  // The planner drops elements now and then (a glow zone the brief listed,
+  // gone from the plan). A soft element from the brief with no counterpart in
+  // the plan is synthesised from the brief's own geometry: ellipse, radial
+  // fade, blur, SCREEN when it glowed. Crisp objects are not invented.
+  function ensureBriefElements(plan, brief, w, h) {
+    const els = brief && Array.isArray(brief.elements) ? brief.elements : []
+    const palette = plan.palette || []
+    let added = 0
+    for (const e of els) {
+      if (!e || typeof e !== 'object') continue
+      const soft = num(e.soft, 0, 0, 1), count = Math.round(num(e.count, 1, 1, 24))
+      if (soft < 0.5 || count > 2 || String(e.shape || '') === 'line') continue
+      const cx = (num(e.x, 50, -50, 150) / 100) * w, cy = (num(e.y, 50, -50, 150) / 100) * h
+      const ew = Math.max(40, (num(e.w, 30, 0, 200) / 100) * w), eh = Math.max(40, (num(e.h, 30, 0, 200) / 100) * h)
+      // a counterpart is a real zone near the same place and of comparable size:
+      // not the background, not a full-canvas grain or vignette wash
+      const isSoft = (L) => L.effects.some((x) => (x.type === 'blur' && x.radius >= 20) || x.type === 'glow') || (L.fill && L.fill.stops && L.fill.stops.some((st) => st.alpha <= 0.05))
+      const near = plan.layers.slice(1).some((L) => L.kind !== 'text' && isSoft(L) && !L.effects.some((x) => x.type === 'grain') && L.w * L.h < 0.8 * w * h && L.w <= 3 * ew && L.h <= 3 * eh && Math.abs(L.x - cx) < 0.25 * w && Math.abs(L.y - cy) < 0.25 * h && L.w >= 0.5 * ew && L.h >= 0.5 * eh)
+      if (near || plan.layers.length >= MAX_LAYERS) continue
+      const colour = hex(e.color, palette[Math.min(palette.length - 1, 1)] || '#FFFFFF')
+      const glow = !!e.glow || String(e.blend || '').toLowerCase() === 'screen'
+      const W = ew * 1.3, H = eh * 1.3
+      plan.layers.push({
+        name: (typeof e.what === 'string' && e.what.trim() ? e.what.trim().slice(0, 40) : 'soft zone') + ' (from brief)',
+        kind: 'ellipse', x: round1(cx), y: round1(cy), w: round1(W), h: round1(H), rotation: num(e.rotation, 0, -90, 90),
+        fill: { type: 'radial', scale: 1, stops: [{ pos: 0, hex: colour, alpha: num(e.alpha, 0.8, 0.05, 1) }, { pos: 1, hex: colour, alpha: 0 }] },
+        effects: [{ type: 'blur', radius: round1(Math.min(W, H) * 0.2) }],
+        blend: glow ? 'SCREEN' : 'NORMAL', opacity: 1,
+      })
+      added++
+    }
+    if (added) {
+      // keep grain and vignette on top
+      const top = plan.layers.filter((L) => L.effects.some((x) => x.type === 'grain') || /vignette/i.test(L.name))
+      plan.layers = plan.layers.filter((L) => !top.includes(L)).concat(top)
+      enrichGlows(plan.layers, w, h)
+    }
+    return added
+  }
+
   // Text layers are allowed only when the vision asks for words.
   function wantsText(vision) {
     return /["“”„«»']|\b(headline|title|text|copy|label|caption|word|words|says|saying|typograph\w*|font|letter\w*|quote|slogan|tagline|wordmark|logo)\b/i.test(vision || '')
@@ -517,6 +558,7 @@ const ECT_AI = (() => {
       total_tokens: (u1.total_tokens || 0) + (u2.total_tokens || 0),
     }
     const normalized = normalizePlan(raw, width, height, { allowText: wantsText(vision) })
+    if (ref) ensureBriefElements(normalized, ref.brief, width, height)
     return { plan: normalized, raw, brief: ref ? ref.brief : null, model: ref ? `${ref.model} + ${TEXT_MODEL}` : TEXT_MODEL, usage }
   }
 
@@ -539,6 +581,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, isGlow, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, isGlow, ensureBriefElements, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI
