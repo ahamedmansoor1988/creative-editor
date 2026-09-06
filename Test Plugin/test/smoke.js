@@ -172,6 +172,17 @@ async function main() {
     const pal = AI.paletteFromPixels(px, 5)
     assert(pal.length === 2 && pal[0] === '#FA141E' && pal[1] === '#0A1EF0', 'measured palette dominant first: ' + pal)
   })
+  await run('ai: an edge glow gets a core and a darker background stop', () => {
+    const p = AI.normalizePlan({ palette: ['#0D001F', '#3B82F6'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#0D001F' }, { pos: 1, hex: '#3B82F6' }] } },
+      { name: 'Bottom Blue Glow', kind: 'ellipse', x: 540, y: 1148, w: 1620, h: 1012, blend: 'SCREEN', opacity: 0.8, fill: { type: 'radial', scale: 1, stops: [{ pos: 0, hex: '#3B82F6', alpha: 1 }, { pos: 1, hex: '#3B82F6', alpha: 0 }] }, effects: [{ type: 'blur', radius: 150 }] },
+    ] }, 1080, 1350)
+    const names = p.layers.map((L) => L.name)
+    assert(names.join('|') === 'Background|Bottom Blue Glow|Bottom Blue Glow core', 'layers: ' + names.join('|'))
+    assert(p.layers[1].y === 1350, 'glow pinned to the bottom edge: ' + p.layers[1].y)
+    assert(p.layers[2].w === 810 && p.layers[2].opacity === 1, 'core half size, opaque')
+    assert(p.layers[0].fill.stops[1].hex !== '#3B82F6', 'background stop darkened: ' + p.layers[0].fill.stops[1].hex)
+  })
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])
     assert(/Shader fills available: Mesh gradient/.test(s) && /Shader effects available: Bloom/.test(s), 'catalog in prompt')

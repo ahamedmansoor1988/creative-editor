@@ -46,8 +46,9 @@ const ECT_AI = (() => {
       'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
       'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
       'Softness: an element with soft >= 0.5 must get a blur effect and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually. BLUR IS RELATIVE TO SIZE: never more than half the layer\'s smaller side. A large glow or band may take 60-250 px; a streak 6-30 px wide takes blur 2-12 px and gets its softness from the gradient fade, or it disappears.',
+      'A glow needs something darker behind it: where a glow element sits, the background gradient stop must stay a mid or dark tone (never the glow colour itself, never lighter than the glow) and the glow layers supply the brightness. If the analysis folds the glow colour into the background\'s last stop, pull that stop back towards the previous one and give the colour to the glow layers instead.',
       'Colour fields: if the analysis has no distinct objects (bands, glows, flow only), rebuild it as background (a linear gradient at the analysed angle, or a gradient shader fill such as Fluid gradient / Mesh gradient / Moving gradient) + 2-5 rotated soft bands (rect, linear gradient with transparent ends, blur 60-250, SCREEN or NORMAL, alpha 0.5-0.9) + grain. Do not add shapes that are not in the analysis.',
-      'Recipes: light streak = thin tall rect (w 6-30 px), vertical linear gradient with transparent ends and a bright middle, blur 4-14, blend SCREEN, repeat across the width; glow zone = ellipse with radial gradient fading to alpha 0, blur 30-80, SCREEN; grain = full-canvas rect with solid fill alpha 0.01 and effect grain, near the top of the stack; vignette = full-canvas rect with radial gradient (centre alpha 0 to dark edges), MULTIPLY; glass panel = rounded rect, white fill alpha 0.05-0.2, glass effect, placed over busy areas so the refraction shows; shader fill = put it on a large shape or the background.',
+      'Recipes: light streak = thin tall rect (w 6-30 px), vertical linear gradient with transparent ends and a bright middle, blur 4-14, blend SCREEN, repeat across the width; glow zone = ellipse with a radial gradient from the glow colour at alpha 1 in the centre to alpha 0 at the rim, SCREEN, blur 10-25% of its height, PLUS a core: a second ellipse at half the size, same colour, alpha 1, blur 5-10% of its height, so the light has a hot centre and a wide falloff; a glow at the bottom or top edge is centred ON that edge (y = canvas height, or 0) with w 130-160% of the canvas width and h 60-90% of the canvas height, so it rises into the picture like a light source; grain = full-canvas rect with solid fill alpha 0.01 and effect grain, near the top of the stack; vignette = full-canvas rect with radial gradient (centre alpha 0 to dark edges), MULTIPLY; glass panel = rounded rect, white fill alpha 0.05-0.2, glass effect, placed over busy areas so the refraction shows; shader fill = put it on a large shape or the background.',
       'FLUTED GLASS RIBS (the analysis has "fluted glass ribs", or the vision says stripes, lines, ribs, fluted, reeded, grooved or corrugated glass): the ribs ARE the glass, so build them as ONE repeated layer and no separate panel: kind rect, h = canvas height, w = canvas width / count, repeat {count, dx: w, dy: 0, jitter: 0}, first x = w/2, y = canvas height/2, cornerRadius 0, opacity 1, blend NORMAL, fill = linear angle 0 across the rib: [{pos 0, #FFFFFF, alpha 0.30}, {pos 0.10, #FFFFFF, alpha 0}, {pos 0.90, #000000, alpha 0}, {pos 1, #000000, alpha 0.40}] (a lit edge and a shaded edge per rib), effects = [glass {lightIntensity 0.7, lightAngle 0, refraction 0.85, depth 12, dispersion 0.25, frost 0}]. Put it directly above the background and its glows, below grain. 6-14 ribs read as fluted glass; the vision\'s or analysis\'s count wins.',
       'glass = Figma native glass, it refracts the layers below it. Effect shaders only process the layer\'s own pixels; shader fills generate the fill themselves.',
       'blend: NORMAL|SCREEN|OVERLAY|MULTIPLY|SOFT_LIGHT|LIGHTEN|COLOR_DODGE. opacity 0-1.',
@@ -251,7 +252,63 @@ const ECT_AI = (() => {
     const covers = first.kind === 'rect' && first.w >= w * 0.9 && first.h >= h * 0.9
     if (covers) { first.x = w / 2; first.y = h / 2; first.w = w; first.h = h; first.rotation = 0 }
     else layers.unshift({ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: palette[0], alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 })
+    enrichGlows(layers, w, h)
     return { name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 80) : 'AI Creative', width: w, height: h, palette, layers }
+  }
+
+  // ---- glows: what the model keeps getting wrong, done here instead ----
+  // A glow reads as light only against something darker, and only with a hot
+  // centre. The planner is told both and still tends to end the background in
+  // the glow's own colour with a single flat fade. So: an edge glow is pinned
+  // to its edge, gets a core at half size, and the background stop beneath it
+  // is pulled back towards the previous stop when it is as light as the glow.
+  const lum = (hx) => { const n = parseInt(hx.slice(1), 16); const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] }
+  const mixHex = (a, b, t) => { const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16); const ch = (sh) => Math.round(((A >> sh) & 255) * (1 - t) + ((B >> sh) & 255) * t).toString(16).padStart(2, '0'); return ('#' + ch(16) + ch(8) + ch(0)).toUpperCase() }
+  function isGlow(L, w, h) {
+    if (L.kind !== 'rect' && L.kind !== 'ellipse') return false
+    if (['SCREEN', 'LIGHTEN', 'COLOR_DODGE', 'NORMAL'].indexOf(L.blend) < 0) return false
+    if (!L.fill || (L.fill.type !== 'radial' && L.fill.type !== 'linear')) return false
+    if (!L.fill.stops.some((s) => s.alpha <= 0.05)) return false
+    if (!L.effects.some((e) => e.type === 'blur' || e.type === 'glow')) return false
+    return L.w * L.h >= 0.2 * w * h && !/vignette|shade|shadow|haze|dark/i.test(L.name)
+  }
+  function enrichGlows(layers, w, h) {
+    const bg = layers[0]
+    for (let i = 1; i < layers.length && layers.length < MAX_LAYERS; i++) {
+      const L = layers[i]
+      if (!isGlow(L, w, h) || /\bcore$/i.test(L.name)) continue
+      const glowHex = (L.fill.stops.find((s) => s.alpha > 0.5) || L.fill.stops[0]).hex
+      // pin an edge glow to its edge so the light rises into the picture
+      if (L.h >= 0.4 * h) { if (L.y > 0.72 * h) L.y = h; else if (L.y < 0.28 * h) L.y = 0 }
+      // the hot centre
+      const next = layers[i + 1]
+      if (!(next && /\bcore$/i.test(next.name))) {
+        const core = JSON.parse(JSON.stringify(L))
+        core.name = L.name + ' core'
+        core.kind = 'ellipse'
+        core.w = round1(L.w * 0.5); core.h = round1(L.h * 0.5)
+        core.opacity = 1
+        core.fill = { type: 'radial', scale: 1, stops: [{ pos: 0, hex: glowHex, alpha: 1 }, { pos: 1, hex: glowHex, alpha: 0 }] }
+        core.effects = core.effects.map((e) => (e.type === 'blur' ? { ...e, radius: round1(Math.max(2, Math.min(e.radius * 0.5, Math.min(core.w, core.h) * 0.5))) } : e))
+        delete core.group
+        layers.splice(i + 1, 0, core)
+        i++
+      }
+      // something darker behind it
+      if (bg && bg.fill && (bg.fill.type === 'linear' || bg.fill.type === 'radial') && bg.fill.stops.length >= 2) {
+        const along = bg.fill.type === 'linear' && Math.abs(((bg.fill.angle % 360) + 360) % 360 - 180) < 45 ? 1 - L.y / h : bg.fill.type === 'linear' && Math.abs(((bg.fill.angle % 360) + 360) % 360 - 90) >= 45 && Math.abs(((bg.fill.angle % 360) + 360) % 360 - 270) >= 45 ? L.x / w : L.y / h
+        let k = 0
+        bg.fill.stops.forEach((s, j) => { if (Math.abs(s.pos - along) < Math.abs(bg.fill.stops[k].pos - along)) k = j })
+        const stop = bg.fill.stops[k]
+        if (lum(stop.hex) >= 0.7 * lum(glowHex)) {
+          const neighbour = bg.fill.stops[k - 1] || bg.fill.stops[k + 1]
+          const towards = neighbour && lum(neighbour.hex) < lum(stop.hex) ? neighbour.hex : '#000000'
+          stop.hex = mixHex(stop.hex, towards, 0.55)
+        }
+      } else if (bg && bg.fill && bg.fill.type === 'solid' && lum(bg.fill.hex) >= 0.7 * lum(glowHex)) {
+        bg.fill.hex = mixHex(bg.fill.hex, '#000000', 0.55)
+      }
+    }
   }
 
   // Stage 1 (only with a reference image): the vision model reads the image into a structural
