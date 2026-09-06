@@ -203,10 +203,12 @@ const ECT_AI = (() => {
     const els = brief && Array.isArray(brief.elements) ? brief.elements : null
     if (!els) return false
     if (!els.length) return true
-    const soft = els.filter((e) => num(e && e.soft, 0, 0, 1) >= 0.5)
+    // the light a field is made of: a soft zone, or an element that glows or screens
+    const light = els.filter((e) => num(e && e.soft, 0, 0, 1) >= 0.5 || (e && e.glow === true) || String((e && e.blend) || '').toLowerCase() === 'screen')
     const crisp = els.filter((e) => num(e && e.soft, 0, 0, 1) < 0.5)
-    const thin = (e) => Math.min(num(e && e.w, 50, 0, 100), num(e && e.h, 50, 0, 100)) <= 12 || /streak|line|ray|beam|hair/i.test(String(e && e.what || ''))
-    return soft.length >= 1 && crisp.every(thin) && els.every((e) => num(e && e.count, 1, 1, 24) <= 24)
+    // thin: a streak or line, or one copy of a run (24 slats filling the frame are each a 24th of it)
+    const thin = (e) => { const count = Math.round(num(e && e.count, 1, 1, 64)); const side = Math.min(num(e && e.w, 50, 0, 100), num(e && e.h, 50, 0, 100)); return side / (count >= 6 ? count : 1) <= 12 || /streak|line|ray|beam|hair/i.test(String((e && e.what) || '')) }
+    return light.length >= 1 && crisp.every(thin)
   }
   // "generate a gradient" with a reference on the table is a match request too.
   const BARE_GRADIENT = /^\W*(please\s+)?(generate|create|make|build|give me|i want|render|do|produce)?\W*(a|an|the|some|this|that)?\W*(mesh|fluid|soft|smooth|flowing|colou?rful|nice|beautiful|similar|same)?\W*(gradient|mesh|colou?r field|aurora|background)s?\W*(like this|as this|from this)?\W*\.?\W*$/i
@@ -278,19 +280,156 @@ const ECT_AI = (() => {
   function applyMatch(plan, cells, mode) {
     const painted = mode === 'recolour' ? recolourCells(cells, plan.palette) : cells
     const keep = plan.layers.slice(1).filter((L) => L.kind === 'text' || L.effects.some((e) => e.type === 'glass' || e.type === 'grain') || (Math.min(L.w, L.h) < 60 && !(L.fill && L.fill.type === 'shader')))
-    const layers = painted.concat(keep).slice(0, 96) // matched plans may carry more layers than the planner's 48
+    const layers = painted.concat(keep).slice(0, 128) // matched plans carry the field plus everything kept; never cut the kept text
     return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + (mode === 'recolour' ? ' (matched, recoloured)' : ' (matched)'), layers, matched: cells.length - 1, matchMode: mode || 'match' }
   }
 
   // ---- brief reconciliation: what the analysis saw, the plan must contain ----
+  // Grain measured from the reference itself: the median 3x3 residual of the
+  // luminance over a native-resolution crop (the vision model forgets the
+  // texture block now and then). Clean posters sit under 0.15, film-grain
+  // references at 1.5 and above; the map is linear between 0.3 and 2.5.
+  function grainFromPixels(rgba, w, h) {
+    if (!rgba || !(w >= 8) || !(h >= 8)) return 0
+    const lum = new Float32Array(w * h)
+    for (let i = 0; i < w * h; i++) lum[i] = 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]
+    const res = []
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      let m = 0
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) m += lum[(y + dy) * w + x + dx]
+      res.push(Math.abs(lum[y * w + x] - m / 9))
+    }
+    res.sort((a, b) => a - b)
+    const med = res[Math.floor(res.length / 2)] || 0
+    return Math.min(1, Math.max(0, (med - 0.3) / 2.2))
+  }
+
+  // A fan whose colour runs from one hue to another (the analysis gives
+  // colorEnd) has to turn hue from copy to copy; the planner tends to write
+  // the whole run inside each copy's gradient and step no hue at all.
+  const spanHue = (stops) => { const hs = stops.map((s) => (s && typeof s.hex === 'string' && /^#[0-9a-f]{6}$/i.test(s.hex) ? hexToHsl(s.hex).h : null)).filter((x) => x !== null); if (hs.length < 2) return 0; return Math.abs(((hs[hs.length - 1] - hs[0] + 540) % 360) - 180) }
+  function reconcileRepeats(raw, brief) {
+    const els = brief && Array.isArray(brief.elements) ? brief.elements.filter((e) => e && e.colorEnd && e.color && Math.round(num(e.count, 1, 1, 64)) >= 4) : []
+    if (!els.length || !raw || !Array.isArray(raw.layers)) return raw
+    const layers = raw.layers.map((L) => {
+      if (!L || typeof L !== 'object' || !L.repeat || typeof L.repeat !== 'object') return L
+      const count = Math.round(num(L.repeat.count, 1, 1, 64))
+      if (count < 4 || num(L.repeat.hueStep, 0, -60, 60)) return L
+      const e = els.find((x) => Math.abs(Math.round(num(x.count, 1, 1, 64)) - count) <= Math.max(4, count * 0.5))
+      if (!e) return L
+      const a = hexToHsl(hex(e.color, '#FFFFFF')), b = hexToHsl(hex(e.colorEnd, '#FFFFFF'))
+      const d = ((b.h - a.h + 540) % 360) - 180
+      if (Math.abs(d) < 30) return L
+      const copy = { ...L, repeat: { ...L.repeat, hueStep: Math.max(-60, Math.min(60, d / (count - 1))) } }
+      const inside = L.fill && String(L.fill.type || '').toLowerCase() === 'linear' && Array.isArray(L.fill.stops) && L.fill.stops.length >= 2 ? spanHue(L.fill.stops) : 0
+      // the run's colours were written inside each copy: one colour per copy (the
+      // most opaque stop's), the stops keep their positions and alphas (a spike
+      // still tapers to nothing), and the fan carries the change
+      if (inside >= 30) {
+        const solidest = L.fill.stops.reduce((best, st) => (num(st && st.alpha, 1, 0, 1) > num(best && best.alpha, 1, 0, 1) ? st : best), L.fill.stops[0])
+        const base = hex(solidest && solidest.hex, hex(e.color, '#FFFFFF'))
+        copy.fill = { ...L.fill, stops: L.fill.stops.map((st) => ({ ...st, hex: base })) }
+      }
+      return copy
+    })
+    return { ...raw, layers }
+  }
+
+  // Everything done to a normalised plan after the planner: reconcile it with
+  // the analysis (text, gradients, cards, glows, soft zones, grain). The
+  // replay in test/pipeline.js runs this same step, so live and replay agree.
+  function finishPlan(plan, brief, vision, w, h, opts) {
+    const grain = opts && opts.grain ? Math.min(1, Math.max(0, opts.grain)) : 0
+    if (grain) plan.grainEstimate = round1(grain)
+    if (!brief && !grain) return 0
+    const b = brief ? { ...brief, texture: { ...(brief.texture || {}), grain: Math.max(brief.texture ? num(brief.texture.grain, 0, 0, 1) : 0, grain) } } : { elements: [], text: [], texture: { grain } }
+    return ensureBriefElements(plan, b, w, h, { text: allowTextFor(vision, brief) })
+  }
+
   // The planner drops elements now and then (a glow zone the brief listed,
   // gone from the plan). A soft element from the brief with no counterpart in
   // the plan is synthesised from the brief's own geometry: ellipse, radial
   // fade, blur, SCREEN when it glowed. Crisp objects are not invented.
-  function ensureBriefElements(plan, brief, w, h) {
+  function ensureBriefElements(plan, brief, w, h, opts) {
     const els = brief && Array.isArray(brief.elements) ? brief.elements : []
     const palette = plan.palette || []
     let added = 0
+    // words the analysis read that the plan left out (only when text is allowed:
+    // the vision asked for words, or asked for the reference itself)
+    if (opts && opts.text) {
+      const lines = (brief && Array.isArray(brief.text) ? brief.text : []).filter((t) => t && typeof t.content === 'string' && t.content.trim()).map((t) => ({ ...t, content: t.content.trim(), lines: 1 }))
+      const merged = []
+      for (const t of lines) {
+        const prev = merged[merged.length - 1]
+        const size = num(t.size, 5, 0.5, 60), gap = prev ? (num(t.y, 50, -50, 150) - num(prev.y, 50, -50, 150)) / Math.max(0.5, size) : 0
+        if (prev && Math.abs(num(prev.size, 5, 0.5, 60) - size) < 0.6 && Math.abs(num(prev.x, 50, -50, 150) - num(t.x, 50, -50, 150)) <= 4 && String(prev.color || '').toLowerCase() === String(t.color || '').toLowerCase() && gap > 0.6 && gap < 1.8 && prev.lines < 4) {
+          prev.content += '\n' + t.content; prev.lines++; prev.y = (num(prev.y, 50, -50, 150) * (prev.lines - 1) + num(t.y, 50, -50, 150)) / prev.lines
+        } else merged.push(t)
+      }
+      for (const t of merged) {
+        const content = t.content
+        if (plan.layers.length >= MAX_LAYERS + 8) continue
+        const flat = (x) => String(x).toLowerCase().replace(/\s+/g, ' ')
+        const has = content.split('\n').every((line) => plan.layers.some((L) => L.kind === 'text' && typeof L.text === 'string' && flat(L.text).includes(flat(line))))
+        if (has) continue
+        const fontSize = Math.round(Math.min(600, Math.max(12, (num(t.size, 5, 0.5, 60) / 100) * h)))
+        const longest = Math.max(...content.split('\n').map((l) => l.length))
+        const width = Math.min(w * 0.9, Math.round(longest * fontSize * 0.58 + 40))
+        plan.layers.push({
+          name: content.replace(/\n/g, ' ').slice(0, 40) + ' (from brief)', kind: 'text',
+          x: round1((num(t.x, 50, -50, 150) / 100) * w), y: round1((num(t.y, 50, -50, 150) / 100) * h), w: width, h: Math.round(fontSize * 1.3 * t.lines), rotation: 0,
+          text: content, fontSize, weight: /bold|black|heavy/i.test(String(t.weight || '')) ? 'Bold' : 'Regular', align: 'CENTER',
+          fill: { type: 'solid', hex: hex(t.color, '#FFFFFF'), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1,
+        })
+        added++
+      }
+    }
+    // the planner has the element but got its look wrong: a "gradient" bar
+    // filled solid, a card with square corners, a glowing streak without its
+    // glow. Layers are matched by the nouns they share with the analysis,
+    // then by place and size.
+    // words that describe the look the rules add (gradient, glow, soft) and
+    // filler are dropped; colours, orientation and nouns stay, so "orange
+    // gradient slats" is not "curved horizontal slats"
+    const STOP = /^(the|and|with|from|into|over|large|small|big|thin|thick|soft|hard|gradient|glow|glowing|blurred|blur|rounded|main|some|several|many)$/
+    const words = (s) => String(s || '').toLowerCase().replace(/\d+/g, ' ').split(/[^a-z]+/).filter((x) => x.length >= 3 && !STOP.test(x)).map((x) => x.replace(/s$/, ''))
+    const layersFor = (e) => {
+      const ew = words(e.what), cands = plan.layers.slice(1).filter((L) => L.kind !== 'text' && !L.effects.some((x) => x.type === 'grain') && !(L.w >= 0.98 * w && L.h >= 0.98 * h))
+      if (ew.length) {
+        // the best-matching name (or repeat group) only, and only when it is a clear match
+        const score = new Map()
+        cands.forEach((L) => { const key = L.group || L.name; if (!score.has(key)) { const lw = words(key); score.set(key, ew.filter((x) => lw.includes(x)).length / ew.length) } })
+        const best = Math.max(0, ...score.values())
+        const winners = [...score.entries()].filter(([, v]) => v === best).map(([k]) => k)
+        if (best >= 0.5 && (winners.length === 1 || best === 1)) return cands.filter((L) => winners.includes(L.group || L.name))
+        if (best > 0) return []
+      }
+      const cx = (num(e.x, 50, -50, 150) / 100) * w, cy = (num(e.y, 50, -50, 150) / 100) * h, ew2 = Math.max(1, (num(e.w, 30, 0, 200) / 100) * w), eh2 = Math.max(1, (num(e.h, 30, 0, 200) / 100) * h)
+      const near = cands.filter((L) => Math.abs(L.x - cx) < 0.15 * w && Math.abs(L.y - cy) < 0.15 * h && L.w >= 0.5 * ew2 && L.w <= 2 * ew2 && L.h >= 0.5 * eh2 && L.h <= 2 * eh2)
+      if (!near.length) return []
+      near.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))
+      return near[0].group ? near.filter((L) => L.group === near[0].group) : [near[0]]
+    }
+    let fixed = 0
+    for (const e of els) {
+      if (!e || typeof e !== 'object') continue
+      const what = String(e.what || '')
+      const wantsGradient = /gradient/i.test(what), wantsCard = /\b(card|panel|tile|window|modal)\b/i.test(what), wantsGlow = e.glow === true
+      if (!wantsGradient && !wantsCard && !wantsGlow) continue
+      for (const L of layersFor(e)) {
+        if (wantsGradient && L.fill && L.fill.type === 'solid') {
+          const end = e.colorEnd ? hex(e.colorEnd, L.fill.hex) : shiftHex(L.fill.hex, 0, -0.32)
+          L.fill = { type: 'linear', angle: L.h >= L.w ? 90 : 0, stops: [{ pos: 0, hex: L.fill.hex, alpha: L.fill.alpha }, { pos: 1, hex: end, alpha: L.fill.alpha }] }
+          fixed++
+        }
+        if (wantsCard && L.kind === 'rect' && (L.cornerRadius || 0) < 12) { L.cornerRadius = Math.round(Math.min(48, Math.max(16, Math.min(L.w, L.h) * 0.06))); fixed++ }
+        if (wantsGlow && !isGlow(L, w, h) && !L.effects.some((x) => x.type === 'glow' || (x.type === 'blur' && x.radius >= 20))) {
+          const c = (L.fill && (L.fill.hex || (L.fill.stops && L.fill.stops[0] && L.fill.stops[0].hex))) || '#FFFFFF'
+          L.effects.push({ type: 'glow', hex: c, alpha: 0.85, blur: Math.round(Math.min(200, Math.max(16, Math.min(L.w, L.h) * 1.5))) })
+          fixed++
+        }
+      }
+    }
     for (const e of els) {
       if (!e || typeof e !== 'object') continue
       const soft = num(e.soft, 0, 0, 1), count = Math.round(num(e.count, 1, 1, 24))
@@ -317,16 +456,16 @@ const ECT_AI = (() => {
     // grain the analysis saw but the plan forgot
     const grainAmt = brief && brief.texture ? num(brief.texture.grain, 0, 0, 1) : 0
     if (grainAmt >= 0.4 && !plan.layers.some((L) => L.effects.some((x) => x.type === 'grain')) && plan.layers.length < MAX_LAYERS) {
-      plan.layers.push({ name: 'Grain (from brief)', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: round1(Math.min(1, grainAmt)) }], blend: 'NORMAL', opacity: 1 })
+      plan.layers.push({ name: 'Grain (from brief)', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: round1(Math.min(0.7, grainAmt)) }], blend: 'NORMAL', opacity: 1 })
       added++
     }
-    if (added) {
+    if (added || fixed) {
       // keep grain and vignette on top
       const top = plan.layers.filter((L) => L.effects.some((x) => x.type === 'grain') || /vignette/i.test(L.name))
       plan.layers = plan.layers.filter((L) => !top.includes(L)).concat(top)
       enrichGlows(plan.layers, w, h)
     }
-    return added
+    return added + fixed
   }
 
   // Text layers are allowed only when the vision asks for words.
@@ -394,6 +533,7 @@ const ECT_AI = (() => {
     return null
   }
   function normalizePlan(raw, w, h, opts) {
+    raw = reconcileRepeats(raw, opts && opts.brief)
     const allowText = !opts || opts.allowText !== false
     if (!raw || typeof raw !== 'object') throw new Error('plan is not an object')
     const palette = (Array.isArray(raw.palette) ? raw.palette : []).map((c) => hex(c, null)).filter(Boolean).slice(0, 8)
@@ -448,6 +588,7 @@ const ECT_AI = (() => {
       }
       // repeat -> N independent layers (streaks, bands, dots); each stays its own editable node
       const R = L.repeat && typeof L.repeat === 'object' ? L.repeat : null
+      const asked = R ? num(R.count, 1, 1, MAX_REPEAT) : 1
       const rep = R ? {
         count: Math.max(scale < 1 ? 2 : 1, Math.floor(num(R.count, 1, 1, MAX_REPEAT) * scale)),
         dx: num(R.dx, 0, -w, w), dy: num(R.dy, 0, -h, h), jitter: num(R.jitter, 0, 0, Math.max(w, h)),
@@ -455,8 +596,29 @@ const ECT_AI = (() => {
         hueStep: num(R.hueStep, 0, -60, 60), lightStep: num(R.lightStep, 0, -0.1, 0.1),
         pivot: R.pivot && typeof R.pivot === 'object' ? { x: num(R.pivot.x, w / 2, -w, 2 * w), y: num(R.pivot.y, h / 2, -h, 2 * h) } : null,
       } : null
+      if (rep && rep.count > 1 && rep.count < asked) {
+        // the budget cut the run: stretch every step so it still spans what it did
+        const f = (asked - 1) / (rep.count - 1)
+        rep.dx *= f; rep.dy *= f; rep.drot *= f; rep.dw *= f; rep.dh *= f; rep.hueStep *= f; rep.lightStep *= f
+      }
       if (rep && rep.count > 1 && kind !== 'text') {
         const spread = Math.min(rep.count, MAX_LAYERS - layers.length)
+        if (!(rep.pivot && rep.drot)) {
+          // keep the run on the canvas: the planner steps ten streaks down from
+          // the centre and half of them leave the frame. A run longer than the
+          // canvas is compressed, a run hanging over one edge is shifted back.
+          const fit = (start, size, step, extent) => {
+            const n = spread - 1
+            if (n < 1 || size >= extent) return { start, step }
+            let s = step
+            if (Math.abs(s) * n + size > extent) s = Math.sign(s || 1) * ((extent - size) / n)
+            const lo = Math.min(start, start + s * n) - size / 2, hi = Math.max(start, start + s * n) + size / 2
+            const shift = lo < 0 ? -lo : hi > extent ? extent - hi : 0
+            return { start: start + shift, step: s }
+          }
+          if (rep.dx) { const f = fit(layer.x, layer.w, rep.dx, w); layer.x = round1(f.start); rep.dx = f.step }
+          if (rep.dy) { const f = fit(layer.y, layer.h, rep.dy, h); layer.y = round1(f.start); rep.dy = f.step }
+        }
         for (let i = 0; i < spread; i++) {
           const copy = JSON.parse(JSON.stringify(layer))
           copy.name = `${layer.name} ${i + 1}`
@@ -588,7 +750,7 @@ const ECT_AI = (() => {
   }
 
   // Stage 2: the text model turns (brief + vision) into the layer plan.
-  async function plan({ apiKey, vision, imageDataUrl, measuredPalette, width, height, catalog, onStatus }) {
+  async function plan({ apiKey, vision, imageDataUrl, measuredPalette, grainSample, width, height, catalog, onStatus }) {
     if (!apiKey) throw new Error('No Groq API key')
     let ref = null
     if (imageDataUrl) ref = await describeReference(apiKey, imageDataUrl, onStatus)
@@ -615,8 +777,9 @@ const ECT_AI = (() => {
       completion_tokens: (u1.completion_tokens || 0) + (u2.completion_tokens || 0),
       total_tokens: (u1.total_tokens || 0) + (u2.total_tokens || 0),
     }
-    const normalized = normalizePlan(raw, width, height, { allowText: allowTextFor(vision, ref ? ref.brief : null) })
-    if (ref) ensureBriefElements(normalized, ref.brief, width, height)
+    const normalized = normalizePlan(raw, width, height, { allowText: allowTextFor(vision, ref ? ref.brief : null), brief: ref ? ref.brief : null })
+    const grain = grainSample && grainSample.rgba ? grainFromPixels(grainSample.rgba, grainSample.width, grainSample.height) : 0
+    finishPlan(normalized, ref ? ref.brief : null, vision, width, height, { grain })
     return { plan: normalized, raw, brief: ref ? ref.brief : null, model: ref ? `${ref.model} + ${TEXT_MODEL}` : TEXT_MODEL, usage }
   }
 
@@ -639,6 +802,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, asksNewColours, applyMatch, isGlow, ensureBriefElements, allowTextFor, shiftFill, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, asksNewColours, applyMatch, isGlow, ensureBriefElements, allowTextFor, grainFromPixels, finishPlan, reconcileRepeats, shiftFill, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

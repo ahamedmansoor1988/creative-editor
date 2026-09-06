@@ -26,9 +26,10 @@ function readEnv(file) {
 const key = readEnv(path.join(ROOT, '.env')).GROQ_API_KEY || readEnv(path.join(ROOT, '..', '.env')).GROQ_API_KEY
 
 // ---- images without libraries: sips -> 24-bit BMP -> RGBA ----
-function bmpPixels(file, longSide) {
-  const tmp = path.join(os.tmpdir(), 'ect-px-' + process.pid + '-' + Date.now() + '.bmp')
-  execSync(`sips -s format bmp -Z ${longSide} "${file}" --out "${tmp}"`, { stdio: 'ignore' })
+// longSide: scale the whole image down; crop: a native-resolution centre crop of crop x crop px instead
+function bmpPixels(file, longSide, crop) {
+  const tmp = path.join(os.tmpdir(), 'ect-px-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.bmp')
+  execSync(`sips -s format bmp ${crop ? `-c ${crop} ${crop}` : `-Z ${longSide}`} "${file}" --out "${tmp}"`, { stdio: 'ignore' })
   const b = fs.readFileSync(tmp); fs.unlinkSync(tmp)
   const off = b.readUInt32LE(10), w = b.readInt32LE(18), hRaw = b.readInt32LE(22), bpp = b.readUInt16LE(28)
   const h = Math.abs(hRaw), bottomUp = hRaw > 0, bytes = bpp / 8, row = Math.floor((w * bytes + 3) / 4) * 4
@@ -50,14 +51,15 @@ function imageDataUrl(file) {
 }
 
 // ---- QC: what a plan must satisfy to count as a faithful, buildable result ----
-const isGlowish = (L, W, H) => AI.isGlow(L, W, H)
+// a glow-like layer: a soft light field, or a crisp shape carrying a glow effect of its own (neon bars)
+const isGlowish = (L, W, H) => AI.isGlow(L, W, H) || L.effects.some((e) => e.type === 'glow' && e.blur >= 20)
 function maxAlpha(L) { if (!L.fill) return 0; if (L.fill.type === 'solid') return L.fill.alpha; if (L.fill.type === 'shader') return 1; return Math.max(...L.fill.stops.map((s) => s.alpha)) }
 function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const fail = [], warn = []
   const layers = plan.layers
   if (built.planned !== built.built) fail.push(`built ${built.built}/${built.planned} layers`)
   if (layers.length < 2) fail.push('plan has fewer than 2 layers')
-  if (layers.length > 96) fail.push(`too many layers: ${layers.length}`)
+  if (layers.length > (plan.matched > 0 ? 128 : 96)) fail.push(`too many layers: ${layers.length}`) // a matched plan carries the field plus everything kept
   layers.slice(1).forEach((L) => {
     const side = Math.min(L.w, L.h)
     if (L.opacity * maxAlpha(L) < 0.03 && !L.effects.some((e) => e.type === 'grain' || e.type === 'glass' || e.type === 'shader')) fail.push(`"${L.name}" is invisible (alpha ${(L.opacity * maxAlpha(L)).toFixed(2)})`)
@@ -71,7 +73,7 @@ function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const groups = {}; layers.forEach((L) => { if (L.group) (groups[L.group] = groups[L.group] || []).push(L) })
   for (const m of must || []) {
     const [k, v] = String(m).split(':')
-    if (k === 'text') { const re = new RegExp(v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); if (!layers.some((L) => L.kind === 'text' && re.test(L.text || ''))) fail.push(`text "${v}" expected`) }
+    if (k === 'text') { const flat = (x) => String(x || '').toLowerCase().replace(/\s+/g, ' '); const all = layers.filter((L) => L.kind === 'text').map((L) => flat(L.text)).join(' '); if (!all.includes(flat(v))) fail.push(`text "${v}" expected`) }
     else if (k === 'ellipses') { const n = layers.filter((L) => L.kind === 'ellipse' || L.kind === 'blob').length; if (n < +v) fail.push(`${v} ellipses expected, ${n}`) }
     else if (k === 'thin') { const n = layers.filter((L) => L.kind === 'rect' && Math.min(L.w, L.h) <= 6 && Math.max(L.w, L.h) >= 0.3 * Math.min(W, H)).length; if (n < +v) fail.push(`${v} thin lines expected, ${n}`) }
     else if (k === 'repeat') { const best = Math.max(0, ...Object.values(groups).map((g) => g.length)); if (best < +v) fail.push(`a repeat of ${v}+ expected, largest ${best}`) }
@@ -85,8 +87,8 @@ function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const briefSays = (re) => els.some((e) => re.test(String(e.what || '')))
   const mustHave = new Set(must || [])
   if (briefSays(/fluted|reeded|ribbed|\bribs?\b/i) || mustHave.has('fluted')) { if (glassCount < 6) fail.push(`fluted glass expected, ${glassCount} glass layers`); else if (layers.some((L) => L.effects.some((e) => e.type === 'glass') && Math.min(L.w, L.h) > 0.5 * Math.min(W, H))) warn.push('a large glass panel besides the ribs') }
-  else if (briefSays(/slat|stripe|band|louver/i)) {
-    // slats, stripes and bands: a repeated group of at least 6, glass optional
+  else if (els.some((e) => /slat|stripe|band|louver/i.test(String(e.what || '')) && Math.round(Number(e.count) || 1) >= 6)) {
+    // six or more slats, stripes or bands: a repeated group of at least 6, glass optional (three bands are three layers, not a slat run)
     const groups = {}; layers.forEach((L) => { if (L.group) groups[L.group] = (groups[L.group] || 0) + 1 })
     if (!Object.values(groups).some((n) => n >= 6)) fail.push('repeated slats/bands expected, no repeat group of 6+')
   }
@@ -106,6 +108,8 @@ async function runCase(c, idx, total) {
   const id = String(idx + 1).padStart(2, '0') + '-' + path.basename(c.image, path.extname(c.image)).replace(/[^a-z0-9_-]+/gi, '-')
   console.log(`\n[${idx + 1}/${total}] ${c.image}  vision: "${c.vision}"`)
   const px = bmpPixels(c.image, 80)
+  const gpx = bmpPixels(c.image, 0, 384)
+  const grain = AI.grainFromPixels(gpx.rgba, gpx.width, gpx.height)
   const measured = AI.paletteFromPixels(px.rgba, 6)
   const img = imageDataUrl(c.image)
   const t0 = Date.now()
@@ -114,10 +118,10 @@ async function runCase(c, idx, total) {
   const saved = replay && fs.existsSync(savedFile) ? JSON.parse(fs.readFileSync(savedFile, 'utf8')) : null
   if (saved && saved.raw) {
     console.log('   replaying the saved plan through the current normaliser')
-    res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.allowTextFor(c.vision, saved.brief) }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
-    AI.ensureBriefElements(res.plan, saved.brief, W, H)
+    res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.allowTextFor(c.vision, saved.brief), brief: saved.brief }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
+    AI.finishPlan(res.plan, saved.brief, c.vision, W, H, { grain })
   } else if (noAI) res = { plan: AI.normalizePlan({ name: 'match only', palette: measured, layers: [{ kind: 'rect', w: W, h: H }] }, W, H), raw: null, brief: null, model: 'none', usage: null }
-  else res = await AI.plan({ apiKey: key, vision: c.vision, imageDataUrl: img.dataUrl, measuredPalette: measured, width: W, height: H, catalog: c.catalog || [], onStatus: (s) => console.log('   ' + s) })
+  else res = await AI.plan({ apiKey: key, vision: c.vision, imageDataUrl: img.dataUrl, measuredPalette: measured, grainSample: gpx, width: W, height: H, catalog: c.catalog || [], onStatus: (s) => console.log('   ' + s) })
   let plan = res.plan
   const mode = noAI ? 'match' : AI.matchMode(c.vision, res.brief)
   const matched = !!mode
@@ -131,7 +135,7 @@ async function runCase(c, idx, total) {
   const built = { planned: plan.layers.length, built: frame ? frame.children.length : 0, results: st && st.results ? Object.fromEntries(Object.entries(st.results).map(([k, v]) => [k, v.status + (v.detail ? ': ' + v.detail : '')])) : {} }
   const q = qc({ plan, brief: res.brief, vision: c.vision, built, must: c.must, usage: res.usage, W, H })
   const seconds = (Date.now() - t0) / 1000
-  console.log(`   ${q.pass ? 'PASS' : 'FAIL'}  ${plan.layers.length} layers${matched ? ' (matched ' + plan.matched + ')' : ''}, built ${built.built}/${built.planned}, ${seconds.toFixed(1)}s${res.usage ? ', ' + res.usage.total_tokens + ' tokens' : ''}`)
+  console.log(`   ${q.pass ? 'PASS' : 'FAIL'}  ${plan.layers.length} layers${matched ? ' (matched ' + plan.matched + ')' : ''}, built ${built.built}/${built.planned}, ${seconds.toFixed(1)}s${res.usage ? ', ' + res.usage.total_tokens + ' tokens' : ''}${grain >= 0.1 ? ', grain ' + grain.toFixed(2) : ''}`)
   q.fail.forEach((f) => console.log('     FAIL ' + f)); q.warn.forEach((w) => console.log('     warn ' + w))
   const refCopy = id + path.extname(c.image)
   fs.copyFileSync(c.image, path.join(outDir, refCopy))

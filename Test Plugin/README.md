@@ -65,6 +65,8 @@ Why two stages: Groq's free tier allows 8,000 tokens/minute per model and only ~
 
 The plan is normalised before it reaches Figma (types, ranges, hex colours, unknown layers dropped, repeats expanded, background guaranteed, up to 48 layers) and every layer is built in its own try/catch, so one bad layer or an unknown shader name degrades to a gradient instead of killing the frame. Randomize moves the copies of a repeat together so a streak field stays a streak field.
 
+**Recreating a reference** (6 Sep 2026): with a reference and a vision such as "recreate this image exactly", the analysis's own text items (headlines, wordmarks, logos as bold words) are reproduced verbatim; text is otherwise still only added when the vision asks for words. Repeats take `hueStep` and `lightStep` so a fan of ellipses can run pink to green and a slat stack can fade to dark. Matching from pixels applies only to colour-field references, or when a gradient or mesh is literally asked for; posters with cards, bars and text go to the planner. Grain the analysis reports is added when the plan forgets it. `test/cases.json` holds the eleven acceptance cases (nine references, three visions of Mansoor's) with their must-haves: fluted / glow / match / grain / card / gradient-bars / repeat:N / hues / ellipses:N / thin:N / text:<words> / no-text.
+
 **Match reference** (6 Sep 2026): a colour-field reference (mesh, fluid, aurora) is what a language model reproduces worst: asked for "a mesh gradient the same as the reference" it tuned a Fluid gradient shader into mud. The Creative Editor's Match reference never asks a model, so neither does this now: the reference's own pixels are sampled into a grid of up to 42 solid cells (6 × 7 on the 4:5 canvas), each the average colour of its patch, blurred into one another, over a background of the overall average; every cell is a recolourable rectangle. It kicks in automatically when the vision asks for the reference itself or a mesh gradient, or when the brief describes a colour field and the vision names no colours; the planner's glass, grain, text and thin streaks stay on top of the matched cells. The **Match reference** button does it with no AI call at all.
 
 Third real run (6 Sep 2026, `images/glass.jpg` + "generate the glass effect and stripe lines"): the reference is a vertical purple-to-orange gradient behind fluted glass. The brief called the ribs "light streaks" with `glass: 0`, the planner put a 150 px blur on 22 px streaks (invisible) and, told "glass", added its one recipe, a centred panel. Fixes: the brief names **fluted glass ribs** as one counted element with texture.glass; the planner has a fluted-glass recipe (N full-height ribs, each with a lit and shaded edge gradient and a native Glass effect, no panel), routes "glass + stripes" to it, and caps blur at half a layer's smaller side (also enforced in the normaliser). The same input now returns 10 glass ribs + 10 thin streaks + glow + vignette + grain, 24/24 built.
@@ -72,6 +74,35 @@ Third real run (6 Sep 2026, `images/glass.jpg` + "generate the glass effect and 
 Second real run (6 Sep 2026): the palette followed the reference but a soft flowing gradient came back as hard shapes plus an unrequested glass panel, and the Shader section showed a stale message. Fixes: softness → blur rules, colour-field rule, glass only on request, measured palette, and shader-id tagging with an honest tune result in the status line.
 
 First real run (5 Sep 2026) taught the lesson behind this design: a mood-style brief ("vibrant, energetic, smooth gradient") produced output unrelated to the reference and the planner turned the vision text into a headline. The structural brief, the precedence rule and the text guard fixed both; the same reference then came back as 12 streaks + glow + vignette + grain + glass, recoloured to the requested palette.
+
+### Reconciliation with the analysis (v0.2.12)
+
+The planner drops or flattens things the vision brief clearly listed, so a
+deterministic pass (`finishPlan` → `ensureBriefElements` in `src/ai.js`) runs
+after every plan, live and in `--replay` alike:
+
+- Text the brief read is reproduced verbatim when the vision asks for the
+  reference (or for words); stacked lines of one column become one multi-line
+  layer. A matched plan keeps all of it (layer cap 128 for matched plans).
+- An element the brief calls a *gradient* is never left solid; a *card*, panel
+  or tile gets rounded corners; an element the brief marks *glow* gets a glow
+  effect. Layers are matched by the nouns, colours and orientation words they
+  share with the brief, best group only, so "orange gradient slats" never
+  touches "curved horizontal slats".
+- A fan whose colour runs from `color` to `colorEnd` turns hue from copy to
+  copy (`reconcileRepeats`); a run the budget cut keeps its span; a run
+  stepping off the canvas is shifted back.
+- Grain is measured from a native-resolution centre crop of the reference
+  (`grainFromPixels`, median 3×3 luminance residual) and merged with the
+  brief's estimate, because the vision model omits the texture block now and
+  then.
+- A colour field with thin crisp layers on top (fluted ribs, 24 slats, neon
+  streaks) is matched from pixels: per-copy thinness for runs of 6+, and
+  glow/screen elements count as light.
+
+Run `node test/pipeline.js test/cases.json --replay` after any change here;
+the eleven cases in `test/cases.json` pass QC, mean colour error 31 (nine
+"good", the card poster and the geometric semicircles "fair").
 
 ### Files
 ```

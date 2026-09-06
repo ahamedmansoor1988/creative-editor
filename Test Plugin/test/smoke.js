@@ -221,6 +221,10 @@ async function main() {
     const names = plan.layers.map((L) => L.name)
     assert(added === 1 && names[1] === 'deep purple glow zone (from brief)' && names[2] === 'deep purple glow zone (from brief) core' && names[names.length - 1] === 'Grain', 'glow synthesised with a core, grain kept on top: ' + names.join('|'))
     assert(AI.ensureBriefElements(plan, brief, 1080, 1350) === 0, 'idempotent')
+    const withText = { text: [{ content: 'Color', x: 38, y: 42, size: 6, weight: 'regular', color: '#ffffff' }, { content: 'tools', x: 38, y: 48, size: 6, weight: 'regular', color: '#ffffff' }, { content: 'Top 8', x: 38, y: 55, size: 3, color: '#e0e0e0' }], elements: [] }
+    const p2 = AI.normalizePlan({ palette: ['#1A0033', '#FF5500'], layers: [{ name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#1A0033' } }] }, 1080, 1350)
+    assert(AI.ensureBriefElements(p2, withText, 1080, 1350, { text: true }) === 2 && p2.layers.filter((L) => L.kind === 'text').map((L) => L.text).join('|') === 'Color\ntools|Top 8' && p2.layers[1].fontSize === 81 && p2.layers[1].y === 607.5 && p2.layers[1].h === 211, 'reference text synthesised verbatim: ' + JSON.stringify(p2.layers.slice(1).map((L) => [L.text, L.fontSize, L.y])))
+    assert(AI.ensureBriefElements(p2, withText, 1080, 1350, { text: false }) === 0, 'no text unless allowed')
   })
   await run('ai: repeat budget is shared and copies can fan around a pivot', () => {
     const slat = (name, hex) => ({ name, kind: 'rect', x: 540, y: 40, w: 1080, h: 60, fill: { type: 'solid', hex }, repeat: { count: 18, dx: 0, dy: 72 } })
@@ -420,6 +424,75 @@ async function main() {
     const f2 = makeFigma({ shaders: [NONUM] }); const b = runPlugin(f2, {})
     await b.send({ type: 'ui-ready' }); await b.send({ type: 'generate' })
     assert(b.last().shader.name === 'Duotone' && b.last().params.length === 0 && b.last().results.shaders.status === 'PASS', 'fallback applied without sliders')
+  })
+
+  await run('ai: reconciliation of crisp elements, hue fans, on-canvas runs, grain estimate', () => {
+    const W = 1080, H = 1350
+    // gradient bars written solid, a square card, glowing streaks without glow, a run leaving the canvas
+    const brief = { elements: [
+      { what: 'vertical purple gradient bars', shape: 'rect', count: 4, x: 50, y: 65, w: 25, h: 70, color: '#a855f7', soft: 0.1, glow: false },
+      { what: 'dark glass card', shape: 'rect', count: 1, x: 50, y: 45, w: 70, h: 30, color: '#0a0a0f', soft: 0, glow: false },
+      { what: 'horizontal green streaks', shape: 'rect', count: 10, x: 50, y: 50, w: 40, h: 4, color: '#00ff88', soft: 0.4, glow: true, blend: 'screen' },
+    ], text: [], texture: { grain: 0.05 } }
+    const raw = { palette: ['#070913', '#BE83FB'], layers: [
+      { name: 'background', kind: 'rect', x: 540, y: 675, w: W, h: H, fill: { type: 'solid', hex: '#070913' } },
+      { name: 'vertical bars', kind: 'rect', x: 135, y: 877, w: 270, h: 945, fill: { type: 'solid', hex: '#BE83FB' }, repeat: { count: 4, dx: 270 } },
+      { name: 'dark glass card', kind: 'rect', x: 540, y: 607, w: 756, h: 405, fill: { type: 'solid', hex: '#372251' } },
+      { name: 'green streaks', kind: 'rect', x: 540, y: 675, w: 432, h: 54, fill: { type: 'solid', hex: '#08D681' }, blend: 'SCREEN', repeat: { count: 10, dx: 0, dy: 122 } },
+    ] }
+    const plan = AI.normalizePlan(raw, W, H, { brief })
+    const streaks = plan.layers.filter((L) => L.group === 'green streaks')
+    assert(streaks.length === 10 && streaks.every((L) => L.y - L.h / 2 >= 0 && L.y + L.h / 2 <= H) && Math.abs(streaks[0].y - 225) < 1, 'a run hanging over the bottom edge is shifted back onto the canvas: ' + streaks.map((L) => L.y).join(','))
+    const n = AI.finishPlan(plan, brief, 'recreate this image exactly', W, H, {})
+    const bars = plan.layers.filter((L) => L.group === 'vertical bars'), card = plan.layers.find((L) => L.name === 'dark glass card')
+    assert(bars.length === 4 && bars.every((L) => L.fill.type === 'linear' && L.fill.angle === 90 && L.fill.stops[0].hex === '#BE83FB'), 'solid "gradient bars" become vertical gradients: ' + JSON.stringify(bars[0].fill))
+    assert(card.cornerRadius === 24, 'a card gets rounded corners: ' + card.cornerRadius)
+    assert(streaks.every((L) => L.effects.some((e) => e.type === 'glow' && e.hex === '#08D681' && e.blur === 81)), 'glowing streaks get a glow effect: ' + JSON.stringify(streaks[0].effects))
+    assert(n === 15 && AI.finishPlan(plan, brief, 'recreate this image exactly', W, H, {}) === 0, 'counted once, idempotent: ' + n)
+    // a fan running pink to green: the planner wrote the run inside each copy and no hue step
+    const fan = AI.normalizePlan({ palette: ['#2C2C2C'], layers: [
+      { name: 'background', kind: 'rect', x: 540, y: 675, w: W, h: H, fill: { type: 'solid', hex: '#2C2C2C' } },
+      { name: 'spike', kind: 'ellipse', x: 6, y: 675, w: 12, h: H, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#BF698B', alpha: 0 }, { pos: 0.3, hex: '#BF698B', alpha: 1 }, { pos: 0.7, hex: '#4E7D70', alpha: 1 }, { pos: 1, hex: '#4E7D70', alpha: 0 }] }, repeat: { count: 24, dx: 45 } },
+    ] }, W, H, { brief: { elements: [{ what: 'vertical gradient spikes', shape: 'ellipse', count: 24, color: '#ff00ff', colorEnd: '#00ff00' }] } })
+    const spikes = fan.layers.filter((L) => L.group === 'spike')
+    const hue = (hx) => { const v = parseInt(hx.slice(1), 16), r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 0; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return ((h * 60) % 360 + 360) % 360 }
+    const first = spikes[0].fill.stops, last = spikes[spikes.length - 1].fill.stops
+    assert(spikes.length === 24 && first.every((st) => st.hex === '#BF698B') && first[0].alpha === 0 && first[1].alpha === 1 && last.every((st) => st.hex === last[0].hex) && Math.abs(((hue(last[1].hex) - hue(first[1].hex) + 540) % 360) - 180) > 150, 'one hue per copy, taper kept, hue turns across the fan: ' + first[1].hex + ' -> ' + last[1].hex)
+    // grain: flat pixels measure 0, noisy pixels measure high, and the measurement adds the grain the analysis missed
+    const flat = new Uint8ClampedArray(64 * 64 * 4).fill(120), noisy = new Uint8ClampedArray(64 * 64 * 4)
+    let seed = 7; for (let i = 0; i < noisy.length; i += 4) { seed = (seed * 16807) % 2147483647; const v = 100 + (seed % 41); noisy[i] = noisy[i + 1] = noisy[i + 2] = v; noisy[i + 3] = 255 }
+    const g0 = AI.grainFromPixels(flat, 64, 64), g1 = AI.grainFromPixels(noisy, 64, 64)
+    assert(g0 === 0 && g1 > 0.9, 'grain estimate: flat ' + g0 + ', noisy ' + g1.toFixed(2))
+    const gp = AI.normalizePlan({ palette: ['#000000'], layers: [{ name: 'bg', kind: 'rect', x: 540, y: 675, w: W, h: H, fill: { type: 'solid', hex: '#000000' } }] }, W, H)
+    assert(AI.finishPlan(gp, { elements: [], text: [], texture: { grain: 0.05 } }, '', W, H, { grain: g1 }) === 1 && gp.layers[1].effects[0].type === 'grain' && gp.layers[1].effects[0].amount === 0.7 && gp.grainEstimate === 1, 'measured grain adds the grain layer: ' + JSON.stringify(gp.layers[1] && gp.layers[1].effects))
+    // a bent-slat render: dark slat runs over glowing colour is a colour field with thin crisp layers
+    const slats = { elements: [
+      { what: 'curved horizontal slats', count: 24, x: 50, y: 50, w: 100, h: 100, color: '#000000', soft: 0, glow: false, blend: 'normal' },
+      { what: 'orange gradient slats', count: 12, x: 25, y: 65, w: 60, h: 70, color: '#ff9900', soft: 0.1, glow: true, blend: 'screen' },
+      { what: 'curved slat edges', shape: 'line', count: 24, x: 50, y: 50, w: 100, h: 100, color: '#ffffff', soft: 0.4, glow: true },
+    ], text: [] }
+    const posterish = { elements: [
+      { what: 'vertical purple gradient bars', count: 4, x: 50, y: 65, w: 25, h: 70, soft: 0.1, glow: false },
+      { what: 'dark glass card', count: 1, x: 50, y: 45, w: 70, h: 30, soft: 0, glow: false },
+      { what: 'glow behind the card', count: 1, x: 50, y: 45, w: 80, h: 50, soft: 0.9, glow: true },
+    ], text: [{ content: 'Datawizz' }] }
+    assert(AI.matchMode('recreate this image exactly', slats) === 'match' && AI.matchMode('recreate this image exactly', posterish) === null, 'slat runs over glow match; a card poster is planned')
+    // the budget cuts three runs of 24 to 16 each: every run still spans what it did
+    const cut = AI.normalizePlan({ palette: ['#000000'], layers: [
+      { name: 'bg', kind: 'rect', x: 540, y: 675, w: W, h: H, fill: { type: 'solid', hex: '#000000' } },
+      { name: 'slat', kind: 'rect', x: 540, y: 15, w: W, h: 30, fill: { type: 'solid', hex: '#292662' }, repeat: { count: 24, dy: 58 } },
+      { name: 'edge', kind: 'rect', x: 540, y: 30, w: W, h: 10, fill: { type: 'solid', hex: '#FFFFFF' }, repeat: { count: 24, dy: 58 } },
+      { name: 'dot', kind: 'ellipse', x: 20, y: 675, w: 20, h: 20, fill: { type: 'solid', hex: '#FFFFFF' }, repeat: { count: 24, dx: 44 } },
+    ] }, W, H)
+    const slatRun = cut.layers.filter((L) => L.group === 'slat'), dotRun = cut.layers.filter((L) => L.group === 'dot')
+    assert(slatRun.length < 24 && slatRun[slatRun.length - 1].y >= 1300 && dotRun[dotRun.length - 1].x >= 1000, 'a cut run keeps its span: ' + slatRun.length + ' slats to y ' + slatRun[slatRun.length - 1].y + ', ' + dotRun.length + ' dots to x ' + dotRun[dotRun.length - 1].x)
+    // a matched plan never cuts its kept layers: 80 cells + 20 kept
+    const kept = []; for (let i = 0; i < 18; i++) kept.push({ name: 'rib ' + i, kind: 'rect', x: 40 + i * 60, y: 675, w: 30, h: H, rotation: 0, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.2 }, effects: [{ type: 'glass' }], blend: 'NORMAL', opacity: 1 })
+    kept.push({ name: 'Title', kind: 'text', x: 540, y: 600, w: 400, h: 80, text: 'Color tools', fill: { type: 'solid', hex: '#FFFFFF', alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 })
+    kept.push({ name: 'Sub', kind: 'text', x: 540, y: 700, w: 400, h: 40, text: 'Top 8', fill: { type: 'solid', hex: '#FFFFFF', alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 })
+    const cells = []; for (let i = 0; i < 81; i++) cells.push({ name: i ? 'Match ' + i : 'Match background', kind: i ? 'ellipse' : 'rect', x: 540, y: 675, w: 200, h: 200, rotation: 0, fill: { type: 'solid', hex: '#333333', alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1, group: 'Match' })
+    const m = AI.applyMatch({ name: 'poster', palette: ['#333333'], layers: [{ name: 'Background', kind: 'rect', x: 540, y: 675, w: W, h: H, fill: { type: 'solid', hex: '#000000', alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }].concat(kept) }, cells, 'match')
+    assert(m.layers.length === 101 && m.layers.filter((L) => L.kind === 'text').length === 2, 'kept text survives the match: ' + m.layers.length + ' layers, ' + m.layers.filter((L) => L.kind === 'text').length + ' text')
   })
 
   await run('no shaders available / shader API missing', async () => {

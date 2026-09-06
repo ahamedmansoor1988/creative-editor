@@ -3,6 +3,6 @@ node_modules/
 .env
 # build outputs (code.js carries the injected API key)
 build/
-code.js
-ui.html
+/code.js  # built output at the plugin root (carries the key); src/ stays versioned
+/ui.html  # built output at the plugin root (carries the key); src/ stays versioned
 out/

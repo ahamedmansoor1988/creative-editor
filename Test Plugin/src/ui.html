@@ -1,0 +1,329 @@
+<style>
+  body {
+    margin: 0; padding: 12px;
+    font: 11px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--figma-color-text, #222);
+    background: var(--figma-color-bg, #fff);
+  }
+  h1 { font-size: 12px; font-weight: 600; margin: 0 0 10px; }
+  button {
+    width: 100%; padding: 8px; margin-bottom: 6px;
+    border: 1px solid var(--figma-color-border, #d5d5d5); border-radius: 6px;
+    background: var(--figma-color-bg-secondary, #f2f2f2); color: inherit; font: inherit; cursor: pointer;
+  }
+  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border-color: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 6px; }
+  .row button { flex: 1; }
+  section { border-top: 1px solid var(--figma-color-border, #e5e5e5); margin-top: 10px; padding-top: 10px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--figma-color-text-secondary, #777); margin-bottom: 6px; }
+  .muted { color: var(--figma-color-text-secondary, #777); }
+  textarea, input[type=text], input[type=password] {
+    width: 100%; box-sizing: border-box; padding: 6px; margin-bottom: 6px; font: inherit; color: inherit;
+    border: 1px solid var(--figma-color-border, #d5d5d5); border-radius: 6px; background: var(--figma-color-bg, #fff); resize: vertical;
+  }
+  .ref { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .ref img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--figma-color-border, #d5d5d5); background: var(--figma-color-bg-secondary, #f2f2f2); }
+  .ref label { flex: 1; }
+  .ref input[type=file] { width: 100%; font-size: 10px; }
+  .link { color: var(--figma-color-text-brand, #0d99ff); cursor: pointer; font-size: 10px; }
+  #swatches { margin: 4px 0 2px; height: 14px; }
+  #swatches span { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 3px; border: 1px solid rgba(0,0,0,.15); }
+  #aiStatus { min-height: 14px; margin-bottom: 4px; }
+  #keyRow { font-size: 10px; margin-top: 2px; }
+  #keyRow .row { margin-top: 4px; }
+  #keyRow input { margin-bottom: 0; }
+  .param { margin-bottom: 8px; }
+  .param .name { display: flex; justify-content: space-between; margin-bottom: 2px; }
+  .param input { width: 100%; margin: 0; }
+  #allParams { font-size: 10px; margin: 6px 0 8px; }
+  .tests div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .tests .detail { display: block; font-size: 10px; color: var(--figma-color-text-secondary, #777); margin: -2px 0 4px; }
+  .PASS { color: var(--figma-color-text-success, #1a8a4a); font-weight: 600; }
+  .FAIL { color: var(--figma-color-text-danger, #d23a3a); font-weight: 600; }
+  .NA { color: var(--figma-color-text-secondary, #777); font-weight: 600; }
+  pre {
+    font: 10px/1.35 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+    max-height: 110px; overflow: auto; margin: 6px 0 0; padding: 6px; border-radius: 4px;
+    background: var(--figma-color-bg-secondary, #f5f5f5);
+  }
+</style>
+
+<h1>Editable Creative Test</h1>
+
+<div class="label">Reference image + your vision</div>
+<div class="ref">
+  <img id="thumb" alt="" hidden>
+  <label>
+    <input type="file" id="file" accept="image/*">
+    <div id="swatches" title="Measured palette, dominant first"></div>
+    <span id="clearRef" class="link" hidden>Remove image</span>
+  </label>
+</div>
+<textarea id="vision" rows="3" placeholder="Describe the creative you want, e.g. dark cinematic poster, a glowing glass capsule over flowing purple-to-cyan gradients, subtle grain"></textarea>
+<button id="ai" class="primary">Generate with AI</button>
+<button id="match" title="No AI: the reference's own pixels become a grid of blurred, recolourable cells">Match reference</button>
+<div id="aiStatus" class="muted"></div>
+<div id="keyRow" class="muted"></div>
+
+<section>
+  <div class="label">Test creative</div>
+  <button id="generate">Generate Test Creative</button>
+  <div class="row">
+    <button id="randomize">Randomize</button>
+    <button id="reset">Reset</button>
+  </div>
+</section>
+
+<section>
+  <div class="label">Shader</div>
+  <div id="shaderName" class="muted">Run Generate to look for shaders.</div>
+  <div id="allParams"></div>
+  <div id="sliders"></div>
+</section>
+
+<section>
+  <div class="label">Plugin API test</div>
+  <div class="tests" id="tests"></div>
+  <pre id="log"></pre>
+</section>
+
+<!--AI_JS-->
+<script>
+  const TESTS = [['shapes', 'Shapes'], ['gradients', 'Gradients'], ['effects', 'Effects'], ['glass', 'Glass'], ['shaders', 'Shaders']]
+  const CANVAS_W = 1080, CANVAS_H = 1350
+  const $ = (id) => document.getElementById(id)
+  const post = (msg) => parent.postMessage({ pluginMessage: msg }, '*')
+
+  let apiKey = '', catalog = [], image = null, busy = false, countdownTimer = null
+
+  $('generate').onclick = () => post({ type: 'generate' })
+  $('match').onclick = () => {
+    if (busy) return
+    if (!image || !image.sample) return setStatus('Choose a reference image first.')
+    const cells = ECT_AI.mosaicFromPixels(image.sample.rgba, image.sample.width, image.sample.height, CANVAS_W, CANVAS_H)
+    const plan = { name: 'Matched reference', width: CANVAS_W, height: CANVAS_H, palette: image.palette && image.palette.length >= 2 ? image.palette : ['#1B1F3B', '#22D3EE'], layers: cells, matched: cells.length - 1, matchMode: 'match' }
+    setBusy(true)
+    setStatus(`Matching the reference from its pixels: ${cells.length - 1} cells. Building…`)
+    post({ type: 'build-plan', plan, vision: '', image: image.bytes })
+  }
+  $('randomize').onclick = () => post({ type: 'randomize' })
+  $('reset').onclick = () => post({ type: 'reset' })
+  $('ai').onclick = () => generateWithAI()
+  $('clearRef').onclick = () => setImage(null)
+  $('file').onchange = async (e) => {
+    const f = e.target.files && e.target.files[0]
+    if (!f) return
+    try { setImage(await readImage(f)) } catch (err) { setStatus('Could not read image: ' + err.message) }
+  }
+
+  function setStatus(text) {
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+    $('aiStatus').textContent = text || ''
+  }
+  function countdown(seconds) {
+    let s = seconds
+    const tick = () => { $('aiStatus').textContent = `Groq free-tier rate limit. Try again in ${s}s.`; if (s-- <= 0) { clearInterval(countdownTimer); countdownTimer = null; $('aiStatus').textContent = 'You can try again now.' } }
+    tick()
+    countdownTimer = setInterval(tick, 1000)
+  }
+  function setBusy(b) {
+    busy = b
+    for (const id of ['ai', 'match', 'generate', 'randomize', 'reset']) $(id).disabled = b
+  }
+  function setImage(img) {
+    image = img
+    $('thumb').hidden = !img
+    $('clearRef').hidden = !img
+    $('swatches').innerHTML = img && img.palette ? img.palette.map((h) => `<span style="background:${h}" title="${h}"></span>`).join('') : ''
+    if (img) $('thumb').src = img.dataUrl
+    else $('file').value = ''
+  }
+
+  // Downscale the reference in the UI so the upload stays small. This canvas work is only for
+  // sending the reference to the model; the artwork itself is never rasterised.
+  function readImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error('read failed'))
+      reader.onload = () => {
+        const img = new Image()
+        img.onerror = () => reject(new Error('not a decodable image'))
+        img.onload = () => {
+          const max = 1024
+          const scale = Math.min(1, max / Math.max(img.width, img.height))
+          const c = document.createElement('canvas')
+          c.width = Math.max(1, Math.round(img.width * scale))
+          c.height = Math.max(1, Math.round(img.height * scale))
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+          const dataUrl = c.toDataURL('image/jpeg', 0.85)
+          // Exact dominant colours from the pixels (the model only gets colour names right approximately).
+          let palette = [], sample = null, grainSample = null
+          try {
+            const small = document.createElement('canvas')
+            small.width = 80
+            small.height = Math.max(1, Math.round((80 * c.height) / c.width))
+            const sctx = small.getContext('2d')
+            sctx.drawImage(c, 0, 0, small.width, small.height)
+            const data = sctx.getImageData(0, 0, small.width, small.height)
+            palette = ECT_AI.paletteFromPixels(data.data, 6)
+            sample = { rgba: data.data, width: small.width, height: small.height } // for Match reference
+            // a native-resolution centre crop, to measure film grain the analysis may miss
+            const gw = Math.min(384, img.width), gh = Math.min(384, img.height), gc = document.createElement('canvas')
+            gc.width = gw; gc.height = gh
+            const gctx = gc.getContext('2d')
+            gctx.drawImage(img, Math.floor((img.width - gw) / 2), Math.floor((img.height - gh) / 2), gw, gh, 0, 0, gw, gh)
+            const gd = gctx.getImageData(0, 0, gw, gh)
+            grainSample = { rgba: gd.data, width: gw, height: gh }
+          } catch (err) { console.warn('palette extraction failed', err) }
+          c.toBlob((blob) => {
+            if (!blob) return reject(new Error('encode failed'))
+            blob.arrayBuffer().then((buf) => resolve({ dataUrl, bytes: new Uint8Array(buf), width: c.width, height: c.height, palette, sample, grainSample }))
+          }, 'image/jpeg', 0.85)
+        }
+        img.src = reader.result
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function generateWithAI() {
+    if (busy) return
+    const vision = $('vision').value.trim()
+    if (!apiKey) return setStatus('No Groq key. Put GROQ_API_KEY in Test Plugin/.env and run npm run build, or paste a key below.')
+    if (!vision && !image) return setStatus('Add a reference image or describe your vision first.')
+    setBusy(true)
+    try {
+      const res = await ECT_AI.plan({ apiKey, vision, imageDataUrl: image ? image.dataUrl : null, measuredPalette: image ? image.palette : null, grainSample: image ? image.grainSample : null, width: CANVAS_W, height: CANVAS_H, catalog, onStatus: setStatus })
+      const used = res.usage && res.usage.total_tokens ? `, ${res.usage.total_tokens} tokens` : ''
+      // A colour field, or "the same as the reference": the picture's own pixels
+      // beat any guessed shader. The planner's extras (glass, grain, text) stay.
+      let plan = res.plan, matched = ''
+      const mode = image && image.sample ? ECT_AI.matchMode(vision, res.brief) : null
+      if (mode) {
+        const cells = ECT_AI.mosaicFromPixels(image.sample.rgba, image.sample.width, image.sample.height, CANVAS_W, CANVAS_H)
+        plan = ECT_AI.applyMatch(res.plan, cells, mode)
+        matched = mode === 'recolour' ? ` Matched the reference's structure from its pixels (${plan.matched} cells) and recoloured it to the palette for your vision.` : ` Matched the reference from its pixels: ${plan.matched} cells.`
+      }
+      setStatus(`Plan "${plan.name}": ${plan.layers.length} layers via ${res.model}${used}.${matched} Building…`)
+      console.log('[ECT] AI plan', res.raw, plan)
+      post({ type: 'build-plan', plan, vision, image: image ? image.bytes : null })
+    } catch (e) {
+      console.error(e)
+      setStatus('AI error: ' + e.message)
+      if (e.retryAfter) countdown(e.retryAfter)
+      setBusy(false)
+    }
+  }
+
+  // Second pass, asked for by the main thread once it knows which shader got applied and its parameters.
+  async function tuneShaders(m) {
+    for (const req of m.requests) {
+      try {
+        const res = await ECT_AI.tune({ apiKey, vision: m.vision, palette: m.palette, shader: req.shader, defs: req.defs, onStatus: setStatus })
+        console.log('[ECT] AI shader values', req.shader.name, res.values)
+        post({ type: 'apply-shader-values', layerIndex: req.layerIndex, values: res.values })
+        setStatus(`Sent ${Object.keys(res.values).length} values for "${req.shader.name}"…`)
+      } catch (e) {
+        console.error(e)
+        setStatus(`Shader tuning skipped: ${e.message}`)
+        if (e.retryAfter) { countdown(e.retryAfter); break }
+      }
+    }
+  }
+
+  function renderKey(m) {
+    apiKey = m.apiKey || ''
+    const row = $('keyRow')
+    row.innerHTML = ''
+    if (apiKey) {
+      const src = m.keySource === 'saved' ? 'saved in Figma' : 'from build (.env)'
+      row.innerHTML = `Groq · qwen vision + gpt-oss · key ····${apiKey.slice(-4)} (${src}) <span class="link" id="changeKey">change</span>`
+      $('changeKey').onclick = () => keyEditor(row)
+    } else {
+      row.textContent = 'No Groq API key.'
+      keyEditor(row)
+    }
+  }
+  function keyEditor(row) {
+    const wrap = document.createElement('div')
+    wrap.className = 'row'
+    wrap.innerHTML = '<input type="password" id="keyInput" placeholder="gsk_…"><button id="saveKey" style="width:auto;margin:0;flex:0 0 auto">Save</button>'
+    row.appendChild(wrap)
+    $('saveKey').onclick = () => post({ type: 'save-key', key: $('keyInput').value })
+  }
+
+  function renderTests(results) {
+    $('tests').innerHTML = ''
+    for (const [key, label] of TESTS) {
+      const r = results[key]
+      const row = document.createElement('div')
+      row.innerHTML = `<span>${label}:</span><span class="${r.status === 'N/A' ? 'NA' : r.status}">${r.status}</span>`
+      const detail = document.createElement('span')
+      detail.className = 'detail'
+      detail.textContent = r.detail
+      $('tests').appendChild(row)
+      $('tests').appendChild(detail)
+    }
+  }
+
+  // Coalesce slider moves to one message per frame; the main thread writes it straight to the node.
+  let pending = null, scheduled = false
+  function sendParam(defId, value) {
+    pending = { type: 'set-shader-param', defId, value }
+    if (scheduled) return
+    scheduled = true
+    requestAnimationFrame(() => { scheduled = false; post(pending) })
+  }
+
+  function renderShader(m) {
+    if (!m.shader) {
+      $('shaderName').textContent = m.shaderMessage
+      $('shaderName').className = m.hasFrame ? 'FAIL' : 'muted'
+      $('allParams').textContent = ''
+      $('sliders').innerHTML = ''
+      return
+    }
+    $('shaderName').className = ''
+    $('shaderName').textContent = `${m.shader.name} (${m.shader.type} shader)`
+    $('allParams').textContent = m.allParams.length
+      ? 'Exposed: ' + m.allParams.map((p) => `${p.name} [${p.type}]`).join(', ')
+      : 'No exposed parameters.'
+    $('sliders').innerHTML = ''
+    for (const p of m.params) {
+      const wrap = document.createElement('div')
+      wrap.className = 'param'
+      const name = document.createElement('div')
+      name.className = 'name'
+      const val = document.createElement('span')
+      val.textContent = p.value
+      name.innerHTML = `<span>${p.name}</span>`
+      name.appendChild(val)
+      const input = document.createElement('input')
+      input.type = 'range'
+      input.min = p.min; input.max = p.max; input.step = p.step; input.value = p.value
+      input.oninput = () => { val.textContent = input.value; sendParam(p.defId, parseFloat(input.value)) }
+      wrap.appendChild(name)
+      wrap.appendChild(input)
+      $('sliders').appendChild(wrap)
+    }
+  }
+
+  window.onmessage = (e) => {
+    const m = e.data.pluginMessage
+    if (!m) return
+    if (m.type === 'tune-shaders') { tuneShaders(m); return }
+    if (m.type === 'tune-result') { setStatus(m.message); return }
+    if (m.type !== 'state') return
+    catalog = m.catalog || []
+    renderKey(m)
+    renderTests(m.results)
+    renderShader(m)
+    $('log').textContent = m.log.join('\n')
+    $('log').scrollTop = $('log').scrollHeight
+    if (busy) { setBusy(false); if (m.hasFrame && m.planSource === 'ai') setStatus(`Built "${m.frameName}". Select layers in Figma to edit them.`) }
+  }
+
+  renderTests({ shapes: { status: '—', detail: '' }, gradients: { status: '—', detail: '' }, effects: { status: '—', detail: '' }, glass: { status: '—', detail: '' }, shaders: { status: '—', detail: '' } })
+  post({ type: 'ui-ready' })
+</script>
