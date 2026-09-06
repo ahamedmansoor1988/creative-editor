@@ -42,7 +42,7 @@ const ECT_AI = (() => {
       `Canvas ${w}x${h} px. "x","y" = layer CENTER in px. "rotation" in degrees. Build 6-14 layers bottom to top (a repeat counts as one); the first layer is a full-canvas background rect.`,
       'Layer: {"name","kind","x","y","w","h","rotation","fill","effects","blend","opacity","repeat"?}',
       'kind: "rect" (+"cornerRadius") | "ellipse" | "blob" (organic vector: "wobble" 0.1-0.5, "points" 5-9, "seed" int) | "text" (+"text","fontSize","weight":"Regular"|"Medium"|"Bold"|"Black","align":"LEFT"|"CENTER"|"RIGHT"; fill = text colour)',
-      '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px} builds count copies of the layer stepped by dx,dy (jitter = random offset per copy). Use it for streaks, bands, dots, grids.',
+      '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px,"drot":deg,"dw":px,"dh":px,"pivot":{"x":px,"y":px}} builds count copies of the layer: each copy is stepped by dx,dy, rotated drot more than the last, and grown by dw,dh; with pivot the copies swing around that point instead of stepping (bent slats, fans, ripples, radiating spokes, rings of dots); jitter = random offset per copy. Use it for streaks, bands, dots, grids, slats, curves. BUDGET: 48 layers in total after repeats. Several repeated groups share it: three groups of 12, not three of 24; the budget is enforced by scaling every count down, so ask for what fits.',
       'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
       'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
       'Softness: an element with soft >= 0.5 must get a blur effect and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually. BLUR IS RELATIVE TO SIZE: never more than half the layer\'s smaller side. A large glow or band may take 60-250 px; a streak 6-30 px wide takes blur 2-12 px and gets its softness from the gradient fade, or it disappears.',
@@ -192,7 +192,16 @@ const ECT_AI = (() => {
     const palette = (Array.isArray(raw.palette) ? raw.palette : []).map((c) => hex(c, null)).filter(Boolean).slice(0, 8)
     while (palette.length < 2) palette.push(palette.length ? '#22D3EE' : '#1B1F3B')
     const layers = []
-    for (const L of Array.isArray(raw.layers) ? raw.layers : []) {
+    // Share the layer budget across repeated groups instead of truncating the
+    // last ones: a plan of 18 black + 18 orange + 18 blue + 18 purple slats
+    // used to arrive as 18 + 18 + 11 + nothing.
+    const src = Array.isArray(raw.layers) ? raw.layers : []
+    const repCount = (L) => (L && typeof L === 'object' && L.repeat && typeof L.repeat === 'object' && String(L.kind || '').toLowerCase() !== 'text' ? Math.round(num(L.repeat.count, 1, 1, MAX_REPEAT)) : 1)
+    const singles = src.filter((L) => repCount(L) <= 1).length
+    const repeated = src.reduce((n, L) => n + (repCount(L) > 1 ? repCount(L) : 0), 0)
+    const budget = Math.max(0, MAX_LAYERS - singles)
+    const scale = repeated > budget ? budget / repeated : 1
+    for (const L of src) {
       if (layers.length >= MAX_LAYERS) break
       if (!L || typeof L !== 'object') continue
       const kind = String(L.kind || '').toLowerCase()
@@ -231,15 +240,32 @@ const ECT_AI = (() => {
         layer.fill = { type: 'solid', hex: palette[layers.length % palette.length], alpha: 1 }
       }
       // repeat -> N independent layers (streaks, bands, dots); each stays its own editable node
-      const rep = L.repeat && typeof L.repeat === 'object' ? { count: Math.round(num(L.repeat.count, 1, 1, MAX_REPEAT)), dx: num(L.repeat.dx, 0, -w, w), dy: num(L.repeat.dy, 0, -h, h), jitter: num(L.repeat.jitter, 0, 0, Math.max(w, h)) } : null
+      const R = L.repeat && typeof L.repeat === 'object' ? L.repeat : null
+      const rep = R ? {
+        count: Math.max(scale < 1 ? 2 : 1, Math.round(num(R.count, 1, 1, MAX_REPEAT) * scale)),
+        dx: num(R.dx, 0, -w, w), dy: num(R.dy, 0, -h, h), jitter: num(R.jitter, 0, 0, Math.max(w, h)),
+        drot: num(R.drot, 0, -90, 90), dw: num(R.dw, 0, -w, w), dh: num(R.dh, 0, -h, h),
+        pivot: R.pivot && typeof R.pivot === 'object' ? { x: num(R.pivot.x, w / 2, -w, 2 * w), y: num(R.pivot.y, h / 2, -h, 2 * h) } : null,
+      } : null
       if (rep && rep.count > 1 && kind !== 'text') {
         const spread = Math.min(rep.count, MAX_LAYERS - layers.length)
         for (let i = 0; i < spread; i++) {
           const copy = JSON.parse(JSON.stringify(layer))
           copy.name = `${layer.name} ${i + 1}`
           copy.group = layer.name
-          copy.x = round1(layer.x + rep.dx * i + (rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0))
-          copy.y = round1(layer.y + rep.dy * i + (rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0))
+          const jx = rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0, jy = rep.jitter ? (Math.random() - 0.5) * rep.jitter : 0
+          if (rep.pivot && rep.drot) {
+            // swing the centre around the pivot by the copy's rotation
+            const a = (rep.drot * i * Math.PI) / 180, px = layer.x - rep.pivot.x, py = layer.y - rep.pivot.y
+            copy.x = round1(rep.pivot.x + px * Math.cos(a) - py * Math.sin(a) + rep.dx * i + jx)
+            copy.y = round1(rep.pivot.y + px * Math.sin(a) + py * Math.cos(a) + rep.dy * i + jy)
+          } else {
+            copy.x = round1(layer.x + rep.dx * i + jx)
+            copy.y = round1(layer.y + rep.dy * i + jy)
+          }
+          copy.rotation = round1(layer.rotation + rep.drot * i)
+          copy.w = round1(Math.max(1, layer.w + rep.dw * i))
+          copy.h = round1(Math.max(1, layer.h + rep.dh * i))
           if (copy.seed !== undefined) copy.seed = (layer.seed + i * 7919) % 1000000007
           layers.push(copy)
         }

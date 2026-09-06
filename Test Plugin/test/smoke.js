@@ -172,6 +172,21 @@ async function main() {
     const pal = AI.paletteFromPixels(px, 5)
     assert(pal.length === 2 && pal[0] === '#FA141E' && pal[1] === '#0A1EF0', 'measured palette dominant first: ' + pal)
   })
+  await run('ai: repeat budget is shared and copies can fan around a pivot', () => {
+    const slat = (name, hex) => ({ name, kind: 'rect', x: 540, y: 40, w: 1080, h: 60, fill: { type: 'solid', hex }, repeat: { count: 18, dx: 0, dy: 72 } })
+    const p = AI.normalizePlan({ palette: ['#000000', '#FF9900'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#050505' } },
+      slat('Black', '#000000'), slat('Orange', '#FF9900'), slat('Blue', '#0066FF'), slat('Purple', '#9900FF'),
+    ] }, 1080, 1350)
+    const groups = ['Black', 'Orange', 'Blue', 'Purple'].map((g) => p.layers.filter((L) => L.group === g).length)
+    assert(p.layers.length <= 48 && groups.every((n) => n >= 10) && groups[3] === groups[0], 'budget shared across groups: ' + groups.join(','))
+    const fan = AI.normalizePlan({ palette: ['#000000', '#FFFFFF'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#000000' } },
+      { name: 'Spoke', kind: 'rect', x: 540, y: 275, w: 20, h: 400, fill: { type: 'solid', hex: '#FFFFFF' }, repeat: { count: 4, drot: 90, pivot: { x: 540, y: 675 } } },
+    ] }, 1080, 1350)
+    const sp = fan.layers.filter((L) => L.group === 'Spoke')
+    assert(sp.length === 4 && sp[1].rotation === 90 && Math.round(sp[1].x) === 940 && Math.round(sp[1].y) === 675 && Math.round(sp[2].y) === 1075, 'fan: ' + sp.map((L) => `${Math.round(L.x)},${Math.round(L.y)}@${L.rotation}`).join(' '))
+  })
   await run('ai: an edge glow gets a core and a darker background stop', () => {
     const p = AI.normalizePlan({ palette: ['#0D001F', '#3B82F6'], layers: [
       { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#0D001F' }, { pos: 1, hex: '#3B82F6' }] } },
