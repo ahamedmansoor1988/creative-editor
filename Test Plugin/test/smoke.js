@@ -201,7 +201,7 @@ async function main() {
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])
     assert(/Shader fills available: Mesh gradient/.test(s) && /Shader effects available: Bloom/.test(s), 'catalog in prompt')
-    assert(s.length < 7000, 'prompt length ' + s.length)
+    assert(s.length < 8500, 'prompt length ' + s.length) // ~2100 tokens; with a brief and the 3400 completion it stays under Groq's 8000 TPM
     assert(/repeat/.test(s) && /grain/.test(s) && /Precedence/.test(s), 'prompt has repeat, grain, precedence')
   })
 
