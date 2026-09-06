@@ -1,11 +1,13 @@
 [
-  { "image": "../../images/glass.jpg", "vision": "generate the glass effect and stripe lines", "must": ["fluted", "glow", "no-text"] },
-  { "image": "../../images/glass.jpg", "vision": "recreate the image with blue palette.", "must": ["fluted", "glow", "no-text"] },
-  { "image": "../../images/gradient-01.jpg", "vision": "Generate the image with blue shades", "must": ["match", "no-text"] },
-  { "image": "../../images/gradient-01.jpg", "vision": "generate a mesh gradient as same as the reference image", "must": ["match", "no-text"] },
-  { "image": "../../images/gradient-02.jpg", "vision": "generate a gradient", "must": ["match", "no-text"] },
-  { "image": "../../images/gla21.jpg", "vision": "recreate this", "must": ["no-text"] },
-  { "image": "../../images/obj-02.jpg", "vision": "recreate this", "must": ["no-text"] },
-  { "image": "../../images/grid-01.jpg", "vision": "recreate this", "must": ["no-text"] },
-  { "image": "../../images/hard edges.jpg", "vision": "recreate this", "must": ["no-text"] }
+  { "image": "../../images/glass.jpg", "vision": "recreate this image exactly", "must": ["fluted", "glow", "text:Color tools"] },
+  { "image": "../../images/glass.jpg", "vision": "generate the glass effect and stripe lines", "must": ["fluted", "glow"] },
+  { "image": "../../images/gla21.jpg", "vision": "recreate this image exactly", "must": ["repeat:12", "no-text"] },
+  { "image": "../../images/gradient-01.jpg", "vision": "recreate this image exactly", "must": ["match", "no-text"] },
+  { "image": "../../images/gradient-01.jpg", "vision": "create a mesh gradient with same palette", "must": ["match", "no-text"] },
+  { "image": "../../images/gradient-02.jpg", "vision": "recreate this image exactly", "must": ["match", "grain", "no-text"] },
+  { "image": "../../images/grid-01.jpg", "vision": "recreate this image exactly", "must": ["text:Synthesizing", "text:Datawizz", "card", "gradient-bars"] },
+  { "image": "../../images/hard edges.jpg", "vision": "recreate this image exactly", "must": ["text:BYBIT", "text:MANTLE"] },
+  { "image": "../../images/obj-02.jpg", "vision": "recreate this image exactly", "must": ["ellipses:5", "thin:4", "grain", "no-text"] },
+  { "image": "../../images/object-01.jpg", "vision": "recreate this image exactly", "must": ["grain", "no-text"] },
+  { "image": "../../images/object-03.jpg", "vision": "recreate this image exactly", "must": ["repeat:10", "hues", "ellipses:10", "no-text"] }
 ]

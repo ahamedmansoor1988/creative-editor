@@ -202,6 +202,18 @@ async function main() {
     const names = merged.layers.map((L) => L.name)
     assert(names[0] === 'Background' && names.filter((n) => /^Match /.test(n)).length === 80 && names.includes('Grain') && names.includes('Panel') && !names.includes('Band') && merged.matched === 80, 'merged: ' + names.slice(-3).join(','))
   })
+  await run('ai: repeats can change colour per copy; reference text is allowed when recreating; posters are not matched', () => {
+    const p = AI.normalizePlan({ palette: ['#000000', '#FF3399'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#111111' } },
+      { name: 'Oval', kind: 'ellipse', x: 100, y: 800, w: 40, h: 400, fill: { type: 'solid', hex: '#FF3399' }, repeat: { count: 10, dx: 90, dh: 60, hueStep: 12 } },
+    ] }, 1080, 1350)
+    const ovals = p.layers.filter((L) => L.group === 'Oval')
+    assert(ovals.length === 10 && ovals[0].fill.hex === '#FF3399' && ovals[9].fill.hex !== '#FF3399' && ovals[9].h === 940, 'hue steps across copies: ' + ovals[9].fill.hex)
+    const brief = { text: [{ content: 'Color tools' }], elements: [{ what: 'fluted glass ribs', soft: 0.2, count: 8, w: 12, h: 100 }] }
+    assert(AI.allowTextFor('recreate this image exactly', brief) && !AI.allowTextFor('a purple poster', brief) && !AI.allowTextFor('recreate this image exactly', { text: [] }), 'reference text only when recreating')
+    const poster = { elements: [{ what: 'dark card', soft: 0, w: 70, h: 35 }, { what: 'purple gradient bars', soft: 0.1, w: 25, h: 70, count: 4 }] }
+    assert(AI.matchMode('recreate this image exactly', poster) === null && AI.matchMode('generate a gradient', poster) === 'match', 'a poster is planned, not matched, unless a gradient is asked for')
+  })
   await run('ai: a soft glow zone the planner dropped is synthesised from the brief', () => {
     const plan = AI.normalizePlan({ palette: ['#05050A', '#7C3AED'], layers: [{ name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#05050A' } }, { name: 'Grain', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: 0.5 }] }] }, 1080, 1350)
     const brief = { elements: [{ what: 'deep purple glow zone', shape: 'blob', count: 1, x: 50, y: 60, w: 40, h: 40, soft: 1, glow: true, color: '#7C3AED', alpha: 0.9 }, { what: 'a chair', shape: 'rect', count: 1, x: 50, y: 50, w: 30, h: 50, soft: 0 }] }

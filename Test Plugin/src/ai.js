@@ -31,6 +31,7 @@ const ECT_AI = (() => {
     'FLUTED GLASS: evenly spaced vertical (or horizontal) bands whose edges catch the light and bend the colours behind them, like reeded, ribbed or corrugated glass or a vertical blind, are ONE element {"what":"fluted glass ribs","shape":"rect","count":<number of bands>,"w":<100/count>,"h":100,"spacing":"even","soft":0.2} and texture.glass 0.6-1. Report the bright lines between them as a separate thin element only if they are distinct streaks.',
     '"soft" is relative to the element\'s own size: a thin streak with soft edges is soft 0.3-0.5, not 1; soft 1 means the element dissolves into its surroundings with no visible edge.',
     'Describe only the artwork. Ignore interface chrome: buttons, badges, icons, cursors, status bars, page counters, device or browser frames.',
+    'Every visible word of the artwork goes in "text" with its content verbatim; wordmarks and logos are text items too (content = the brand word as written, weight bold). A half circle or quarter circle is an ellipse with "cut":"left|right|top|bottom" naming the hidden side. A row or fan of shapes whose colour changes from copy to copy gets "colorEnd":"#rrggbb" for the last copy\'s colour.',
   ].join('\n')
 
   function systemPrompt(w, h, catalog) {
@@ -42,7 +43,8 @@ const ECT_AI = (() => {
       `Canvas ${w}x${h} px. "x","y" = layer CENTER in px. "rotation" in degrees. Build 6-14 layers bottom to top (a repeat counts as one); the first layer is a full-canvas background rect.`,
       'Layer: {"name","kind","x","y","w","h","rotation","fill","effects","blend","opacity","repeat"?}',
       'kind: "rect" (+"cornerRadius") | "ellipse" | "blob" (organic vector: "wobble" 0.1-0.5, "points" 5-9, "seed" int) | "text" (+"text","fontSize","weight":"Regular"|"Medium"|"Bold"|"Black","align":"LEFT"|"CENTER"|"RIGHT"; fill = text colour)',
-      '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px,"drot":deg,"dw":px,"dh":px,"pivot":{"x":px,"y":px}} builds count copies of the layer: each copy is stepped by dx,dy, rotated drot more than the last, and grown by dw,dh; with pivot the copies swing around that point instead of stepping (bent slats, fans, ripples, radiating spokes, rings of dots); jitter = random offset per copy. Use it for streaks, bands, dots, grids, slats, curves. BUDGET: 48 layers in total after repeats. Several repeated groups share it: three groups of 12, not three of 24; the budget is enforced by scaling every count down, so ask for what fits.',
+      '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px,"drot":deg,"dw":px,"dh":px,"pivot":{"x":px,"y":px},"hueStep":deg,"lightStep":-0.1-0.1} builds count copies of the layer: each copy is stepped by dx,dy, rotated drot more than the last, grown by dw,dh, and its fill colour turned hueStep degrees and lightened by lightStep more than the last (a fan of ellipses running pink to green, slats fading to dark); with pivot the copies swing around that point instead of stepping (bent slats, fans, ripples, radiating spokes, rings of dots); jitter = random offset per copy. Use it for streaks, bands, dots, grids, slats, curves. BUDGET: 48 layers in total after repeats. Several repeated groups share it: three groups of 12, not three of 24; the budget is enforced by scaling every count down, so ask for what fits.',
+      'Half circles: an ellipse plus a rect in the background colour covering the hidden half, placed right after it. Grid lines and rules: thin rects (1-3 px) at low alpha. A card or panel: a rounded rect in its own colour, its contents (text, bars) after it in the stack.',
       'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
       'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
       'Softness: an element with soft >= 0.5 must get a blur effect and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually. BLUR IS RELATIVE TO SIZE: never more than half the layer\'s smaller side. A large glow or band may take 60-250 px; a streak 6-30 px wide takes blur 2-12 px and gets its softness from the gradient fade, or it disappears.',
@@ -54,7 +56,7 @@ const ECT_AI = (() => {
       'blend: NORMAL|SCREEN|OVERLAY|MULTIPLY|SOFT_LIGHT|LIGHTEN|COLOR_DODGE. opacity 0-1.',
       `Shader fills available: ${names('fill')}`,
       `Shader effects available: ${names('effect')}`,
-      'Text: add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline.',
+      'Text: when rebuilding a reference, reproduce every item of the analysis\'s "text" list verbatim (content, position, size as % of canvas height -> px, weight, colour); wordmarks and logos become bold text. Otherwise add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline.',
       'Glass: when the vision asks for glass together with stripes or lines, or the analysis has fluted glass ribs, use the FLUTED GLASS RIBS recipe and no panel. Otherwise add one glass panel only when the vision asks for glass, panels or effects, or the analysis has texture.glass >= 0.4. Shaders: use a gradient shader fill for a flowing colour-field background, and any shader the vision asks for; otherwise none. Everything else the vision names (blur, grain, glow, bloom, mesh) maps to the matching effect or shader.',
       '6-digit hex only. No keys other than those listed.',
       'Output: {"name":"...","palette":["#..","#..","#..","#.."],"layers":[...]}',
@@ -213,20 +215,32 @@ const ECT_AI = (() => {
   // is a colour field. "match": colours as they are. "recolour": the vision
   // names colours, so the structure is matched and the cells are recoloured to
   // the planner's palette for that vision, each keeping its own lightness.
+  // Copying the pixels only makes sense for a colour field. "Recreate this
+  // image" on a poster with bars and text must go to the planner; only a
+  // literal gradient/mesh request overrides the analysis.
+  const GRADIENT_ASK = /\b(mesh|fluid|smooth|soft|flowing)?\s*gradient\b|\bmesh\b|\bcolou?r field\b|\baurora\b/i
   function matchMode(vision, brief) {
-    const explicit = MATCH_WORDS.test(vision || '') || BARE_GRADIENT.test(vision || ''), field = colourField(brief), colours = COLOUR_WORDS.test(vision || '')
-    if (!explicit && !field) return null
+    const field = colourField(brief), asksGradient = GRADIENT_ASK.test(vision || '') || BARE_GRADIENT.test(vision || ''), colours = COLOUR_WORDS.test(vision || '')
+    if (!field && !asksGradient) return null
+    if (!field && brief && Array.isArray(brief.elements) && brief.elements.length && !asksGradient) return null
     return colours ? 'recolour' : 'match'
   }
+  const RECREATE = /\b(recreate|re-create|replicate|reproduce|copy|clone|same|exact|exactly|match|like this|as this|this image|the reference)\b/i
+  // Text: the vision asks for words, or the reference itself carries them and the vision wants the reference.
+  function allowTextFor(vision, brief) {
+    if (wantsText(vision)) return true
+    const has = brief && Array.isArray(brief.text) && brief.text.some((t) => t && typeof t.content === 'string' && t.content.trim())
+    return !!has && (RECREATE.test(vision || '') || !(vision || '').trim())
+  }
   function wantsMatch(vision, brief) { return !!matchMode(vision, brief) }
-  const hexToHsl = (hx) => {
+  function hexToHsl(hx) {
     const n = parseInt(hx.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2
     let h = 0
     if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
     return { h: ((h * 60) % 360 + 360) % 360, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }
   }
-  const hslToHex = (h, s, l) => {
+  function hslToHex(h, s, l) {
     const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2
     const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
     return '#' + [r, g, b].map((v) => Math.round(Math.min(1, Math.max(0, v + m)) * 255).toString(16).padStart(2, '0')).join('').toUpperCase()
@@ -300,6 +314,12 @@ const ECT_AI = (() => {
       })
       added++
     }
+    // grain the analysis saw but the plan forgot
+    const grainAmt = brief && brief.texture ? num(brief.texture.grain, 0, 0, 1) : 0
+    if (grainAmt >= 0.4 && !plan.layers.some((L) => L.effects.some((x) => x.type === 'grain')) && plan.layers.length < MAX_LAYERS) {
+      plan.layers.push({ name: 'Grain (from brief)', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: round1(Math.min(1, grainAmt)) }], blend: 'NORMAL', opacity: 1 })
+      added++
+    }
     if (added) {
       // keep grain and vignette on top
       const top = plan.layers.filter((L) => L.effects.some((x) => x.type === 'grain') || /vignette/i.test(L.name))
@@ -340,6 +360,16 @@ const ECT_AI = (() => {
     return [{ pos: 0, hex: palette[0], alpha: 1 }, { pos: 1, hex: palette[1] || palette[0], alpha: 1 }]
   }
   function params(p) { return p && typeof p === 'object' && !Array.isArray(p) ? p : {} }
+  // per-copy colour change for repeats: hue turned, lightness moved, saturation kept
+  function shiftHex(hx, dh, dl) {
+    const c = hexToHsl(hx)
+    return hslToHex(((c.h + dh) % 360 + 360) % 360, c.s, Math.min(1, Math.max(0, c.l + dl)))
+  }
+  function shiftFill(f, dh, dl) {
+    if (f.type === 'solid') return { ...f, hex: shiftHex(f.hex, dh, dl) }
+    if (f.stops) return { ...f, stops: f.stops.map((st) => ({ ...st, hex: shiftHex(st.hex, dh, dl) })) }
+    return f
+  }
   function normFill(f, palette) {
     if (!f || typeof f !== 'object') return null
     const t = String(f.type || '').toLowerCase()
@@ -422,6 +452,7 @@ const ECT_AI = (() => {
         count: Math.max(scale < 1 ? 2 : 1, Math.floor(num(R.count, 1, 1, MAX_REPEAT) * scale)),
         dx: num(R.dx, 0, -w, w), dy: num(R.dy, 0, -h, h), jitter: num(R.jitter, 0, 0, Math.max(w, h)),
         drot: num(R.drot, 0, -90, 90), dw: num(R.dw, 0, -w, w), dh: num(R.dh, 0, -h, h),
+        hueStep: num(R.hueStep, 0, -60, 60), lightStep: num(R.lightStep, 0, -0.1, 0.1),
         pivot: R.pivot && typeof R.pivot === 'object' ? { x: num(R.pivot.x, w / 2, -w, 2 * w), y: num(R.pivot.y, h / 2, -h, 2 * h) } : null,
       } : null
       if (rep && rep.count > 1 && kind !== 'text') {
@@ -443,6 +474,7 @@ const ECT_AI = (() => {
           copy.rotation = round1(layer.rotation + rep.drot * i)
           copy.w = round1(Math.max(1, layer.w + rep.dw * i))
           copy.h = round1(Math.max(1, layer.h + rep.dh * i))
+          if ((rep.hueStep || rep.lightStep) && i > 0 && copy.fill && copy.fill.type !== 'shader') copy.fill = shiftFill(copy.fill, rep.hueStep * i, rep.lightStep * i)
           if (copy.seed !== undefined) copy.seed = (layer.seed + i * 7919) % 1000000007
           layers.push(copy)
         }
@@ -583,7 +615,7 @@ const ECT_AI = (() => {
       completion_tokens: (u1.completion_tokens || 0) + (u2.completion_tokens || 0),
       total_tokens: (u1.total_tokens || 0) + (u2.total_tokens || 0),
     }
-    const normalized = normalizePlan(raw, width, height, { allowText: wantsText(vision) })
+    const normalized = normalizePlan(raw, width, height, { allowText: allowTextFor(vision, ref ? ref.brief : null) })
     if (ref) ensureBriefElements(normalized, ref.brief, width, height)
     return { plan: normalized, raw, brief: ref ? ref.brief : null, model: ref ? `${ref.model} + ${TEXT_MODEL}` : TEXT_MODEL, usage }
   }
@@ -607,6 +639,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, asksNewColours, applyMatch, isGlow, ensureBriefElements, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, asksNewColours, applyMatch, isGlow, ensureBriefElements, allowTextFor, shiftFill, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

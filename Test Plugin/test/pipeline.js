@@ -66,7 +66,20 @@ function qc({ plan, brief, vision, built, must, usage, W, H }) {
     if (L.x + L.w / 2 < 0 || L.x - L.w / 2 > W || L.y + L.h / 2 < 0 || L.y - L.h / 2 > H) fail.push(`"${L.name}" lies outside the canvas`)
   })
   const hasText = layers.some((L) => L.kind === 'text')
-  if (hasText && !AI.wantsText(vision)) fail.push('text layer without a text request')
+  if (hasText && !AI.allowTextFor(vision, brief)) fail.push('text layer without a text request')
+  // musts with arguments: text:<substring>, ellipses:N, thin:N, repeat:N, hues (a repeat group whose copies change hue), grain, card
+  const groups = {}; layers.forEach((L) => { if (L.group) (groups[L.group] = groups[L.group] || []).push(L) })
+  for (const m of must || []) {
+    const [k, v] = String(m).split(':')
+    if (k === 'text') { const re = new RegExp(v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); if (!layers.some((L) => L.kind === 'text' && re.test(L.text || ''))) fail.push(`text "${v}" expected`) }
+    else if (k === 'ellipses') { const n = layers.filter((L) => L.kind === 'ellipse' || L.kind === 'blob').length; if (n < +v) fail.push(`${v} ellipses expected, ${n}`) }
+    else if (k === 'thin') { const n = layers.filter((L) => L.kind === 'rect' && Math.min(L.w, L.h) <= 6 && Math.max(L.w, L.h) >= 0.3 * Math.min(W, H)).length; if (n < +v) fail.push(`${v} thin lines expected, ${n}`) }
+    else if (k === 'repeat') { const best = Math.max(0, ...Object.values(groups).map((g) => g.length)); if (best < +v) fail.push(`a repeat of ${v}+ expected, largest ${best}`) }
+    else if (k === 'hues') { const ok = Object.values(groups).some((g) => { const hs = g.map((L) => { const hx = L.fill && (L.fill.hex || (L.fill.stops && L.fill.stops[0].hex)); if (!hx) return null; const n = parseInt(hx.slice(1), 16), r = (n >> 16) & 255, gg = (n >> 8) & 255, b = n & 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn; if (!d) return null; let h = mx === r ? ((gg - b) / d) % 6 : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4; return ((h * 60) % 360 + 360) % 360 }).filter((x) => x !== null); if (hs.length < 2) return false; const a = hs[0], b = hs[hs.length - 1]; return Math.abs(((b - a + 540) % 360) - 180) >= 30 }); if (!ok) fail.push('a repeat whose colour changes across copies expected') }
+    else if (k === 'grain') { if (!layers.some((L) => L.effects.some((e) => e.type === 'grain'))) fail.push('grain expected') }
+    else if (k === 'gradient-bars') { const n = layers.filter((L) => L.kind === 'rect' && L.fill && L.fill.type === 'linear' && L.w * L.h < 0.5 * W * H && Math.max(L.w, L.h) >= 0.2 * Math.min(W, H)).length; if (n < 3) fail.push(`3+ gradient bars expected, ${n}`) }
+    else if (k === 'card') { if (!layers.some((L) => L.kind === 'rect' && (L.cornerRadius || 0) >= 12 && L.w >= 0.5 * W && L.w < W && L.h < H)) fail.push('a rounded card expected') }
+  }
   const glassCount = layers.filter((L) => L.effects.some((e) => e.type === 'glass')).length
   const els = brief && Array.isArray(brief.elements) ? brief.elements : []
   const briefSays = (re) => els.some((e) => re.test(String(e.what || '')))
@@ -101,7 +114,7 @@ async function runCase(c, idx, total) {
   const saved = replay && fs.existsSync(savedFile) ? JSON.parse(fs.readFileSync(savedFile, 'utf8')) : null
   if (saved && saved.raw) {
     console.log('   replaying the saved plan through the current normaliser')
-    res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.wantsText(c.vision) }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
+    res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.allowTextFor(c.vision, saved.brief) }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
     AI.ensureBriefElements(res.plan, saved.brief, W, H)
   } else if (noAI) res = { plan: AI.normalizePlan({ name: 'match only', palette: measured, layers: [{ kind: 'rect', w: W, h: H }] }, W, H), raw: null, brief: null, model: 'none', usage: null }
   else res = await AI.plan({ apiKey: key, vision: c.vision, imageDataUrl: img.dataUrl, measuredPalette: measured, width: W, height: H, catalog: c.catalog || [], onStatus: (s) => console.log('   ' + s) })
