@@ -19,13 +19,15 @@ const ECT_AI = (() => {
   // percent of the canvas so it survives any output size.
   const BRIEF_SYSTEM = [
     'You analyse a reference image for a designer who will REBUILD it in Figma from shapes, gradients, blur, glow, grain, glass and shader effects. Describe structure and geometry, not feelings. Reply with ONLY compact JSON:',
-    '{"background":{"kind":"gradient|solid","direction":"top-to-bottom|bottom-to-top|left-to-right|diagonal|radial","colors":["#start","#mid","#end"],"dark":true|false},',
-    ' "elements":[{"what":"<=6 words","shape":"rect|ellipse|blob|line","count":1-24,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"color":"#rrggbb","alpha":0-1,"soft":0-1,"glow":true|false,"blend":"screen|normal|overlay|multiply","spacing":"even|random|none"}],',
+    '{"background":{"kind":"gradient|solid","angle":0-360,"colors":["#start","#mid","#end"],"dark":true|false},',
+    ' "elements":[{"what":"<=6 words","shape":"rect|ellipse|blob|line","count":1-24,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-90-90,"color":"#rrggbb","alpha":0-1,"soft":0-1,"glow":true|false,"blend":"screen|normal|overlay|multiply","spacing":"even|random|none"}],',
     ' "lighting":"<=15 words: where light comes from, glow zones, vignette",',
     ' "texture":{"grain":0-1,"blur":0-1,"glass":0-1,"metal":0-1},',
     ' "text":[{"content":"...","x":0-100,"y":0-100,"size":1-40,"weight":"regular|bold","color":"#rrggbb"}],',
     ' "mood":"<=8 words"}',
     'x,y = element CENTRE in % of canvas width/height; w,h = size in % (a thin vertical streak might be w 1, h 90). Up to 8 elements, most visually important first; group repeated things as one element with count and spacing. "soft" 1 = very blurred. Sizes as percent of canvas height for text. Use [] for text when there is none.',
+    'angle / rotation: 0 = left to right or a horizontal band, 90 = top to bottom or a vertical streak, 45 = diagonal towards bottom-right. "soft" 1 = edges fully blurred, 0 = crisp.',
+    'If the image is a colour field with no distinct objects (flowing gradient, aurora, smoke, light), describe the 2-5 soft bands or glow zones that make up the flow as rect elements with rotation and soft 0.6-1, plus the grain amount. Never invent objects.',
     'Describe only the artwork. Ignore interface chrome: buttons, badges, icons, cursors, status bars, page counters, device or browser frames.',
   ].join('\n')
 
@@ -33,7 +35,7 @@ const ECT_AI = (() => {
     const names = (t) => (catalog || []).filter((s) => s.type === t).map((s) => s.name).join(', ') || 'none'
     return [
       'You are an art director turning a brief into a build plan for one poster-style creative that a Figma plugin will construct from NATIVE, EDITABLE Figma layers (no raster images). Reply with ONLY a JSON object.',
-      'Inputs: an optional REFERENCE ANALYSIS (structured description of a reference image, geometry in % of canvas) and the user\'s VISION.',
+      'Inputs: an optional REFERENCE ANALYSIS (structured description of a reference image, geometry in % of canvas), an optional MEASURED PALETTE (exact dominant colours from the pixels) and the user\'s VISION.',
       'Precedence: first rebuild the reference\'s structure - background direction and colours, then every element with its shape, position, size, softness, blend and count - then apply the vision as overrides and additions (palette swap, add glass, add a shader, change mood). If the vision names colours, remap the reference\'s colour roles (background, streaks, glow, accents) onto those colours but keep its light/dark structure. Convert % to px for the canvas.',
       `Canvas ${w}x${h} px. "x","y" = layer CENTER in px. "rotation" in degrees. Build 6-14 layers bottom to top (a repeat counts as one); the first layer is a full-canvas background rect.`,
       'Layer: {"name","kind","x","y","w","h","rotation","fill","effects","blend","opacity","repeat"?}',
@@ -41,12 +43,16 @@ const ECT_AI = (() => {
       '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px} builds count copies of the layer stepped by dx,dy (jitter = random offset per copy). Use it for streaks, bands, dots, grids.',
       'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
       'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
+      'Softness: an element with soft >= 0.5 must get a blur effect of at least 60 px (soft 1 = blur 150-250) and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually.',
+      'Colour fields: if the analysis has no distinct objects (bands, glows, flow only), rebuild it as background (a linear gradient at the analysed angle, or a gradient shader fill such as Fluid gradient / Mesh gradient / Moving gradient) + 2-5 rotated soft bands (rect, linear gradient with transparent ends, blur 60-250, SCREEN or NORMAL, alpha 0.5-0.9) + grain. Do not add shapes that are not in the analysis.',
       'Recipes: light streak = thin tall rect (w 6-30 px), vertical linear gradient with transparent ends and a bright middle, blur 4-14, blend SCREEN, repeat across the width; glow zone = ellipse with radial gradient fading to alpha 0, blur 30-80, SCREEN; grain = full-canvas rect with solid fill alpha 0.01 and effect grain, near the top of the stack; vignette = full-canvas rect with radial gradient (centre alpha 0 to dark edges), MULTIPLY; glass panel = rounded rect, white fill alpha 0.05-0.2, glass effect, placed over busy areas so the refraction shows; shader fill = put it on a large shape or the background.',
       'glass = Figma native glass, it refracts the layers below it. Effect shaders only process the layer\'s own pixels; shader fills generate the fill themselves.',
       'blend: NORMAL|SCREEN|OVERLAY|MULTIPLY|SOFT_LIGHT|LIGHTEN|COLOR_DODGE. opacity 0-1.',
       `Shader fills available: ${names('fill')}`,
       `Shader effects available: ${names('effect')}`,
-      'Text: add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline. Unless the vision says otherwise, include at least one shader (fill or effect) and exactly one glass layer over other shapes. 6-digit hex only. No keys other than those listed.',
+      'Text: add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline.',
+      'Glass: add one glass layer only when the vision asks for glass, panels or effects, or the analysis has texture.glass >= 0.4. Shaders: use a gradient shader fill for a flowing colour-field background, and any shader the vision asks for; otherwise none. Everything else the vision names (blur, grain, glow, bloom, mesh) maps to the matching effect or shader.',
+      '6-digit hex only. No keys other than those listed.',
       'Output: {"name":"...","palette":["#..","#..","#..","#.."],"layers":[...]}',
     ].join('\n')
   }
@@ -82,6 +88,44 @@ const ECT_AI = (() => {
     const a = t.indexOf('{'), b = t.lastIndexOf('}')
     if (a < 0 || b < a) throw new Error('AI returned no JSON')
     return JSON.parse(t.slice(a, b + 1))
+  }
+
+  // Dominant colours from raw RGBA pixels (k-means, dominant first). The UI feeds it a
+  // downscaled copy of the reference; exact hexes beat a model's colour names.
+  function paletteFromPixels(rgba, count) {
+    const total = Math.floor(rgba.length / 4)
+    const step = Math.max(1, Math.floor(total / 4000))
+    const px = []
+    for (let i = 0; i < total; i += step) {
+      const o = i * 4
+      if (rgba[o + 3] < 128) continue
+      px.push([rgba[o], rgba[o + 1], rgba[o + 2]])
+    }
+    if (!px.length) return []
+    const k = Math.max(1, Math.min(count || 5, px.length))
+    let centers = []
+    for (let i = 0; i < k; i++) centers.push(px[Math.floor(((i + 0.5) * px.length) / k)].slice())
+    const assign = new Array(px.length).fill(0)
+    const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
+    for (let iter = 0; iter < 12; iter++) {
+      for (let i = 0; i < px.length; i++) {
+        let best = 0, bd = Infinity
+        for (let c = 0; c < k; c++) { const d = d2(px[i], centers[c]); if (d < bd) { bd = d; best = c } }
+        assign[i] = best
+      }
+      const sums = centers.map(() => [0, 0, 0, 0])
+      for (let i = 0; i < px.length; i++) { const t = sums[assign[i]]; t[0] += px[i][0]; t[1] += px[i][1]; t[2] += px[i][2]; t[3]++ }
+      centers = sums.map((t, c) => (t[3] ? [t[0] / t[3], t[1] / t[3], t[2] / t[3]] : centers[c]))
+    }
+    const share = centers.map((_, c) => assign.filter((a) => a === c).length / px.length)
+    const toHex = (c) => '#' + c.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('').toUpperCase()
+    const out = []
+    centers.map((c, i) => ({ c, share: share[i] })).sort((a, b) => b.share - a.share).forEach(({ c, share: sh }) => {
+      if (sh < 0.03) return
+      if (out.some((o) => d2(o.c, c) < 24 * 24)) return // merge near-identical clusters
+      out.push({ c, share: sh })
+    })
+    return out.map((o) => toHex(o.c))
   }
 
   // Text layers are allowed only when the vision asks for words.
@@ -231,18 +275,22 @@ const ECT_AI = (() => {
   }
 
   // Stage 2: the text model turns (brief + vision) into the layer plan.
-  async function plan({ apiKey, vision, imageDataUrl, width, height, catalog, onStatus }) {
+  async function plan({ apiKey, vision, imageDataUrl, measuredPalette, width, height, catalog, onStatus }) {
     if (!apiKey) throw new Error('No Groq API key')
     let ref = null
     if (imageDataUrl) ref = await describeReference(apiKey, imageDataUrl, onStatus)
     const sys = systemPrompt(width, height, catalog || [])
     const wish = (vision || '').trim() || (ref ? 'Rebuild the reference faithfully as editable layers.' : 'An abstract, premium, editorial poster.')
-    const userText = `${ref ? 'REFERENCE ANALYSIS (geometry in % of canvas; rebuild this structure first): ' + JSON.stringify(ref.brief) + '\n' : ''}VISION: ${wish}\nCanvas: ${width}x${height} px. Return the JSON plan.`
+    const measured = Array.isArray(measuredPalette) && measuredPalette.length ? measuredPalette.slice(0, 6) : null
+    const userText =
+      `${ref ? 'REFERENCE ANALYSIS (geometry in % of canvas; rebuild this structure first): ' + JSON.stringify(ref.brief) + '\n' : ''}` +
+      `${measured ? 'MEASURED PALETTE (exact dominant colours from the pixels, dominant first; use these hexes for the reference\'s colour roles unless the vision names other colours): ' + measured.join(', ') + '\n' : ''}` +
+      `VISION: ${wish}\nCanvas: ${width}x${height} px. Return the JSON plan.`
     if (onStatus) onStatus(`Planning with ${TEXT_MODEL}…`)
     const data = await request(apiKey, {
       model: TEXT_MODEL,
       messages: [{ role: 'system', content: sys }, { role: 'user', content: userText }],
-      temperature: 0.6,
+      temperature: 0.4,
       max_completion_tokens: 3400,
       response_format: { type: 'json_object' },
     })
@@ -277,6 +325,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

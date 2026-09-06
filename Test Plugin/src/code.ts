@@ -27,6 +27,7 @@ const INDEX_KEY = 'ect-index'
 const PLAN_KEY = 'ect-plan'
 const BASE_PLAN_KEY = 'ect-plan-base'
 const SOURCE_KEY = 'ect-source'
+const SHADER_KEY = 'ect-shader' // per node: the shader id we applied (survives id round-trips and reopening)
 const STORAGE_KEY = 'ect-groq-key'
 const MAX_SLIDERS = 4
 const MAX_SHADER_IMPORT_ATTEMPTS = 6
@@ -441,7 +442,9 @@ async function resolveShaderByName(name: string, wantType: ShaderTarget, report:
     return null
   }
   try {
-    return await importShader(found)
+    const imported = await importShader(found)
+    shaderMessage = `Using "${imported.name}" (${imported.type} shader)`
+    return imported
   } catch (e) {
     report.shaderIssues.push(`Import failed for "${found.name}": ${String(e)}`)
     return null
@@ -639,6 +642,20 @@ async function applyLayer(node: Placeable, L: PlanLayer, p: Plan, report: BuildR
   setEffectsSafely(node, effects, L.name, report)
   node.blendMode = blendOf(L.blend)
   node.opacity = clamp(L.opacity === undefined ? 1 : L.opacity, 0, 1)
+
+  // What did Figma actually keep? Tag the node with the shader id we applied so sliders, tuning
+  // and reopening never depend on the id Figma reads back.
+  const kept = findShaderOnNode(node)
+  const info = report.layerShaders[index]
+  if (kept) {
+    const id = info ? info.id : kept.id
+    node.setPluginData(SHADER_KEY, id)
+    if (!info) report.layerShaders[index] = { id: kept.id, target: kept.target, hadParams: true }
+    if (kept.id !== id) log(`Shader id reads back as "${kept.id}" (applied "${id}")`)
+  } else {
+    node.setPluginData(SHADER_KEY, '')
+    if (info) delete report.layerShaders[index]
+  }
 }
 
 function nodeForLayer(frame: FrameNode, index: number): Placeable | null {
@@ -685,6 +702,14 @@ async function buildPlan(p: Plan, at: Vector, source: 'default' | 'ai', vision: 
   runChecks(frame, p, report)
   figma.currentPage.selection = [frame]
   figma.viewport.scrollAndZoomIntoView([frame])
+  const summary: string[] = []
+  const seenGroups: { [g: string]: number } = {}
+  for (const L of p.layers) {
+    if (L.group) { seenGroups[L.group] = (seenGroups[L.group] || 0) + 1; continue }
+    summary.push(`${L.name}${L.fill && L.fill.type === 'shader' ? ' [' + L.fill.shader + ']' : ''}${L.effects.some((e) => e.type === 'glass') ? ' [glass]' : ''}${L.effects.some((e) => e.type === 'shader') ? ' [' + L.effects.filter((e) => e.type === 'shader').map((e) => e.shader).join('+') + ']' : ''}`)
+  }
+  for (const g of Object.keys(seenGroups)) summary.push(`${g} x${seenGroups[g]}`)
+  log(`Plan "${p.name}": ${summary.join(', ')}`)
   log(`Built "${frame.name}" (${report.built}/${report.planned} layers) at ${at.x}, ${at.y}`)
   return frame
 }
@@ -750,11 +775,11 @@ function runChecks(frame: FrameNode, p: Plan, report: BuildReport): void {
     if (!isPlaceable(c)) continue
     for (const f of fillsOf(c)) {
       if (f.type === 'GRADIENT_LINEAR' || f.type === 'GRADIENT_RADIAL' || f.type === 'GRADIENT_ANGULAR' || f.type === 'GRADIENT_DIAMOND') gradients++
-      if (f.type === 'SHADER') shaderNames.push(shaderName(f.id) + ' (fill)')
+      if (f.type === 'SHADER') { shaderNames.push(shaderName(c.getPluginData(SHADER_KEY) || f.id) + ' (fill)'); if (shaderNames.length === 1) console.log('[ECT] shader fill read back on "' + c.name + '" ->', f) }
     }
     for (const e of c.effects) {
       if (e.type === 'GLASS') { glassN++; if (!glassDetail) glassDetail = `refraction ${e.refraction} depth ${e.depth} dispersion ${e.dispersion} frost ${e.radius}` }
-      else if (e.type === 'SHADER') shaderNames.push(shaderName(e.id) + ' (effect)')
+      else if (e.type === 'SHADER') { shaderNames.push(shaderName(c.getPluginData(SHADER_KEY) || e.id) + ' (effect)'); if (shaderNames.length === 1) console.log('[ECT] shader effect read back on "' + c.name + '" ->', e) }
       else plainEffects++
     }
   }
@@ -795,8 +820,9 @@ function refreshSliderTarget(frame: FrameNode): void {
     if (!isPlaceable(c)) continue
     const found = findShaderOnNode(c)
     if (found) {
-      const anchors = previous && previous.shaderId === found.id ? previous.anchors : {}
-      sliderTarget = { nodeId: c.id, target: found.target, shaderId: found.id, anchors }
+      const shaderId = c.getPluginData(SHADER_KEY) || found.id
+      const anchors = previous && previous.shaderId === shaderId ? previous.anchors : {}
+      sliderTarget = { nodeId: c.id, target: found.target, shaderId, anchors }
       return
     }
   }
@@ -811,8 +837,19 @@ async function sliderNode(): Promise<Placeable | null> {
 async function ensureShaderKnown(id: string): Promise<Shader | null> {
   if (importedShaders[id]) return importedShaders[id]
   const s = (await loadCatalog()).filter((x) => x.id === id)[0]
-  if (!s) return null
-  try { return await importShader(s) } catch (e) { return null }
+  if (s) {
+    try { return await importShader(s) } catch (e) { return null }
+  }
+  if (!shaderApiAvailable()) return null
+  try {
+    const imported = await figma.importShaderById(id)
+    importedShaders[id] = imported
+    importedShaders[imported.id] = imported
+    return imported
+  } catch (e) {
+    log(`Shader "${id}" is not in the current library`)
+    return null
+  }
 }
 
 async function numericParamsForUi(): Promise<NumericParam[]> {
@@ -967,20 +1004,24 @@ async function buildFromUi(msg: { plan?: unknown; vision?: string; image?: Uint8
 }
 
 async function applyShaderValues(layerIndex: number, values: Record<string, unknown>): Promise<void> {
+  const report = (ok: boolean, message: string, applied?: number): void => {
+    figma.ui.postMessage({ type: 'tune-result', ok, applied: applied || 0, message })
+    log(message)
+  }
   const frame = await getFrame()
-  if (!frame || !plan) return
+  if (!frame || !plan) return report(false, 'Tune skipped: no generated frame')
   const node = nodeForLayer(frame, layerIndex)
-  if (!node) return
+  if (!node) return report(false, 'Tune skipped: layer not found')
   const found = findShaderOnNode(node)
-  if (!found) return
-  const shader = await ensureShaderKnown(found.id)
-  if (!shader) return
+  if (!found) return report(false, `Tune skipped: "${node.name}" carries no shader (Figma may have rejected it)`)
+  const shader = await ensureShaderKnown(node.getPluginData(SHADER_KEY) || found.id)
+  if (!shader) return report(false, `Tune skipped: shader "${found.id}" is not in the library`)
   const props = propsFromNames(shader, values)
-  if (!props) { log(`AI returned no usable values for "${shader.name}"`); return }
+  if (!props) return report(false, `AI values matched none of the parameters of "${shader.name}"`)
   const merged = { ...readShaderProps(node, found.target), ...props }
   try {
     writeShaderProps(node, found.target, merged)
-    log(`AI tuned "${shader.name}": ${Object.keys(props).length} value(s)`)
+    report(true, `AI tuned "${shader.name}": ${Object.keys(props).length} value(s) applied`, Object.keys(props).length)
     // Remember the tuned values in the plan (and the base plan) so Reset keeps the AI look.
     const remember = (pl: Plan | null): void => {
       const L = pl && pl.layers[layerIndex]
@@ -992,7 +1033,7 @@ async function applyShaderValues(layerIndex: number, values: Record<string, unkn
     frame.setPluginData(PLAN_KEY, JSON.stringify(plan))
     if (basePlan) frame.setPluginData(BASE_PLAN_KEY, JSON.stringify(basePlan))
   } catch (e) {
-    log(`Shader values rejected by Figma: ${String(e)}`)
+    report(false, `Figma rejected the shader values: ${String(e)}`)
   }
   if (sliderTarget && sliderTarget.nodeId === node.id) sliderTarget.anchors = {}
   await postState()

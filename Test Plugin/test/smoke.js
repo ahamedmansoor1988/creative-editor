@@ -20,8 +20,9 @@ function makeFigma(opts) {
   const defaultsFor = (id) => { const s = shaders.find((x) => x.id === id); const out = {}; for (const k in s.defs) if ('defaultValue' in s.defs[k]) out[k] = s.defs[k].defaultValue; return out }
   function checkShader(p) {
     if (typeof p.id !== 'string') throw new Error('shader id missing')
-    if (!importedIds.has(p.id)) throw new Error('Shader not imported. Call figma.importShaderById(id) first.')
-    const s = shaders.find((x) => x.id === p.id)
+    const realId = p.id.replace(/^rt-/, '')
+    if (!importedIds.has(realId)) throw new Error('Shader not imported. Call figma.importShaderById(id) first.')
+    const s = shaders.find((x) => x.id === realId)
     for (const k in p.properties || {}) {
       const d = s.defs[k]
       if (!d) throw new Error('unknown property id ' + k)
@@ -30,7 +31,8 @@ function makeFigma(opts) {
       if (d.type === 'COLOR' && !(v && typeof v.r === 'number')) throw new Error('COLOR expected for ' + d.name)
       if (d.type === 'BOOLEAN' && typeof v !== 'boolean') throw new Error('BOOLEAN expected for ' + d.name)
     }
-    return { ...p, properties: { ...defaultsFor(p.id), ...(p.properties || {}) } }
+    // opts.rewriteIds simulates Figma reading the id back in a different form than it was applied
+    return { ...p, id: opts.rewriteIds ? 'rt-' + realId : realId, properties: { ...defaultsFor(realId), ...(p.properties || {}) } }
   }
   function node(type) {
     let fills = [], effects = [], paths = [], chars = ''
@@ -165,6 +167,10 @@ async function main() {
     const withText = AI.normalizePlan({ palette: ['#000000', '#FFFFFF'], layers: [{ kind: 'rect', w: 1080, h: 1350 }, { kind: 'text', text: 'KEEP' }] }, 1080, 1350)
     assert(withText.layers.some((L) => L.kind === 'text'), 'text kept by default')
     assert(AI.wantsText('a poster with the headline EDITABLE') && AI.wantsText('say "hello"') && !AI.wantsText('mesh gradient and glass effect with yellow and blue palette'), 'wantsText heuristic')
+    const px = []
+    for (let i = 0; i < 1000; i++) { const red = i < 700; px.push(red ? 250 : 10, red ? 20 : 30, red ? 30 : 240, 255) }
+    const pal = AI.paletteFromPixels(px, 5)
+    assert(pal.length === 2 && pal[0] === '#FA141E' && pal[1] === '#0A1EF0', 'measured palette dominant first: ' + pal)
   })
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])
@@ -249,6 +255,9 @@ async function main() {
     assert(tune.vision === 'neon poster' && tune.palette.length === 4, 'tune carries vision + palette')
     await send({ type: 'apply-shader-values', layerIndex: 1, values: { noise: '0.55', Animate: true, Bogus: 3 } })
     assert(f.children[1].fills[0].properties.m1 === 0.55 && f.children[1].fills[0].properties.m2 === true, 'AI values mapped by name + coerced: ' + JSON.stringify(f.children[1].fills[0].properties))
+    assert(last('tune-result').ok && last('tune-result').applied === 2, 'tune-result reported: ' + JSON.stringify(last('tune-result')))
+    await send({ type: 'apply-shader-values', layerIndex: 2, values: { Amount: 1 } })
+    assert(!last('tune-result').ok && /carries no shader/.test(last('tune-result').message), 'tune on a layer whose shader fell back reports honestly: ' + last('tune-result').message)
     await send({ type: 'apply-shader-values', layerIndex: 3, values: { Intensity: 1.4, Tint: '#22D3EE' } })
     const e = f.children[3].effects[0]
     assert(e.properties.q1 === 1.4 && Math.abs(e.properties.q2.r - 0x22 / 255) < 1e-6, 'effect shader values incl. COLOR: ' + JSON.stringify(e.properties))
@@ -263,6 +272,28 @@ async function main() {
     const g = frames()[0]
     assert(g !== f && g.name === 'Neon Bloom' && g.children.length === 10 && g.children[1].fills[0].properties.m1 === 0.55, 'reset rebuilt AI plan with tuned shader values')
     assert(last().planSource === 'ai', 'still ai after reset')
+  })
+
+  await run('shader id read back differently than applied (sliders, tuning, reopen still work)', async () => {
+    const figma = makeFigma({ shaders: [MESH], rewriteIds: true })
+    const a = runPlugin(figma, {})
+    await a.send({ type: 'ui-ready' })
+    const plan = AI.normalizePlan({ palette: ['#000000', '#FFFFFF'], layers: [{ kind: 'rect', w: 1080, h: 1350 }, { name: 'Mesh', kind: 'ellipse', x: 500, y: 500, w: 400, h: 400, fill: { type: 'shader', shader: 'Mesh gradient' } }] }, 1080, 1350)
+    await a.send({ type: 'build-plan', plan, vision: 'v', image: null })
+    const f = a.frames()[0]
+    assert(f.children[1].fills[0].id === 'rt-mesh-1' && f.children[1].getPluginData('ect-shader') === 'mesh-1', 'node tagged with the applied id')
+    let st = a.last()
+    assert(st.shader && st.shader.name === 'Mesh gradient' && st.params.length === 1 && st.results.shaders.detail === 'Mesh gradient (fill)', 'slider state resolved despite id mismatch: ' + JSON.stringify([st.shader, st.results.shaders]))
+    assert(a.last('tune-shaders') && a.last('tune-shaders').requests[0].shader.name === 'Mesh gradient', 'tune requested')
+    await a.send({ type: 'apply-shader-values', layerIndex: 1, values: { Noise: 0.9 } })
+    assert(f.children[1].fills[0].properties.m1 === 0.9 && a.last('tune-result').ok, 'tune applied: ' + JSON.stringify(a.last('tune-result')))
+    await a.send({ type: 'set-shader-param', defId: 'm1', value: 0.3 })
+    assert(f.children[1].fills[0].properties.m1 === 0.3, 'slider write works')
+    figma._messages.length = 0
+    const b = runPlugin(figma, {})
+    await b.send({ type: 'ui-ready' })
+    st = b.last()
+    assert(st.shader && st.shader.name === 'Mesh gradient' && st.params[0].value === 0.3, 'reopen resolves the shader through the node tag: ' + JSON.stringify(st.shader))
   })
 
   await run('reopen adopts an AI frame from plugin data', async () => {
