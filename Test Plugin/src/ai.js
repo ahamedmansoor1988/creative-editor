@@ -140,7 +140,7 @@ const ECT_AI = (() => {
   // its patch of the reference, blurred into one another: a faithful
   // low-frequency copy of any smooth image, every cell a recolourable layer.
   function mosaicFromPixels(rgba, iw, ih, w, h, opts) {
-    const maxCells = (opts && opts.maxCells) || 42
+    const maxCells = (opts && opts.maxCells) || 80
     let cols = 1, rows = 1
     for (let c = 1; c <= 16; c++) for (const r of [Math.floor((c * h) / w), Math.ceil((c * h) / w)]) { if (r >= 1 && c * r <= maxCells && c * r > cols * rows) { cols = c; rows = r } }
     // the reference covers the canvas: crop it to the canvas aspect, centred
@@ -152,20 +152,29 @@ const ECT_AI = (() => {
       const X0 = Math.max(0, Math.floor(x0)), X1 = Math.min(iw, Math.max(X0 + 1, Math.ceil(x1)))
       const Y0 = Math.max(0, Math.floor(y0)), Y1 = Math.min(ih, Math.max(Y0 + 1, Math.ceil(y1)))
       for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const o = (y * iw + x) * 4; if (rgba[o + 3] < 8) continue; r += rgba[o]; g += rgba[o + 1]; b += rgba[o + 2]; n++ }
-      if (!n) return '#808080'
-      return '#' + [r / n, g / n, b / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase()
+      if (!n) return [128, 128, 128]
+      return [r / n, g / n, b / n]
+    }
+    // Blurred, overlapping cells mix towards grey; a mild push in saturation and
+    // contrast around the picture's own mean gives that back.
+    const mean = avg(sx, sy, sx + sw, sy + sh)
+    const meanL = 0.2126 * mean[0] + 0.7152 * mean[1] + 0.0722 * mean[2]
+    const toHex = (c) => {
+      const l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+      const out = c.map((v) => { const sat = l + (v - l) * 1.18; return meanL + (sat - meanL) * 1.08 })
+      return '#' + out.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('').toUpperCase()
     }
     const cellW = w / cols, cellH = h / rows
-    const blur = round1(Math.min(cellW, cellH) * 0.6)
-    const layers = [{ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: avg(sx, sy, sx + sw, sy + sh), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }]
+    const blur = round1(Math.min(cellW, cellH) * 0.5)
+    const layers = [{ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: toHex(mean), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }]
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const hexv = avg(sx + (c * sw) / cols, sy + (r * sh) / rows, sx + ((c + 1) * sw) / cols, sy + ((r + 1) * sh) / rows)
+        const hexv = toHex(avg(sx + (c * sw) / cols, sy + (r * sh) / rows, sx + ((c + 1) * sw) / cols, sy + ((r + 1) * sh) / rows))
         // outer cells lean past the frame so their blurred edge is clipped, not seen
         const lean = 0.22
         const cx = (c + 0.5 + (c === 0 ? -lean : c === cols - 1 ? lean : 0)) * cellW
         const cy = (r + 0.5 + (r === 0 ? -lean : r === rows - 1 ? lean : 0)) * cellH
-        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'rect', x: round1(cx), y: round1(cy), w: round1(cellW * 1.3), h: round1(cellH * 1.3), rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: hexv, alpha: 1 }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
+        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'rect', x: round1(cx), y: round1(cy), w: round1(cellW * 1.2), h: round1(cellH * 1.2), rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: hexv, alpha: 1 }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
       }
     }
     return layers
@@ -188,7 +197,7 @@ const ECT_AI = (() => {
   // shader fill it reached for); glass, grain, text and thin streaks stay on top.
   function applyMatch(plan, cells) {
     const keep = plan.layers.slice(1).filter((L) => L.kind === 'text' || L.effects.some((e) => e.type === 'glass' || e.type === 'grain') || (Math.min(L.w, L.h) < 60 && !(L.fill && L.fill.type === 'shader')))
-    const layers = cells.concat(keep).slice(0, MAX_LAYERS)
+    const layers = cells.concat(keep).slice(0, 96) // matched plans may carry more layers than the planner's 48
     return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + ' (matched)', layers, matched: cells.length - 1 }
   }
 
