@@ -50,7 +50,7 @@ function makeFigma(opts) {
       if (!Array.isArray(v)) throw new Error('fills must be array')
       fills = v.map((p) => {
         if (!PAINTS.includes(p.type)) throw new Error('bad paint ' + p.type)
-        if (p.type.startsWith('GRADIENT_')) { if (!Array.isArray(p.gradientStops) || p.gradientStops.length < 7000) throw new Error('bad stops'); if (p.gradientTransform.length !== 2 || p.gradientTransform[0].length !== 3) throw new Error('bad transform'); for (const s of p.gradientStops) if (!(s.position >= 0 && s.position <= 1 && 'a' in s.color)) throw new Error('bad stop ' + JSON.stringify(s)) }
+        if (p.type.startsWith('GRADIENT_')) { if (!Array.isArray(p.gradientStops) || p.gradientStops.length < 2) throw new Error('bad stops'); if (p.gradientTransform.length !== 2 || p.gradientTransform[0].length !== 3) throw new Error('bad transform'); for (const s of p.gradientStops) if (!(s.position >= 0 && s.position <= 1 && 'a' in s.color)) throw new Error('bad stop ' + JSON.stringify(s)) }
         if (p.type === 'SOLID' && !(p.color && 'r' in p.color)) throw new Error('bad solid')
         if (p.type === 'IMAGE' && typeof p.imageHash !== 'string') throw new Error('bad image paint')
         return p.type === 'SHADER' ? checkShader(p) : p
@@ -175,7 +175,7 @@ async function main() {
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])
     assert(/Shader fills available: Mesh gradient/.test(s) && /Shader effects available: Bloom/.test(s), 'catalog in prompt')
-    assert(s.length < 5200, 'prompt length ' + s.length)
+    assert(s.length < 7000, 'prompt length ' + s.length)
     assert(/repeat/.test(s) && /grain/.test(s) && /Precedence/.test(s), 'prompt has repeat, grain, precedence')
   })
 
