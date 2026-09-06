@@ -141,6 +141,11 @@ const ECT_AI = (() => {
   // low-frequency copy of any smooth image, every cell a recolourable layer.
   function mosaicFromPixels(rgba, iw, ih, w, h, opts) {
     const maxCells = (opts && opts.maxCells) || 80
+    // Chosen against the reference under a Figma-strength blur: 2.1x blobs were
+    // mottled where their edges met, 3x and beyond washed the shapes out.
+    const blobScale = (opts && opts.blobScale) || 2.6 // blob diameter in cells
+    const plateau = (opts && opts.plateau) || 0.35 // fraction of the radius at full colour
+    const blurCells = (opts && opts.blurCells) || 0.45
     let cols = 1, rows = 1
     for (let c = 1; c <= 16; c++) for (const r of [Math.floor((c * h) / w), Math.ceil((c * h) / w)]) { if (r >= 1 && c * r <= maxCells && c * r > cols * rows) { cols = c; rows = r } }
     // the reference covers the canvas: crop it to the canvas aspect, centred
@@ -170,7 +175,7 @@ const ECT_AI = (() => {
     // therefore a radial blob fading to nothing, twice its cell in size, so
     // neighbours overlap and blend by their gradients, the same in Figma as in
     // any preview; a light blur only softens what is left.
-    const blur = round1(Math.min(cellW, cellH) * 0.3)
+    const blur = round1(Math.min(cellW, cellH) * blurCells)
     const layers = [{ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: toHex(mean), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }]
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -179,7 +184,7 @@ const ECT_AI = (() => {
         const lean = 0.22
         const cx = (c + 0.5 + (c === 0 ? -lean : c === cols - 1 ? lean : 0)) * cellW
         const cy = (r + 0.5 + (r === 0 ? -lean : r === rows - 1 ? lean : 0)) * cellH
-        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'ellipse', x: round1(cx), y: round1(cy), w: round1(cellW * 2.1), h: round1(cellH * 2.1), rotation: 0, fill: { type: 'radial', scale: 1, stops: [{ pos: 0, hex: hexv, alpha: 1 }, { pos: 0.4, hex: hexv, alpha: 0.85 }, { pos: 1, hex: hexv, alpha: 0 }] }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
+        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'ellipse', x: round1(cx), y: round1(cy), w: round1(cellW * blobScale), h: round1(cellH * blobScale), rotation: 0, fill: { type: 'radial', scale: 1, stops: [{ pos: 0, hex: hexv, alpha: 1 }, { pos: plateau, hex: hexv, alpha: 0.9 }, { pos: 1, hex: hexv, alpha: 0 }] }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
       }
     }
     return layers
