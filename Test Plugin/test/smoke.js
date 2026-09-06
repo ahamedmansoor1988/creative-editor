@@ -182,6 +182,8 @@ async function main() {
     assert(first.effects[0].type === 'blur' && first.effects[0].radius > 40 && first.x < 0.5 * 1080 / 8, 'blurred, leaning past the edge')
     assert(AI.wantsMatch('generate a mesh gradient as same as the reference image', null) && !AI.wantsMatch('a glass capsule over a blue palette', { elements: [{ soft: 0 }] }), 'match words')
     assert(AI.matchMode('', { elements: [{ soft: 0.8, count: 3 }] }) === 'match' && AI.matchMode('make it blue', { elements: [{ soft: 0.8, count: 3 }] }) === 'recolour' && AI.matchMode('a glass capsule', { elements: [{ soft: 0 }] }) === null, 'match / recolour / none')
+    const g2 = { elements: [{ what: 'golden light field', soft: 0.9, w: 70, h: 40 }, { what: 'deep purple shadow', soft: 0.8, w: 80, h: 50 }, { what: 'diagonal light streak', soft: 0.4, w: 10, h: 80 }] }
+    assert(AI.matchMode('generate a gradient', g2) === 'match' && AI.matchMode('generate a gradient', { elements: [{ what: 'a chair', soft: 0, w: 40, h: 60 }] }) === 'match' && AI.matchMode('recreate this', g2) === 'match' && AI.matchMode('a poster with a chair', { elements: [{ what: 'a chair', soft: 0, w: 40, h: 60 }] }) === null, 'thin streak does not veto a colour field; bare gradient request matches')
     const blue = AI.recolourCells(cells, ['#0D1B4C', '#1E40AF', '#3B82F6', '#93C5FD'])
     const hsl = (hx) => { const n = parseInt(hx.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = 0; if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: ((h * 60) % 360 + 360) % 360, l: (mx + mn) / 2 } }
     const c1 = hsl(blue[1].fill.hex), c0 = hsl(cells[1].fill.hex)
@@ -221,6 +223,11 @@ async function main() {
     assert(p.layers[1].y === 1350, 'glow pinned to the bottom edge: ' + p.layers[1].y)
     assert(p.layers[2].w === 810 && p.layers[2].opacity === 1, 'core half size, opaque')
     assert(p.layers[0].fill.stops[1].hex !== '#3B82F6', 'background stop darkened: ' + p.layers[0].fill.stops[1].hex)
+    const solid = AI.normalizePlan({ palette: ['#1A0033', '#FF4400'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'linear', angle: 90, stops: [{ pos: 0, hex: '#1A0033' }, { pos: 1, hex: '#FF5500' }] } },
+      { name: 'Bottom Orange Glow', kind: 'rect', x: 540, y: 1148, w: 1080, h: 405, blend: 'SCREEN', fill: { type: 'solid', hex: '#FF4400', alpha: 0.9 }, effects: [{ type: 'blur', radius: 120 }, { type: 'glow', hex: '#FF4400', alpha: 0.8, blur: 150 }] },
+    ] }, 1080, 1350)
+    assert(AI.isGlow(solid.layers[1], 1080, 1350) && solid.layers[2] && /core$/.test(solid.layers[2].name) && solid.layers[2].fill.type === 'radial', 'a solid blurred SCREEN layer is a glow and gets a core: ' + solid.layers.map((L) => L.name).join('|'))
   })
   await run('ai: systemPrompt lists catalog by type and stays small', () => {
     const s = AI.systemPrompt(1080, 1350, [{ name: 'Bloom', type: 'effect' }, { name: 'Mesh gradient', type: 'fill' }])

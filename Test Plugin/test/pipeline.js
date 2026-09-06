@@ -15,6 +15,7 @@ const args = process.argv.slice(2)
 const outDir = args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join(ROOT, 'out')
 const noAI = args.includes('--no-ai')
 const casesFile = args.find((a) => /\.json$/i.test(a) && !a.startsWith('--'))
+const replay = args.includes('--replay') // re-normalise, match, build and QC the saved raw plans: no AI calls
 
 function readEnv(file) {
   if (!fs.existsSync(file)) return {}
@@ -49,7 +50,7 @@ function imageDataUrl(file) {
 }
 
 // ---- QC: what a plan must satisfy to count as a faithful, buildable result ----
-const isGlowish = (L) => (L.kind === 'rect' || L.kind === 'ellipse') && ['SCREEN', 'LIGHTEN', 'COLOR_DODGE', 'NORMAL'].includes(L.blend) && L.fill && (L.fill.type === 'radial' || L.fill.type === 'linear') && L.fill.stops.some((s) => s.alpha <= 0.05) && L.effects.some((e) => e.type === 'blur' || e.type === 'glow')
+const isGlowish = (L, W, H) => AI.isGlow(L, W, H)
 function maxAlpha(L) { if (!L.fill) return 0; if (L.fill.type === 'solid') return L.fill.alpha; if (L.fill.type === 'shader') return 1; return Math.max(...L.fill.stops.map((s) => s.alpha)) }
 function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const fail = [], warn = []
@@ -71,7 +72,8 @@ function qc({ plan, brief, vision, built, must, usage, W, H }) {
   const briefSays = (re) => els.some((e) => re.test(String(e.what || '')))
   const mustHave = new Set(must || [])
   if (briefSays(/fluted|rib|reeded|slat/i) || mustHave.has('fluted')) { if (glassCount < 6) fail.push(`fluted glass expected, ${glassCount} glass layers`); else if (layers.some((L) => L.effects.some((e) => e.type === 'glass') && Math.min(L.w, L.h) > 0.5 * Math.min(W, H))) warn.push('a large glass panel besides the ribs') }
-  if (els.some((e) => e.glow) || mustHave.has('glow')) { if (!layers.some(isGlowish)) fail.push('glow expected, no glow-like layer') ; else if (!layers.some((L) => /core$/i.test(L.name))) warn.push('glow without a core') }
+  // matched cells carry the reference's light themselves; the glow rule is for planned layers
+  if (!(plan.matched > 0) && (els.some((e) => e.glow) || mustHave.has('glow'))) { if (!layers.some((L) => isGlowish(L, W, H))) fail.push('glow expected, no glow-like layer'); else if (!layers.some((L) => /core$/i.test(L.name))) warn.push('glow without a core') }
   if (mustHave.has('match') && !(plan.matched > 0)) fail.push('match expected, plan not matched')
   if (mustHave.has('no-text') && hasText) fail.push('text present but forbidden')
   if (mustHave.has('gradient-bg') && !(plan.matched > 0) && !(layers[0].fill && layers[0].fill.type !== 'solid')) fail.push('gradient background expected')
@@ -90,18 +92,24 @@ async function runCase(c, idx, total) {
   const img = imageDataUrl(c.image)
   const t0 = Date.now()
   let res
-  if (noAI) res = { plan: AI.normalizePlan({ name: 'match only', palette: measured, layers: [{ kind: 'rect', w: W, h: H }] }, W, H), raw: null, brief: null, model: 'none', usage: null }
+  const savedFile = path.join(outDir, id + '.json')
+  const saved = replay && fs.existsSync(savedFile) ? JSON.parse(fs.readFileSync(savedFile, 'utf8')) : null
+  if (saved && saved.raw) {
+    console.log('   replaying the saved plan through the current normaliser')
+    res = { plan: AI.normalizePlan(saved.raw, W, H, { allowText: AI.wantsText(c.vision) }), raw: saved.raw, brief: saved.brief, model: saved.model + ' (replay)', usage: saved.usage }
+  } else if (noAI) res = { plan: AI.normalizePlan({ name: 'match only', palette: measured, layers: [{ kind: 'rect', w: W, h: H }] }, W, H), raw: null, brief: null, model: 'none', usage: null }
   else res = await AI.plan({ apiKey: key, vision: c.vision, imageDataUrl: img.dataUrl, measuredPalette: measured, width: W, height: H, catalog: c.catalog || [], onStatus: (s) => console.log('   ' + s) })
   let plan = res.plan
   const mode = noAI ? 'match' : AI.matchMode(c.vision, res.brief)
   const matched = !!mode
   if (mode) plan = AI.applyMatch(plan, AI.mosaicFromPixels(px.rgba, px.width, px.height, W, H), mode)
   const figma = makeFigma({ shaders: (c.catalog || []).map((s, i) => ({ id: 's' + i, name: s.name, type: s.type, defs: {} })) })
-  const { send, last } = runPlugin(figma, {})
+  const { send, last, frames } = runPlugin(figma, {})
   await send({ type: 'ui-ready' })
   await send({ type: 'build-plan', plan, vision: c.vision, image: img.bytes })
   const st = last()
-  const built = { planned: plan.layers.length, built: st && st.report ? st.report.built : 0, errors: st && st.report ? st.report.errors : [] }
+  const frame = frames()[0]
+  const built = { planned: plan.layers.length, built: frame ? frame.children.length : 0, results: st && st.results ? Object.fromEntries(Object.entries(st.results).map(([k, v]) => [k, v.status + (v.detail ? ': ' + v.detail : '')])) : {} }
   const q = qc({ plan, brief: res.brief, vision: c.vision, built, must: c.must, usage: res.usage, W, H })
   const seconds = (Date.now() - t0) / 1000
   console.log(`   ${q.pass ? 'PASS' : 'FAIL'}  ${plan.layers.length} layers${matched ? ' (matched ' + plan.matched + ')' : ''}, built ${built.built}/${built.planned}, ${seconds.toFixed(1)}s${res.usage ? ', ' + res.usage.total_tokens + ' tokens' : ''}`)
@@ -114,7 +122,7 @@ async function runCase(c, idx, total) {
 }
 
 ;if (require.main === module) (async () => {
-  if (!key && !noAI) { console.error('No GROQ_API_KEY in .env or ../.env'); process.exit(1) }
+  if (!key && !noAI && !replay) { console.error('No GROQ_API_KEY in .env or ../.env'); process.exit(1) }
   fs.mkdirSync(outDir, { recursive: true })
   let cases
   if (casesFile) cases = JSON.parse(fs.readFileSync(casesFile, 'utf8')).map((c) => ({ ...c, image: path.resolve(path.dirname(casesFile), c.image) }))
@@ -126,7 +134,7 @@ async function runCase(c, idx, total) {
   for (let i = 0; i < cases.length; i++) {
     try { records.push(await runCase(cases[i], i, cases.length)) } catch (e) { console.log('   ERROR ' + e.message); records.push({ id: String(i + 1).padStart(2, '0'), image: path.basename(cases[i].image), vision: cases[i].vision, error: e.message, qc: { pass: false, fail: [e.message], warn: [] } }) }
     fs.writeFileSync(path.join(outDir, 'index.json'), JSON.stringify(records.map((r) => ({ id: r.id, image: r.image, vision: r.vision, pass: r.qc.pass, fail: r.qc.fail, warn: r.qc.warn, matched: r.matched || 0, layers: r.plan ? r.plan.layers.length : 0 })), null, 2))
-    if (!noAI && i < cases.length - 1) { console.log('   waiting 62 s for the vision model\'s rate window…'); await new Promise((r) => setTimeout(r, 62000)) }
+    if (!noAI && !replay && i < cases.length - 1) { console.log('   waiting 62 s for the vision model\'s rate window…'); await new Promise((r) => setTimeout(r, 62000)) }
   }
   const passed = records.filter((r) => r.qc.pass).length
   console.log(`\n${passed}/${records.length} cases pass. Report: test/report.html (serve the plugin folder and open it).`)

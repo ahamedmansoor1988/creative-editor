@@ -181,18 +181,27 @@ const ECT_AI = (() => {
   }
   const MATCH_WORDS = /\b(same as|match(?:es|ing)?|recreate|re-create|replicate|reproduce|copy|clone|exactly like|just like|like the|as the|as in the)\b[^.]*\b(reference|image|picture|photo|photograph|screenshot)\b|\bmesh gradient\b|\bgradient\b[^.]*\b(reference|image|picture)\b/i
   const COLOUR_WORDS = /\b(red|orange|yellow|green|blue|cyan|teal|purple|violet|magenta|pink|black|white|gold|silver|navy|palette|colou?rs?|monochrome|pastel|neon|warm|cool|dark|light)\b/i
+  // A colour field: soft zones and at most thin streaks, no crisp objects.
+  // (One thin light streak at soft 0.4 must not veto a gradient reference:
+  // streaks stay on top of the matched cells anyway.)
   function colourField(brief) {
     const els = brief && Array.isArray(brief.elements) ? brief.elements : null
     if (!els) return false
-    return els.length === 0 || els.every((e) => num(e && e.soft, 0, 0, 1) >= 0.5 && num(e && e.count, 1, 1, 24) <= 6)
+    if (!els.length) return true
+    const soft = els.filter((e) => num(e && e.soft, 0, 0, 1) >= 0.5)
+    const crisp = els.filter((e) => num(e && e.soft, 0, 0, 1) < 0.5)
+    const thin = (e) => Math.min(num(e && e.w, 50, 0, 100), num(e && e.h, 50, 0, 100)) <= 12 || /streak|line|ray|beam|hair/i.test(String(e && e.what || ''))
+    return soft.length >= 1 && crisp.every(thin) && els.every((e) => num(e && e.count, 1, 1, 24) <= 24)
   }
+  // "generate a gradient" with a reference on the table is a match request too.
+  const BARE_GRADIENT = /^\W*(please\s+)?(generate|create|make|build|give me|i want|render|do|produce)?\W*(a|an|the|some|this|that)?\W*(mesh|fluid|soft|smooth|flowing|colou?rful|nice|beautiful|similar|same)?\W*(gradient|mesh|colou?r field|aurora|background)s?\W*(like this|as this|from this)?\W*\.?\W*$/i
   // When to copy the reference's pixels instead of the planner's guess: the
   // vision asks for the reference itself (or a mesh gradient), or the reference
   // is a colour field. "match": colours as they are. "recolour": the vision
   // names colours, so the structure is matched and the cells are recoloured to
   // the planner's palette for that vision, each keeping its own lightness.
   function matchMode(vision, brief) {
-    const explicit = MATCH_WORDS.test(vision || ''), field = colourField(brief), colours = COLOUR_WORDS.test(vision || '')
+    const explicit = MATCH_WORDS.test(vision || '') || BARE_GRADIENT.test(vision || ''), field = colourField(brief), colours = COLOUR_WORDS.test(vision || '')
     if (!explicit && !field) return null
     return colours ? 'recolour' : 'match'
   }
@@ -391,12 +400,21 @@ const ECT_AI = (() => {
   // is pulled back towards the previous stop when it is as light as the glow.
   const lum = (hx) => { const n = parseInt(hx.slice(1), 16); const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] }
   const mixHex = (a, b, t) => { const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16); const ch = (sh) => Math.round(((A >> sh) & 255) * (1 - t) + ((B >> sh) & 255) * t).toString(16).padStart(2, '0'); return ('#' + ch(16) + ch(8) + ch(0)).toUpperCase() }
+  // A glow: a large soft light layer. Either a gradient fading to nothing, or
+  // a solid blurred colour on a lightening blend (the planner writes both).
   function isGlow(L, w, h) {
     if (L.kind !== 'rect' && L.kind !== 'ellipse') return false
     if (['SCREEN', 'LIGHTEN', 'COLOR_DODGE', 'NORMAL'].indexOf(L.blend) < 0) return false
-    if (!L.fill || (L.fill.type !== 'radial' && L.fill.type !== 'linear')) return false
-    if (!L.fill.stops.some((s) => s.alpha <= 0.05)) return false
-    if (!L.effects.some((e) => e.type === 'blur' || e.type === 'glow')) return false
+    if (!L.fill) return false
+    const blur = L.effects.find((e) => e.type === 'blur')
+    const glowFx = L.effects.some((e) => e.type === 'glow')
+    if (L.fill.type === 'radial' || L.fill.type === 'linear') {
+      if (!L.fill.stops.some((s) => s.alpha <= 0.05)) return false
+      if (!blur && !glowFx) return false
+    } else if (L.fill.type === 'solid') {
+      if (!blur || blur.radius < 30) return false
+      if (L.blend === 'NORMAL' && L.opacity * L.fill.alpha >= 0.95) return false
+    } else return false
     return L.w * L.h >= 0.2 * w * h && !/vignette|shade|shadow|haze|dark/i.test(L.name)
   }
   function enrichGlows(layers, w, h) {
@@ -404,7 +422,7 @@ const ECT_AI = (() => {
     for (let i = 1; i < layers.length && layers.length < MAX_LAYERS; i++) {
       const L = layers[i]
       if (!isGlow(L, w, h) || /\bcore$/i.test(L.name)) continue
-      const glowHex = (L.fill.stops.find((s) => s.alpha > 0.5) || L.fill.stops[0]).hex
+      const glowHex = L.fill.type === 'solid' ? L.fill.hex : (L.fill.stops.find((s) => s.alpha > 0.5) || L.fill.stops[0]).hex
       // pin an edge glow to its edge so the light rises into the picture
       if (L.h >= 0.4 * h) { if (L.y > 0.72 * h) L.y = h; else if (L.y < 0.28 * h) L.y = 0 }
       // the hot centre
@@ -521,6 +539,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, isGlow, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI
