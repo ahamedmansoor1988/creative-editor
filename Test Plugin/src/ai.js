@@ -132,6 +132,66 @@ const ECT_AI = (() => {
     return out.map((o) => toHex(o.c))
   }
 
+  // ---- match reference: the reference's own pixels as editable layers ----
+  // A colour field (mesh, fluid, aurora) is what a language model reproduces
+  // worst: it guesses shader parameters and gets mud. The Creative Editor's
+  // "Match reference" never asks a model; it fits the picture. Here the
+  // editable equivalent is a grid of solid cells, each the average colour of
+  // its patch of the reference, blurred into one another: a faithful
+  // low-frequency copy of any smooth image, every cell a recolourable layer.
+  function mosaicFromPixels(rgba, iw, ih, w, h, opts) {
+    const maxCells = (opts && opts.maxCells) || 42
+    let cols = 1, rows = 1
+    for (let c = 1; c <= 16; c++) for (const r of [Math.floor((c * h) / w), Math.ceil((c * h) / w)]) { if (r >= 1 && c * r <= maxCells && c * r > cols * rows) { cols = c; rows = r } }
+    // the reference covers the canvas: crop it to the canvas aspect, centred
+    const ia = iw / ih, ca = w / h
+    let sx = 0, sy = 0, sw = iw, sh = ih
+    if (ia > ca) { sw = ih * ca; sx = (iw - sw) / 2 } else { sh = iw / ca; sy = (ih - sh) / 2 }
+    const avg = (x0, y0, x1, y1) => {
+      let r = 0, g = 0, b = 0, n = 0
+      const X0 = Math.max(0, Math.floor(x0)), X1 = Math.min(iw, Math.max(X0 + 1, Math.ceil(x1)))
+      const Y0 = Math.max(0, Math.floor(y0)), Y1 = Math.min(ih, Math.max(Y0 + 1, Math.ceil(y1)))
+      for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const o = (y * iw + x) * 4; if (rgba[o + 3] < 8) continue; r += rgba[o]; g += rgba[o + 1]; b += rgba[o + 2]; n++ }
+      if (!n) return '#808080'
+      return '#' + [r / n, g / n, b / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase()
+    }
+    const cellW = w / cols, cellH = h / rows
+    const blur = round1(Math.min(cellW, cellH) * 0.6)
+    const layers = [{ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: avg(sx, sy, sx + sw, sy + sh), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }]
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const hexv = avg(sx + (c * sw) / cols, sy + (r * sh) / rows, sx + ((c + 1) * sw) / cols, sy + ((r + 1) * sh) / rows)
+        // outer cells lean past the frame so their blurred edge is clipped, not seen
+        const lean = 0.22
+        const cx = (c + 0.5 + (c === 0 ? -lean : c === cols - 1 ? lean : 0)) * cellW
+        const cy = (r + 0.5 + (r === 0 ? -lean : r === rows - 1 ? lean : 0)) * cellH
+        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'rect', x: round1(cx), y: round1(cy), w: round1(cellW * 1.3), h: round1(cellH * 1.3), rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: hexv, alpha: 1 }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
+      }
+    }
+    return layers
+  }
+  const MATCH_WORDS = /\b(same as|match(?:es|ing)?|recreate|re-create|replicate|reproduce|copy|clone|exactly like|just like|like the|as the|as in the)\b[^.]*\b(reference|image|picture|photo|photograph|screenshot)\b|\bmesh gradient\b|\bgradient\b[^.]*\b(reference|image|picture)\b/i
+  const COLOUR_WORDS = /\b(red|orange|yellow|green|blue|cyan|teal|purple|violet|magenta|pink|black|white|gold|silver|navy|palette|colou?rs?|monochrome|pastel|neon|warm|cool|dark|light)\b/i
+  function colourField(brief) {
+    const els = brief && Array.isArray(brief.elements) ? brief.elements : null
+    if (!els) return false
+    return els.length === 0 || els.every((e) => num(e && e.soft, 0, 0, 1) >= 0.5 && num(e && e.count, 1, 1, 24) <= 6)
+  }
+  // When to copy the reference's pixels instead of the planner's guess: the
+  // vision asks for the reference itself (or a mesh gradient), or the reference
+  // is a colour field and the vision does not ask for other colours.
+  function wantsMatch(vision, brief) {
+    if (MATCH_WORDS.test(vision || '')) return true
+    return colourField(brief) && !COLOUR_WORDS.test(vision || '')
+  }
+  // The matched cells replace the planner's background and soft bands (and any
+  // shader fill it reached for); glass, grain, text and thin streaks stay on top.
+  function applyMatch(plan, cells) {
+    const keep = plan.layers.slice(1).filter((L) => L.kind === 'text' || L.effects.some((e) => e.type === 'glass' || e.type === 'grain') || (Math.min(L.w, L.h) < 60 && !(L.fill && L.fill.type === 'shader')))
+    const layers = cells.concat(keep).slice(0, MAX_LAYERS)
+    return { ...plan, name: /matched/i.test(plan.name) ? plan.name : plan.name + ' (matched)', layers, matched: cells.length - 1 }
+  }
+
   // Text layers are allowed only when the vision asks for words.
   function wantsText(vision) {
     return /["“”„«»']|\b(headline|title|text|copy|label|caption|word|words|says|saying|typograph\w*|font|letter\w*|quote|slogan|tagline|wordmark|logo)\b/i.test(vision || '')
@@ -420,6 +480,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, applyMatch, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

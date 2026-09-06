@@ -172,6 +172,26 @@ async function main() {
     const pal = AI.paletteFromPixels(px, 5)
     assert(pal.length === 2 && pal[0] === '#FA141E' && pal[1] === '#0A1EF0', 'measured palette dominant first: ' + pal)
   })
+  await run('ai: match reference samples the pixels into blurred cells and keeps extras', () => {
+    const iw = 40, ih = 50, rgba = new Uint8ClampedArray(iw * ih * 4)
+    for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) { const o = (y * iw + x) * 4; rgba[o] = Math.round((255 * (iw - 1 - x)) / (iw - 1)); rgba[o + 2] = Math.round((255 * x) / (iw - 1)); rgba[o + 3] = 255 }
+    const cells = AI.mosaicFromPixels(rgba, iw, ih, 1080, 1350)
+    assert(cells.length === 43 && cells[0].name === 'Background', 'background + 42 cells: ' + cells.length)
+    const first = cells[1], last = cells[cells.length - 1]
+    assert(parseInt(first.fill.hex.slice(1, 3), 16) > 200 && parseInt(last.fill.hex.slice(5, 7), 16) > 200, 'left red, right blue: ' + first.fill.hex + ' ' + last.fill.hex)
+    assert(first.effects[0].type === 'blur' && first.effects[0].radius > 50 && first.x < 0.5 * 1080 / 6, 'blurred, leaning past the edge')
+    assert(AI.wantsMatch('generate a mesh gradient as same as the reference image', null) && !AI.wantsMatch('a glass capsule over a blue palette', { elements: [{ soft: 0 }] }), 'match words')
+    assert(AI.wantsMatch('', { elements: [{ soft: 0.8, count: 3 }] }) && !AI.wantsMatch('make it blue', { elements: [{ soft: 0.8, count: 3 }] }), 'colour field matches unless the vision asks for colours')
+    const plan = AI.normalizePlan({ name: 'Guess', palette: ['#000000', '#FFFFFF'], layers: [
+      { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'shader', shader: 'Fluid gradient' } },
+      { name: 'Band', kind: 'rect', x: 540, y: 675, w: 1200, h: 400, rotation: 30, fill: { type: 'linear', angle: 0, stops: [{ pos: 0, hex: '#FF0000', alpha: 0 }, { pos: 1, hex: '#FF0000', alpha: 1 }] }, effects: [{ type: 'blur', radius: 120 }], blend: 'SCREEN' },
+      { name: 'Grain', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.01 }, effects: [{ type: 'grain', amount: 0.6 }] },
+      { name: 'Panel', kind: 'rect', x: 540, y: 700, w: 600, h: 300, fill: { type: 'solid', hex: '#FFFFFF', alpha: 0.1 }, effects: [{ type: 'glass', refraction: 0.6 }] },
+    ] }, 1080, 1350)
+    const merged = AI.applyMatch(plan, cells)
+    const names = merged.layers.map((L) => L.name)
+    assert(names[0] === 'Background' && names.filter((n) => /^Match /.test(n)).length === 42 && names.includes('Grain') && names.includes('Panel') && !names.includes('Band') && merged.matched === 42, 'merged: ' + names.slice(-3).join(','))
+  })
   await run('ai: repeat budget is shared and copies can fan around a pivot', () => {
     const slat = (name, hex) => ({ name, kind: 'rect', x: 540, y: 40, w: 1080, h: 60, fill: { type: 'solid', hex }, repeat: { count: 18, dx: 0, dy: 72 } })
     const p = AI.normalizePlan({ palette: ['#000000', '#FF9900'], layers: [
