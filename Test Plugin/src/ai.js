@@ -28,6 +28,8 @@ const ECT_AI = (() => {
     'x,y = element CENTRE in % of canvas width/height; w,h = size in % (a thin vertical streak might be w 1, h 90). Up to 8 elements, most visually important first; group repeated things as one element with count and spacing. "soft" 1 = very blurred. Sizes as percent of canvas height for text. Use [] for text when there is none.',
     'angle / rotation: 0 = left to right or a horizontal band, 90 = top to bottom or a vertical streak, 45 = diagonal towards bottom-right. "soft" 1 = edges fully blurred, 0 = crisp.',
     'If the image is a colour field with no distinct objects (flowing gradient, aurora, smoke, light), describe the 2-5 soft bands or glow zones that make up the flow as rect elements with rotation and soft 0.6-1, plus the grain amount. Never invent objects.',
+    'FLUTED GLASS: evenly spaced vertical (or horizontal) bands whose edges catch the light and bend the colours behind them, like reeded, ribbed or corrugated glass or a vertical blind, are ONE element {"what":"fluted glass ribs","shape":"rect","count":<number of bands>,"w":<100/count>,"h":100,"spacing":"even","soft":0.2} and texture.glass 0.6-1. Report the bright lines between them as a separate thin element only if they are distinct streaks.',
+    '"soft" is relative to the element\'s own size: a thin streak with soft edges is soft 0.3-0.5, not 1; soft 1 means the element dissolves into its surroundings with no visible edge.',
     'Describe only the artwork. Ignore interface chrome: buttons, badges, icons, cursors, status bars, page counters, device or browser frames.',
   ].join('\n')
 
@@ -43,15 +45,16 @@ const ECT_AI = (() => {
       '"repeat": {"count":2-24,"dx":px,"dy":px,"jitter":px} builds count copies of the layer stepped by dx,dy (jitter = random offset per copy). Use it for streaks, bands, dots, grids.',
       'fill: {"type":"solid","hex":"#rrggbb","alpha":0-1} | {"type":"linear","angle":deg,"stops":[{"pos":0-1,"hex":"#rrggbb","alpha":0-1}]} (angle 0 = left to right, 90 = top to bottom) | {"type":"radial","scale":0.5-2,"stops":[...]} | {"type":"shader","shader":"<fill shader name>"}',
       'effects: [{"type":"glow","hex","alpha","blur"} | {"type":"shadow","hex","alpha","x","y","blur"} | {"type":"innerShadow","hex","alpha","x","y","blur"} | {"type":"blur","radius"} | {"type":"bgBlur","radius"} | {"type":"grain","amount":0-1} | {"type":"glass","lightIntensity":0-1,"lightAngle":deg,"refraction":0-1,"depth":1-60,"dispersion":0-1,"frost":0-10} | {"type":"shader","shader":"<effect shader name>"}]',
-      'Softness: an element with soft >= 0.5 must get a blur effect of at least 60 px (soft 1 = blur 150-250) and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually.',
+      'Softness: an element with soft >= 0.5 must get a blur effect and gradient fills that fade to alpha 0 at the ends; never a hard-edged ellipse or blob for a glow or a band. Make soft layers 20-40% larger than the analysis says, because blur shrinks them visually. BLUR IS RELATIVE TO SIZE: never more than half the layer\'s smaller side. A large glow or band may take 60-250 px; a streak 6-30 px wide takes blur 2-12 px and gets its softness from the gradient fade, or it disappears.',
       'Colour fields: if the analysis has no distinct objects (bands, glows, flow only), rebuild it as background (a linear gradient at the analysed angle, or a gradient shader fill such as Fluid gradient / Mesh gradient / Moving gradient) + 2-5 rotated soft bands (rect, linear gradient with transparent ends, blur 60-250, SCREEN or NORMAL, alpha 0.5-0.9) + grain. Do not add shapes that are not in the analysis.',
       'Recipes: light streak = thin tall rect (w 6-30 px), vertical linear gradient with transparent ends and a bright middle, blur 4-14, blend SCREEN, repeat across the width; glow zone = ellipse with radial gradient fading to alpha 0, blur 30-80, SCREEN; grain = full-canvas rect with solid fill alpha 0.01 and effect grain, near the top of the stack; vignette = full-canvas rect with radial gradient (centre alpha 0 to dark edges), MULTIPLY; glass panel = rounded rect, white fill alpha 0.05-0.2, glass effect, placed over busy areas so the refraction shows; shader fill = put it on a large shape or the background.',
+      'FLUTED GLASS RIBS (the analysis has "fluted glass ribs", or the vision says stripes, lines, ribs, fluted, reeded, grooved or corrugated glass): the ribs ARE the glass, so build them as ONE repeated layer and no separate panel: kind rect, h = canvas height, w = canvas width / count, repeat {count, dx: w, dy: 0, jitter: 0}, first x = w/2, y = canvas height/2, cornerRadius 0, opacity 1, blend NORMAL, fill = linear angle 0 across the rib: [{pos 0, #FFFFFF, alpha 0.30}, {pos 0.10, #FFFFFF, alpha 0}, {pos 0.90, #000000, alpha 0}, {pos 1, #000000, alpha 0.40}] (a lit edge and a shaded edge per rib), effects = [glass {lightIntensity 0.7, lightAngle 0, refraction 0.85, depth 12, dispersion 0.25, frost 0}]. Put it directly above the background and its glows, below grain. 6-14 ribs read as fluted glass; the vision\'s or analysis\'s count wins.',
       'glass = Figma native glass, it refracts the layers below it. Effect shaders only process the layer\'s own pixels; shader fills generate the fill themselves.',
       'blend: NORMAL|SCREEN|OVERLAY|MULTIPLY|SOFT_LIGHT|LIGHTEN|COLOR_DODGE. opacity 0-1.',
       `Shader fills available: ${names('fill')}`,
       `Shader effects available: ${names('effect')}`,
       'Text: add a text layer ONLY when the vision explicitly asks for words (quoted text, "headline", "title", "label"). Never turn the vision or the analysis into a headline.',
-      'Glass: add one glass layer only when the vision asks for glass, panels or effects, or the analysis has texture.glass >= 0.4. Shaders: use a gradient shader fill for a flowing colour-field background, and any shader the vision asks for; otherwise none. Everything else the vision names (blur, grain, glow, bloom, mesh) maps to the matching effect or shader.',
+      'Glass: when the vision asks for glass together with stripes or lines, or the analysis has fluted glass ribs, use the FLUTED GLASS RIBS recipe and no panel. Otherwise add one glass panel only when the vision asks for glass, panels or effects, or the analysis has texture.glass >= 0.4. Shaders: use a gradient shader fill for a flowing colour-field background, and any shader the vision asks for; otherwise none. Everything else the vision names (blur, grain, glow, bloom, mesh) maps to the matching effect or shader.',
       '6-digit hex only. No keys other than those listed.',
       'Output: {"name":"...","palette":["#..","#..","#..","#.."],"layers":[...]}',
     ].join('\n')
@@ -201,7 +204,16 @@ const ECT_AI = (() => {
         w: num(L.w, w / 2, 1, 4 * w), h: num(L.h, h / 2, 1, 4 * h),
         rotation: num(L.rotation, 0, -360, 360),
         fill: normFill(L.fill, palette),
-        effects: (Array.isArray(L.effects) ? L.effects : []).map((e) => normEffect(e, palette)).filter(Boolean).slice(0, 6),
+        effects: (Array.isArray(L.effects) ? L.effects : []).map((e) => normEffect(e, palette)).filter(Boolean).slice(0, 6).map((e) => {
+          // A blur wider than the layer smears it to nothing: a 22 px streak under a
+          // 150 px blur is invisible. Half the smaller side is the most a layer can carry.
+          if ((e.type === 'blur' || e.type === 'bgBlur') && kind !== 'text') {
+            const side = Math.min(num(L.w, w / 2, 1, 4 * w), num(L.h, h / 2, 1, 4 * h))
+            const cap = Math.max(2, side * 0.5)
+            if (e.radius > cap) return { ...e, radius: round1(cap) }
+          }
+          return e
+        }),
         blend: BLENDS.indexOf(String(L.blend || '').toUpperCase()) >= 0 ? String(L.blend).toUpperCase() : 'NORMAL',
         opacity: num(L.opacity, 1, 0, 1),
       }

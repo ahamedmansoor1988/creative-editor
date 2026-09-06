@@ -1,6 +1,6 @@
 {
   "name": "editable-creative-test",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "private": true,
   "description": "Figma plugin prototype: reference image + vision -> AI plan -> fully editable creative built from native shapes, gradients, effects, Glass and shaders.",
   "scripts": {
