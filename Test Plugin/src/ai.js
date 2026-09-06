@@ -165,7 +165,12 @@ const ECT_AI = (() => {
       return '#' + out.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('').toUpperCase()
     }
     const cellW = w / cols, cellH = h / rows
-    const blur = round1(Math.min(cellW, cellH) * 0.5)
+    // Figma's layer blur is roughly half as strong as a canvas blur of the same
+    // number, and blurred squares showed as a grid on the canvas. Each cell is
+    // therefore a radial blob fading to nothing, twice its cell in size, so
+    // neighbours overlap and blend by their gradients, the same in Figma as in
+    // any preview; a light blur only softens what is left.
+    const blur = round1(Math.min(cellW, cellH) * 0.3)
     const layers = [{ name: 'Background', kind: 'rect', x: w / 2, y: h / 2, w, h, rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: toHex(mean), alpha: 1 }, effects: [], blend: 'NORMAL', opacity: 1 }]
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -174,13 +179,16 @@ const ECT_AI = (() => {
         const lean = 0.22
         const cx = (c + 0.5 + (c === 0 ? -lean : c === cols - 1 ? lean : 0)) * cellW
         const cy = (r + 0.5 + (r === 0 ? -lean : r === rows - 1 ? lean : 0)) * cellH
-        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'rect', x: round1(cx), y: round1(cy), w: round1(cellW * 1.2), h: round1(cellH * 1.2), rotation: 0, cornerRadius: 0, fill: { type: 'solid', hex: hexv, alpha: 1 }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
+        layers.push({ name: `Match ${r + 1}.${c + 1}`, kind: 'ellipse', x: round1(cx), y: round1(cy), w: round1(cellW * 2.1), h: round1(cellH * 2.1), rotation: 0, fill: { type: 'radial', scale: 1, stops: [{ pos: 0, hex: hexv, alpha: 1 }, { pos: 0.4, hex: hexv, alpha: 0.85 }, { pos: 1, hex: hexv, alpha: 0 }] }, effects: [{ type: 'blur', radius: blur }], blend: 'NORMAL', opacity: 1, group: 'Match' })
       }
     }
     return layers
   }
   const MATCH_WORDS = /\b(same as|match(?:es|ing)?|recreate|re-create|replicate|reproduce|copy|clone|exactly like|just like|like the|as the|as in the)\b[^.]*\b(reference|image|picture|photo|photograph|screenshot)\b|\bmesh gradient\b|\bgradient\b[^.]*\b(reference|image|picture)\b/i
-  const COLOUR_WORDS = /\b(red|orange|yellow|green|blue|cyan|teal|purple|violet|magenta|pink|black|white|gold|silver|navy|palette|colou?rs?|monochrome|pastel|neon|warm|cool|dark|light)\b/i
+  const HUE_WORDS = /\b(red|orange|amber|yellow|lime|green|emerald|mint|cyan|teal|turquoise|aqua|blue|navy|indigo|purple|violet|lavender|magenta|pink|rose|brown|beige|gold|silver|copper|monochrome|grayscale|greyscale|sepia|pastel|neon)\b/i
+  const KEEP_WORDS = /\b(same|original|reference|existing|current|its|matching)\b[^.]{0,24}\b(palette|colou?rs?|tones?|shades?|hues?)\b|\b(palette|colou?rs?)\b[^.]{0,12}\b(of|from|in) the (reference|image|picture)\b/i
+  const asksNewColours = (v) => HUE_WORDS.test(v || '') && !KEEP_WORDS.test(v || '')
+  const COLOUR_WORDS = { test: asksNewColours }
   // A colour field: soft zones and at most thin streaks, no crisp objects.
   // (One thin light streak at soft 0.4 must not veto a gradient reference:
   // streaks stay on top of the matched cells anyway.)
@@ -218,19 +226,32 @@ const ECT_AI = (() => {
     const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
     return '#' + [r, g, b].map((v) => Math.round(Math.min(1, Math.max(0, v + m)) * 255).toString(16).padStart(2, '0')).join('').toUpperCase()
   }
-  // Recolour matched cells to a palette: each cell takes the hue and saturation
-  // of the palette colour nearest its own lightness and keeps that lightness,
-  // so "the same picture in blue shades" keeps its gradients and its light.
+  // Recolour matched cells to a palette with ONE continuous hue transform:
+  // every hue is rotated so the picture's dominant hue lands on the palette's,
+  // relative hue differences are compressed towards that family, saturation is
+  // bounded by the palette's, lightness is untouched. Neighbouring cells stay
+  // neighbours in colour, so "the same picture in blue shades" keeps its
+  // gradients. (Reassigning each cell to its nearest palette colour made a
+  // red-and-blue checkerboard.)
+  const cellHex = (L) => (L.fill && (L.fill.type === 'solid' ? L.fill.hex : L.fill.stops && L.fill.stops[0] && L.fill.stops[0].hex)) || null
+  const setCellHex = (L, hx) => ({ ...L, fill: L.fill.type === 'solid' ? { ...L.fill, hex: hx } : { ...L.fill, stops: L.fill.stops.map((st) => ({ ...st, hex: hx })) } })
+  const meanHue = (list) => { let x = 0, y = 0; for (const c of list) { x += c.w * Math.cos((c.h * Math.PI) / 180); y += c.w * Math.sin((c.h * Math.PI) / 180) } return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360 }
   function recolourCells(cells, palette) {
     const pal = (palette || []).map(hexToHsl).filter((c) => c.s > 0.12)
     if (!pal.length) return cells
+    const src = cells.map(cellHex).filter(Boolean).map(hexToHsl).filter((c) => c.s > 0.08)
+    if (!src.length) return cells
+    const from = meanHue(src.map((c) => ({ h: c.h, w: c.s }))), to = meanHue(pal.map((c) => ({ h: c.h, w: c.s })))
+    const maxSat = Math.min(1, Math.max(...pal.map((c) => c.s)) * 1.1)
+    const spread = 0.35
     return cells.map((L) => {
-      if (!L.fill || L.fill.type !== 'solid') return L
-      const c = hexToHsl(L.fill.hex)
-      let best = pal[0]
-      for (const p of pal) if (Math.abs(p.l - c.l) < Math.abs(best.l - c.l)) best = p
-      const sat = Math.max(best.s * 0.85, Math.min(best.s, c.s))
-      return { ...L, fill: { ...L.fill, hex: hslToHex(best.h, sat, c.l) } }
+      const hx = cellHex(L)
+      if (!hx) return L
+      const c = hexToHsl(hx)
+      let d = c.h - from; d = ((d + 540) % 360) - 180 // shortest signed distance
+      const h = ((to + d * spread) % 360 + 360) % 360
+      const sat = c.s < 0.08 ? c.s : Math.min(maxSat, Math.max(c.s, maxSat * 0.6))
+      return setCellHex(L, hslToHex(h, sat, c.l))
     })
   }
   // The matched cells replace the planner's background and soft bands (and any
@@ -581,6 +602,6 @@ const ECT_AI = (() => {
     return { values, usage: data.usage || null }
   }
 
-  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, applyMatch, isGlow, ensureBriefElements, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
+  return { plan, tune, describeReference, request, normalizePlan, extractJSON, systemPrompt, wantsText, paletteFromPixels, mosaicFromPixels, wantsMatch, matchMode, recolourCells, asksNewColours, applyMatch, isGlow, ensureBriefElements, BRIEF_SYSTEM, GROQ_URL, VISION_MODELS, TEXT_MODEL }
 })()
 if (typeof module !== 'undefined' && module.exports) module.exports = ECT_AI

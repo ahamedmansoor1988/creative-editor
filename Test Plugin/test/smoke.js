@@ -178,16 +178,20 @@ async function main() {
     const cells = AI.mosaicFromPixels(rgba, iw, ih, 1080, 1350)
     assert(cells.length === 81 && cells[0].name === 'Background', 'background + 80 cells: ' + cells.length)
     const first = cells[1], last = cells[cells.length - 1]
-    assert(parseInt(first.fill.hex.slice(1, 3), 16) > 200 && parseInt(last.fill.hex.slice(5, 7), 16) > 200, 'left red, right blue: ' + first.fill.hex + ' ' + last.fill.hex)
-    assert(first.effects[0].type === 'blur' && first.effects[0].radius > 40 && first.x < 0.5 * 1080 / 8, 'blurred, leaning past the edge')
+    assert(parseInt(first.fill.stops[0].hex.slice(1, 3), 16) > 200 && parseInt(last.fill.stops[0].hex.slice(5, 7), 16) > 200, 'left red, right blue: ' + first.fill.stops[0].hex + ' ' + last.fill.stops[0].hex)
+    assert(first.kind === 'ellipse' && first.fill.type === 'radial' && first.fill.stops[2].alpha === 0 && first.effects[0].type === 'blur' && first.effects[0].radius > 20 && first.x < 0.5 * 1080 / 8, 'radial blob, fading, leaning past the edge')
     assert(AI.wantsMatch('generate a mesh gradient as same as the reference image', null) && !AI.wantsMatch('a glass capsule over a blue palette', { elements: [{ soft: 0 }] }), 'match words')
     assert(AI.matchMode('', { elements: [{ soft: 0.8, count: 3 }] }) === 'match' && AI.matchMode('make it blue', { elements: [{ soft: 0.8, count: 3 }] }) === 'recolour' && AI.matchMode('a glass capsule', { elements: [{ soft: 0 }] }) === null, 'match / recolour / none')
     const g2 = { elements: [{ what: 'golden light field', soft: 0.9, w: 70, h: 40 }, { what: 'deep purple shadow', soft: 0.8, w: 80, h: 50 }, { what: 'diagonal light streak', soft: 0.4, w: 10, h: 80 }] }
     assert(AI.matchMode('generate a gradient', g2) === 'match' && AI.matchMode('generate a gradient', { elements: [{ what: 'a chair', soft: 0, w: 40, h: 60 }] }) === 'match' && AI.matchMode('recreate this', g2) === 'match' && AI.matchMode('a poster with a chair', { elements: [{ what: 'a chair', soft: 0, w: 40, h: 60 }] }) === null, 'thin streak does not veto a colour field; bare gradient request matches')
     const blue = AI.recolourCells(cells, ['#0D1B4C', '#1E40AF', '#3B82F6', '#93C5FD'])
     const hsl = (hx) => { const n = parseInt(hx.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = 0; if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return { h: ((h * 60) % 360 + 360) % 360, l: (mx + mn) / 2 } }
-    const c1 = hsl(blue[1].fill.hex), c0 = hsl(cells[1].fill.hex)
-    assert(c1.h > 200 && c1.h < 250 && Math.abs(c1.l - c0.l) < 0.02, 'recoloured cell is blue and keeps its lightness: ' + blue[1].fill.hex)
+    const c1 = hsl(blue[1].fill.stops[0].hex), c0 = hsl(cells[1].fill.stops[0].hex)
+    assert(c1.h > 190 && c1.h < 270 && Math.abs(c1.l - c0.l) < 0.02, 'recoloured cell is blue and keeps its lightness: ' + blue[1].fill.stops[0].hex)
+    const hues = blue.slice(1).map((L) => hsl(L.fill.stops[0].hex).h)
+    const jump = Math.max(...hues.slice(1).map((hh, i) => ((i + 1) % 8 === 0 ? 0 : Math.abs(((hh - hues[i] + 540) % 360) - 180)))) // horizontal neighbours; rows are 8 wide
+    assert(hues.every((hh) => hh > 170 && hh < 290) && jump < 25, 'one hue family, no checkerboard: max neighbour jump ' + jump.toFixed(1))
+    assert(AI.matchMode('create a mesh gradient with same palette', { elements: [{ soft: 0.8, count: 1 }] }) === 'match' && AI.matchMode('Generate the image with blue shades', { elements: [{ soft: 0.8, count: 1 }] }) === 'recolour' && AI.matchMode('use the colours of the reference', { elements: [{ soft: 0.8, count: 1 }] }) === 'match', 'same palette keeps colours; a named hue recolours')
     const plan = AI.normalizePlan({ name: 'Guess', palette: ['#000000', '#FFFFFF'], layers: [
       { name: 'Background', kind: 'rect', x: 540, y: 675, w: 1080, h: 1350, fill: { type: 'shader', shader: 'Fluid gradient' } },
       { name: 'Band', kind: 'rect', x: 540, y: 675, w: 1200, h: 400, rotation: 30, fill: { type: 'linear', angle: 0, stops: [{ pos: 0, hex: '#FF0000', alpha: 0 }, { pos: 1, hex: '#FF0000', alpha: 1 }] }, effects: [{ type: 'blur', radius: 120 }], blend: 'SCREEN' },

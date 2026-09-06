@@ -22,7 +22,7 @@ function render(plan, canvas, S){
   const x=canvas.getContext('2d'); x.scale(S,S)
   for(const L of plan.layers){
     x.save(); x.globalAlpha=L.opacity; x.globalCompositeOperation=BLEND[L.blend]||'source-over'
-    const f=[]; for(const e of L.effects){ if(e.type==='blur') f.push(`blur(${e.radius*S}px)`); if(e.type==='glow'||e.type==='shadow') f.push(`drop-shadow(${(e.x||0)*S}px ${(e.y||0)*S}px ${e.blur*S}px ${rgba(e.hex,e.alpha)})`) }
+    const f=[]; for(const e of L.effects){ if(e.type==='blur') f.push(`blur(${e.radius*S*0.5}px)`) /* Figma's layer blur radius ~ 2x a canvas blur */; if(e.type==='glow'||e.type==='shadow') f.push(`drop-shadow(${(e.x||0)*S}px ${(e.y||0)*S}px ${e.blur*S}px ${rgba(e.hex,e.alpha)})`) }
     x.filter=f.length?f.join(' '):'none'
     x.translate(L.x,L.y); x.rotate(L.rotation*Math.PI/180)
     const w=L.w,h=L.h
