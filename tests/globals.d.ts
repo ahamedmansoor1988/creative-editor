@@ -16,10 +16,35 @@ declare global {
       isReady(type: string): boolean;
       LEGACY_ORDER: string[];
       slotOf(type: string): string;
+      isBackdrop(type: string): boolean;
+      types(): string[];
+      meta(type: string): any;
+      label(type: string): string;
       entryOn(entry: any): boolean;
       activeMaterial(fx: any[]): any;
       inSlot(fx: any[], slot: string): any[];
     };
+    /* The browsable capability catalog and the (removed) standalone Lens
+     * engine. LensEngine is declared only so the removal tests can reference it
+     * and assert it is undefined. */
+    EngineCatalog?: {
+      get(id: string): any;
+      ready(): any[];
+      status(id: string): string;
+      READY: string;
+      compatibility(id: string, obj: any): any;
+      search(q: string): any[];
+      resolve(id: string): any;
+      all(): any[];
+    };
+    LensEngine?: any;
+    /* WebGL material engines and the engine picker, referenced by the browser
+     * half of the shader tests (they report available()===false under jsdom). */
+    GlassEngine?: any;
+    GlassObjectEngine?: any;
+    __engines?: any;
+    /* The MCP editor bridge's console/test hook. */
+    __mcp?: { HANDLERS: Record<string, any>; run(cmd: any): void };
     /* The gradient stripe engine. Its panel reads these off the engine rather
      * than repeating them, so the tests assert against the same source. */
     /* The mesh gradient engine. Loaded in tests for its plain-JS half —
@@ -62,6 +87,17 @@ declare global {
        * apply() under jsdom, which has no raster to measure. */
       hash2(x: number, y: number, seed: number): number;
       grain3(x: number, y: number, seed: number): number;
+      /* Pure-pixel cores exported so tests can measure a single pass directly
+       * (halftone coverage, warp/displacement geometry) without a full raster.
+       * Loosely typed: the tests pass ImageData-shaped stand-ins. */
+      stylizePixels?(...args: any[]): any;
+      distortionPixels?(...args: any[]): any;
+      warpPixels?(...args: any[]): any;
+      displacementPixels?(...args: any[]): any;
+      channelFxPixels?(...args: any[]): any;
+      colorAdjustPixels?(...args: any[]): any;
+      colorMapPixels?(...args: any[]): any;
+      ENVELOPES?: any;
     };
     GradientEngine?: {
       MAX_STOPS: number;

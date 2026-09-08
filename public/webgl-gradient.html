@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101114">
+  <title>Spectrum Column Lab</title>
+  <link rel="stylesheet" href="webgl-gradient.css">
+</head>
+<body>
+<main class="app">
+  <header class="bar">
+    <div class="identity"><span class="mark"></span><span>Spectrum Column Lab</span><small>GLSL</small></div>
+    <div class="actions">
+      <button id="undo" class="icon" aria-label="Undo" title="Undo">↶</button>
+      <button id="redo" class="icon" aria-label="Redo" title="Redo">↷</button>
+      <button id="reset">Reset</button>
+      <div class="export-wrap">
+        <button id="exportToggle" class="primary">Export PNG⌄</button>
+        <div id="exportMenu" class="menu" hidden>
+          <button data-scale="1">PNG · 1×</button>
+          <button data-scale="2">PNG · 2×</button>
+          <button data-scale="4">PNG · 4×</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="workspace">
+    <div class="stage">
+      <canvas id="canvas" aria-label="Live spectral column artwork"></canvas>
+      <div class="status"><span><i></i>Live WebGL</span><span id="size">—</span></div>
+      <p id="error" hidden></p>
+    </div>
+
+    <aside class="panel">
+      <div class="panel-head"><div><span>CONTROLS</span><h1>Column builder</h1></div><label class="play"><input id="animate" type="checkbox"><span></span>Drift</label></div>
+
+      <section><h2>Base column</h2><div data-group="column"></div></section>
+      <section><h2>Column pattern</h2>
+        <label class="select-control"><span>Pattern</span><select id="pattern"><option value="0">Straight</option><option value="3">O</option><option value="4">Wave</option></select></label>
+        <div data-group="pattern"></div>
+        <p>Straight forms rounded vertical columns. O forms closed circles. Wave columns share smooth boundaries with zero side spacing.</p>
+      </section>
+      <section><h2>Repetition</h2><div data-group="repeat"></div></section>
+      <section><h2>Column variation</h2><div data-group="variation"></div></section>
+      <section><h2>Iridescent palette</h2>
+        <div class="palette" id="palette"></div>
+        <button id="addColour" class="palette-add" type="button">＋ Add colour</button>
+        <label class="background"><span>Background</span><input id="background" type="color" aria-label="Background colour"></label>
+        <div data-group="colour"></div>
+      </section>
+      <section><h2>Gradient field</h2>
+        <div data-group="gradient"></div>
+      </section>
+      <section><h2>Composition mirror</h2>
+        <label class="select-control"><span>Duplicate horizontally</span><select id="mirrorX"><option value="0">Off</option><option value="1">On</option></select></label>
+        <label class="select-control"><span>Duplicate vertically</span><select id="mirrorY"><option value="0">Off</option><option value="1">On</option></select></label>
+      </section>
+      <section><h2>Iridescent material</h2><div data-group="material"></div></section>
+      <section><h2>Inner glow</h2><div data-group="glow"></div></section>
+      <section><h2>Composition</h2><div data-group="frame"></div></section>
+    </aside>
+  </section>
+</main>
+<script src="webgl-gradient.js"></script>
+</body>
+</html>

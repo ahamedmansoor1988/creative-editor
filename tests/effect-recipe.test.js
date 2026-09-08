@@ -6,11 +6,27 @@ let editor;
 beforeAll(() => ({ editor } = loadEditor()));
 
 function card() {
-  editor.doc = { frame: { name: "Recipe", w: 600, h: 400, bg: "#fff", artboards: [], children: [{
-    type: "rect", name: "Card", x: 100, y: 80, w: 240, h: 160,
-    fill: { kind: "solid", color: "#456789" },
-    effects: { glow: { on: true, type: "outer", radius: 18, alpha: .7 } },
-  }] } };
+  editor.doc = {
+    frame: {
+      name: "Recipe",
+      w: 600,
+      h: 400,
+      bg: "#fff",
+      artboards: [],
+      children: [
+        {
+          type: "rect",
+          name: "Card",
+          x: 100,
+          y: 80,
+          w: 240,
+          h: 160,
+          fill: { kind: "solid", color: "#456789" },
+          effects: { glow: { on: true, type: "outer", radius: 18, alpha: 0.7 } },
+        },
+      ],
+    },
+  };
   const o = editor.doc.frame.children[0];
   editor.setSelIds(new Set([o.id]));
   editor.refresh();
@@ -28,7 +44,7 @@ describe("Effect Recipe inspector", () => {
 
   it("duplicates an effect as an independent parameter set", () => {
     const o = card();
-    document.querySelector("#fxBody .fxDup").click();
+    /** @type {any} */ (document.querySelector("#fxBody .fxDup")).click();
     const glows = o.fx.filter((e) => e.type === "glow");
     expect(glows).toHaveLength(2);
     expect(glows[0].params).not.toBe(glows[1].params);
@@ -43,7 +59,10 @@ describe("Effect Recipe inspector", () => {
     const first = o.fx.find((e) => e.type === "glow");
     first.added = true;
     o.fx.splice(o.fx.indexOf(first) + 1, 0, {
-      id: "second-glow", type: "glow", on: true, added: true,
+      id: "second-glow",
+      type: "glow",
+      on: true,
+      added: true,
       params: { ...first.params, radius: 64, color: "#ff0000" },
     });
     editor.doc = JSON.parse(editor.serializeDocument()).pages[0];

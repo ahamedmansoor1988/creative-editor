@@ -25,3 +25,10 @@ public/light.js
 public/gradient.js
 public/liquidgradient.js
 public/prismflare.js
+
+# Nested sub-project (a Figma plugin with its own build); formatted on its own.
+Test Plugin/
+# Standalone WebGL gradient lab, kept as reference material.
+public/webgl-gradient.js
+public/webgl-gradient.html
+public/webgl-gradient.css

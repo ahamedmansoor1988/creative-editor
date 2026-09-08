@@ -221,8 +221,9 @@ describe("channel displacement over transparency", () => {
       { mode: "aberration", amount: 9, falloff: 1 },
     ]) {
       const inside = at(run(p), 16, 30);
-      expect(inside[0] + inside[1] + inside[2], p.mode + " carved a black edge")
-        .toBeGreaterThan(300);
+      expect(inside[0] + inside[1] + inside[2], p.mode + " carved a black edge").toBeGreaterThan(
+        300,
+      );
     }
   });
 

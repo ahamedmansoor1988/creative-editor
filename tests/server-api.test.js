@@ -496,3 +496,281 @@ describe("/api/generate — measured image colours", () => {
     expect(sentText()).not.toContain("MEASURED COLOURS");
   });
 });
+
+describe("/api/analyze — classification routing", () => {
+  const IMG = "data:image/png;base64,iVBORw0KGgo=";
+  const grid = (n, hex) => ({
+    grid: n,
+    aspect: 0.75,
+    rows: Array.from({ length: n }, () => Array.from({ length: n }, () => hex || "#123456")),
+  });
+  const sentText = () => {
+    const c = mock.lastRequest.messages[1].content;
+    return Array.isArray(c) ? c.map((p) => p.text || "").join("\n") : String(c);
+  };
+  const sentSystem = () => String(mock.lastRequest.messages[0].content);
+  const RECIPE = {
+    base: "mesh",
+    effects: [{ type: "grain", amount: 0.3 }],
+    structure: "soft field",
+    confidence: 0.9,
+  };
+  const features = {
+    edge24: 0.38,
+    edge64: 0.09,
+    colours: 12,
+    periodic: { axis: "rows", lag: 6, strength: 0.46, amp: 7.9, count: 21, pitch: 0.047 },
+    grain: { median: 0.5, amount: 0.09 },
+  };
+
+  it("takes the recipe path on the everyday model when no class is sent (legacy callers)", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(RECIPE));
+    const { res, json } = await post("/api/analyze", { imageDataUrl: IMG });
+    expect(res.status).toBe(200);
+    expect(json.kind).toBe("recipe");
+    expect(json.classification).toBe("color_field");
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+    expect(json.recipe.effects[0].type).toBe("grain");
+  });
+
+  it("asks about the SURFACE for a material and passes the measured ribs", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(RECIPE));
+    const { json } = await post("/api/analyze", {
+      imageDataUrl: IMG,
+      classification: "material",
+      features,
+    });
+    expect(json.kind).toBe("recipe");
+    expect(json.classification).toBe("material");
+    expect(sentText()).toMatch(/SURFACE/);
+    expect(sentText()).toMatch(/about 21 copies stacked vertically/);
+    expect(sentSystem()).toContain('"reeded"');
+    expect(sentSystem()).toContain('"liquid"');
+  });
+
+  const BRIEF = {
+    background: { kind: "solid", colors: ["#050508"] },
+    elements: [
+      {
+        what: "dark slats",
+        shape: "rect",
+        count: 21,
+        x: 50,
+        y: 50,
+        w: 100,
+        h: 100,
+        color: "#111111",
+        repeat: "vertical",
+      },
+      {
+        what: "left half circle",
+        shape: "ellipse",
+        count: 1,
+        x: 25,
+        y: 25,
+        w: 30,
+        h: 50,
+        color: "#6a5acd",
+        cut: "left",
+      },
+    ],
+    text: [
+      {
+        content: "Color tools",
+        x: 38,
+        y: 45,
+        size: 6,
+        weight: "bold",
+        color: "#ffffff",
+        align: "left",
+      },
+    ],
+    unsupported: ["3D bend of the slats"],
+  };
+
+  it("plans a composition from ONE vision reading, building the layers deterministically", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(BRIEF));
+    const before = mock.calls;
+    const { res, json } = await post("/api/analyze", {
+      imageDataUrl: IMG,
+      classification: "composition",
+      features,
+      imageSamples: grid(6, "#abcdef"),
+      frame: { w: 900, h: 1200 },
+      prompt: "keep it dark",
+    });
+    expect(res.status).toBe(200);
+    expect(json.kind).toBe("plan");
+    // one call: the strong vision model reads a brief; no second model writes JSON
+    expect(mock.calls - before).toBe(1);
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.8-27b");
+    expect(mock.lastRequest.max_completion_tokens).toBe(700);
+    expect(json.model).toBe("qwen/qwen3.8-27b");
+    const sys = sentSystem();
+    expect(sys).toMatch(/STRUCTURAL brief/);
+    expect(sys).toContain('"unsupported"');
+    const text = sentText();
+    expect(text).toContain("keep it dark");
+    expect(text).toMatch(/about 21 copies/);
+    // the document is BUILT from the brief: background, a 21-row pattern parent, a half-circle path, verbatim text
+    const kids = json.doc.frame.children;
+    expect([json.doc.frame.w, json.doc.frame.h]).toEqual([900, 1200]);
+    expect(kids[0]).toMatchObject({
+      type: "rect",
+      name: "Background",
+      w: 900,
+      h: 1200,
+      fill: { kind: "solid", color: "#050508" },
+    });
+    expect(kids[1]).toMatchObject({
+      type: "rect",
+      name: "dark slats",
+      x: 0,
+      w: 900,
+      pattern: { columns: 1, rows: 21 },
+    });
+    expect(kids[1].h).toBeLessThan(1200 / 21);
+    expect(kids[2]).toMatchObject({ type: "path", closed: true, fillOn: true });
+    expect(kids[2].points).toHaveLength(3);
+    expect(kids[3]).toMatchObject({
+      type: "text",
+      text: "Color tools",
+      weight: 700,
+      align: "left",
+    });
+    expect(kids[3].size).toBeCloseTo(72, 0);
+    expect(json.unsupported).toEqual(["3D bend of the slats"]);
+    expect(json.brief.elements).toHaveLength(2);
+  });
+
+  it("re-reads the image on a retry, told where the render was wrong", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(BRIEF));
+    const before = mock.calls;
+    await post("/api/analyze", {
+      imageDataUrl: IMG,
+      classification: "composition",
+      previous: {
+        doc: { frame: {} },
+        brief: BRIEF,
+        error: 41.2,
+        cells: [
+          [
+            { ref: "#ff0000", got: "#000000", err: 85 },
+            { ref: "#00ff00", got: "#00ff00", err: 0 },
+          ],
+        ],
+      },
+    });
+    expect(mock.calls - before).toBe(1);
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.8-27b");
+    const text = sentText();
+    expect(text).toMatch(/mean colour error of 41.2/);
+    expect(text).toContain("r0c0 #ff0000 vs #000000");
+    expect(text).toMatch(/Read the image again/);
+  });
+
+  it("says what the layers cannot express instead of faking it", () => {
+    const { briefToDoc } = require("../server.js");
+    const out = briefToDoc(
+      {
+        background: { kind: "gradient", colors: ["#000000", "#333333"], angle: 90 },
+        elements: [
+          {
+            what: "ovals",
+            shape: "ellipse",
+            count: 24,
+            x: 50,
+            y: 50,
+            w: 100,
+            h: 100,
+            color: "#ff00ff",
+            colorEnd: "#00ff00",
+            repeat: "fan",
+          },
+          {
+            what: "glow",
+            shape: "ellipse",
+            count: 1,
+            x: 80,
+            y: 80,
+            w: 40,
+            h: 40,
+            color: "#ff8800",
+            soft: 0.9,
+          },
+        ],
+        text: [],
+        unsupported: [],
+      },
+      1000,
+      1000,
+      [],
+    );
+    const kids = out.doc.frame.children;
+    expect(kids[0].fill.kind).toBe("linear");
+    expect(kids[1].pattern).toMatchObject({ columns: 24, rows: 1 });
+    expect(kids[1].pattern.rotationStep).toBeGreaterThan(0);
+    expect(kids[2]).toMatchObject({ type: "ellipse", fill: { kind: "radial" }, blend: "screen" });
+    // a plateau, then a fade to nothing: light reads as a field, not a point
+    expect(kids[2].fill.stops.map((st) => st.opacity)).toEqual([1, 0.85, 0]);
+    expect(out.unsupported.join(" | ")).toMatch(/true fan/);
+    expect(out.unsupported.join(" | ")).toMatch(/colour change across 24 copies/);
+  });
+
+  it("repairs a range the model copied out of the schema", () => {
+    const { extractJSON } = require("../server.js");
+    expect(extractJSON('{"count":1-64,"x":50,"list":[1,2]}')).toEqual({
+      count: 1,
+      x: 50,
+      list: [1, 2],
+    });
+  });
+
+  it("falls back to the recipe path for an unknown class rather than trusting it", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(RECIPE));
+    const { json } = await post("/api/analyze", { imageDataUrl: IMG, classification: "photo" });
+    expect(json.kind).toBe("recipe");
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+  });
+
+  it("lets a measured composition class override the 16x16 colour-field guess in generate", async () => {
+    mock.status = 200;
+    mock.body = groqReply(JSON.stringify(VALID_DOC));
+    // a flat grid has mean step 0: the old rule would call this a colour field
+    await post("/api/generate", {
+      prompt: "x",
+      imageDataUrl: IMG,
+      imageSamples: grid(4),
+      classification: "composition",
+    });
+    expect(sentText()).not.toContain("SMOOTH COLOUR FIELD");
+    await post("/api/generate", {
+      prompt: "x",
+      imageDataUrl: IMG,
+      imageSamples: grid(4),
+      classification: "color_field",
+    });
+    expect(sentText()).toContain("SMOOTH COLOUR FIELD");
+    await post("/api/generate", { prompt: "x", imageDataUrl: IMG, imageSamples: grid(4) });
+    expect(sentText(), "no class sent: the old rule still applies").toContain(
+      "SMOOTH COLOUR FIELD",
+    );
+  });
+
+  it("names the models in /api/config, never a key", async () => {
+    const res = await fetch(baseUrl + "/api/config");
+    const cfg = await res.json();
+    expect(cfg.models).toEqual({
+      text: "openai/gpt-oss-120b",
+      vision: "qwen/qwen3.6-27b",
+      visionStrong: "qwen/qwen3.8-27b",
+    });
+    expect(cfg.strongRoute).toBe("same provider");
+    expect(JSON.stringify(cfg)).not.toContain("test-key-not-real");
+  });
+});

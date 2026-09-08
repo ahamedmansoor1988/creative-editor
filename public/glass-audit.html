@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Glass audit</title>
+<style>
+  html,
+  body {
+    margin: 0;
+    background: #dfe7f4;
+    font-family: system-ui;
+  }
+  main {
+    width: 900px;
+    margin: 32px auto;
+    display: grid;
+    gap: 24px;
+  }
+  h2 {
+    margin: 0 0 -12px;
+    color: #20304a;
+  }
+  canvas {
+    display: block;
+    width: 900px;
+    height: 600px;
+    border-radius: 32px;
+    box-shadow: 0 24px 70px #29436530;
+  }
+</style>
+<main>
+  <h2>Glass</h2>
+  <canvas id="c" width="900" height="600"></canvas>
+  <h2>Lens</h2>
+  <canvas id="l" width="900" height="600"></canvas>
+</main>
+<script src="glass.js?v=sheet-optics"></script>
+<script src="lens.js?v=sheet-optics"></script>
+<script>
+  function backdrop(c) {
+    const g = c.getContext("2d"),
+      bg = g.createLinearGradient(0, 0, 900, 600);
+    bg.addColorStop(0, "#6f55f7");
+    bg.addColorStop(0.45, "#31b9e6");
+    bg.addColorStop(1, "#ff7ba8");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, 900, 600);
+    g.globalAlpha = 0.9;
+    for (const [x, y, r, col] of [
+      [140, 160, 110, "#ffe071"],
+      [680, 150, 150, "#ff477e"],
+      [300, 520, 190, "#2957d8"],
+      [770, 510, 180, "#8fffce"],
+    ]) {
+      g.fillStyle = col;
+      g.beginPath();
+      g.arc(x, y, r, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.globalAlpha = 0.78;
+    g.fillStyle = "#fff";
+    g.font = "700 84px system-ui";
+    g.fillText("LIQUID", 70, 355);
+    g.fillText("GLASS", 470, 355);
+    g.globalAlpha = 1;
+  }
+  const c = document.querySelector("#c");
+  backdrop(c);
+  const params = {
+    depth: 80,
+    refraction: 50,
+    ior: 1.52,
+    roughness: 0.06,
+    absorption: 0.1,
+    backdropDistance: 10,
+    bevel: 55,
+    quality: "standard",
+    frost: 0,
+    reflection: 35,
+    edgeIntensity: 70,
+    edgeWidth: 12,
+    edgeSoftness: 45,
+    dispersion: 0,
+    tint: "#ffffff",
+    opacity: 100,
+  };
+  GlassEngine.render(
+    c,
+    900,
+    600,
+    [{ cx: 450, cy: 300, w: 650, h: 260, shape: 2, radius01: 0.5 }],
+    params,
+  );
+  const l = document.querySelector("#l");
+  backdrop(l);
+  LensEngine.render(l, 900, 600, [{ cx: 450, cy: 300, w: 650, h: 260, shape: 2, radius01: 0.5 }], {
+    curvature: 55,
+    thickness: 40,
+    ior: 1.414,
+    dispersion: 40,
+    absorption: 0.32,
+    tint: "#ffffff",
+    backdropDistance: 30,
+    edgeIntensity: 45,
+    edgeWidth: 10,
+    edgeSoftness: 50,
+    opacity: 100,
+  });
+</script>

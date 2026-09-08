@@ -90,7 +90,8 @@
       kind: "effect",
       rendererType: "glass",
       supportedInputs: ["rect", "ellipse"],
-      description: "Refract a layer as backdrop, frosted, reeded, or 3D glass from one editable material.",
+      description:
+        "Refract a layer as backdrop, frosted, reeded, or 3D glass from one editable material.",
     },
     {
       id: "innerLens",
@@ -195,7 +196,8 @@
       kind: "effect",
       rendererType: "colorAdjust",
       supportedInputs: ALL_LAYERS,
-      description: "Exposure, brightness, contrast, saturation, vibrance, highlights, and shadows in one reusable pass.",
+      description:
+        "Exposure, brightness, contrast, saturation, vibrance, highlights, and shadows in one reusable pass.",
     },
     {
       id: "colorMap",
@@ -215,7 +217,8 @@
       kind: "effect",
       rendererType: "channelFx",
       supportedInputs: ALL_LAYERS,
-      description: "RGB Split, Chromatic Aberration, and per-channel offsets in one reusable sampler.",
+      description:
+        "RGB Split, Chromatic Aberration, and per-channel offsets in one reusable sampler.",
     },
     {
       id: "stylize",

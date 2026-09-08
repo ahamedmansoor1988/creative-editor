@@ -182,15 +182,25 @@ describe("halftone reproduces tone", () => {
   });
 
   it("does not interpret transparent cell centres as black ink", () => {
-    const W2=40,H2=40,data=new Uint8ClampedArray(W2*H2*4);
-    for(let y=8;y<32;y++) for(let x=8;x<32;x++){
-      const i=(y*W2+x)*4; data[i]=data[i+1]=data[i+2]=data[i+3]=255;
-    }
-    const img={data};
-    window.Filters.stylizePixels(img,W2,H2,{mode:"halftone",dotSize:8,angle:45,mix:1,
-      foreground:"#000000",background:"#ffffff"});
-    const visible=[];
-    for(let i=0;i<data.length;i+=4) if(data[i+3]) visible.push(data[i]);
+    const W2 = 40,
+      H2 = 40,
+      data = new Uint8ClampedArray(W2 * H2 * 4);
+    for (let y = 8; y < 32; y++)
+      for (let x = 8; x < 32; x++) {
+        const i = (y * W2 + x) * 4;
+        data[i] = data[i + 1] = data[i + 2] = data[i + 3] = 255;
+      }
+    const img = { data };
+    window.Filters.stylizePixels(img, W2, H2, {
+      mode: "halftone",
+      dotSize: 8,
+      angle: 45,
+      mix: 1,
+      foreground: "#000000",
+      background: "#ffffff",
+    });
+    const visible = [];
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3]) visible.push(data[i]);
     expect(Math.min(...visible)).toBeGreaterThan(250);
   });
 

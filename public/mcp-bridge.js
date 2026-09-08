@@ -177,7 +177,7 @@
   function hex(v, name, dflt) {
     if (v === undefined) return dflt;
     if (!HEX.test(String(v)))
-      throw new Error(name + ' must be a #rrggbb colour (got ' + JSON.stringify(v) + ").");
+      throw new Error(name + " must be a #rrggbb colour (got " + JSON.stringify(v) + ").");
     return String(v);
   }
 
@@ -209,10 +209,12 @@
    * afterwards to do the clamping and fill in the fields the renderer needs. */
   function checkFillSpec(spec) {
     if (!spec || typeof spec !== "object" || Array.isArray(spec))
-      throw new Error("fill must be an object, e.g. {\"kind\":\"solid\",\"color\":\"#5b8cff\"}.");
+      throw new Error('fill must be an object, e.g. {"kind":"solid","color":"#5b8cff"}.');
     const kind = spec.kind;
     if (!["solid", "linear", "radial"].includes(kind))
-      throw new Error('fill.kind must be "solid", "linear" or "radial" (got ' + JSON.stringify(kind) + ").");
+      throw new Error(
+        'fill.kind must be "solid", "linear" or "radial" (got ' + JSON.stringify(kind) + ").",
+      );
     if (kind === "solid") {
       hex(spec.color, "fill.color");
       if (spec.color === undefined) throw new Error("A solid fill needs a color, as #rrggbb.");
@@ -220,12 +222,15 @@
     }
     if (!Array.isArray(spec.stops) || spec.stops.length < 2)
       throw new Error("A " + kind + " fill needs a stops array with at least 2 entries.");
-    if (spec.stops.length > 8) throw new Error("A gradient takes at most 8 stops (got " + spec.stops.length + ").");
+    if (spec.stops.length > 8)
+      throw new Error("A gradient takes at most 8 stops (got " + spec.stops.length + ").");
     spec.stops.forEach((st, i) => {
-      if (!st || typeof st !== "object") throw new Error("fill.stops[" + i + "] must be an object.");
+      if (!st || typeof st !== "object")
+        throw new Error("fill.stops[" + i + "] must be an object.");
       num(st.pos, "fill.stops[" + i + "].pos", 0, 1);
       hex(st.color, "fill.stops[" + i + "].color");
-      if (st.color === undefined) throw new Error("fill.stops[" + i + "] needs a color, as #rrggbb.");
+      if (st.color === undefined)
+        throw new Error("fill.stops[" + i + "] needs a color, as #rrggbb.");
       if (st.opacity !== undefined) num(st.opacity, "fill.stops[" + i + "].opacity", 0, 1);
     });
     if (spec.angle !== undefined) num(spec.angle, "fill.angle", -360, 360);
@@ -265,7 +270,10 @@
       const have = (o.fx || []).filter((e) => S.entryOn(e) || e.added).map((e) => e.type);
       throw new Error(
         (o.name || o.type) +
-          " has no " + type + " effect. It has: " + (have.join(", ") || "none") +
+          " has no " +
+          type +
+          " effect. It has: " +
+          (have.join(", ") || "none") +
           ". Use apply_effect to add one.",
       );
     }
@@ -289,8 +297,12 @@
     Object.keys(patch).forEach((k) => {
       if (!(k in cur))
         throw new Error(
-          JSON.stringify(k) + " is not a parameter of " + entry.type +
-            ". Its parameters are: " + Object.keys(cur).join(", ") + ".",
+          JSON.stringify(k) +
+            " is not a parameter of " +
+            entry.type +
+            ". Its parameters are: " +
+            Object.keys(cur).join(", ") +
+            ".",
         );
       const was = cur[k];
       const val = patch[k];
@@ -298,8 +310,11 @@
         const valid = ["rgbSplit", "aberration", "channelOffset"];
         if (!valid.includes(val))
           throw new Error(
-            "channelFx mode must be one of: " + valid.join(", ") +
-              " (got " + JSON.stringify(val) + ").",
+            "channelFx mode must be one of: " +
+              valid.join(", ") +
+              " (got " +
+              JSON.stringify(val) +
+              ").",
           );
       }
       if (typeof was === "number") cur[k] = num(val, k, -1e6, 1e6);
@@ -480,8 +495,10 @@
       /* Absolute by default; dx/dy is the relative form. Offering both stops
        * the agent from having to read the document, add, and write back —
        * three calls where one will do, each a chance to race the user. */
-      const x = p.dx !== undefined ? b.x + num(p.dx, "dx", -COORD, COORD) : num(p.x, "x", -COORD, COORD);
-      const y = p.dy !== undefined ? b.y + num(p.dy, "dy", -COORD, COORD) : num(p.y, "y", -COORD, COORD);
+      const x =
+        p.dx !== undefined ? b.x + num(p.dx, "dx", -COORD, COORD) : num(p.x, "x", -COORD, COORD);
+      const y =
+        p.dy !== undefined ? b.y + num(p.dy, "dy", -COORD, COORD) : num(p.y, "y", -COORD, COORD);
       ed.placeObject(o, x, y);
       commit("move " + (o.name || o.type));
       return report(o);
@@ -553,8 +570,11 @@
         );
       if (C.status(item.id) !== C.READY)
         throw new Error(
-          '"' + item.label + '" is not available yet' +
-            (item.statusReason ? " — " + item.statusReason : "") + ".",
+          '"' +
+            item.label +
+            '" is not available yet' +
+            (item.statusReason ? " — " + item.statusReason : "") +
+            ".",
         );
 
       const o = objById(p.id);
@@ -590,7 +610,12 @@
         throw new Error("params must be an object of parameter names to values.");
       patchParams(entry, p.params);
       commit("update " + entry.type);
-      return { effectId: entry.id, type: entry.type, params: entry.params, active: FS().entryOn(entry) };
+      return {
+        effectId: entry.id,
+        type: entry.type,
+        params: entry.params,
+        active: FS().entryOn(entry),
+      };
     },
 
     remove_effect(p) {
@@ -706,5 +731,11 @@
 
   /* Exported for the test battery and for driving a command by hand from the
    * console, which is how you check a new handler without an MCP client. */
-  window.__mcp = { HANDLERS, run, get stream() { return stream; } };
+  window.__mcp = {
+    HANDLERS,
+    run,
+    get stream() {
+      return stream;
+    },
+  };
 })();

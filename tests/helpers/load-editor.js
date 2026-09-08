@@ -225,6 +225,10 @@ export function loadEditor() {
      * empty net. available() still reports false here, which is the branch a
      * machine without WebGL2 takes, so that path gets exercised too. */
     "meshgradient.js",
+    /* reference.js is pure measurement (edges, periodicity, grain, render
+     * comparison) over RGBA buffers; app.js calls it when a reference is
+     * attached. No canvas is touched at load time. */
+    "reference.js",
   ]) {
     window.eval(fs.readFileSync(path.join(ROOT, "public", dep), "utf8"));
   }

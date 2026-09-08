@@ -292,7 +292,7 @@ describe("inner shadow and glow do not share controls", () => {
     const b = [...document.querySelectorAll("#fxBody .fxName")].find((x) =>
       x.textContent.trim().toLowerCase().includes(name),
     );
-    b.click();
+    /** @type {any} */ (b).click();
   };
   const checkbox = (label) =>
     [...document.querySelectorAll("#fxBody input[type=checkbox]")].find((b) =>
@@ -344,7 +344,7 @@ describe("inner shadow and glow do not share controls", () => {
     toggle(checkbox("glow"), true);
     const glowCol = document.getElementById("glCol");
     expect(glowCol).toBeTruthy();
-    glowCol.value = "#123456";
+    /** @type {any} */ (glowCol).value = "#123456";
     glowCol.dispatchEvent(new window.Event("input", { bubbles: true }));
     expect(o.effects.glow.color).toBe("#123456");
     expect(o.effects.innerShadow.color, "the glow picker wrote to the inner shadow").toBe(

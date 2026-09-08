@@ -214,14 +214,33 @@
     }
     if (e.type === "bloom") return (p.amount || 0) > 0 && (p.radius || 0) > 0;
     if (e.type === "colorAdjust") {
-      return ["exposure", "blackPoint", "brightness", "contrast", "brilliance", "saturation",
-        "vibrance", "temperature", "tint", "highlights", "shadows", "filterAmount", "definition"]
-        .some((k) => Math.abs(+p[k] || 0) > 0.0001) || Math.abs((+p.whitePoint||1)-1)>.0001 || Math.abs((+p.gamma||1)-1)>.0001;
+      return (
+        [
+          "exposure",
+          "blackPoint",
+          "brightness",
+          "contrast",
+          "brilliance",
+          "saturation",
+          "vibrance",
+          "temperature",
+          "tint",
+          "highlights",
+          "shadows",
+          "filterAmount",
+          "definition",
+        ].some((k) => Math.abs(+p[k] || 0) > 0.0001) ||
+        Math.abs((+p.whitePoint || 1) - 1) > 0.0001 ||
+        Math.abs((+p.gamma || 1) - 1) > 0.0001
+      );
     }
     if (e.type === "colorMap") return (p.amount || 0) > 0;
     if (e.type === "channelFx") {
       if ((p.mix || 0) <= 0) return false;
-      if (p.mode === "channelOffset") return ["redX","redY","greenX","greenY","blueX","blueY"].some(k=>(+p[k]||0)!==0);
+      if (p.mode === "channelOffset")
+        return ["redX", "redY", "greenX", "greenY", "blueX", "blueY"].some(
+          (k) => (+p[k] || 0) !== 0,
+        );
       return (p.amount || 0) > 0;
     }
     if (e.type === "stylize") return (p.mix || 0) > 0;

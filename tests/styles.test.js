@@ -245,10 +245,47 @@ describe("per-shape export", () => {
     expect(seen).toBeTruthy();
     expect(ctx.canvas.width).toBe(Math.round(box.w * 2));
     expect(ctx.canvas.height).toBe(Math.round(box.h * 2));
-    const scaleCall = ctx.calls.find((c) => c.name === "scale");
-    expect(scaleCall.args).toEqual([2, 2]);
     const translateCall = ctx.calls.find((c) => c.name === "translate");
-    expect(translateCall.args).toEqual([-box.x, -box.y]);
+    expect(translateCall.args).toEqual([-box.x * 2, -box.y * 2]);
+  });
+
+  it("builds a true high-resolution render copy without mutating the document", () => {
+    const [r] = loadDoc([
+      rectOf({
+        x: 10,
+        y: 20,
+        w: 100,
+        h: 50,
+        radius: 8,
+        fx: [
+          { type: "shadow", on: true, params: { on: true, x: 4, y: 6, blur: 12, spread: 3 } },
+          { type: "blur", on: true, params: { kind: "gaussian", radius: 7, distance: 0 } },
+          {
+            type: "channelFx",
+            on: true,
+            params: {
+              mode: "channelOffset",
+              amount: 5,
+              redX: -2,
+              redY: 1,
+              greenX: 0,
+              greenY: 0,
+              blueX: 3,
+              blueY: -1,
+            },
+          },
+        ],
+      }),
+    ]);
+    const before = JSON.stringify(r);
+    const hi = editor.scaleObjectForRender(r, 2);
+    expect(hi).not.toBe(r);
+    expect(hi).toMatchObject({ x: 20, y: 40, w: 200, h: 100, radius: 16 });
+    expect(hi.fx[0].params).toMatchObject({ x: 8, y: 12, blur: 24, spread: 6 });
+    expect(hi.fx[1].params.radius).toBe(14);
+    expect(hi.fx[2].params).toMatchObject({ amount: 10, redX: -4, redY: 2, blueX: 6, blueY: -2 });
+    expect(hi.fx.map((e) => e.type)).toEqual(r.fx.map((e) => e.type));
+    expect(JSON.stringify(r)).toBe(before);
   });
 
   it("expands export bounds for a drop shadow instead of clipping it to geometry", () => {
@@ -258,11 +295,13 @@ describe("per-shape export", () => {
         y: 150,
         w: 80,
         h: 40,
-        fx: [{
-          type: "shadow",
-          on: true,
-          params: { on: true, type: "drop", x: 20, y: 30, blur: 12, spread: 8 },
-        }],
+        fx: [
+          {
+            type: "shadow",
+            on: true,
+            params: { on: true, type: "drop", x: 20, y: 30, blur: 12, spread: 8 },
+          },
+        ],
       }),
     ]);
     const geometric = editor.boxOf(r);
@@ -280,7 +319,7 @@ describe("per-shape export", () => {
         y: 30,
         w: 40,
         h: 20,
-        pattern: { type: "grid", cols: 3, rows: 1, gapX: 10, gapY: 0 },
+        pattern: { columns: 3, rows: 1, hGap: 10, vGap: 0 },
       }),
     ]);
     const geometric = editor.boxOf(r);

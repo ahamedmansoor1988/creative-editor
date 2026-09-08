@@ -47,8 +47,9 @@ function layer(type, extra) {
 }
 
 const open = () => window.__engines.open();
-const rows = () => [...document.querySelectorAll(".engRow")];
-const row = (id) => document.querySelector('.engRow[data-engine="' + id + '"]');
+const rows = () => /** @type {any[]} */ ([...document.querySelectorAll(".engRow")]);
+const row = (id) =>
+  /** @type {any} */ (document.querySelector('.engRow[data-engine="' + id + '"]'));
 beforeAll(() => {
   ({ editor } = loadEditor());
 });
@@ -59,8 +60,29 @@ describe("the panel renders", () => {
     expect(menu.querySelectorAll("#enginesOpen").length).toBe(1);
     expect(menu.querySelectorAll("button[data-fx]").length).toBe(0);
     expect(
-      [...menu.querySelectorAll("[data-capability]")].map((b) => b.dataset.capability),
-    ).toEqual(["imageFill", "linearGradient", "mesh", "shadow", "innerShadow", "glow", "bloom", "backgroundBlur", "blur", "grain", "noise", "distortion", "warp", "displacement", "colorAdjust", "colorMap", "channelFx", "stylize"]);
+      [...menu.querySelectorAll("[data-capability]")].map(
+        (b) => /** @type {any} */ (b).dataset.capability,
+      ),
+    ).toEqual([
+      "imageFill",
+      "linearGradient",
+      "mesh",
+      "shadow",
+      "innerShadow",
+      "glow",
+      "bloom",
+      "backgroundBlur",
+      "blur",
+      "grain",
+      "noise",
+      "distortion",
+      "warp",
+      "displacement",
+      "colorAdjust",
+      "colorMap",
+      "channelFx",
+      "stylize",
+    ]);
   });
 
   it("opens with only the capabilities a person can use now", () => {
@@ -70,6 +92,7 @@ describe("the panel renders", () => {
     expect(rows().map((r) => r.dataset.engine)).toEqual(
       EC()
         .ready()
+        .filter((e) => !e.hidden)
         .map((e) => e.id),
     );
   });
@@ -101,7 +124,27 @@ describe("the proven capabilities are discoverable", () => {
       EC()
         .ready()
         .map((e) => e.id),
-    ).toEqual(["imageFill", "linearGradient", "mesh", "glass", "shadow", "innerShadow", "glow", "bloom", "backgroundBlur", "colorAdjust", "colorMap", "channelFx", "stylize", "distortion", "warp", "displacement", "blur", "grain", "noise"]);
+    ).toEqual([
+      "imageFill",
+      "linearGradient",
+      "mesh",
+      "glass",
+      "shadow",
+      "innerShadow",
+      "glow",
+      "bloom",
+      "backgroundBlur",
+      "colorAdjust",
+      "colorMap",
+      "channelFx",
+      "stylize",
+      "distortion",
+      "warp",
+      "displacement",
+      "blur",
+      "grain",
+      "noise",
+    ]);
   });
 
   it("demotes a capability the gate has not passed, rather than believing itself", () => {
@@ -191,6 +234,41 @@ describe("applying an engine", () => {
     expect(o.effects.grain.amount).toBeGreaterThan(0);
   });
 
+  it("adds Glass with clean defaults instead of reviving a removed legacy recipe", () => {
+    const o = layer("rect");
+    const stale = o.fx.find((e) => e.type === "glass");
+    Object.assign(stale.params, {
+      on: false,
+      depth: -131,
+      refraction: -172,
+      ior: 2.07,
+      absorption: 5.33,
+    });
+    stale.on = false;
+    stale.added = false;
+
+    open();
+    row("glass").click();
+
+    const active = o.fx.find((e) => e.type === "glass" && e.added === true);
+    expect(active.params).toBe(o.effects.glass);
+    expect(active.params).toMatchObject({
+      on: true,
+      depth: 80,
+      refraction: 50,
+      ior: 1.52,
+      absorption: 0.1,
+      reflection: 35,
+      edgeIntensity: 70,
+      /* Clear, not milky. Glass used to default to opacity 92 with frost 3 to
+       * stay visible on a flat white backdrop, which lifted transmitted black
+       * to 88/255 and crushed the shadow range on real artwork. Its presence
+       * now comes from refraction and the edge band instead. */
+      opacity: 100,
+      frost: 0,
+    });
+  });
+
   it("puts it in the document effect stack", () => {
     const o = layer("rect");
     open();
@@ -258,7 +336,9 @@ describe("applying an engine", () => {
         { x: 250, y: 260 },
       ],
     });
-    document.querySelector('[data-menu="effects"] [data-capability="imageFill"]').click();
+    /** @type {any} */ (
+      document.querySelector('[data-menu="effects"] [data-capability="imageFill"]')
+    ).click();
     expect(o.fill.kind).toBe("image");
     expect(o.fills[0]).toBe(o.fill);
     expect((o.fx || []).some((e) => e.type === "imageFill")).toBe(false);
@@ -269,7 +349,7 @@ describe("applying an engine", () => {
     open();
     row("linearGradient").click();
     const color = document.querySelector('.fxSect .apSC[data-s="0"]');
-    color.value = "#ff0066";
+    /** @type {any} */ (color).value = "#ff0066";
     color.dispatchEvent(new window.Event("input", { bubbles: true }));
     expect(o.fill.stops[0].color).toBe("#ff0066");
     expect(o.fills[0].stops[0].color).toBe("#ff0066");
@@ -326,7 +406,15 @@ describe("legacy names keep resolving", () => {
     const ids = EC()
       .all()
       .map((e) => e.id);
-    for (const legacy of ["capsule", "strip", "backdropGlass", "reededGlass", "glass3d", "pattern", "echoes"]) {
+    for (const legacy of [
+      "capsule",
+      "strip",
+      "backdropGlass",
+      "reededGlass",
+      "glass3d",
+      "pattern",
+      "echoes",
+    ]) {
       expect(ids, legacy + " is duplicated as its own row").not.toContain(legacy);
     }
   });

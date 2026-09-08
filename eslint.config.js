@@ -10,6 +10,14 @@ module.exports = [
   {
     ignores: [
       "node_modules/**",
+      // Shader/ is a nested sub-project with its own node_modules and its own
+      // toolchain; linting it here loads plugins from that tree and crashes the
+      // run. It is not part of this app's source and is linted on its own.
+      "Shader/**",
+      // Test Plugin/ is likewise a nested sub-project (a Figma plugin with its
+      // own build and Node-side test runner); its scripts mix Node and plugin
+      // globals this config does not model. Linted on its own terms.
+      "Test Plugin/**",
       "coverage/**",
       // Standalone prototypes, kept verbatim as reference material. They are
       // not part of the app and are deliberately not held to its lint rules.
@@ -24,9 +32,19 @@ module.exports = [
 
   js.configs.recommended,
 
-  // Server + tooling: CommonJS on Node.
+  // Server + tooling: CommonJS on Node. The MCP cable (stdio server + tab
+  // relay) is a Node process too; it was linted with no environment before the
+  // Shader/ ignore let the run reach it, which reported every Node global as
+  // undefined.
   {
-    files: ["server.js", "eslint.config.js", "vitest.config.js", "scripts/**/*.js"],
+    files: [
+      "server.js",
+      "mcp-server.js",
+      "mcp-relay.js",
+      "eslint.config.js",
+      "vitest.config.js",
+      "scripts/**/*.js",
+    ],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "commonjs",

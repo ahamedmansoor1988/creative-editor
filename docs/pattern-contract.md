@@ -57,6 +57,7 @@ there is no "Off" mode.
 | `baseRotation`        | −180..180°   | applied to every instance                    |
 | `rotationStep`        | −180..180°   | added per sequence index                     |
 | `rotationVariation`   | 0..180°      | deterministic ± random rotation              |
+| `scaleStep`           | −0.5..0.5    | size progression: instance i × (1 + step·i)  |
 | `mirror`              | enum         | none / horizontal / vertical / alt-h / alt-v |
 | `jitterX` / `jitterY` | 0..500 px    | deterministic ± displacement                 |
 | `holes`               | 0..0.9       | fraction of instances omitted                |

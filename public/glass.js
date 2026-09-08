@@ -19,10 +19,17 @@ const VERTEX = `#version 300 es
 
 const FRAG = `#version 300 es
       precision highp float;
+      /* PI is used by the reed and edge bands below; GLSL ES has no built-in. */
+      #define PI 3.14159265358979
       in vec2 uv;
       out vec4 fragColor;
       uniform sampler2D backdrop;
       uniform vec2 resolution;
+      /* Crop origin in TOP-DOWN canvas pixels. The pass renders a crop of the
+         frame, so gl_FragCoord is crop-local; the ordered dither must key off
+         the GLOBAL canvas pixel or the noise pattern shifts when the crop moves
+         (visible shimmer) and cropped/full-frame output stops matching. */
+      uniform vec2 cropOrigin;
       uniform vec2 objectCenter;
       uniform vec2 objectSize;
       uniform float objectRadius;
@@ -40,6 +47,7 @@ const FRAG = `#version 300 es
       uniform float quality;
       uniform float frost;
       uniform float reflection;
+      uniform float whiteLight;
       uniform float light;
       uniform float edgeWidth;
       uniform float edgeSoftness;
@@ -258,30 +266,51 @@ const FRAG = `#version 300 es
       vec3 toLin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
       vec3 toSrgb(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
 
-      vec3 tapBackdrop(vec2 fragPx, float lod) {
+      vec3 backdropFallback(vec2 fragPx) {
         vec2 c = clamp(fragPx / resolution, vec2(0.001), vec2(0.999));
-        return toLin(textureLod(backdrop, c, lod).rgb);
+        vec4 s = textureLod(backdrop, c, 0.0);
+        // Canvas textures have no meaningful RGB where alpha is zero. Glass
+        // makes its own silhouette opaque, so carrying transparent black into
+        // the material would reveal it as a black bar. Treat missing backdrop
+        // as neutral light while preserving genuine opaque black artwork.
+        return toLin(mix(vec3(1.0), s.rgb, s.a));
+      }
+
+      vec3 tapBackdrop(vec2 fragPx, vec2 fallbackPx, float lod) {
+        vec2 raw = fragPx / resolution;
+        vec2 c = clamp(raw, vec2(0.001), vec2(0.999));
+        vec4 s = textureLod(backdrop, c, lod);
+
+        // Fade displaced samples back to the straight-through backdrop before
+        // they leave the captured crop. A hard clamp repeats the final texel
+        // into a vertical/horizontal stripe; a hard validity test replaces it
+        // with a seam. This two-pixel guard is continuous and alpha-aware.
+        vec2 edgePx = min(fragPx, resolution - fragPx);
+        float inBounds = smoothstep(0.0, 2.0, min(edgePx.x, edgePx.y));
+        float hasSource = smoothstep(0.0, 0.02, s.a);
+        vec3 sampled = toLin(mix(vec3(1.0), s.rgb, s.a));
+        return mix(backdropFallback(fallbackPx), sampled, inBounds * hasSource);
       }
 
       /* Rough transmission: mip LOD plus a small rotated-grid gather so frost
          stays smooth instead of blocky trilinear. */
-      vec3 frosted(vec2 fragPx, float lod, float frostPx) {
-        vec3 c = tapBackdrop(fragPx, lod);
+      vec3 frosted(vec2 fragPx, vec2 fallbackPx, float lod, float frostPx) {
+        vec3 c = tapBackdrop(fragPx, fallbackPx, lod);
         if (quality > 0.5 && frostPx > 0.5) {
           float r = frostPx * 0.55;
-          c += tapBackdrop(fragPx + vec2( r,  r * 0.35), lod);
-          c += tapBackdrop(fragPx + vec2(-r * 0.35,  r), lod);
-          c += tapBackdrop(fragPx + vec2(-r, -r * 0.35), lod);
-          c += tapBackdrop(fragPx + vec2( r * 0.35, -r), lod);
+          c += tapBackdrop(fragPx + vec2( r,  r * 0.35), fallbackPx, lod);
+          c += tapBackdrop(fragPx + vec2(-r * 0.35,  r), fallbackPx, lod);
+          c += tapBackdrop(fragPx + vec2(-r, -r * 0.35), fallbackPx, lod);
+          c += tapBackdrop(fragPx + vec2( r * 0.35, -r), fallbackPx, lod);
           c /= 5.0;
         }
         if (quality > 1.5 && frostPx > 0.5) {
           float r2 = frostPx * 0.82;
           c = (c * 5.0
-            + tapBackdrop(fragPx + vec2( r2, 0.0), lod)
-            + tapBackdrop(fragPx + vec2(-r2, 0.0), lod)
-            + tapBackdrop(fragPx + vec2(0.0,  r2), lod)
-            + tapBackdrop(fragPx + vec2(0.0, -r2), lod)) / 9.0;
+            + tapBackdrop(fragPx + vec2( r2, 0.0), fallbackPx, lod)
+            + tapBackdrop(fragPx + vec2(-r2, 0.0), fallbackPx, lod)
+            + tapBackdrop(fragPx + vec2(0.0,  r2), fallbackPx, lod)
+            + tapBackdrop(fragPx + vec2(0.0, -r2), fallbackPx, lod)) / 9.0;
         }
         return c;
       }
@@ -312,7 +341,17 @@ const FRAG = `#version 300 es
 
       void main() {
         vec2 frag = uv * resolution;
-        vec3 baseS = texture(backdrop, uv).rgb;
+        /* textureLod(...,0.0), not texture(): auto-LOD picks its mip from the
+           screen-space derivative duv/dpixel, which is 1/cropWidth when this
+           pass is a crop and 1/frameWidth full-frame — so the straight-through
+           backdrop sampled a different mip level in each and cropped/full-frame
+           drifted by a few levels of grey. Forcing LOD 0 makes the pass-through
+           resolution-independent; the refraction path already uses textureLod. */
+        vec3 baseS = textureLod(backdrop, uv, 0.0).rgb;
+        /* Source alpha is carried through outside the silhouette. Emitting 1.0
+           everywhere turned any transparent region of the backdrop — the area
+           past an artboard edge in an export crop — into opaque black. */
+        float baseA = textureLod(backdrop, uv, 0.0).a;
         float sd = objectSdf(frag);
         float mask = smoothstep(1.2, -1.2, sd);
         float hardMask = step(sd, 0.0);
@@ -346,14 +385,56 @@ const FRAG = `#version 300 es
         float tilt = pow(1.0 - edgeT, edgePower);
         float h = 1.0 - tilt;                        // ~1 across the body
 
+        /* EDGE SHOULDER, SEPARATE FROM THE OPTICAL RIM.
+         *
+         * Glass is a mostly flat sheet, not a magnifying body. The narrow SDF
+         * rim above supplies the silhouette highlight and strongest bend. This
+         * broader, low-amplitude shoulder lets refraction remain visible just
+         * inside that rim while becoming negligible through the centre.
+         *
+         * Lens owns full-face curvature and magnification. Keeping the exponent
+         * high here is the material distinction: Glass preserves backdrop scale
+         * across most of its face and bends it only as the surface approaches
+         * the bevel. */
+        float bevel01 = clamp(bevel / 100.0, 0.0, 1.0);
+        float shoulderTilt = pow(sEdge, mix(12.0, 6.0, depth01k))
+                           * (0.035 + 0.28 * bevel01);
+        float surfTilt = max(tilt, shoulderTilt);
+
         vec2 e = vec2(1.2, 0.0);
         vec2 g = vec2(
           objectSdf(frag + e.xy) - objectSdf(frag - e.xy),
           objectSdf(frag + e.yx) - objectSdf(frag - e.yx)
         );
         vec2 outward = g / max(length(g), 1e-5);
+
+        /* DIRECTION FOR THE FACE MUST NOT COME FROM THE SDF.
+         *
+         * objectSdf's gradient reverses across the MEDIAL AXIS — the 45-degree
+         * diagonals running inward from each corner — because that is where the
+         * nearest boundary edge changes. While the face was flat that reversal
+         * was multiplied by a zero tilt and could not be seen. Giving the face
+         * curvature exposed it as a hard X across the object: measured on a
+         * 400x300 rounded rect, second-derivative spikes at exactly (300,200)
+         * and (325,225), i.e. dead on the corner diagonals.
+         *
+         * edgeField is the superellipse field the block above describes as
+         * C-infinity with no medial axis, and its own comment says the gradient
+         * must read the RAW, unclamped field — clamping flattens it in the
+         * corner regions. So the face takes its direction from there, and the
+         * rim keeps the exact SDF direction it needs for the true silhouette.
+         * tilt is the crossfade: 1 at the boundary, 0 across the face. */
+        vec2 gf = vec2(
+          edgeField(frag + e.xy) - edgeField(frag - e.xy),
+          edgeField(frag + e.yx) - edgeField(frag - e.yx)
+        );
+        vec2 outwardSmooth = gf / max(length(gf), 1e-5);
+        vec2 mixedDir = mix(outwardSmooth, outward, clamp(tilt, 0.0, 1.0));
+        float mixedLen = length(mixedDir);
+        vec2 dir = mixedLen > 1e-4 ? mixedDir / mixedLen : outwardSmooth;
+
         float normalK = 0.55 + 0.85 * depth01k;
-        vec3 n = normalize(vec3(outward * tilt * 6.4 * normalK * depthSign, 1.0));
+        vec3 n = normalize(vec3(dir * surfTilt * 6.4 * normalK * depthSign, 1.0));
 
         // Flutes: fluted/reeded glass — a repeating row of thin semicircular
         // ridges (a real pressed-glass pattern) that each bend light
@@ -370,6 +451,13 @@ const FRAG = `#version 300 es
         // and the resulting tilt is applied along that same axis, so the
         // ridges always bend light perpendicular to their own length,
         // exactly like a real corrugated sheet at any orientation.
+        // Keep the reed geometry available to the transmission pass. The
+        // normal below is used for lighting only; sampling uses a bounded
+        // analytic offset so the source map can never fold over itself.
+        vec2 reedAxis = vec2(1.0, 0.0);
+        float reedWave = 0.0;
+        float reedPeriod = 2.0;
+        float reedAmount = 0.0;
         if (flutes > 0.5) {
           float flutes01 = flutes / 100.0;
           vec2 fluteLocal = frag - objectCenter * resolution;
@@ -412,7 +500,19 @@ const FRAG = `#version 300 es
 
           float ribH = sqrt(max(1.0 - ribX * ribX, 0.0));
           float ribSlope = -ribX / max(ribH, 0.12);
-          n = normalize(n + vec3(ribAxis * ribSlope * flutes01 * 0.9, 0.0));
+          reedAxis = ribAxis;
+          reedWave = sin(PI * ribX);
+          reedPeriod = ribW;
+          reedAmount = flutes01;
+
+          /* Keep the established reed profile intact across the face, but do
+             not let its periodic normal fight the silhouette normal. At the
+             outer edge that conflict can fold the sample map and expose
+             repeated RGB spikes above/below the object. The fade is confined
+             to the bevel boundary; the centre reeds, width and strength are
+             numerically unchanged. */
+          float ribEdgeFade = smoothstep(1.0, max(3.0, B * 0.42), d);
+          n = normalize(n + vec3(ribAxis * ribSlope * flutes01 * 0.9 * ribEdgeFade, 0.0));
         }
 
         if (debugView > 0.5 && debugView < 1.5) {
@@ -442,6 +542,15 @@ const FRAG = `#version 300 es
         vec3 R = vec3(2.0 * n.z * n.x, 2.0 * n.z * n.y, 2.0 * n.z * n.z - 1.0);
         float env = mix(0.50, 1.30, smoothstep(-0.7, 0.9, R.y));
         vec3 refl = vec3(env) * F * reflection01 * 0.42;
+
+        /* The polished silhouette is rendered separately by rimC below. Let
+           the broad face reflection converge before that boundary instead of
+           stacking a near-white Fresnel field on top of the rim. This matters
+           most for reeded glass: its rib normal and the rounded-box normal can
+           both become steep in the corner and otherwise form a large white
+           wedge. The centre reed reflections are unchanged. */
+        float faceReflectionFade = smoothstep(1.0, max(4.0, B * 0.55), d);
+        refl *= mix(0.16, 1.0, faceReflectionFade);
 
         // Edge-light direction. The point-glint specular (GGX) is retired:
         // the material's lighting is the rim arc + glow + sheen, all driven
@@ -543,7 +652,8 @@ const FRAG = `#version 300 es
         vec3 sheenC = vec3(0.76, 0.91, 1.05) * sheen * edgeLight01 * 0.012 * (0.35 + 0.65 * presence);
 
         if (debugView > 3.5) {
-          fragColor = vec4(toSrgb(refl + glowC + sheenC + rimC + edgeGlowC) * hardMask, 1.0);
+          vec3 debugLight = (refl + glowC + sheenC + rimC) * whiteLight + edgeGlowC;
+          fragColor = vec4(toSrgb(debugLight) * hardMask, 1.0);
           return;
         }
 
@@ -563,39 +673,72 @@ const FRAG = `#version 300 es
         float disp01 = dispersion / 100.0;
         float op01 = opacity / 100.0;
 
-        // The extended +/-200 range allows offsets past the naive fold-over
-        // threshold; refrOffset's ray-ratio saturation is what keeps the
-        // pixel->sample mapping coherent (no mirrored duplicates) up there.
-        float refractPx = sign(refractionSigned) * pow(refraction01, 1.1) * B * 1.8;
-        float maxOff = abs(refractPx) * 1.5 + 2.0;
         float rough01 = clamp(roughness, 0.0, 1.0);
         float frostPx = (pow(frost01, 1.5) * 0.12 + rough01 * 0.045) * minSizePx();
         float maxLod = floor(log2(max(resolution.x, resolution.y)));
         float lodBase = frostPx > 0.5 ? clamp(log2(frostPx), 0.0, maxLod) : 0.0;
-        float eta = 1.0 / clamp(ior, 1.0, 2.4);
-        refractPx *= clamp(backdropDistance / 8.0, 0.125, 3.75);
+        /* Fold-safe transmission map.
+         *
+         * Lighting may use the steep physical-looking normal above, but using
+         * that same normal as a texture displacement can reverse neighbouring
+         * sample coordinates at extreme settings. That fold-over was the
+         * source of the detached arches, repeated ovals and RGB spikes.
+         *
+         * These two analytic offsets have a combined worst-case derivative
+         * below one (pi*.18 + 2*pi*.06 ~= .94), so source order is preserved:
+         * the map can bend and corrugate, but it cannot mirror or duplicate. */
+        float iorGain = clamp((ior - 1.0) / 0.52, 0.0, 1.25);
+        float distanceGain = clamp(backdropDistance / 10.0, 0.10, 1.25);
+        float depthGain = clamp(abs(depthSigned) / 80.0, 0.0, 1.25);
+        float opticalMagnitude = min(
+          sqrt(refraction01) * iorGain * distanceGain * depthGain,
+          1.0
+        );
+        float opticalGain = sign(refractionSigned) * opticalMagnitude;
+        float edgeU = clamp(d / max(B, 1.0), 0.0, 1.0);
+        float edgeBand = sin(PI * edgeU) * (1.0 - step(B, d));
+        vec2 edgeSampleOffset = outward * (B * 0.18 * edgeBand * opticalGain);
+        vec2 reedSampleOffset = reedAxis
+          * (reedPeriod * 0.06 * reedWave * reedAmount * opticalGain);
+        vec2 stableSampleOffset = edgeSampleOffset + reedSampleOffset;
 
         vec3 trans;
         if (disp01 > 0.001) {
           // Wavelength-dependent eta: blue bends more than red. Rescaled to
           // the bounded offset range so max Dispersion separates channels by
           // a clearly visible few px at refracted edges.
-          float spread = disp01 * 0.09;
-          vec2 oR = refrOffset(n, eta * (1.0 + spread), refractPx, maxOff, d);
-          vec2 oG = refrOffset(n, eta, refractPx, maxOff, d);
-          vec2 oB = refrOffset(n, eta * (1.0 - spread), refractPx, maxOff, d);
+          /* SEPARATE THE OFFSETS, NOT THE ETAS.
+           *
+           * Perturbing eta by +/-9% and re-running refrOffset put all three
+           * channels through the same saturation, so they landed almost on top
+           * of each other: measured R/B separation was 0.62px at Dispersion 20,
+           * 1.26px at 50, and 1.25px at 100 — the whole upper half of the
+           * slider did nothing. Scaling the settled green offset instead is
+           * linear in the control and cannot saturate, and it keeps the three
+           * samples collinear along the true refracted direction, which is what
+           * makes the fringe read as prismatic rather than as a colour ghost. */
+          /* Channel separation must also converge at the silhouette. Without
+             this, three individually valid samples can straddle the crop or
+             shape boundary and appear as detached red/green/blue fragments.
+             Only the boundary transition is affected; dispersion through the
+             face retains its existing strength. */
+          float dispersionEdgeFade = smoothstep(1.0, max(4.0, B * 0.48), d);
+          float spread = min(disp01, 2.0) * 0.045 * dispersionEdgeFade;
+          vec2 oG = stableSampleOffset;
+          vec2 oR = oG * (1.0 - spread);
+          vec2 oB = oG * (1.0 + spread);
           float tl = clamp(lodBase + log2(1.0 + length(oG) * 0.012), 0.0, maxLod);
           trans = vec3(
-            frosted(frag + oR, tl, frostPx).r,
-            frosted(frag + oG, tl, frostPx).g,
-            frosted(frag + oB, tl, frostPx).b
+            frosted(frag + oR, frag, tl, frostPx).r,
+            frosted(frag + oG, frag, tl, frostPx).g,
+            frosted(frag + oB, frag, tl, frostPx).b
           );
         } else {
-          vec2 o = refrOffset(n, eta, refractPx, maxOff, d);
+          vec2 o = stableSampleOffset;
           // Travel blur: light displaced far through thick glass never lands
           // pixel-sharp; also keeps extreme settings free of edge dither.
           float tl = clamp(lodBase + log2(1.0 + length(o) * 0.012), 0.0, maxLod);
-          trans = frosted(frag + o, tl, frostPx);
+          trans = frosted(frag + o, frag, tl, frostPx);
         }
 
         // Beer-Lambert tint over the optical path (longer through the edge).
@@ -616,16 +759,60 @@ const FRAG = `#version 300 es
         body = mix(body, milk, frost01 * 0.42);
 
         float fade = mix(0.3, 1.0, op01);
-        vec3 glassLin = body * (1.0 - F * 0.48) + (refl + glowC + sheenC + rimC + edgeGlowC) * fade;
+        vec3 whiteLightLayers = (refl + glowC + sheenC + rimC) * whiteLight;
+        vec3 glassLin = body * (1.0 - F * 0.48) + (whiteLightLayers + edgeGlowC) * fade;
 
         vec3 outLin = mix(toLin(baseS), glassLin, mask);
         // Ordered dither: slow, wide gradients (the body glow) would band on
         // an 8-bit target without it.
-        float dith = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-        fragColor = vec4(toSrgb(outLin) + vec3((dith - 0.5) / 255.0), 1.0);
+        /* True top-down canvas pixel, reconstructed from uv + crop rect, so it
+           is identical whether this fragment was drawn cropped or full-frame
+           (uv.y is bottom-up, hence 1.0-uv.y). */
+        vec2 canvasPx = vec2(cropOrigin.x + uv.x * resolution.x,
+                             cropOrigin.y + (1.0 - uv.y) * resolution.y);
+        /* floor() to the integer canvas pixel before hashing. The reconstruction
+           above reaches the same value by different float ops in the cropped vs
+           full-frame pass (x0 + uv*cw versus uv*W), and this hash is chaotic
+           enough that a 1e-6 discrepancy flips the dither a whole step — which
+           is the entire residual between the two paths. Hashing the integer
+           cell is stable, so cropped and full-frame now match to maxΔ<=1. */
+        float dith = fract(sin(dot(floor(canvasPx), vec2(12.9898, 78.233))) * 43758.5453);
+        fragColor = vec4(toSrgb(outLin) + vec3((dith - 0.5) / 255.0), mix(baseA, 1.0, mask));
       }`;
 
 let gl=null, glCanvas=null, prog=null, loc=null, tex=null, vao=null;
+/* Reused scratch for the cropped backdrop upload — one per engine, grown to
+ * the largest crop seen and never shrunk, so a drag settles on a stable size
+ * and stops reallocating. */
+let cropCanvas=null, cropCtx=null;
+
+/* Maximum distance in BACKDROP PIXELS that any object fragment samples outside
+ * its own silhouette, derived from the shader's fold-safe edge/reed offsets,
+ * the frost mip-gather, and the edge band. Cropping to this margin is
+ * indistinguishable from the full-frame path because no fragment that matters
+ * ever reads past it — while a fragment out in the margin has mask 0 and only
+ * copies the backdrop straight through. minSizePx is the object's size in the
+ * SAME pixel space as the crop, so the optics stay invariant. */
+let _marginOverride=-1;   // test hook: >=0 forces this margin (huge => full frame)
+function reachMargin(P, minSizePx){
+  if(_marginOverride>=0) return _marginOverride;
+  const cl=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const bevel01=cl((P.bevel===undefined?15:P.bevel)/100,0,1);
+  const B=Math.max(1.5,(0.01+(0.18-0.01)*bevel01)*minSizePx);
+  const ribPeriod=P.fluteMode>0.5
+    ? Math.max(minSizePx/Math.max(P.fluteCount||10,1),2)
+    : Math.max(P.fluteWidth||26,2);
+  const reedReach=ribPeriod*0.06*cl((P.flutes||0)/100,0,1);
+  // Dispersion scales the stable offset by at most 9% at the legacy max 200.
+  const opticalReach=(B*0.18+reedReach)*1.09;
+  const frost01=cl((P.frost||0)/100,0,1), rough01=cl(P.roughness||0,0,1);
+  const frostPx=(Math.pow(frost01,1.5)*0.12+rough01*0.045)*minSizePx;
+  const edge01=cl((P.edgeWidth===undefined?8:P.edgeWidth)/100,0,1);
+  const edgeWidthPx=Math.max(0.75,(0.004+(0.10-0.004)*edge01)*minSizePx);
+  // optical reach + ~2x frostPx (mip LOD + rotated-grid gather) + edge
+  // band + a few px for bilinear taps. Deliberately a little generous.
+  return Math.ceil(opticalReach+2.0*frostPx+edgeWidthPx+4);
+}
 let failed=false;
 
 function init(){
@@ -645,8 +832,8 @@ function init(){
     gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
     gl.linkProgram(prog);
     if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    const names=['backdrop','resolution','objectCenter','objectSize','objectRadius','objectShape',
-      'fillA','fillB','hasGlass','depth','refraction','ior','roughness','absorption','backdropDistance','bevel','quality','frost','reflection','light','edgeWidth','edgeSoftness','edgeMode',
+    const names=['backdrop','resolution','cropOrigin','objectCenter','objectSize','objectRadius','objectShape',
+      'fillA','fillB','hasGlass','depth','refraction','ior','roughness','absorption','backdropDistance','bevel','quality','frost','reflection','whiteLight','light','edgeWidth','edgeSoftness','edgeMode',
       'edgeGlow','edgeBlur','edgeBlurOffset','flutes','fluteWidth','fluteAngle','fluteMode',
       'fluteCount','fluteRandom','lightAngle','lightElevation','dispersion','tint','opacity','debugView'];
     loc={position:gl.getAttribLocation(prog,'position')};
@@ -677,22 +864,11 @@ const hexToRgb01=h=>{
  * canvas convention — flipped internally). params: the Glass engine values. */
 function render(frameCanvas, W, H, geoms, P){
   if(!init()) return null;
-  glCanvas.width=W; glCanvas.height=H;
-  gl.viewport(0,0,W,H);
   gl.useProgram(prog);
   gl.bindVertexArray(vao);
-
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,frameCanvas);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.uniform1i(loc.backdrop,0);
-  gl.uniform2f(loc.resolution,W,H);
 
   // pinned to the locked app's defaults for controls the editor hides
   gl.uniform3f(loc.fillA,0.9,0.9,0.9);
@@ -722,6 +898,7 @@ function render(frameCanvas, W, H, geoms, P){
   gl.uniform1f(loc.quality,P.quality==='high'?2:P.quality==='draft'?0:1);
   gl.uniform1f(loc.frost,P.frost);
   gl.uniform1f(loc.reflection,P.reflection);
+  gl.uniform1f(loc.whiteLight,P.whiteLight===false?0:1);
   /* edgeIntensity is the public source of truth. `light` remains only as a
      migration fallback for documents saved before the control was renamed. */
   gl.uniform1f(loc.light,P.edgeIntensity===undefined?(P.light===undefined?35:P.light):P.edgeIntensity);
@@ -732,27 +909,74 @@ function render(frameCanvas, W, H, geoms, P){
   gl.uniform3f(loc.tint,t[0],t[1],t[2]);
   gl.uniform1f(loc.opacity,P.opacity);
 
-  // Sequential passes share ONE backdrop upload: siblings sit on the same
-  // z-plane so each pass legitimately refracts the same content. Where two
-  // glass instances overlap, the later pass wins (documented limitation).
+  /* CROPPED PER GEOMETRY.
+   *
+   * Each object samples only its own bounds plus reachMargin(P), so the
+   * expensive work — the texImage2D upload and the readback drawImage — is
+   * done over a small crop instead of the whole frame. On an 8-Glass artboard
+   * that is eight small passes rather than eight full-frame ones.
+   *
+   * Each crop is taken from frameCanvas AT THIS MOMENT, so an object over
+   * another sees the lower one already composited: bottom-to-top ordering and
+   * Glass-over-Glass are preserved exactly, and more cleanly than the old
+   * full-frame re-upload because the capture is inherently live.
+   *
+   * The optics are identical to the full-frame path: objectSize*resolution is
+   * still the object's true pixel size (now expressed against the crop), so
+   * every length the shader derives from it is unchanged. */
   const ctx2d=frameCanvas.getContext('2d');
-  geoms.forEach((g,i)=>{
-    if(i>0){
-      // subsequent passes need the previous pass composited in
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,frameCanvas);
-      gl.generateMipmap(gl.TEXTURE_2D);
-    }
-    gl.uniform2f(loc.objectCenter, g.cx/W, 1-(g.cy/H));
-    gl.uniform2f(loc.objectSize, g.w/W, g.h/H);
+  if(!cropCanvas){ cropCanvas=document.createElement('canvas'); cropCtx=cropCanvas.getContext('2d'); }
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  geoms.forEach((g)=>{
+    const minSizePx=Math.min(g.w,g.h);
+    /* P.__crop===false is the app's measured decision that a full-frame pass is
+     * cheaper for this scene (see the crop policy in app.js). A huge margin
+     * makes the crop clamp to the whole frame — one code path, and the dither
+     * still keys off cropOrigin so full-frame and cropped output stay
+     * pixel-identical. The test hook __setMargin still overrides both. */
+    const m=(_marginOverride>=0)?_marginOverride:(P.__crop===false?1e9:reachMargin(P,minSizePx));
+    // crop rect in frame pixels, clamped to the frame (CLAMP_TO_EDGE matches
+    // the full-frame behaviour past an artboard/frame edge)
+    let x0=Math.floor(g.cx-g.w/2-m), y0=Math.floor(g.cy-g.h/2-m);
+    let x1=Math.ceil(g.cx+g.w/2+m),  y1=Math.ceil(g.cy+g.h/2+m);
+    x0=Math.max(0,x0); y0=Math.max(0,y0); x1=Math.min(W,x1); y1=Math.min(H,y1);
+    const cw=x1-x0, ch=y1-y0;
+    if(cw<=0||ch<=0) return;
+
+    /* Both scratch canvases are sized EXACTLY to the crop. GL renders y-up and
+     * canvas2D reads y-down, and the existing (working) full-frame code relies
+     * on the texture and the readback being the same size for that flip to
+     * cancel; a larger reused buffer with a sub-rect would break the y origin.
+     * A resize only reallocates when the crop dimensions change, which during a
+     * drag they do not — the object size is constant — so it settles at once. */
+    if(cropCanvas.width!==cw) cropCanvas.width=cw;
+    if(cropCanvas.height!==ch) cropCanvas.height=ch;
+    cropCtx.clearRect(0,0,cw,ch);
+    cropCtx.drawImage(frameCanvas, x0,y0,cw,ch, 0,0,cw,ch);   // live capture
+
+    if(glCanvas.width!==cw) glCanvas.width=cw;
+    if(glCanvas.height!==ch) glCanvas.height=ch;
+    gl.viewport(0,0,cw,ch);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cropCanvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+
+    gl.uniform2f(loc.resolution,cw,ch);
+    gl.uniform2f(loc.cropOrigin, x0, y0);      // global canvas origin for the dither
+    gl.uniform2f(loc.objectCenter, (g.cx-x0)/cw, 1-((g.cy-y0)/ch));
+    gl.uniform2f(loc.objectSize, g.w/cw, g.h/ch);
     gl.uniform1f(loc.objectRadius, g.radius01);
     gl.uniform1f(loc.objectShape, g.shape);
     gl.drawArrays(gl.TRIANGLES,0,3);
+
     ctx2d.save();
     ctx2d.setTransform(1,0,0,1,0,0);
     ctx2d.globalAlpha=1;
     ctx2d.globalCompositeOperation='source-over';
-    ctx2d.drawImage(glCanvas,0,0,W,H);
+    ctx2d.drawImage(glCanvas, x0, y0);        // glCanvas is exactly cw*ch
     ctx2d.restore();
   });
   return true;
@@ -761,5 +985,8 @@ function render(frameCanvas, W, H, geoms, P){
 window.GlassEngine={render, available:()=>init(),
   // Exposed so the liquid variant is built by swapping the DISTANCE FIELD in
   // this exact source — the optics can never drift from the locked material.
-  __vertex:VERTEX, __frag:FRAG};
+  __vertex:VERTEX, __frag:FRAG,
+  // Test hook only: force the crop margin (a huge value renders full-frame,
+  // for proving the cropped path is equivalent). -1 restores derived margins.
+  __setMargin:(v)=>{_marginOverride=(v===undefined?-1:v);}};
 })();

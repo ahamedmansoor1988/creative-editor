@@ -88,11 +88,23 @@ const DEFAULT_EFFECTS=()=>({
   // §4.11 glow — outer or inner, with a falloff curve
   glow:{on:false,type:'outer',radius:18,spread:0,color:'#ffffff',alpha:0.7,falloff:1,blend:'normal'},
   grain:{amount:0},
-  // Clear Glass defaults from the locked standalone glass app
-  glass:{on:false,mode:'backdrop',depth:40,refraction:35,ior:1.52,roughness:0.04,
-    absorption:0.45,backdropDistance:8,bevel:15,quality:'standard',
-    frost:0,reflection:25,edgeIntensity:35,edgeWidth:8,edgeSoftness:55,
-    light:35,dispersion:0,tint:'#ffffff',opacity:100,
+  /* Clear glass whose presence comes from OPTICS, not from fog.
+   *
+   * The previous defaults added milkiness so the material would read on a flat
+   * white backdrop — opacity 92 plus frost 3. That was compensating for dead
+   * refraction: the face was mathematically flat, so bending, bevel and IOR all
+   * did nothing and haze was the only lever left. Measured cost on real
+   * artwork: black transmitted at 88/255 and the shadow range 0-64 collapsed
+   * into 88-102, which is why vivid work read as grey behind it. With the
+   * transfer curve at 1:1 the same staircase passes through unchanged.
+   *
+   * Every reference this material is aimed at — the weather widget, Control
+   * Center, the Liquid Glass bar — is CLEAR through the middle and does its
+   * optical work in a band at the rim. Hence a wider bevel, and no haze. */
+  glass:{on:false,mode:'backdrop',depth:80,refraction:50,ior:1.52,roughness:0.06,
+    absorption:0.10,backdropDistance:10,bevel:55,quality:'standard',
+    frost:0,reflection:35,whiteLight:true,edgeIntensity:70,edgeWidth:12,edgeSoftness:45,
+    light:70,dispersion:0,tint:'#ffffff',opacity:100,
     reedStrength:70,reedWidth:26,reedAngle:0,reedCount:10,reedByCount:false,
     size:0.62,extrude:0,round:1,rotateX:-25,rotateY:0,rotateZ:0},
   // Funnel light cone, ported from the Funnel Light Figma plugin
@@ -234,6 +246,7 @@ const DEFAULT_PATTERN=()=>({
   hGap:16, vGap:16, rowOffsetX:0, colOffsetY:0,
   baseScale:1, lockProportions:true, widthVariation:0, heightVariation:0,
   baseRotation:0, rotationStep:0, rotationVariation:0, mirror:'none',
+  scaleStep:0,
   jitterX:0, jitterY:0, holes:0,
   seed:Math.floor(Math.random()*99999999),
 });
@@ -294,6 +307,10 @@ function normalizePattern(raw){
   out.baseRotation=num(out.baseRotation,0,-180,180);
   out.rotationStep=num(out.rotationStep,0,-180,180);
   out.rotationVariation=num(out.rotationVariation,0,0,180);
+  /* Progressive size: instance i is scaled by 1 + scaleStep*i (a fan whose
+   * spokes grow, dots that shrink along a row), floored so a long run never
+   * collapses to nothing. */
+  out.scaleStep=num(out.scaleStep,0,-0.5,0.5);
   out.mirror=MIRRORS.includes(out.mirror)?out.mirror:'none';
   out.jitterX=num(out.jitterX,0,0,MAX_JITTER);
   out.jitterY=num(out.jitterY,0,0,MAX_JITTER);
@@ -797,6 +814,7 @@ function normChildren(list,depth){
       gla.quality=['draft','standard','high'].includes(gla.quality)?gla.quality:'standard';
       gla.frost=clamp(+gla.frost||0,0,100);
       gla.reflection=clamp(+gla.reflection||0,0,100);
+      gla.whiteLight=gla.whiteLight!==false;
       gla.edgeIntensity=clamp(Number.isFinite(+gla.edgeIntensity)?+gla.edgeIntensity:(+gla.light||0),0,100);
       gla.edgeWidth=clamp(Number.isFinite(+gla.edgeWidth)?+gla.edgeWidth:8,0,100);
       gla.edgeSoftness=clamp(Number.isFinite(+gla.edgeSoftness)?+gla.edgeSoftness:55,0,100);
@@ -815,6 +833,7 @@ function normChildren(list,depth){
       gla.rotateY=clamp(Number.isFinite(+gla.rotateY)?+gla.rotateY:0,-180,180);
       gla.rotateZ=clamp(Number.isFinite(+gla.rotateZ)?+gla.rotateZ:0,-180,180);
       if(!/^#[0-9a-fA-F]{6}$/.test(gla.tint||'')) gla.tint='#ffffff';
+
       const nb=(o,_d)=>{
         o.on=!!o.on && (c.type==='rect'||c.type==='ellipse');
         o.smoothness=clamp(+o.smoothness||0,0,300);
@@ -1600,6 +1619,7 @@ function selectable(o){
 const canvas=$('out'), ctx=canvas.getContext('2d');
 const frameBuf=document.createElement('canvas');
 let grainTile=null;
+const grainTiles=new Map();
 function makeGrain(){
   const c=document.createElement('canvas'); c.width=96; c.height=96;
   const g=c.getContext('2d'), img=g.createImageData(96,96);
@@ -1610,25 +1630,162 @@ function makeGrain(){
   g.putImageData(img,0,0);
   return c;
 }
+function grainForScale(scale){
+  if(!grainTile) grainTile=makeGrain();
+  scale=Math.max(1,+scale||1);
+  if(scale===1) return grainTile;
+  if(grainTiles.has(scale)) return grainTiles.get(scale);
+  const c=document.createElement('canvas');
+  c.width=Math.round(grainTile.width*scale); c.height=Math.round(grainTile.height*scale);
+  const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
+  g.drawImage(grainTile,0,0,c.width,c.height);
+  grainTiles.set(scale,c); return c;
+}
 /* Grain is a reusable surface pass. Material renderers call this after they
  * paint their pixels, just like the ordinary fill renderer does. */
 function paintGrainOverlay(c,obj){
   const gr=obj.effects&&obj.effects.grain;
   if(!gr||gr.amount<=0||!fxOn(obj,'grain')) return;
-  if(!grainTile) grainTile=makeGrain();
+  const tile=grainForScale(obj.__exportScale||1);
   const b=boxOf(obj);
   c.save();
   pathFor(c,obj); c.clip();
   c.globalAlpha=obj.opacity*gr.amount*0.35;
   c.globalCompositeOperation='overlay';
-  c.fillStyle=c.createPattern(grainTile,'repeat');
+  c.fillStyle=c.createPattern(tile,'repeat');
   c.fillRect(b.x,b.y,b.w,b.h);
   c.restore();
 }
-/* Capture the real backdrop before Glass changes it. Backdrop materials cannot
- * be rendered in the ordinary empty object crop: that is the source of the
- * black padded rectangles previously produced by Blur and other filters. */
-function captureBackdropGlassPixels(c,obj){
+/* ---- backdrop-material composition pipeline ---------------------------
+ *
+ * Every backdrop-reading material (Glass, Lens, whatever FxStack marks
+ * `backdrop`) is drawn in FIVE fixed steps, in slot order:
+ *
+ *   A  clean = snapshotClean(c)      the page BEFORE this layer's own effects
+ *   B  behind slot onto c            shadows / outer glows, from the silhouette
+ *   C  engine renders FROM clean,    then is composited onto c through the
+ *      silhouette mask               silhouette — so what B painted outside
+ *                                    the mask is never touched
+ *   D  paintOverSlot(c, obj)         inner shadow, inner glow, stripe, grain
+ *   E  pixel slot                    masked capture → filters → composite
+ *
+ * WHY A IS SEPARATE FROM B. The engines upload the canvas they are given as
+ * their backdrop texture. When that canvas already carried the layer's own
+ * outer glow, the material refracted the glow INWARD — measured green
+ * [41,253,93] at the centre of a Glass disc whose glow should have been
+ * outside it — and the full-frame drawback then thinned the glow that was
+ * outside. Rendering from a snapshot taken before B means the material sees
+ * only the page beneath it, which is what "backdrop" is supposed to mean.
+ *
+ * WHY C CLIPS. The engines return a whole frame. Drawing it back unclipped
+ * would replace everything B painted with the clean backdrop. Clipping to
+ * the silhouette is what lets a shadow survive.
+ *
+ * WHY D IS A SHARED PAINTER. The material branches used to return straight
+ * after the engine call, so the over slot never ran — inner shadow and inner
+ * glow measured 0 on both materials against 9.0 on a plain layer — except
+ * for grain, which had been bolted on by name. One painter that walks the
+ * over slot from FxStack is used by the ordinary path too, so "what renders
+ * over a layer" has exactly one definition. */
+let _cleanBackdrop=null;
+function snapshotClean(c){
+  const W=c.canvas.width,H=c.canvas.height;
+  if(!_cleanBackdrop) _cleanBackdrop=document.createElement('canvas');
+  // only touch width/height when they change: assigning either clears and
+  // reallocates the bitmap even for an identical value
+  if(_cleanBackdrop.width!==W) _cleanBackdrop.width=W;
+  if(_cleanBackdrop.height!==H) _cleanBackdrop.height=H;
+  const g=_cleanBackdrop.getContext('2d');
+  g.setTransform(1,0,0,1,0,0); g.globalAlpha=1;
+  g.globalCompositeOperation='copy';      // replaces alpha too: off-artboard stays transparent
+  g.drawImage(c.canvas,0,0);
+  g.globalCompositeOperation='source-over';
+  return _cleanBackdrop;
+}
+/* Step D. `plain` mirrors drawObject's own flag (a 'flood' stripe fills the
+ * whole target); `transformed` says the caller already applied the object's
+ * rotation/mirror, as drawObject has by the time it reaches this slot. */
+function paintOverSlot(c,obj,plain,transformed){
+  if(obj.type==='text') return;
+  c.save();
+  if(!transformed) applyObjectTransform(c,obj);
+  const mkPath=cc=>addPath(cc,obj);
+  c.shadowColor='transparent';
+  // §4.10 inner shadow / §4.11 inner glow, walked in STACK ORDER. Inner glow
+  // is a `glow` entry (behind slot in REG) with type 'inner', so both slots
+  // are scanned — the same rule the ordinary path always applied.
+  if(!plain){
+    const inners=[];
+    fxEntries(obj,'behind').concat(fxEntries(obj,'over')).forEach(entry=>{
+      const p=entry.params;
+      if(entry.type==='innerShadow'&&p.on&&(p.blur>0||p.spread>0))
+        inners.push({x:p.x,y:p.y,blur:p.blur,spread:p.spread,
+          color:p.color,alpha:p.alpha,blend:p.blend,falloff:null});
+      if(entry.type==='glow'&&p.on&&p.type==='inner'&&p.radius>0)
+        inners.push({x:0,y:0,blur:p.radius,spread:p.spread,
+          color:p.color,alpha:p.alpha,blend:p.blend,falloff:p.falloff});
+    });
+    inners.forEach(S=>{
+      c.save();
+      c.beginPath(); mkPath(c); c.clip();
+      c.globalCompositeOperation=blendOp(S.blend);
+      const R=1e4;
+      const passes=S.falloff===null
+        ? [{blur:S.blur+S.spread,alpha:S.alpha}]
+        : glowKernel({radius:S.blur,spread:S.spread,alpha:S.alpha,falloff:S.falloff});
+      passes.forEach(pass=>{
+        c.shadowColor=hexAlpha(S.color,pass.alpha);
+        /* Spread belongs to the shadow kernel, not to the object's visible
+         * geometry: broaden the shadow of an unchanged inverse caster rather
+         * than stroking the shape, which printed a hard frame on pills. */
+        c.shadowBlur=pass.blur; c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
+        c.beginPath();
+        c.rect(-R,-R,R*2,R*2);      // everything...
+        mkPath(c);                   // ...minus the shape (even-odd)
+        c.fillStyle='#000'; c.fill('evenodd');
+      });
+      c.restore();
+    });
+    c.shadowColor='transparent';
+  }
+  // Stripe fill paints OVER the fill rather than replacing it: the fill is
+  // what casts the drop shadow, and a clipped drawImage cannot.
+  const grd=obj.effects&&obj.effects.gradient;
+  if(grd&&fxOn(obj,'gradient')&&window.GradientEngine){
+    const b=boxOf(obj);
+    if(b.w>=1&&b.h>=1){
+      const tile=window.GradientEngine.get(b.w,b.h,grd);
+      if(tile){
+        if(plain==='flood') c.drawImage(tile,0,0,c.canvas.width,c.canvas.height);
+        else { c.save(); pathFor(c,obj); c.clip(); c.drawImage(tile,b.x,b.y,b.w,b.h); c.restore(); }
+      }
+    }
+  }
+  paintGrainOverlay(c,obj);
+  c.restore();
+}
+/* Steps C–E for a material that rendered into `clean` (null when the engine
+ * painted straight onto c, as Solid 3D does). */
+function finishBackdropMaterial(c,obj,clean,state){
+  if(clean){
+    const shapes=[obj,...patternInstances(obj)];
+    c.save();
+    c.beginPath(); shapes.forEach(o=>addPath(c,o)); c.clip();
+    c.setTransform(1,0,0,1,0,0);
+    c.globalAlpha=1; c.globalCompositeOperation='source-over';
+    c.drawImage(clean,0,0);
+    c.restore();
+  }
+  paintOverSlot(c,obj,false,false);
+  paintBackdropMaterialPixels(c,state);
+}
+/* Capture the real backdrop before the material changes it. Backdrop
+ * materials cannot be rendered in the ordinary empty object crop: that is the
+ * source of the black padded rectangles previously produced by Blur and other
+ * filters. Taken AFTER step B, so it is the restore target for step E: the
+ * page plus this layer's own shadows, which the filtered material is then
+ * composited over. */
+function captureBackdropMaterialPixels(c,obj){
   const FS=window.FxStack;
   if(!FS||!obj.fx||!window.Filters) return null;
   const entries=FS.inSlot(obj.fx,'pixel');
@@ -1642,20 +1799,33 @@ function captureBackdropGlassPixels(c,obj){
   const lw=Math.max(1,Math.ceil(maxX-minX+pad*2));
   const lh=Math.max(1,Math.ceil(maxY-minY+pad*2));
   if(lw>=6000||lh>=6000) return null;
+  /* c.canvas is the DEVICE-pixel bitmap (frameBuf carries __scale device px per
+   * document unit) but lx,ly,lw,lh are DOCUMENT units — so the source rect must
+   * be scaled to device pixels. Reading it raw at document coordinates pulled
+   * the wrong region of the page into the crop: measured as the top-left of the
+   * page bleeding into a glass sitting bottom-right whenever any pixel effect
+   * ran. The paint-back composites through c's own transform, so it stays in
+   * document units; only the raw reads need the scale. The crop itself stays
+   * document-resolution, matching the ordinary layer pixel pipeline so filter
+   * radii in document units mean the same thing. */
+  const s=targetScale(c);
   const backdrop=document.createElement('canvas'); backdrop.width=lw; backdrop.height=lh;
-  backdrop.getContext('2d').drawImage(c.canvas,lx,ly,lw,lh,0,0,lw,lh);
+  backdrop.getContext('2d').drawImage(c.canvas,lx*s,ly*s,lw*s,lh*s,0,0,lw,lh);
   return {entries,shapes,lx,ly,lw,lh,backdrop};
 }
-/* Isolate the finished Glass through its true geometry mask, process every
- * pixel effect in recipe order, restore the captured backdrop, then composite
- * the filtered material. Transparent padding allows Blur/Bloom/channel shifts
+/* Isolate the finished BACKDROP MATERIAL (Glass or Lens) through its true
+ * geometry mask, process every pixel effect in recipe order, restore the
+ * captured backdrop, then composite the filtered material. Transparent padding allows Blur/Bloom/channel shifts
  * to grow without revealing the rectangular work canvas. */
-function paintBackdropGlassPixels(c,state){
+function paintBackdropMaterialPixels(c,state){
   if(!state) return;
   const {entries,shapes,lx,ly,lw,lh,backdrop}=state;
+  const s=targetScale(c);
   let cv=document.createElement('canvas'); cv.width=lw; cv.height=lh;
   const cc=cv.getContext('2d');
-  cc.drawImage(c.canvas,lx,ly,lw,lh,0,0,lw,lh);
+  // device-pixel source rect (see captureBackdropMaterialPixels); the crop is
+  // kept document-resolution so the mask paths and filter radii below match.
+  cc.drawImage(c.canvas,lx*s,ly*s,lw*s,lh*s,0,0,lw,lh);
   /* Remove every backdrop pixel outside the glass silhouette before Bloom.
    * Otherwise the padded crop itself becomes a visible rectangle. */
   const mask=document.createElement('canvas'); mask.width=lw; mask.height=lh;
@@ -2281,8 +2451,9 @@ function patternInstances(parent){
     if(i===0) continue;
     const rw=rand01(P.seed,i,R_W);
     const rh=P.lockProportions?rw:rand01(P.seed,i,R_H);
-    const w=baseW*(1-(1-MIN_SIZE_FACTOR)*P.widthVariation*rw);
-    const h=baseH*(1-(1-MIN_SIZE_FACTOR)*P.heightVariation*rh);
+    const prog=P.scaleStep?Math.max(0.05,1+P.scaleStep*i):1;
+    const w=baseW*prog*(1-(1-MIN_SIZE_FACTOR)*P.widthVariation*rw);
+    const h=baseH*prog*(1-(1-MIN_SIZE_FACTOR)*P.heightVariation*rh);
     const rot=P.baseRotation+P.rotationStep*i+
       (P.rotationVariation?(rand01(P.seed,i,R_ROT)*2-1)*P.rotationVariation:0);
     const [aw,ah]=aabb(w,h,rot*RAD);
@@ -2669,6 +2840,20 @@ function drawOneGuarded(c,W,H,obj,depth){
  * behind/over filters run. `fxOn(obj,type)` replaces the old
  * `obj.effects.<type>.on` checks so a disabled STACK ENTRY also switches the
  * effect off, not just the param flag. */
+/* Device pixels per document unit on this drawing target.
+ *
+ * Read off the context's OWN transform rather than passed in, so it stays
+ * correct for every caller — the interactive buffer, a 1x export, a 2x export,
+ * an isolated object render — without each of them having to remember to
+ * thread a scale argument through. The shader engines address their backdrop
+ * texture in real pixels, so this is what converts their geometry. */
+function targetScale(c){
+  try{
+    const t=c.getTransform&&c.getTransform();
+    if(t&&Number.isFinite(t.a)&&t.a>0) return t.a;
+  }catch(_){ /* older contexts: fall through to the canvas ratio */ }
+  return 1;
+}
 function fxEntries(obj,slot){
   const FS=window.FxStack;
   if(!FS||!obj.fx) return [];
@@ -2862,10 +3047,19 @@ function drawOneUncached(c,W,H,obj){
   const FS=window.FxStack;
   if(!obj.__inPixelPass) paintBackdropEffects(c,obj);
   const material=(FS&&obj.fx)?FS.activeMaterial(obj.fx):null;
-  const backdropGlass=!!(material&&material.type==='glass'&&FS.isBackdrop('glass'));
-  /* Every pixel effect uses the geometry-masked post-material path for
-   * backdrop Glass. None may render the material against an empty crop. */
-  const pix=(FS&&obj.fx)?(backdropGlass?[]:FS.inSlot(obj.fx,'pixel')):[];
+  /* ANY backdrop-reading material, not the literal string 'glass'.
+   *
+   * This used to read material.type==='glass'. Lens is a backdrop material
+   * too, so it failed the test and fell into the generic pixel path below —
+   * which renders the layer into an ISOLATED offscreen canvas. A material
+   * whose input is the page beneath it samples transparent black there and
+   * paints black. Measured across 13 pixel effects: Glass 0% black in all of
+   * them, Lens 97-100% black in nine. Asking FxStack, which owns the
+   * classification, means the next backdrop material is correct on arrival. */
+  const backdropMaterial=!!(material&&FS.isBackdrop(material.type));
+  /* Every pixel effect uses the geometry-masked post-material path for a
+   * backdrop material. None may render the material against an empty crop. */
+  const pix=(FS&&obj.fx)?(backdropMaterial?[]:FS.inSlot(obj.fx,'pixel')):[];
   if(pix.length&&window.Filters&&!obj.__inPixelPass){
     /* Behind effects are layer styles, not source pixels. Previously the
      * offscreen source included Drop Shadow and Outer Glow, so Bloom blurred
@@ -3198,17 +3392,32 @@ function drawOneInner(c,W,H,obj){
       }
     }
     const gla=fx.glass;
-    if(gla&&fxOn(obj,'glass')&&obj.type!=='text'){
+    /* The active backdrop material, asked ONCE and used for both the
+     * behind-slot pre-pass and the pixel capture below. Text is excluded
+     * throughout because these engines take their geometry from a box. */
+    const _FSm=window.FxStack, _mat=(_FSm&&obj.fx)?_FSm.activeMaterial(obj.fx):null;
+    const _isBackdropMat=!!(_mat&&_FSm.isBackdrop(_mat.type)&&obj.type!=='text');
+    let cleanBackdrop=null;
+    if(_isBackdropMat){
       /* Material renderers return before the ordinary shape painter, where
        * behind-slot effects normally run. Paint only that slot first so a
-       * Glass layer can cast shadows and outer glows without painting its
-       * ordinary fill. drawObject's backdrop isolation also removes the
-       * caster interior, preventing Glass from refracting its own shadow. */
-      obj.__behindOnly=true;
+       * backdrop-material layer can cast shadows and outer glows without
+       * painting its ordinary fill. drawObject's backdrop isolation also
+       * removes the caster interior, so the material cannot refract its own
+       * shadow — the shadow follows the LAYER SILHOUETTE, not the refracted
+       * pixels.
+       *
+       * This was gated on `glass` specifically, so a Lens layer cast nothing
+       * at all: measured 0.0 luminance darkening below the shape against 19.8
+       * for the same shadow on Glass and 61.6 on a plain rect. Same reason the
+       * pixel-effect gate had to be generalized — the classification belongs
+       * to FxStack, not to a type name spelled out here. */
+      cleanBackdrop=snapshotClean(c);                       // A: before any behind effect
+      obj.__behindOnly=true;                                 // B
       try{ drawObject(c,obj); }finally{ delete obj.__behindOnly; }
     }
-    const glassPixelState=(gla&&fxOn(obj,'glass')&&obj.type!=='text')
-      ?captureBackdropGlassPixels(c,obj):null;
+    // clean + this layer's shadows: the restore target for step E
+    const backdropPixelState=_isBackdropMat?captureBackdropMaterialPixels(c,obj):null;
     if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&gla.mode==='solid3d'&&window.GlassObjectEngine&&window.GlassObjectEngine.available()){
       const base=DEFAULT_EFFECTS().glass3d;
       const g3=Object.assign({},base,{on:true,mat:(gla.frost||0)>8?'frosted':'glass',tint:gla.tint,
@@ -3220,8 +3429,9 @@ function drawOneInner(c,W,H,obj){
       const img=window.GlassObjectEngine.render(obj.w,obj.h,g3);
       if(img){
         c.save(); c.globalAlpha=obj.opacity*(gla.opacity/100); c.drawImage(img,obj.x,obj.y,obj.w,obj.h); c.restore();
-        paintGrainOverlay(c,obj);
-        paintBackdropGlassPixels(c,glassPixelState);
+        // Solid 3D painted straight onto c, so there is nothing to composite
+        // from clean — steps D and E still apply.
+        finishBackdropMaterial(c,obj,null,backdropPixelState);
         return;
       }
     }
@@ -3231,23 +3441,44 @@ function drawOneInner(c,W,H,obj){
       // fill/shadow/grain are deliberately NOT painted first.
       // NOTE: requires c to be an untransformed frame-resolution canvas —
       // render() and exportPNG both satisfy this.
+      /* Geometry in BUFFER pixels, not document units. The target may carry
+       * more than one device pixel per document unit (see renderDoc), and the
+       * shader addresses its backdrop texture in real pixels — so the two have
+       * to agree or the material lands beside the shape it belongs to.
+       * Deliberately NOT rounded: snapping to whole pixels here is what makes
+       * an edge crawl by one pixel as a shape is dragged. */
+      const gs=targetScale(c), gcw=c.canvas.width, gch=c.canvas.height;
       const geoms=[obj,...patternInstances(obj)].map(o=>({
-        cx:o.x+o.w/2, cy:o.y+o.h/2, w:o.w, h:o.h,
-        // shader shapes: 0 rect, 1 circle, 2 pill. An elongated ellipse maps
-        // to the pill (closest smooth footprint); rotation is not supported
-        // by the shader and is ignored for the glass pass.
+        cx:(o.x+o.w/2)*gs, cy:(o.y+o.h/2)*gs, w:o.w*gs, h:o.h*gs,
+        // shader shapes: 0 rect, 1 circle, 2 pill, 3 ellipse. Rotation is not
+        // supported by the shader and is ignored for the glass pass.
         shape: o.type==='ellipse' ? (Math.abs(o.w-o.h)<2?1:3) : 0,
         radius01: o.type==='ellipse'?0.5:clamp((o.radius||0)/Math.max(1,Math.min(o.w,o.h)),0,0.5),
       }));
+      /* EVIDENCE-BASED CROP POLICY (perf §5). Cropping a single Glass on a
+       * small buffer is slightly SLOWER than a full-frame pass — the crop's 2D
+       * capture + mip build cost more than one cheap upload — but with two or
+       * more Glass layers, or a large (high-DPR) buffer where each full upload
+       * is expensive, cropping wins by up to 3.5x. Measured medians:
+       *   dpr1 1-glass  crop 12.0  full 8.4   -> full
+       *   dpr1 8-glass  crop 64.5  full 134   -> crop
+       *   dpr2 1-glass  crop 46.7  full 68.6  -> crop
+       *   dpr2 8-glass  crop 104   full 360   -> crop
+       * So: crop when there are >=2 backdrop-glass materials, OR the buffer is
+       * large (>=1.6M px, i.e. DPR>=2 at this artboard). A single small-buffer
+       * material keeps the proven-faster full-frame path. Counting is O(N) over
+       * a handful of objects. */
+      const _matN=allObjects().filter(o=>o.type!=='text'&&o.effects&&o.effects.glass&&fxOn(o,'glass')).length;
+      const _doCrop=(_matN>=2)||(gcw*gch>=1600000);
       const glassParams=Object.assign({},gla,{
         frost:gla.mode==='frosted'?Math.max(35,gla.frost||0):gla.frost,
         flutes:gla.mode==='reeded'?gla.reedStrength:0,
         fluteWidth:gla.reedWidth,fluteAngle:gla.reedAngle,
         fluteMode:gla.reedByCount?1:0,fluteCount:gla.reedCount,
+        __crop:_doCrop,
       });
-      window.GlassEngine.render(c.canvas,W,H,geoms,glassParams);
-      paintGrainOverlay(c,obj);
-      paintBackdropGlassPixels(c,glassPixelState);
+      window.GlassEngine.render(cleanBackdrop||c.canvas,gcw,gch,geoms,glassParams);   // C: from clean
+      finishBackdropMaterial(c,obj,cleanBackdrop,backdropPixelState);                  // C composite, D, E
       return;
     }
     drawObject(c,obj);
@@ -3396,10 +3627,13 @@ function drawObject(c,obj,plain){
       c.restore(); return;
     }
     if(obj.type==='instance'){
-      // drawObject has no W/H in scope; mask layers size off the buffer, and
-      // the buffer IS the page raster, so its own dimensions are correct here
+      /* drawObject has no W/H in scope; mask layers size off the buffer. The
+       * buffer is the page raster but now carries __scale device pixels per
+       * document unit, and these W/H are DOCUMENT units — so divide it back
+       * out rather than handing mask layers a size in the wrong space. */
       const tree=instanceTree(obj);
-      if(tree) drawList(c,frameBuf.width,frameBuf.height,[tree],1);
+      const ibs=frameBuf.__scale||1;
+      if(tree) drawList(c,frameBuf.width/ibs,frameBuf.height/ibs,[tree],1);
       c.restore(); return;
     }
     if(obj.type==='image'){
@@ -3479,60 +3713,10 @@ function drawObject(c,obj,plain){
       paintAppearance(c,obj,cc=>addPath(cc,obj),b,obj.blend);
     }
     c.shadowColor='transparent';
-    // §4.10 inner shadow / §4.11 inner glow, walked in STACK ORDER.
-    if(!plain&&obj.type!=='text'){
-      const inners=[];
-      fxEntries(obj,'behind').concat(fxEntries(obj,'over')).forEach(entry=>{
-        const p=entry.params;
-        if(entry.type==='innerShadow'&&p.on&&(p.blur>0||p.spread>0))
-          inners.push({x:p.x,y:p.y,blur:p.blur,spread:p.spread,
-            color:p.color,alpha:p.alpha,blend:p.blend,falloff:null});
-        if(entry.type==='glow'&&p.on&&p.type==='inner'&&p.radius>0)
-          inners.push({x:0,y:0,blur:p.radius,spread:p.spread,
-            color:p.color,alpha:p.alpha,blend:p.blend,falloff:p.falloff});
-      });
-      inners.forEach(S=>{
-        c.save();
-        c.beginPath(); mkPath(c); c.clip();
-        c.globalCompositeOperation=blendOp(S.blend);
-        const R=1e4;
-        const passes=S.falloff===null
-          ? [{blur:S.blur+S.spread,alpha:S.alpha}]
-          : glowKernel({radius:S.blur,spread:S.spread,alpha:S.alpha,falloff:S.falloff});
-        passes.forEach(pass=>{
-          c.shadowColor=hexAlpha(S.color,pass.alpha);
-          /* Spread belongs to the shadow kernel, not to the object's visible
-           * geometry. The previous pass stroked the clipped shape in opaque
-           * black, producing a hard frame (especially obvious on pills) that
-           * ignored the chosen shadow colour and softness. Keep the inverse
-           * caster unchanged and broaden its shadow, matching Drop Shadow's
-           * shared spread semantics. */
-          c.shadowBlur=pass.blur; c.shadowOffsetX=S.x; c.shadowOffsetY=S.y;
-          c.beginPath();
-          c.rect(-R,-R,R*2,R*2);      // everything...
-          mkPath(c);                   // ...minus the shape (even-odd)
-          c.fillStyle='#000'; c.fill('evenodd');
-        });
-        c.restore();
-      });
-      c.shadowColor='transparent';
-    }
-    // Stripe fill paints OVER the flat fill rather than replacing it: the flat
-    // fill above is what casts the drop shadow, and a clipped drawImage cannot.
-    const grd=obj.effects.gradient;
-    if(grd&&fxOn(obj,'gradient')&&window.GradientEngine&&b.w>=1&&b.h>=1){
-      const tile=window.GradientEngine.get(b.w,b.h,grd);
-      if(tile){
-        if(plain==='flood'){
-          c.drawImage(tile,0,0,c.canvas.width,c.canvas.height);
-        }else{
-          c.save(); pathFor(c,obj); c.clip();
-          c.drawImage(tile,b.x,b.y,b.w,b.h);
-          c.restore();
-        }
-      }
-    }
-    paintGrainOverlay(c,obj);
+    // Over slot — inner shadow, inner glow, stripe, grain — through the ONE
+    // painter the material path also uses (see paintOverSlot). The rotation
+    // applied at the top of this function is still in force.
+    paintOverSlot(c,obj,plain,true);
     c.restore();
   }
 }
@@ -3682,6 +3866,71 @@ function visualAabbOf(o){
   x0-=pad; y0-=pad; x1+=pad; y1+=pad;
   return {x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)};
 }
+/* High-resolution export is a real re-render, never an enlarged 1x bitmap.
+ * Engines consume document-space pixels directly, so the export copy scales
+ * both geometry and every parameter whose unit is a pixel. Normalised values
+ * (opacity, threshold, focal positions, angles, colour) deliberately remain
+ * unchanged. The live document is never mutated. */
+function scaleFxForRender(entry,s){
+  const e=JSON.parse(JSON.stringify(entry));
+  const p=e.params||{};
+  const keysByType={
+    shadow:['x','y','blur','spread','length'],
+    glow:['radius','spread'],
+    blur:['radius','distance'],
+    bloom:['radius'],
+    backgroundBlur:['radius'],
+    channelFx:['amount','redX','redY','greenX','greenY','blueX','blueY'],
+    stylize:['pixelSize','dotSize'],
+    distortion:['amount'],
+    displacement:['scaleX','scaleY','mapScale'],
+    slice:['offset','gap'],
+    noise:['scale'],
+  };
+  (keysByType[e.type]||[]).forEach(k=>{ if(Number.isFinite(+p[k])) p[k]=+p[k]*s; });
+  return e;
+}
+function scaleObjectForRender(source,s){
+  const o=JSON.parse(JSON.stringify(source));
+  o.__exportScale=s;
+  const mul=(k,target=o)=>{ if(Number.isFinite(+target[k])) target[k]=+target[k]*s; };
+  ['x','y','w','h','x2','y2','radius','size','tracking'].forEach(k=>mul(k));
+  if(Array.isArray(o.radii)) o.radii=o.radii.map(v=>+v*s);
+  if(o.stroke) mul('width',o.stroke);
+  (o.strokes||[]).forEach(st=>mul('width',st));
+  (o.subpaths||[]).forEach(sp=>(sp.points||[]).forEach(p=>
+    ['x','y','ix','iy','ox','oy'].forEach(k=>mul(k,p))));
+  if(o.pattern){
+    ['hGap','vGap','rowOffsetX','colOffsetY','jitterX','jitterY'].forEach(k=>mul(k,o.pattern));
+  }
+  if(o.layout){ ['gap','padding','paddingX','paddingY'].forEach(k=>mul(k,o.layout)); }
+  if(Array.isArray(o.fx)) o.fx=o.fx.map(e=>scaleFxForRender(e,s));
+  if(CONTAINER(o)) o.children=(o.children||[]).map(k=>scaleObjectForRender(k,s));
+  return o;
+}
+function moveRenderObject(o,dx,dy){
+  if(Number.isFinite(+o.x)) o.x+=dx;
+  if(Number.isFinite(+o.y)) o.y+=dy;
+  if(Number.isFinite(+o.x2)) o.x2+=dx;
+  if(Number.isFinite(+o.y2)) o.y2+=dy;
+  (o.subpaths||[]).forEach(sp=>(sp.points||[]).forEach(p=>{ p.x+=dx; p.y+=dy; }));
+  if(CONTAINER(o)) (o.children||[]).forEach(k=>moveRenderObject(k,dx,dy));
+  return o;
+}
+function scaledSceneForCrop(source,s,b){
+  const d=JSON.parse(JSON.stringify(source));
+  const dx=-b.x*s, dy=-b.y*s;
+  d.frame.w=Math.max(1,Math.round(b.w*s)); d.frame.h=Math.max(1,Math.round(b.h*s));
+  d.frame.artboards=(d.frame.artboards||[]).map(a=>{
+    const q=JSON.parse(JSON.stringify(a));
+    ['x','y','w','h','radius'].forEach(k=>{ if(Number.isFinite(+q[k])) q[k]=+q[k]*s; });
+    q.x+=dx; q.y+=dy;
+    if(q.stroke&&Number.isFinite(+q.stroke.width)) q.stroke.width*=s;
+    return q;
+  });
+  d.frame.children=(d.frame.children||[]).map(o=>moveRenderObject(scaleObjectForRender(o,s),dx,dy));
+  return d;
+}
 /* Inverse-rotate a page point into an object's unrotated frame, so hit tests
  * and handle grabs work on rotated objects. */
 function toLocal(o,px,py){
@@ -3773,11 +4022,43 @@ function renderDoc(){
       bw=Math.max(bw,b.x+b.w); bh=Math.max(bh,b.y+b.h);
     }catch(err){ reportDrawFailure(o,err); }
   });
-  frameBuf.width=Math.min(8000,Math.ceil(bw));
-  frameBuf.height=Math.min(8000,Math.ceil(bh));
-  // Full frame resolution, no transform: the glass engines sample real pixels.
-  drawDoc(instrumentCtx(frameBuf.getContext('2d')),f.w,f.h);
+  /* DEVICE-PIXEL RASTER.
+   *
+   * This buffer used to be exactly the page in DOCUMENT units, and paint()
+   * blits it under a dpr*zoom transform — so on a 2x display every
+   * backdrop-reading material was magnified 2x before the user zoomed at all,
+   * and more after. That is the softness, and resampling a 1x raster while
+   * dragging is most of the crawl along the edges.
+   *
+   * The scale is QUANTISED to whole steps on purpose. Tracking zoom
+   * continuously would reallocate the buffer (and every GL texture built from
+   * it) on each wheel tick, which is both slow and a source of visible
+   * resolution pops. Whole steps mean a handful of sizes across the whole zoom
+   * range, and 3 is the cap: past that the buffer costs more than the detail
+   * is worth. */
+  const dprNow=(window.devicePixelRatio||1);
+  const s=clamp(Math.ceil(dprNow*Math.min(view?view.z:1,2)),1,3);
+  const pw=Math.min(8000,Math.ceil(bw*s)), ph=Math.min(8000,Math.ceil(bh*s));
+  /* Only touch width/height when they actually change: assigning either one
+   * clears the canvas and forces a fresh allocation even when the value is
+   * identical. */
+  if(frameBuf.width!==pw) frameBuf.width=pw;
+  if(frameBuf.height!==ph) frameBuf.height=ph;
+  frameBuf.__scale=s;
+  const g=frameBuf.getContext('2d');
+  g.setTransform(s,0,0,s,0,0);
+  // Document coordinates, s device pixels each: the glass engines read the
+  // real pixels of this buffer and scale their geometry by the same s.
+  drawDoc(instrumentCtx(g),f.w,f.h);
 }
+/* Effects that need the page rendered to a real raster before they run.
+ *
+ * A backdrop-reading material MUST be in here. Without it paint() takes the
+ * direct-to-screen branch, where the canvas is dpr*zoom pixels but the W,H
+ * handed down are document units — so the engine uploads a screen-sized
+ * texture and addresses it with document-space geometry. The material lands in
+ * the wrong place and samples the wrong pixels, which shows up as smeared or
+ * displaced content near the silhouette. */
 const RASTER_PREVIEW_FX=new Set([
   'light','liquid','flare','prism','capsule','strip','blob','glass','glass2',
   'blur','bloom','distortion','warp','displacement','haze','slice','noise',
@@ -3843,7 +4124,13 @@ function paint(){
    * a permanent drop shadow which was not part of the document. */
   if(rasterPreviewNeeded()){
     ctx.imageSmoothingEnabled=true;
-    ctx.drawImage(frameBuf,0,0);
+    ctx.imageSmoothingQuality='high';
+    /* The buffer now holds __scale device pixels per document unit, so it is
+     * drawn back at its DOCUMENT size and the extra resolution is spent on the
+     * blit rather than thrown away. Sized explicitly rather than relying on the
+     * canvas's own dimensions, which are in device pixels. */
+    const bs=frameBuf.__scale||1;
+    ctx.drawImage(frameBuf,0,0,frameBuf.width/bs,frameBuf.height/bs);
   }else{
     // Draw ordinary vector documents at the current transform so zooming stays
     // crisp. The frame buffer remains available for exports, sampling, and
@@ -4220,9 +4507,65 @@ function paint(){
   const zi=$('zoomInput');
   if(document.activeElement!==zi) zi.value=Math.round(z*100)+'%';
 }
-function render(){
+function renderNow(){
   if(rasterPreviewNeeded()) renderDoc();
   paint();
+}
+/* Interactive render coalescing (perf §2).
+ *
+ * WHY. A backdrop material re-renders the whole frame every render() — the
+ * paint cache deliberately excludes materials — and eight Glass layers is
+ * ~57ms a frame. The drag and slider handlers call render() on EVERY pointer
+ * event, synchronously, so a one-second drag generating ~100 events used to
+ * queue ~5.7s of work on the main thread: the tab froze. Reported as "added 8
+ * glass, the app hangs".
+ *
+ * HOW. A trailing rAF throttle during gestures. Pointer events only mark the
+ * newest state dirty; one animation-frame callback renders that state once.
+ * Programmatic callers retain the synchronous render contract through the
+ * non-gesture branch and renderImmediate(). Draft intent is captured with the
+ * queued frame so a slider frame cannot accidentally render at full quality
+ * after its input handler has reset fxDraft. */
+let _renderRaf=0, _renderPending=false, _renderDraftPending=false;
+/* Coalescing is limited to live interactive GESTURES — a pointer drag/resize/
+ * pan (`drag` is non-null) or a continuous slider adjustment (`fxDraft`). Every
+ * other render() stays fully synchronous, which is what programmatic callers
+ * and the test suite rely on: a coalesced render defers to an animation frame,
+ * and synchronous test code never yields to one, so the frame would never
+ * appear and `render(); readPixels()` would see a stale canvas. Restricting the
+ * throttle to gestures fixes the freeze without changing render() for anyone
+ * who is not mid-drag. */
+function interactiveGesture(){
+  return (typeof drag!=='undefined'&&drag) || fxDraft===true;
+}
+function render(){
+  if(!interactiveGesture()){                        // programmatic / test: synchronous
+    renderImmediate();
+    return;
+  }
+  _renderPending=true;
+  _renderDraftPending=_renderDraftPending||fxDraft===true;
+  if(_renderRaf) return;                             // a frame is already queued
+  const raf=window.requestAnimationFrame||((fn)=>setTimeout(fn,16));
+  _renderRaf=raf(()=>{
+    _renderRaf=0;
+    if(!_renderPending) return;
+    _renderPending=false;
+    const draft=_renderDraftPending;
+    _renderDraftPending=false;
+    const previousDraft=fxDraft;
+    fxDraft=draft;
+    try{ renderNow(); }finally{ fxDraft=previousDraft; }
+  });
+}
+/* For callers that must have pixels on the SAME tick — export, the eyedropper,
+ * automated pixel probes. Bypasses the throttle and cancels any pending frame
+ * so the two cannot both fire. */
+function renderImmediate(){
+  if(_renderRaf){ (window.cancelAnimationFrame||clearTimeout)(_renderRaf); _renderRaf=0; }
+  _renderPending=false;
+  _renderDraftPending=false;
+  renderNow();
 }
 
 /* ================= UI sync ================= */
@@ -4670,7 +5013,6 @@ const FX_PAGES=obj=>{
   const recipe=visibleRecipeEntries(obj);
   let active=recipe.find(e=>e.id===_activeFxEntryId);
   if(!active&&recipe.length){ active=recipe[recipe.length-1]; _activeFxEntryId=active.id; }
-  const activePage=active&&TYPE_PAGE[active.type];
   /* 'Effects' is not an effect — it is the STACK page, a list of applied
    * effects plus a menu for adding one, and that menu is built from the very
    * pages filtered above. With every effect gated off it renders as a control
@@ -5000,9 +5342,139 @@ function syncLayoutPanel(obj){
  * the user may have set them by hand, and an analysis pass is an addition to
  * their work, not a replacement for it. */
 function applyRecipe(obj,recipe){
-  const applied=[];
-  if(!obj||!recipe||!Array.isArray(recipe.effects)) return applied;
-  const E=obj.effects; if(!E) return applied;
+  return applyRecipeReport(obj,recipe).applied;
+}
+
+/* ---- the analyser's contract, honoured in full ----------------------------
+ * /api/analyze may return a BASE (mesh, linear, radial, solid, liquid) and
+ * effects of type blur, grain, noise, glass and light. Until now the client
+ * applied blur, grain and noise and dropped the rest in silence, so a recipe
+ * that said "reeded glass over a mesh" produced a mesh and reported success.
+ *
+ * Every accepted field is now either applied or REPORTED in `ignored` with
+ * the reason. Nothing is dropped quietly.
+ *
+ *   base     needs the reference (`ctx.img`) and its measured grid
+ *            (`ctx.grid`): a mesh is FITTED to the image, a linear/radial/
+ *            solid fill is read off the grid, a liquid field takes the grid's
+ *            dominant colours. Without them the base is reported, not guessed.
+ *   glass    is a MATERIAL, and so is a mesh: one object shows one material.
+ *            Glass therefore becomes its own layer directly above the object,
+ *            covering the same box, reeded with the measured rib count when
+ *            the analysis (or the pixels) say so. `ctx.list` is the children
+ *            array to insert it into; without one it is reported.
+ *   light    likewise, its own layer above, transparent so it composites.
+ *
+ * Values are CLAMPED rather than trusted, as before. */
+const GLASS_MODES=['backdrop','frosted','reeded','solid3d'];
+const HEX6=/^#[0-9a-fA-F]{6}$/;
+const hexDist=(a,b)=>{ const A=hexRgb(a),B=hexRgb(b); return Math.hypot(A[0]-B[0],A[1]-B[1],A[2]-B[2]); };
+function meanHexOf(hexes){
+  let r=0,g=0,b=0,n=0;
+  (hexes||[]).forEach(h=>{ if(!HEX6.test(h||'')) return; const c=hexRgb(h); r+=c[0]; g+=c[1]; b+=c[2]; n++; });
+  return n?rgbHex([r/n,g/n,b/n]):'#808080';
+}
+/** Up to n grid colours that are far enough apart to be different colours,
+ *  most-covered first — a palette, not a histogram. */
+function dominantHexes(hexes,n){
+  const counts=new Map();
+  (hexes||[]).forEach(h=>{ if(!HEX6.test(h||'')) return; const c=hexRgb(h); const k=rgbHex([Math.round(c[0]/24)*24,Math.round(c[1]/24)*24,Math.round(c[2]/24)*24]); counts.set(k,(counts.get(k)||0)+1); });
+  const sorted=[...counts.entries()].sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const out=[];
+  for(const h of sorted){ if(out.every(o=>hexDist(o,h)>=48)) out.push(h); if(out.length>=n) break; }
+  return out.length?out:['#808080'];
+}
+/** A solid / linear / radial fill read off the measured grid (row 0 = top). */
+function fillFromGrid(kind,rows,w,h){
+  const H=rows.length, W=rows[0].length;
+  if(kind==='solid') return {kind:'solid',color:meanHexOf(rows.flat())};
+  const rowMean=i=>meanHexOf(rows[Math.max(0,Math.min(H-1,i))]);
+  const colMean=j=>meanHexOf(rows.map(r=>r[Math.max(0,Math.min(W-1,j))]));
+  if(kind==='radial'){
+    const cy=Math.floor(H/2), cx=Math.floor(W/2);
+    const centre=meanHexOf([rows[cy][cx],rows[cy-1]&&rows[cy-1][cx],rows[cy][cx-1],rows[cy-1]&&rows[cy-1][cx-1]].filter(Boolean));
+    const edge=meanHexOf(rows[0].concat(rows[H-1],rows.map(r=>r[0]),rows.map(r=>r[W-1])));
+    return {kind:'radial',stops:[{pos:0,color:centre},{pos:1,color:edge}],fx:0,fy:0,aspect:1};
+  }
+  const vertical=hexDist(rowMean(0),rowMean(H-1))>=hexDist(colMean(0),colMean(W-1));
+  const at=t=>vertical?rowMean(Math.round(t*(H-1))):colMean(Math.round(t*(W-1)));
+  /* The gradient handles span ±0.42×min(w,h) around the centre by default;
+   * stretch the axis so the end stops sit on the shape's edges. */
+  const axisScale=w&&h?clamp(((vertical?h:w)/2)/Math.max(24,Math.min(w,h)*.42),.1,4):1;
+  return {kind:'linear',angle:vertical?90:0,axisScale,stops:[{pos:0,color:at(0)},{pos:0.5,color:at(0.5)},{pos:1,color:at(1)}]};
+}
+/** Make `type` the object's winning material: its stack entry on and added,
+ *  every other material entry off. Both the entry flag and the effect's own
+ *  `on` are set, because both are read. */
+function setMaterial(obj,type){
+  if(!obj.fx||!obj.effects) ensureFx(obj);
+  const FS=window.FxStack, E=obj.effects;
+  if(!E||!E[type]) return false;
+  obj.fx=obj.fx||[];
+  let entry=obj.fx.find(e=>e.type===type);
+  if(!entry){ entry={id:newId(),type,on:true,added:true,params:E[type]}; obj.fx.push(entry); }
+  entry.on=true; entry.added=true; entry.params=E[type];
+  if('on' in E[type]) E[type].on=true;
+  obj.fx.forEach(e=>{
+    if(e===entry||!FS||typeof FS.slotOf!=='function'||FS.slotOf(e.type)!=='material') return;
+    e.on=false; if(E[e.type]&&'on' in E[e.type]) E[e.type].on=false;
+  });
+  return true;
+}
+function clearMaterials(obj){
+  const FS=window.FxStack;
+  (obj.fx||[]).forEach(e=>{
+    if(!FS||FS.slotOf(e.type)!=='material') return;
+    e.on=false; if(obj.effects[e.type]&&'on' in obj.effects[e.type]) obj.effects[e.type].on=false;
+  });
+}
+/** A new rect over `obj`'s box, inserted directly above it. */
+function layerOver(obj,list,name){
+  const o=makeShape('rect',{x:obj.x,y:obj.y});
+  o.w=obj.w; o.h=obj.h; o.name=name; if(obj.radius) o.radius=obj.radius;
+  /* A material REPLACES the fill, so the fill is never seen while the material
+   * renders; but on a machine where the engine cannot start, the fill is what
+   * shows — and a white slab over the artwork is worse than nothing. */
+  o.fillOpacity=0;
+  ensureFx(o);
+  if(list){ const i=list.indexOf(obj); list.splice(i>=0?i+1:list.length,0,o); }
+  return o;
+}
+function applyRecipeReport(obj,recipe,ctx){
+  const report={applied:[],ignored:[],created:[]};
+  if(!obj||!recipe||typeof recipe!=='object') return report;
+  if(!obj.effects) return report;
+  /* Normalise ONCE, up front. Normalising rebuilds the effects objects, so a
+   * reference taken before it points at a discarded copy — the first fitted
+   * mesh went exactly there and the document kept the default palette. */
+  ensureFx(obj);
+  const E=obj.effects;
+  ctx=ctx||{};
+  const list=ctx.list||(doc&&doc.frame&&doc.frame.children&&doc.frame.children.includes(obj)?doc.frame.children:null);
+  const img=ctx.img||null;
+  const rows=ctx.grid&&Array.isArray(ctx.grid.rows)&&ctx.grid.rows.length?ctx.grid.rows:null;
+  const base=typeof recipe.base==='string'?recipe.base:null;
+  if(base==='mesh'){
+    setMaterial(obj,'mesh');
+    const ME=window.MeshGradient;
+    if(img&&ME&&ME.available()){
+      const M=E.mesh, cols=clamp(Math.round(+ctx.meshCols||5),2,10), rows2=clamp(Math.round(+ctx.meshRows||5),2,10);
+      const pts=ME.fitToImage(img,cols,rows2,{moveGeometry:true});
+      if(pts){ M.cols=cols; M.rows=rows2; M.points=pts; report.applied.push('mesh (fitted)'); }
+      else{ report.applied.push('mesh'); report.ignored.push('mesh fit: the fitter needs WebGL2'); }
+    }else report.applied.push(img?'mesh':'mesh (not fitted: no reference image)');
+  }else if(base==='liquid'){
+    if(setMaterial(obj,'liquid')){
+      if(rows){ const cols=dominantHexes(rows.flat(),5); E.liquid.cols=cols; E.liquid.count=cols.length; }
+      report.applied.push('liquid');
+    }else report.ignored.push('liquid: no renderer');
+  }else if(base==='linear'||base==='radial'||base==='solid'){
+    if(rows){ obj.fill=normPaint(fillFromGrid(base,rows,obj.w,obj.h)); clearMaterials(obj); report.applied.push(base+' fill (measured)'); }
+    else report.ignored.push(base+' fill: needs the measured colour grid');
+  }else if(base){
+    report.ignored.push('base "'+base+'": no such engine');
+  }
+  if(!Array.isArray(recipe.effects)) return report;
   /* A MESH ALREADY IS THE SOFTNESS. Every reference this flow is pointed at
    * looks blurry — that is what a gradient looks like — so the model reports a
    * gaussian blur, and applying it blurs a colour field that was just fitted to
@@ -5019,6 +5491,7 @@ function applyRecipe(obj,recipe){
    * gaussian on a mesh for anyone who wants it; what is refused is applying it
    * unasked as the conclusion of reading a picture. */
   const meshActive=!!(E.mesh&&fxOn(obj,'mesh'));
+  const applied=report.applied;
   recipe.effects.forEach(fx=>{
     if(!fx||typeof fx.type!=='string') return;
     if(fx.type==='blur'&&E.blur){
@@ -5040,12 +5513,10 @@ function applyRecipe(obj,recipe){
         E.blur.radius=clamp(+fx.radius||0,0,200);
       }
       applied.push('blur');
-    }
-    if(fx.type==='grain'&&E.grain){
+    }else if(fx.type==='grain'&&E.grain){
       E.grain.amount=clamp(+fx.amount||0,0,1);
       if(E.grain.amount>0) applied.push('grain');
-    }
-    if(fx.type==='noise'&&E.noise){
+    }else if(fx.type==='noise'&&E.noise){
       E.noise.amount=clamp(+fx.amount||0,0,1);
       E.noise.mono=fx.mono!==false;
       /* 1..32 is the model's range. This read 0.2..8, so the analyser could
@@ -5054,9 +5525,234 @@ function applyRecipe(obj,recipe){
        * model has to use that model's clamps. */
       E.noise.scale=clamp(+fx.scale||1,1,32);
       if(E.noise.amount>0) applied.push('noise');
+    }else if(fx.type==='glass'){
+      if(!list){ report.ignored.push('glass: no layer list to add a glass layer to'); return; }
+      const o=layerOver(obj,list,'Glass');
+      const G=o.effects.glass;
+      G.on=true;
+      G.mode=GLASS_MODES.includes(fx.mode)?fx.mode:(+fx.frost>30?'frosted':'backdrop');
+      if(Number.isFinite(+fx.depth)) G.depth=clamp(+fx.depth,-200,200);
+      if(Number.isFinite(+fx.refraction)) G.refraction=clamp(+fx.refraction,-200,200);
+      G.frost=clamp(+fx.frost||0,0,100);
+      if(G.mode==='reeded'){
+        G.reedByCount=true;
+        G.reedCount=clamp(Math.round(+fx.count)||10,2,80);
+        G.reedAngle=clamp(+fx.angle||0,-90,90);
+      }
+      setMaterial(o,'glass');
+      report.created.push(o);
+      applied.push(G.mode==='reeded'?'reeded glass ('+G.reedCount+' ribs)':G.mode+' glass');
+    }else if(fx.type==='light'){
+      if(!list){ report.ignored.push('light: no layer list to add a light layer to'); return; }
+      const o=layerOver(obj,list,'Light');
+      const L=o.effects.light;
+      L.on=true; L.intensity=clamp(+fx.intensity||0.6,0,2.8); L.transparent=true;
+      setMaterial(o,'light');
+      report.created.push(o);
+      applied.push('light');
+    }else{
+      report.ignored.push(fx.type+': no engine of that name');
     }
   });
-  return applied;
+  return report;
+}
+
+/* ---- recreate from a reference ----------------------------------------------
+ * The one flow behind the Generate button when an image is attached. The
+ * reference is MEASURED first (public/reference.js) and the class picks the
+ * path:
+ *
+ *   color_field  one rect the size of the frame, a mesh FITTED to the pixels
+ *                (exact, instant, free), then the analyser's recipe on top —
+ *                kept only if it does not make the render worse.
+ *   material     the same, and the ribs the pixels measured become reeded
+ *                glass even when the analyser forgot to say so.
+ *   composition  an editable layer PLAN from the strong model, rendered and
+ *                compared; if the error is high, ONE retry that is told where
+ *                the render is wrong; the better of the two is kept.
+ *
+ * Every path ends the same way: the document is rendered through the export
+ * path and compared with the reference at a normalised size. The verdict —
+ * close / approximate / failed — comes from that number and from nothing
+ * the model said about itself. */
+function renderFrameCanvas(){
+  if(!doc) return null;
+  const f=doc.frame;
+  const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(f.w)); c.height=Math.max(1,Math.round(f.h));
+  drawDoc(c.getContext('2d'),f.w,f.h);
+  return c;
+}
+function loadImageFrom(dataUrl){
+  return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('That file could not be read as an image.')); i.src=dataUrl; });
+}
+async function callAnalyze(body){
+  const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){ const e=new Error(j.error||('HTTP '+r.status)); e.status=r.status; e.retryAfter=j.retryAfter; throw e; }
+  return j;
+}
+/* Free-tier rate limit: the provider says when the window resets, so wait it
+ * out visibly and retry once instead of just failing. */
+async function withRateLimitRetry(fn,say,tries){
+  try{ return await fn(); }
+  catch(e){
+    if(e.status!==429||!e.retryAfter||e.retryAfter>120) throw e;
+    /* Up to three waits. The strong route's per-minute input ceiling is close
+     * to ONE plan request, so the call after a plan (its retry, or the next
+     * image) is routinely told to wait, and once is not always enough for the
+     * earlier request to age out of the window. Each wait is the provider's
+     * own reset time, not a guess. */
+    tries=tries==null?3:tries;
+    if(tries<=0) throw e;
+    /* ONE timer for the whole wait. A one-second loop reads nicely, but a
+     * background tab's timers are throttled to about one tick a minute after
+     * five minutes hidden, and a 30-second countdown became a 30-minute one.
+     * The countdown text is updated by an interval that may or may not fire;
+     * the retry does not depend on it. */
+    const until=Date.now()+e.retryAfter*1000;
+    say(`Rate limit (free tier) — retrying in ${e.retryAfter}s…`,true);
+    const tick=setInterval(()=>say(`Rate limit (free tier) — retrying in ${Math.max(0,Math.ceil((until-Date.now())/1000))}s…`,true),1000);
+    try{ await new Promise(r=>setTimeout(r,e.retryAfter*1000+250)); } finally{ clearInterval(tick); }
+    return withRateLimitRetry(fn,say,tries-1);
+  }
+}
+/** Engines in use across the document, for the report. */
+function enginesInDoc(d){
+  const out=new Set();
+  const walk=list=>(list||[]).forEach(o=>{
+    if(o.pattern) out.add('pattern ×'+(o.pattern.columns*o.pattern.rows));
+    if(o.fill&&o.fill.kind&&o.fill.kind!=='solid') out.add(o.fill.kind+' fill');
+    (o.fx||[]).forEach(e=>{ if(e.added&&e.on!==false) out.add(e.type); });
+    if(o.type==='text') out.add('text');
+    if(o.type==='path') out.add('path');
+    if(o.children) walk(o.children);
+  });
+  walk(d&&d.frame&&d.frame.children);
+  return [...out];
+}
+let _lastReference=null;
+async function recreateFromReference(dataUrl,opts){
+  opts=opts||{};
+  const R=window.Reference;
+  if(!R) throw new Error('reference.js did not load');
+  const say=(m,err)=>{ status(m,err); if(opts.onStatus) opts.onStatus(m); };
+  const T0=performance.now();
+  const img=await loadImageFrom(dataUrl);
+  const m=R.measureImage(img,8);
+  const cls=m.classification;
+  const timing={measure:Math.round(performance.now()-T0)};
+  const fw=m.aspect>=1?900:Math.round(600*m.aspect), fh=m.aspect>=1?Math.round(900/m.aspect):600;
+  say(`Reference read as a ${cls.replace('_',' ')}: ${m.reasons[0]}`);
+  const small=await shrinkForModel(dataUrl);
+  const report={classification:cls,reasons:m.reasons,features:m.features,frame:{w:fw,h:fh},
+    engines:[],recipe:null,plan:null,unsupported:[],ignored:[],attempts:[],
+    error:null,verdict:'unmeasured',model:null,modelConfidence:null,timing};
+  const measure=label=>{
+    const t=performance.now();
+    const c=renderFrameCanvas();
+    const cmp=R.compareImages(img,c,4);
+    report.attempts.push({label,error:cmp.error,verdict:cmp.verdict,ms:Math.round(performance.now()-t)});
+    return cmp;
+  };
+  const load=d=>{ setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; };
+  if(cls==='composition'){
+    /* The strong route has an INPUT ceiling per minute (7,000 tokens on the
+     * free tier) and the picture is most of the request, so compositions go
+     * at 448px — structure survives that — and a request the provider still
+     * calls too large (413) is sent once more at 320px. */
+    const fine=R.measureImage(img,8).grid;
+    const body={imageDataUrl:await shrinkForModel(dataUrl,448),classification:cls,features:m.features,imageSamples:fine,prompt:opts.prompt||'',frame:{w:fw,h:fh}};
+    const plan=async b=>{
+      try{ return await withRateLimitRetry(()=>callAnalyze(b),say); }
+      catch(e){
+        if(e.status!==413) throw e;
+        say('The strong model called the request too large — sending a smaller picture…');
+        report.shrunk=true;
+        const smaller=await shrinkForModel(dataUrl,320);
+        return withRateLimitRetry(()=>callAnalyze(Object.assign({},b,{imageDataUrl:smaller})),say);
+      }
+    };
+    say('Planning the composition on the strong model…');
+    let t=performance.now();
+    let j=await plan(body);
+    timing.model=Math.round(performance.now()-t);
+    let best=null;
+    for(let attempt=0;attempt<2;attempt++){
+      if(!j||!j.doc||!j.doc.frame) throw new Error('The planner returned no document.');
+      if(!(+j.doc.frame.w>0)) j.doc.frame.w=fw;
+      if(!(+j.doc.frame.h>0)) j.doc.frame.h=fh;
+      load(j.doc);
+      const cmp=measure(attempt?'retry':'plan');
+      const cand={doc:JSON.parse(JSON.stringify(doc)),cmp,unsupported:Array.isArray(j.unsupported)?j.unsupported:[],model:j.model,usage:j.usage,brief:j.brief||null};
+      if(!best||cmp.error<best.cmp.error) best=cand;
+      if(cmp.verdict==='close'||attempt===1) break;
+      say(`Plan rendered at error ${cmp.error}/255 (${cmp.verdict}) — retrying once with the difference…`);
+      t=performance.now();
+      j=await plan(Object.assign({},body,{previous:{doc:j.doc,brief:j.brief,error:cmp.error,cells:cmp.cells}}));
+      timing.retry=Math.round(performance.now()-t);
+    }
+    if(best.doc!==doc) load(best.doc);
+    report.plan=best.doc; report.brief=best.brief; report.unsupported=best.unsupported; report.model=best.model; report.usage=best.usage;
+    report.error=best.cmp.error; report.verdict=best.cmp.verdict; report.cells=best.cmp.cells;
+    report.engines=enginesInDoc(doc);
+  }else{
+    const bg=meanHexOf(m.grid.rows.flat());
+    load({frame:{name:'Reference',w:fw,h:fh,bg,children:[{type:'rect',name:'Field',x:0,y:0,w:fw,h:fh,fill:{kind:'solid',color:bg}}]}});
+    const field=doc.frame.children[0];
+    let t=performance.now();
+    const base=applyRecipeReport(field,{base:'mesh',effects:[]},{img,grid:m.grid,list:doc.frame.children});
+    timing.fit=Math.round(performance.now()-t);
+    const alone=measure('fitted mesh');
+    report.engines=base.applied.slice(); report.ignored=base.ignored.slice();
+    report.error=alone.error; report.verdict=alone.verdict; report.cells=alone.cells;
+    say(`Mesh fitted (error ${alone.error}/255) — asking what was done on top…`);
+    let j=null;
+    t=performance.now();
+    try{ j=await withRateLimitRetry(()=>callAnalyze({imageDataUrl:small,classification:cls,features:m.features,imageSamples:m.grid,prompt:opts.prompt||''}),say); }
+    catch(e){ report.analyserError=e.message; }
+    timing.model=Math.round(performance.now()-t);
+    let recipe=j&&j.recipe&&typeof j.recipe==='object'?j.recipe:null;
+    if(recipe){ report.recipe=recipe; report.model=j.model; report.usage=j.usage; report.modelConfidence=recipe.confidence; }
+    /* The pixels measured ribs; if the analyser said nothing about glass, the
+     * measurement stands in. A material without its surface is a colour field. */
+    const per=m.features.periodic;
+    if(cls==='material'&&per&&per.count>=2&&!(recipe&&Array.isArray(recipe.effects)&&recipe.effects.some(e=>e&&e.type==='glass'))){
+      recipe=recipe||{effects:[]}; recipe.effects=Array.isArray(recipe.effects)?recipe.effects:[];
+      recipe.effects.push({type:'glass',mode:'reeded',count:per.count,angle:per.axis==='rows'?90:0,frost:0,measured:true});
+      report.measuredRibs=per.count;
+    }
+    if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
+      const snapshot=JSON.parse(JSON.stringify(doc));
+      /* The base stays the FITTED mesh: it is measured against every pixel,
+       * while a linear or radial base named by the analyser is read off an
+       * 8x8 grid and was, measured, always worse (the glass poster: 15.7 with
+       * the mesh, 55+ with a linear fill). Swapping the base under the
+       * effects also made the effects take the blame for it, and the whole
+       * recipe was reverted together. So only the EFFECTS are tried on top,
+       * and the analyser's base is reported rather than obeyed. */
+      const r2={effects:recipe.effects};
+      const rep=applyRecipeReport(field,r2,{img,grid:m.grid,features:m.features,list:doc.frame.children});
+      if(recipe.base&&recipe.base!=='mesh') rep.ignored.push('base "'+recipe.base+'": kept the fitted mesh, which is measured against every pixel');
+      const withFx=measure('mesh + recipe');
+      const tolerance=cls==='material'?6:2;
+      if(withFx.error>alone.error+tolerance){
+        load(snapshot);
+        report.reverted=`the recipe raised the error from ${alone.error} to ${withFx.error}; kept the fitted field`;
+        report.ignored=report.ignored.concat(rep.applied.map(a=>a+' (reverted: made the render worse)'));
+      }else{
+        report.engines=base.applied.concat(rep.applied); report.ignored=report.ignored.concat(rep.ignored);
+        report.error=withFx.error; report.verdict=withFx.verdict; report.cells=withFx.cells;
+      }
+    }
+  }
+  timing.total=Math.round(performance.now()-T0);
+  pushHistory('Recreate from reference'); refresh();
+  _lastReference=report;
+  const line=`${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255) · ${report.engines.join(', ')||'no engines'}`+
+    (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+
+    (report.ignored.length?' · not applied: '+report.ignored.join('; '):'');
+  say(line,report.verdict==='failed');
+  return report;
 }
 
 /* ---- collapsible sections ---------------------------------------------
@@ -5454,11 +6150,13 @@ function buildFx(obj){
   });
   $('fxTitleWrap').style.display='none';
   $('fxPager').style.display='none';
-  /* Search earns its row only when there is enough to search. It was built for
-   * a list of twenty-odd engines; with the effect pages gated off a shape has
-   * three, all now visible at once, so the field was a permanent 44px
-   * answering a question nobody had. It comes back as effects are promoted. */
-  $('engineSearchWrap').style.display=pages.length>=6?'':'none';
+  /* The inspector never carries the engine search. It searches ENGINES, which
+   * is a question you ask when ADDING an effect — the "Add effect" picker has
+   * its own search for exactly that — not when editing a selected layer's
+   * properties. Showing it here (it appeared once a layer had ~6 sections) was
+   * the panel's most confusing bit of clutter: a search box in a property
+   * inspector, searching things the inspector does not list. */
+  $('engineSearchWrap').style.display='none';
 }
 function buildFxSection(obj,page,add,body){
 
@@ -5962,6 +6660,7 @@ function buildFxSection(obj,page,add,body){
           $('stDetach').addEventListener('click',detachStyle);
         }else{
           add(`<button class="rollBtn" id="stSave">Save as style</button>`);
+          add(`<div class="fxHint">Saves this layer's whole look — fill, stroke and the entire effect recipe — as one reusable style.</div>`);
           $('stSave').addEventListener('click',()=>{
             const nm=prompt('Style name:','Style '+((doc.frame.styles||[]).length+1));
             if(nm===null) return;
@@ -6730,6 +7429,13 @@ function buildFxSection(obj,page,add,body){
         add(`<label class="slider">Mode<select id="glMode"><option value="backdrop">Backdrop</option><option value="frosted">Frosted</option><option value="reeded">Reeded</option><option value="solid3d">3D solid</option></select></label>`);
         $('glMode').value=G.mode||'backdrop';
         $('glMode').addEventListener('change',e=>{ G.mode=e.target.value; pushHistory(); refresh(); });
+        add(`<button class="rollBtn" id="glReset">Reset glass</button>`);
+        $('glReset').addEventListener('click',()=>{
+          const clean=DEFAULT_EFFECTS().glass;
+          Object.keys(G).forEach(k=>delete G[k]);
+          Object.assign(G,clean,{on:true});
+          pushHistory('Reset glass'); refresh();
+        });
         const sl=(id,label,min,max,val,fmt)=>{
           add(`<label class="slider">${label} <span id="${id}V">${fmt(val)}</span>
             <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
@@ -6743,6 +7449,8 @@ function buildFxSection(obj,page,add,body){
         sl('glBevel','Edge bevel',0,100,G.bevel,v=>v+'%');
         sl('glFrost','Frost',0,100,G.frost,v=>v);
         sl('glRefl','Reflection',0,100,G.reflection,v=>v);
+        add(`<label class="chk"><input type="checkbox" id="glWhiteLight" ${G.whiteLight!==false?'checked':''}> White light</label>`);
+        $('glWhiteLight').addEventListener('change',e=>{ G.whiteLight=e.target.checked; render(); pushHistory(); });
         sl('glEdgeIntensity','Edge intensity',0,100,G.edgeIntensity,v=>v+'%');
         sl('glEdgeWidth','Edge width',0,100,G.edgeWidth,v=>v+'%');
         sl('glEdgeSoftness','Edge softness',0,100,G.edgeSoftness,v=>v+'%');
@@ -7371,22 +8079,26 @@ function buildFxSection(obj,page,add,body){
              * twice spends a provider's rate limit on a question already
              * answered. Keyed on the bytes actually sent, and kept for the
              * session only — this is a convenience, not a store. */
-            let j=_analysisCache.get(small);
+            /* This button lives on a mesh, so the reference is read as the
+             * field the mesh shows plus whatever surface is over it: the
+             * recipe path, never the composition planner. */
+            const im=await loadImageFrom(dataUrl);
+            const meas=window.Reference?window.Reference.measureImage(im,8):null;
+            const classification=meas&&meas.classification==='color_field'?'color_field':'material';
+            const key=classification+'|'+small;
+            let j=_analysisCache.get(key);
             if(!j){
-              const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({imageDataUrl:small})});
-              j=await r.json();
-              if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
-              _analysisCache.set(small,j);
+              j=await callAnalyze({imageDataUrl:small,classification,features:meas&&meas.features,imageSamples:meas&&meas.grid});
+              _analysisCache.set(key,j);
               if(_analysisCache.size>8) _analysisCache.delete(_analysisCache.keys().next().value);
             }
-            const applied=applyRecipe(obj,j.recipe);
+            const rep=applyRecipeReport(obj,j.recipe,{img:im,grid:meas&&meas.grid,features:meas&&meas.features,list:activeList()});
             pushHistory('Apply analysed effects');
             refresh();
             const n2=$('mshAnalyseNote');
-            if(n2) n2.textContent = applied.length
-              ? '“'+String(j.recipe.structure||'').slice(0,60)+'” — applied '+applied.join(', ')+'.'
-              : 'Nothing beyond the colour field was detected.';
+            if(n2) n2.textContent = (rep.applied.length
+              ? '“'+String(j.recipe.structure||'').slice(0,60)+'” — applied '+rep.applied.join(', ')+'.'
+              : 'Nothing beyond the colour field was detected.')+(rep.ignored.length?' Not applied: '+rep.ignored.join('; ')+'.':'');
           }catch(e){
             const n2=$('mshAnalyseNote');
             if(n2) n2.textContent='Analysis failed: '+e.message;
@@ -9231,8 +9943,14 @@ function convertAnchorAt(p){
 function samplePage(x,y,n){
   if(!rasterPreviewNeeded()) renderDoc();
   const g=frameBuf.getContext('2d');
-  const x0=clamp(Math.round(x-(n-1)/2),0,Math.max(0,frameBuf.width-n));
-  const y0=clamp(Math.round(y-(n-1)/2),0,Math.max(0,frameBuf.height-n));
+  /* x,y arrive in DOCUMENT units; the buffer now holds __scale device pixels
+   * per unit. The neighbourhood stays n DEVICE pixels — the point of shift and
+   * cmd is to average away sensor-level noise, and widening the patch with the
+   * buffer scale would average away real detail instead. */
+  const bs=frameBuf.__scale||1;
+  const px=x*bs, py=y*bs;
+  const x0=clamp(Math.round(px-(n-1)/2),0,Math.max(0,frameBuf.width-n));
+  const y0=clamp(Math.round(py-(n-1)/2),0,Math.max(0,frameBuf.height-n));
   const d=g.getImageData(x0,y0,n,n).data;
   let r=0,gg=0,b=0,c=0;
   for(let i=0;i<d.length;i+=4){ r+=d[i]; gg+=d[i+1]; b+=d[i+2]; c++; }
@@ -9598,15 +10316,74 @@ function exportAllArtboards(){
  *  export. drawList([obj]) draws just that object's own subtree instead.
  *  doc.frame.w/h are still passed as W,H (not the small canvas size) because
  *  mask/shadow effect layers size their own offscreen buffers off them. */
-function renderObjectToBlob(obj,preset,cb){
+function renderObjectToCanvas(obj,preset){
   const b=visualAabbOf(obj);
   const scale=preset.scale||1;
   const c=document.createElement('canvas');
   c.width=Math.max(1,Math.round(b.w*scale)); c.height=Math.max(1,Math.round(b.h*scale));
   const cx=c.getContext('2d');
-  cx.scale(scale,scale);
-  cx.translate(-b.x,-b.y);
-  drawList(cx,doc.frame.w,doc.frame.h,[obj]);
+  const FS=window.FxStack;
+  const material=FS&&obj.fx?FS.activeMaterial(obj.fx):null;
+  const needsBackdrop=!!(material&&FS.isBackdrop(material.type));
+  if(needsBackdrop){
+    /* Backdrop materials cannot be exported from an empty isolated layer: an
+     * empty texture is transparent black, which produced the solid black
+     * Glass rectangle found by browser QA. Re-render the real scene translated
+     * into this crop, at native export resolution, so Glass samples the same
+     * pixels it samples on the canvas. */
+    const live=doc, scene=scaledSceneForCrop(doc,scale,b);
+    try{ doc=scene; drawDoc(cx,c.width,c.height); }
+    finally{ doc=live; paintCacheClear(); }
+  }else{
+    const scaled=scaleObjectForRender(obj,scale);
+    cx.translate(-b.x*scale,-b.y*scale);
+    drawList(cx,doc.frame.w*scale,doc.frame.h*scale,[scaled]);
+  }
+  /* Browser QA can inspect the exact export raster without relying on the
+   * browser download manager. It is opt-in and never touches normal sessions. */
+  if(new URLSearchParams(location.search).has('exportTest')){
+    if(scale===1&&frameBuf.width&&frameBuf.height){
+      const ref=document.createElement('canvas'); ref.width=c.width; ref.height=c.height;
+      // Source rect is in DOCUMENT units; the buffer is in device pixels.
+      const rbs=frameBuf.__scale||1;
+      ref.getContext('2d').drawImage(frameBuf,b.x*rbs,b.y*rbs,b.w*rbs,b.h*rbs,0,0,c.width,c.height);
+      const A=c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+      const R=ref.getContext('2d').getImageData(0,0,ref.width,ref.height).data;
+      let delta=0; for(let i=0;i<A.length;i++) delta+=Math.abs(A[i]-R[i]);
+      c.dataset.previewMean=String(+(delta/A.length).toFixed(3));
+    }
+    c.hidden=true; c.dataset.exportScale=String(scale); c.className='exportTestCanvas';
+    document.body.appendChild(c);
+    const samples=[...document.querySelectorAll('canvas.exportTestCanvas')].slice(-2);
+    if(samples.length===2&&+samples[1].dataset.exportScale===+samples[0].dataset.exportScale*2){
+      const [a,b2]=samples, A=a.getContext('2d').getImageData(0,0,a.width,a.height).data;
+      const B=b2.getContext('2d').getImageData(0,0,b2.width,b2.height).data;
+      let sum=0,max=0,n=0,opaqueBlack=0;
+      const edgeAlpha={top:0,right:0,bottom:0,left:0};
+      for(let y=0;y<a.height;y++) for(let x=0;x<a.width;x++){
+        const ai=(y*a.width+x)*4, q=[0,0,0,0];
+        for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++){
+          const bi=((y*2+dy)*b2.width+x*2+dx)*4;
+          for(let ch=0;ch<4;ch++) q[ch]+=B[bi+ch]/4;
+        }
+        for(let ch=0;ch<4;ch++){ const d=Math.abs(A[ai+ch]-q[ch]); sum+=d; max=Math.max(max,d); n++; }
+        if(A[ai+3]>250&&A[ai]<2&&A[ai+1]<2&&A[ai+2]<2) opaqueBlack++;
+        if(A[ai+3]>8){
+          if(y===0) edgeAlpha.top++; if(y===a.height-1) edgeAlpha.bottom++;
+          if(x===0) edgeAlpha.left++; if(x===a.width-1) edgeAlpha.right++;
+        }
+      }
+      let out=document.getElementById('exportTestResult');
+      if(!out){ out=document.createElement('output'); out.id='exportTestResult'; out.hidden=true; document.body.appendChild(out); }
+      out.textContent=JSON.stringify({meanAbs:+(sum/n).toFixed(3),maxAbs:+max.toFixed(1),
+        previewMean:+a.dataset.previewMean||null,
+        opaqueBlack,edgeAlpha,size1:[a.width,a.height],size2:[b2.width,b2.height]});
+    }
+  }
+  return c;
+}
+function renderObjectToBlob(obj,preset,cb){
+  const c=renderObjectToCanvas(obj,preset);
   c.toBlob(cb,preset.format==='jpeg'?'image/jpeg':'image/png');
 }
 function exportObject(objId,presetId){
@@ -9735,7 +10512,9 @@ function exitContainer(){
 
 /* §5.15: flatten-to-raster, the EXPLICIT destructive action. Renders the
  * object with its whole stack into a bitmap and replaces it with an image
- * layer. Undo restores the vector. */
+ * layer. Undo restores the vector. Retained but not yet wired to a menu
+ * command, hence unreferenced. */
+// eslint-disable-next-line no-unused-vars
 function flattenSelToRaster(){
   const os=selObjs().filter(o=>!o.locked&&o.type!=='image');
   if(!os.length) return;
@@ -10859,14 +11638,14 @@ function status(msg,isErr){
  * So the two halves of the request each do the thing they are good at: the
  * grid is precise about colour, the thumbnail is enough about composition. */
 const SEND_MAX_PX=512;
-async function shrinkForModel(dataUrl){
+async function shrinkForModel(dataUrl,maxPx){
   if(!dataUrl) return dataUrl;
   try{
     const img=await new Promise((res,rej)=>{
       const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=dataUrl;
     });
     const w=img.naturalWidth, h=img.naturalHeight;
-    const scale=Math.min(1, SEND_MAX_PX/Math.max(w,h));
+    const scale=Math.min(1, (maxPx||SEND_MAX_PX)/Math.max(w,h));
     if(scale>=1) return dataUrl;                  // already small enough
     const c=document.createElement('canvas');
     c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
@@ -10933,6 +11712,13 @@ async function generate(){
   $('generateBtn').disabled=true;
   status('Generating…');
   try{
+    if(attachedImage){
+      /* A reference on the table is measured, classified and recreated by the
+       * path its class calls for; the prompt rides along as an instruction to
+       * the planner. The status line carries the measured verdict. */
+      await recreateFromReference(attachedImage,{prompt});
+      return;
+    }
     let data;
     try{
       data=await callGenerate();
@@ -11236,17 +12022,19 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get paintCacheSize(){return _paintCache.size;},
   set paintCacheOff(v){ _paintCacheOff=!!v; paintCacheClear(); },
   pushInstanceToSource,
-  FX_PAGES, PAGE_TYPE, applyRecipe,
+  FX_PAGES, PAGE_TYPE, applyRecipe, applyRecipeReport, setMaterial, fillFromGrid, dominantHexes,
+  recreateFromReference, renderFrameCanvas, enginesInDoc, get lastReference(){return _lastReference;},
   artboardOf, objectsInArtboard, addArtboard, duplicateArtboard, removeArtboard,
   exportArtboard, duplicatePage, movePage, renamePage, deletePage,
   copySel, pasteClip, moveLayer,
   saveStyle, applyStyle, pushStyleToSource, detachStyle, deleteStyle, renameStyle,
-  renderObjectToBlob, exportObject, visualAabbOf,
+  renderObjectToCanvas, renderObjectToBlob, exportObject, visualAabbOf, scaleObjectForRender,
+  scaledSceneForCrop,
   STROKE_PROFILES, strokePolylines, ribbonPolygon,
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
-  render, refresh,
+  render, refresh, renderImmediate,
   patternInstances, allInstances, instanceBounds, normalizePattern,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR} };
@@ -11369,6 +12157,16 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     }else{
       entry=(obj.fx||[]).find(e=>e.type===type);
       if(!entry){ entry={id:newId(),type,on:true,added:true,params:obj.effects[type]}; obj.fx.push(entry); }
+      /* Removing the visible Glass recipe leaves a legacy placeholder in the
+       * normalised stack. Re-applying Glass must behave like adding a new
+       * material, not revive whatever experimental values that placeholder
+       * retained. A disabled, still-added recipe is different: toggling or
+       * focusing it deliberately preserves the user's settings. */
+      if(type==='glass'&&!present.some(e=>e.added===true)){
+        const clean=JSON.parse(JSON.stringify(DEFAULT_EFFECTS().glass));
+        entry.params=clean;
+        obj.effects[type]=clean;
+      }
       (OPENING[type]||(()=>{}))({effects:{[type]:entry.params}});
       entry.on=true; entry.added=true;
       if(!obj.effects[type]) obj.effects[type]=entry.params;
@@ -11428,7 +12226,10 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     }
     const list=$('engList'); if(!list) return;
     list.innerHTML='';
-    let items=C.search(engQuery).filter(i=>C.status(i.id)===C.READY);
+    /* Hidden capabilities remain loadable for existing documents but do not
+       appear in the creation UI. This lets us retire an experiment without
+       breaking files that already contain it. */
+    let items=C.search(engQuery).filter(i=>!i.hidden&&C.status(i.id)===C.READY);
     if(engFilter!=='all') items=items.filter(i=>
       engFilter==='effect'
         ? i.category==='effect'||i.category==='shader'

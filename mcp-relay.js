@@ -140,8 +140,7 @@ function dispatch(req, res) {
       pending.delete(id);
       json(res, 504, {
         error: "timeout",
-        message:
-          "The editor did not answer " + method + " within " + CALL_TIMEOUT_MS + "ms.",
+        message: "The editor did not answer " + method + " within " + CALL_TIMEOUT_MS + "ms.",
       });
     }, CALL_TIMEOUT_MS);
     if (timer.unref) timer.unref();
@@ -170,7 +169,11 @@ function result(req, res) {
     }
     pending.delete(body.id);
     clearTimeout(p.timer);
-    json(p.res, 200, body.ok ? { ok: true, result: body.result } : { ok: false, error: body.error });
+    json(
+      p.res,
+      200,
+      body.ok ? { ok: true, result: body.result } : { ok: false, error: body.error },
+    );
     json(res, 200, { ok: true });
   });
 }
@@ -178,7 +181,12 @@ function result(req, res) {
 /** Returns true when the request was one of ours and has been answered. */
 function handle(req, res) {
   const url = String(req.url || "").split("?")[0];
-  if (url !== "/mcp/events" && url !== "/mcp/call" && url !== "/mcp/result" && url !== "/mcp/status")
+  if (
+    url !== "/mcp/events" &&
+    url !== "/mcp/call" &&
+    url !== "/mcp/result" &&
+    url !== "/mcp/status"
+  )
     return false;
 
   if (!isLocal(req)) {

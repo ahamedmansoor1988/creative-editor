@@ -71,10 +71,18 @@ describe("normalizeDoc — frame", () => {
 describe("normalizeDoc — artboard appearance", () => {
   it("uses a solid fill as the source of truth for the legacy background alias", () => {
     const f = norm({
-      artboards: [{
-        id: "board", name: "Board", x: 0, y: 0, w: 900, h: 600,
-        bg: "#cccccc", fill: { kind: "solid", color: "#ffffff" },
-      }],
+      artboards: [
+        {
+          id: "board",
+          name: "Board",
+          x: 0,
+          y: 0,
+          w: 900,
+          h: 600,
+          bg: "#cccccc",
+          fill: { kind: "solid", color: "#ffffff" },
+        },
+      ],
     }).frame;
     expect(f.artboards[0].fill.color).toBe("#ffffff");
     expect(f.artboards[0].bg).toBe("#ffffff");
@@ -89,11 +97,25 @@ describe("normalizeDoc — artboard appearance", () => {
   });
 
   it.each(["angular", "diamond"])("preserves the %s gradient type", (kind) => {
-    const f = norm({ artboards: [{ id: "board", x: 0, y: 0, w: 900, h: 600,
-      fill: { kind, angle: 45, stops: [
-        { pos: 0, color: "#ff0000" }, { pos: 1, color: "#0000ff" },
-      ] },
-    }] }).frame;
+    const f = norm({
+      artboards: [
+        {
+          id: "board",
+          x: 0,
+          y: 0,
+          w: 900,
+          h: 600,
+          fill: {
+            kind,
+            angle: 45,
+            stops: [
+              { pos: 0, color: "#ff0000" },
+              { pos: 1, color: "#0000ff" },
+            ],
+          },
+        },
+      ],
+    }).frame;
     expect(f.artboards[0].fill.kind).toBe(kind);
     expect(f.artboards[0].fill.stops).toHaveLength(2);
   });

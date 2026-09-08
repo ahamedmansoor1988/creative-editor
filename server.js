@@ -50,6 +50,17 @@ const GROQ_URL =
 // image need the one vision model Groq exposes on the free tier.
 const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "openai/gpt-oss-120b";
 const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.6-27b";
+/* A STRONGER vision route for compositions — structured designs the everyday
+ * model flattens. Model, endpoint and key are all configuration: the default
+ * is the strongest vision model this provider lists (qwen3.8 over qwen3.6),
+ * asked of the same endpoint with the same key. Point VISION_STRONG_URL and
+ * VISION_STRONG_KEY at any OpenAI-compatible endpoint (an Astra deployment,
+ * once it is reachable) and only compositions go there. Nothing is hardcoded
+ * beyond a model NAME; credentials come from the environment or .env. */
+const VISION_MODEL_STRONG =
+  process.env.VISION_MODEL_STRONG || ENV.VISION_MODEL_STRONG || "qwen/qwen3.8-27b";
+const VISION_STRONG_URL = process.env.VISION_STRONG_URL || ENV.VISION_STRONG_URL || GROQ_URL;
+const VISION_STRONG_KEY = process.env.VISION_STRONG_KEY || ENV.VISION_STRONG_KEY || GROQ_KEY;
 
 /* ---- rate limit for /api/generate ----------------------------------------
  * Fixed window, per client address. Deliberately small and dependency-free:
@@ -116,7 +127,7 @@ const CAPABILITIES = [
     inDoc: d => /"pattern":\{/.test(d),
     // Bounded and precise: the client clamps every field again on load, and
     // rows*cols is capped, so a bad value cannot produce runaway instances.
-    doc: `A rect/ellipse may add "pattern":{"columns":1-32,"rows":1-32,"hGap":px,"vGap":px,"baseScale":0.1-2,"widthVariation":0..1,"heightVariation":0..1,"baseRotation":deg,"rotationStep":deg,"mirror":"none"|"horizontal"|"vertical","holes":0..0.9} which REPEATS THAT WHOLE SHAPE as linked duplicate copies in a columns x rows grid; the shape itself occupies the grid's first cell. Every copy keeps the shape's exact type, radius, fill and effects - it does NOT slice or subdivide the shape. columns*rows must be <= 400. Use for repetition, patterns, rhythm, grids, rows of items.`,
+    doc: `A rect/ellipse may add "pattern":{"columns":1-32,"rows":1-32,"hGap":px,"vGap":px,"baseScale":0.1-2,"widthVariation":0..1,"heightVariation":0..1,"baseRotation":deg,"rotationStep":deg,"scaleStep":-0.5..0.5,"mirror":"none"|"horizontal"|"vertical","holes":0..0.9} which REPEATS THAT WHOLE SHAPE as linked duplicate copies in a columns x rows grid; the shape itself occupies the grid's first cell. Every copy keeps the shape's exact type, radius, fill and effects - it does NOT slice or subdivide the shape. columns*rows must be <= 400. Use for repetition, patterns, rhythm, grids, rows of items.`,
   },
   {
     id: "shadow",
@@ -237,18 +248,281 @@ function buildSystem(prompt, currentDoc, force) {
  * Deliberately conservative: an effect the model is unsure about is worse than
  * one it omits, because a recipe gets APPLIED. */
 const ANALYSE_SYSTEM = `You analyse a reference image and describe HOW IT WAS MADE, as a recipe of rendering engines. Reply with ONLY JSON, no prose:
-{"base":"mesh"|"linear"|"radial"|"solid","effects":[...],"structure":"one short phrase","confidence":0..1}
-Each effect is one of:
+{"base":"mesh"|"linear"|"radial"|"solid"|"liquid","effects":[...],"structure":"one short phrase","confidence":0..1}
+base: "mesh" for a smooth multi-colour field, "linear"/"radial" only when the field is plainly one axis or one centre, "solid" for one flat colour, "liquid" for folded, flowing colour with creases and no visible stops.
+Each effect is one of (applied in the order given, bottom to top):
 {"type":"blur","kind":"gaussian","radius":0-200}
 {"type":"blur","kind":"directional","angle":-180..180,"distance":0-400}
 {"type":"blur","kind":"zoom","amount":0..1,"cx":-1..1,"cy":-1..1}
 {"type":"grain","amount":0..1}
-{"type":"noise","amount":0..1,"mono":true|false,"scale":0.2-8}
-{"type":"glass","depth":-200..200,"refraction":-200..200,"frost":0-100}
-{"type":"light","intensity":0..2.8}
+{"type":"noise","amount":0..1,"mono":true|false,"scale":1-32}
+{"type":"glass","mode":"backdrop"|"frosted"|"reeded","depth":-200..200,"refraction":-200..200,"frost":0-100,"count":2-64,"angle":-90..90} (reeded = fluted ribs; count = ribs across the image, angle 0 = vertical ribs, 90 = horizontal)
+{"type":"light","intensity":0..2.8,"angle":-180..180} (a volumetric light cone or beam over the field)
 Include ONLY effects you can see direct evidence of. An effect you are unsure about is worse than a missing one, because it will be applied.
 Judge specifically: is the colour field smooth everywhere or does it have creases and hard edges? Is there directional smearing, and at roughly what angle? Is there visible grain or noise? Is there refraction or glassiness?
 Say nothing about the colours themselves — those are measured separately and far more precisely than you can judge them.`;
+
+/* ---- classification-aware routing ----------------------------------------
+ * The CLIENT measures the reference (public/reference.js: edges, periodicity,
+ * grain, at 128px where edges survive) and names one of three things. The
+ * server only chooses the model and the schema for it:
+ *   color_field, material -> a RECIPE (which engines, roughly what parameters)
+ *                            on the everyday vision model
+ *   composition           -> an editable layer PLAN on the strongest configured
+ *                            vision model, never one mesh
+ * The class is validated, not trusted: anything else takes the recipe path,
+ * which is what every caller got before classes existed. */
+const REFERENCE_CLASSES = ["color_field", "material", "composition"];
+function classOf(v) {
+  return REFERENCE_CLASSES.includes(v) ? v : null;
+}
+
+/** Validated measured-colour rows from a client sample, or []. */
+function gridRows(imageSamples) {
+  if (!imageSamples || !Array.isArray(imageSamples.rows)) return [];
+  return imageSamples.rows
+    .slice(0, 16)
+    .map((r) => (Array.isArray(r) ? r.slice(0, 16).filter((h) => /^#[0-9a-f]{6}$/i.test(h)) : []))
+    .filter((r) => r.length);
+}
+
+/** What the client measured, in words the model can use. Numbers it cannot
+ *  see from patch tokens: rib count and direction, grain amount. */
+function measuredNotes(features) {
+  if (!features || typeof features !== "object") return "";
+  const out = [];
+  const p = features.periodic;
+  if (p && p.count >= 2 && p.strength >= 0.2 && p.amp >= 4) {
+    out.push(
+      `a repeated structure of about ${Math.round(p.count)} copies ${p.axis === "rows" ? "stacked vertically (horizontal bands)" : "across the width (vertical bands)"}, pitch ${(p.pitch * 100).toFixed(1)}% of the ${p.axis === "rows" ? "height" : "width"}`,
+    );
+  }
+  if (features.grain && features.grain.amount >= 0.3) out.push(`film grain, amount about ${features.grain.amount}`);
+  if (Number.isFinite(features.colours)) out.push(`${features.colours} distinct colours cover at least 1% each`);
+  return out.length ? `\n\nMEASURED from the pixels (trust these over your reading): ${out.join("; ")}.` : "";
+}
+
+async function providerCall(payload, url, key) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    const msg = (data && data.error && data.error.message) || `provider ${r.status}`;
+    const e = new Error(msg);
+    /** @type {any} */ (e).status = r.status;
+    throw e;
+  }
+  return data;
+}
+
+/* A composition is PLANNED as editable layers on the strong route. The plan
+ * uses the same document schema Generate does, plus the repeater and the
+ * engines a poster needs, plus an "unsupported" list: what these layers
+ * cannot express is said, not faked. The frame follows the reference's
+ * proportions, sized by the client. A retry carries the previous plan and a
+ * per-cell comparison of its render against the reference, so the second
+ * attempt is aimed rather than blind. */
+
+/* Stage A of a composition: the vision model READS. On this provider's free
+ * tier a vision model may emit about 1,000 output tokens a minute, and a
+ * 24-layer document is two to three times that, so the reading is kept to a
+ * structural brief — what is where, in percent, verbatim text, what cannot be
+ * expressed — and the document is written by the text model (stage B), which
+ * has the room. The same split the Editable Creative Test plugin settled on
+ * against the same wall. */
+const BRIEF_SYSTEM = `You describe a reference image as a STRUCTURAL brief for a layout tool. Reply with ONLY JSON, no prose:
+{"background":{"kind":"solid"|"gradient","colors":["#hex","#hex"],"angle":0-360},
+ "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom"}],
+ "text":[{"content":"the words, verbatim","x":0-100,"y":0-100,"size":1-60,"weight":"regular"|"bold","color":"#hex","align":"left"|"center"|"right"}],
+ "unsupported":["what flat shapes and text cannot express here"]}
+x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. A row, stack, fan or grid of similar shapes is ONE element with its count and repeat, whose x,y,w,h describe the box of the WHOLE group (the copies fill it evenly), colorEnd being the last copy's colour. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
+
+async function readComposition(imageDataUrl, features, prompt, hint) {
+  const payload = {
+    model: VISION_MODEL_STRONG,
+    messages: [
+      { role: "system", content: BRIEF_SYSTEM },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageDataUrl } },
+          {
+            type: "text",
+            text:
+              "Describe this reference as a structural brief." +
+              measuredNotes(features) +
+              (prompt && String(prompt).trim() ? ` The person asked: ${String(prompt).trim()}` : "") +
+              (hint || ""),
+          },
+        ],
+      },
+    ],
+    temperature: 0.2,
+    max_completion_tokens: 700,
+    reasoning_effort: "none",
+  };
+  const data = await providerCall(payload, VISION_STRONG_URL, VISION_STRONG_KEY);
+  const content = data.choices?.[0]?.message?.content || "";
+  let brief;
+  try {
+    brief = extractJSON(content);
+  } catch (e) {
+    console.error("[analyze] brief was not JSON:", JSON.stringify(content.slice(0, 400)));
+    throw e;
+  }
+  return { brief, model: payload.model, usage: data.usage };
+}
+
+/* Stage B, DETERMINISTIC. The brief already says where each thing is, how
+ * big, what colour, how many, which way it repeats, and the words. A second
+ * model asked to turn that into JSON misread the centre coordinates as the
+ * document's top-left and put a 21-slat group off the canvas — the exact
+ * kind of instruction-following failure a measured pipeline exists to avoid.
+ * So the document is BUILT from the brief, and the only model call is the
+ * reading. Everything the layers cannot express is said in `unsupported`. */
+const HEX = (h, d) => (/^#[0-9a-f]{6}$/i.test(String(h || "")) ? String(h).toLowerCase() : d);
+function meanHexOfRows(rows) {
+  let r = 0, g = 0, b = 0, n = 0;
+  rows.flat().forEach((h) => {
+    if (!/^#[0-9a-f]{6}$/i.test(h)) return;
+    const v = parseInt(h.slice(1), 16);
+    r += (v >> 16) & 255; g += (v >> 8) & 255; b += v & 255; n++;
+  });
+  if (!n) return null;
+  return "#" + [r / n, g / n, b / n].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+}
+const KAPPA = 0.5523;
+/** A half ellipse as a closed cubic path: the arc on the visible side, a flat
+ *  chord on the cut side. `cut` names the HIDDEN side. */
+function halfEllipsePath(cx, cy, rx, ry, cut) {
+  const k = KAPPA;
+  // arc from A through M to B on the visible side, then straight back
+  if (cut === "left" || cut === "right") {
+    const sx = cut === "left" ? 1 : -1;
+    return [
+      { x: cx, y: cy - ry, ox: sx * k * rx, oy: 0, ix: 0, iy: 0 },
+      { x: cx + sx * rx, y: cy, ix: 0, iy: -k * ry, ox: 0, oy: k * ry },
+      { x: cx, y: cy + ry, ix: sx * k * rx, iy: 0, ox: 0, oy: 0 },
+    ];
+  }
+  const sy = cut === "top" ? 1 : -1;
+  return [
+    { x: cx - rx, y: cy, ox: 0, oy: sy * k * ry, ix: 0, iy: 0 },
+    { x: cx, y: cy + sy * ry, ix: -k * rx, iy: 0, ox: k * rx, oy: 0 },
+    { x: cx + rx, y: cy, ix: 0, iy: sy * k * ry, ox: 0, oy: 0 },
+  ];
+}
+function briefToDoc(brief, fw, fh, rows) {
+  const pct = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(-50, Math.min(150, n)) : d; };
+  const unsupported = [];
+  const children = [];
+  const bg = (brief && brief.background) || {};
+  const bgColors = (Array.isArray(bg.colors) ? bg.colors : []).map((h) => HEX(h, null)).filter(Boolean);
+  const measuredMean = meanHexOfRows(rows || []);
+  const bgColor = bgColors[0] || measuredMean || "#111111";
+  if (bg.kind === "gradient" && bgColors.length >= 2) {
+    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, fill: { kind: "linear", angle: ((pct(bg.angle, 90) % 360) + 360) % 360, stops: bgColors.slice(0, 4).map((c, i, a) => ({ pos: a.length === 1 ? 0 : i / (a.length - 1), color: c })) } });
+  } else {
+    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, fill: { kind: "solid", color: bgColor } });
+  }
+  const elements = (Array.isArray(brief && brief.elements) ? brief.elements : []).slice(0, 12);
+  elements.forEach((e, idx) => {
+    if (!e || typeof e !== "object") return;
+    const name = String(e.what || e.shape || "element").slice(0, 40) || "element " + (idx + 1);
+    const cx = (pct(e.x, 50) / 100) * fw, cy = (pct(e.y, 50) / 100) * fh;
+    const gw = Math.max(2, (pct(e.w, 20) / 100) * fw), gh = Math.max(2, (pct(e.h, 20) / 100) * fh);
+    const count = Math.max(1, Math.min(64, Math.round(Number(e.count) || 1)));
+    const repeat = ["horizontal", "vertical", "fan", "grid"].includes(e.repeat) ? e.repeat : count > 1 ? "horizontal" : "none";
+    const soft = Math.max(0, Math.min(1, Number(e.soft) || 0));
+    const color = HEX(e.color, "#ffffff");
+    const colorEnd = HEX(e.colorEnd, null);
+    const alpha = Math.max(0.05, Math.min(1, Number.isFinite(Number(e.alpha)) ? Number(e.alpha) : 1));
+    const cut = ["left", "right", "top", "bottom"].includes(e.cut) ? e.cut : null;
+    let shape = ["rect", "ellipse", "polygon", "line", "path"].includes(e.shape) ? e.shape : "rect";
+    const rot = Math.max(-180, Math.min(180, Number(e.rotation) || 0));
+    // one copy's size: the group box divided by the count along the repeat axis, with a 35% gap
+    let w = gw, h = gh, pattern = null;
+    if (count > 1 && repeat !== "none") {
+      const FILL = 0.65;
+      if (repeat === "vertical") { h = Math.max(1, (gh / count) * FILL); pattern = { columns: 1, rows: count, vGap: Math.max(0, gh / count - h) }; }
+      else if (repeat === "horizontal") { w = Math.max(1, (gw / count) * FILL); pattern = { columns: count, rows: 1, hGap: Math.max(0, gw / count - w) }; }
+      else if (repeat === "grid") { const cols = Math.ceil(Math.sqrt(count)), rws = Math.ceil(count / cols); w = Math.max(1, (gw / cols) * FILL); h = Math.max(1, (gh / rws) * FILL); pattern = { columns: cols, rows: rws, hGap: Math.max(0, gw / cols - w), vGap: Math.max(0, gh / rws - h) }; }
+      else { // fan: copies turn by an even step around the group's centre; sizes stay
+        const step = Math.min(30, 180 / count);
+        w = Math.max(1, (gw / count) * FILL);
+        pattern = { columns: count, rows: 1, hGap: Math.max(0, gw / count - w), baseRotation: -(step * (count - 1)) / 2, rotationStep: step };
+        unsupported.push(`${name}: a true fan (copies swinging about one pivot) is approximated by a turning row`);
+      }
+      if (colorEnd && colorEnd !== color) unsupported.push(`${name}: the colour change across ${count} copies (${color} to ${colorEnd}); the copies share one fill`);
+    }
+    const x = cx - w / 2, y = cy - h / 2;
+    const base = { name, x: +x.toFixed(1), y: +y.toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), opacity: alpha, rot };
+    const thin = Math.max(w, h) / Math.max(1, Math.min(w, h)) >= 4;
+    const darkGround = (() => { const v = parseInt(bgColor.slice(1), 16); return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255 < 0.35; })();
+    if (soft >= 0.5 && thin) {
+      // a soft STREAK keeps its shape and glows: a rect with the glow effect
+      children.push({ ...base, type: "rect", fill: { kind: "solid", color }, effects: { glow: { on: true, type: "outer", radius: Math.round(Math.max(6, Math.min(w, h) * 1.5)), color, alpha: 0.8 } }, pattern: pattern || undefined });
+      return;
+    }
+    if (soft >= 0.5) {
+      // a LIGHT: a radial fill with a plateau (light reads as a field, not a
+      // point), composited as light when the ground is dark
+      const stops = [{ pos: 0, color, opacity: 1 }, { pos: 0.55, color, opacity: 0.85 }, { pos: 1, color, opacity: 0 }];
+      children.push({ ...base, type: "ellipse", w: +(w * 1.15).toFixed(1), h: +(h * 1.15).toFixed(1), x: +(cx - (w * 1.15) / 2).toFixed(1), y: +(cy - (h * 1.15) / 2).toFixed(1), fill: { kind: "radial", stops }, blend: darkGround ? "screen" : "normal", pattern: pattern || undefined });
+      return;
+    }
+    const fill = colorEnd && count === 1 ? { kind: "linear", angle: gw >= gh ? 0 : 90, stops: [{ pos: 0, color }, { pos: 1, color: colorEnd }] } : { kind: "solid", color };
+    if (shape === "line") { children.push({ type: "line", name, x: +(cx - gw / 2).toFixed(1), y: +cy.toFixed(1), x2: +(cx + gw / 2).toFixed(1), y2: +cy.toFixed(1), stroke: { width: Math.max(1, Math.min(60, Math.round(gh))), color }, opacity: alpha }); return; }
+    if (shape === "polygon") { children.push({ ...base, type: "polygon", sides: 6, innerRatio: 1, fill, pattern: pattern || undefined }); return; }
+    if ((shape === "ellipse" || shape === "path") && cut) {
+      children.push({ type: "path", name, points: halfEllipsePath(cx, cy, gw / 2, gh / 2, cut).map((p) => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), ox: +(p.ox || 0).toFixed(1), oy: +(p.oy || 0).toFixed(1), ix: +(p.ix || 0).toFixed(1), iy: +(p.iy || 0).toFixed(1) })), closed: true, fillOn: true, fill, stroke: { width: 0, color }, opacity: alpha });
+      if (pattern) unsupported.push(`${name}: ${count} half shapes drawn as one; the repeater does not take paths yet`);
+      return;
+    }
+    if (shape === "path") shape = "rect";
+    children.push({ ...base, type: shape, fill, pattern: pattern || undefined });
+  });
+  const texts = (Array.isArray(brief && brief.text) ? brief.text : []).slice(0, 8);
+  texts.forEach((t) => {
+    const content = t && typeof t.content === "string" ? t.content.trim().slice(0, 200) : "";
+    if (!content) return;
+    const size = Math.max(6, Math.min(600, (pct(t.size, 5) / 100) * fh));
+    const align = ["left", "center", "right"].includes(t.align) ? t.align : "left";
+    const cx = (pct(t.x, 50) / 100) * fw, cy = (pct(t.y, 50) / 100) * fh;
+    const approxW = content.length * size * 0.55;
+    const x = align === "center" ? cx : align === "right" ? cx + approxW / 2 : cx - approxW / 2;
+    children.push({ type: "text", name: content.slice(0, 24), x: +x.toFixed(1), y: +(cy - size * 0.6).toFixed(1), text: content, size: +size.toFixed(1), weight: /bold|black|heavy/i.test(String(t.weight || "")) ? 700 : 400, color: HEX(t.color, "#ffffff"), align, mode: "point" });
+  });
+  const briefUnsupported = (Array.isArray(brief && brief.unsupported) ? brief.unsupported : []).filter((x) => typeof x === "string").map((x) => x.slice(0, 120));
+  return {
+    doc: { frame: { name: "Reference composition", w: fw, h: fh, bg: bgColor, children: children.slice(0, 24) } },
+    unsupported: [...new Set(briefUnsupported.concat(unsupported))].slice(0, 12),
+  };
+}
+
+async function planComposition(body) {
+  const { imageDataUrl, features, imageSamples, prompt, previous } = body;
+  const fw = Math.round(Math.min(2000, Math.max(200, Number(body.frame && body.frame.w) || 900)));
+  const fh = Math.round(Math.min(2000, Math.max(200, Number(body.frame && body.frame.h) || 600)));
+  const rows = gridRows(imageSamples).slice(0, 8).map((r) => r.slice(0, 8));
+  let hint = "";
+  if (previous && Number.isFinite(Number(previous.error))) {
+    const cells = Array.isArray(previous.cells) ? previous.cells : [];
+    const worst = [];
+    cells.forEach((row, r) => (Array.isArray(row) ? row : []).forEach((c, k) => { if (c && Number.isFinite(c.err)) worst.push({ r, c: k, ...c }); }));
+    worst.sort((a, b) => b.err - a.err);
+    hint =
+      ` A first reading of this image was built and rendered, and it differs from the image by a mean colour error of ${Number(previous.error).toFixed(1)}/255. Where it was wrong (grid row 0 = top, column 0 = left; the image's colour vs the render's): ` +
+      worst.slice(0, 6).map((c) => `r${c.r}c${c.c} ${c.ref} vs ${c.got}`).join(", ") +
+      `. Read the image again and correct positions, sizes, counts and colours where the render was wrong.`;
+  }
+  const read = await readComposition(imageDataUrl, features, prompt, hint);
+  const built = briefToDoc(read.brief, fw, fh, rows);
+  return { kind: "plan", classification: "composition", doc: built.doc, brief: read.brief, unsupported: built.unsupported, model: read.model, usage: read.usage };
+}
 
 async function analyse(body) {
   if (!GROQ_KEY) {
@@ -258,6 +532,9 @@ async function analyse(body) {
   }
   const { imageDataUrl } = body;
   if (!imageDataUrl) throw new Error("analyse needs an image");
+  const cls = classOf(body.classification) || "color_field";
+  if (cls === "composition") return planComposition(body);
+  const notes = measuredNotes(body.features);
   const payload = {
     model: VISION_MODEL,
     messages: [
@@ -266,7 +543,15 @@ async function analyse(body) {
         role: "user",
         content: [
           { type: "image_url", image_url: { url: imageDataUrl } },
-          { type: "text", text: "Analyse this reference. Which engines and parameters would reproduce it?" },
+          {
+            type: "text",
+            text:
+              (cls === "material"
+                ? "This reference is a colour field seen through a SURFACE (ribs, frost, grain): say which engines make that surface. "
+                : "This reference is a smooth colour field: say what, if anything, was done on top of it. ") +
+              "Which engines and parameters would reproduce it?" +
+              notes,
+          },
         ],
       },
     ],
@@ -278,23 +563,12 @@ async function analyse(body) {
      * the image does not help — a vision model tokenises to a fixed patch
      * count, and 288px measured the same 2,254 tokens as 512px did — so this
      * is the only part of the request there is any room in. */
-    max_completion_tokens: 400,
+    max_completion_tokens: 500,
     reasoning_effort: "none",
   };
-  const r = await fetch(GROQ_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify(payload),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    const msg = (data && data.error && data.error.message) || `provider ${r.status}`;
-    const e = new Error(msg);
-    /** @type {any} */ (e).status = r.status;
-    throw e;
-  }
+  const data = await providerCall(payload, GROQ_URL, GROQ_KEY);
   const recipe = extractJSON(data.choices?.[0]?.message?.content || "");
-  return { recipe, model: payload.model, usage: data.usage };
+  return { kind: "recipe", classification: cls, recipe, model: payload.model, usage: data.usage };
 }
 
 function extractJSON(s) {
@@ -306,6 +580,9 @@ function extractJSON(s) {
   // Repair the common model slips: trailing commas, then unbalanced
   // closers from a truncated tail.
   raw = raw.replace(/,\s*([}\]])/g, "$1");
+  try { return JSON.parse(raw); } catch (_) {}
+  // a range copied out of the schema ("count":1-64) — keep the first number
+  raw = raw.replace(/:\s*(-?\d+(?:\.\d+)?)\s*-\s*\d+(?:\.\d+)?(?=\s*[,}\]])/g, ": $1");
   try { return JSON.parse(raw); } catch (_) {}
   let depthC = 0, depthS = 0, inStr = false, esc = false;
   for (const ch of raw) {
@@ -381,7 +658,12 @@ async function generate(body) {
           }
         }
       const meanStep = pairs ? diffs / pairs : 0;
-      isColourField = meanStep < 60;
+      /* The client's measured class wins when it is sent: every one of the
+       * nine references in images/ has a mean step under 60 on this grid
+       * (posters included), so the grid alone cannot tell a field from a
+       * layout. The threshold stays only for callers that send no class. */
+      const cls = classOf(body.classification);
+      isColourField = cls ? cls !== "composition" : meanStep < 60;
 
       sampleBlock =
         (isColourField
@@ -539,6 +821,8 @@ const server = http.createServer((req, res) => {
         aiAvailable: !!GROQ_KEY,
         mode: !GROQ_KEY ? "unconfigured" : usingMock ? "mock" : "live",
         reason: GROQ_KEY ? null : "GROQ_API_KEY is not set. Copy .env.example to .env and add a key, or run `npm run dev:mock`.",
+        models: { text: TEXT_MODEL, vision: VISION_MODEL, visionStrong: VISION_MODEL_STRONG },
+        strongRoute: VISION_STRONG_URL !== GROQ_URL ? "separate endpoint" : "same provider",
       }),
     );
     return;
@@ -566,7 +850,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(out));
       } catch (err) {
         console.error("[analyze]", err);
-        const status = err && err.status === 429 ? 429 : 502;
+        const status = err && err.status === 429 ? 429 : err && err.status === 413 ? 413 : 502;
         /* "Try again shortly" is not actionable. The provider says how long in
          * its message, so pass the number through — a wait you can time is a
          * different experience from one you cannot. */
@@ -578,7 +862,11 @@ const server = http.createServer((req, res) => {
               ? Number.isFinite(secs)
                 ? `The provider's rate limit — about ${Math.ceil(secs)}s to wait.`
                 : "The provider's rate limit — about a minute to wait."
-              : "The reference could not be analysed.",
+              : status === 413
+                ? "The request was too large for the model's input limit — a smaller picture is needed."
+                : err && err.status === 400
+                  ? "The planner's reply was not usable JSON."
+                  : "The reference could not be analysed.",
           retryAfter: Number.isFinite(secs) ? Math.ceil(secs) : undefined,
         }));
       }
@@ -683,4 +971,4 @@ if (require.main === module) {
 
 /* Exported for characterization tests. These are the existing internals,
  * unchanged — exporting them does not alter runtime behaviour. */
-module.exports = { server, generate, analyse, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };
+module.exports = { server, generate, analyse, planComposition, readComposition, briefToDoc, measuredNotes, REFERENCE_CLASSES, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };

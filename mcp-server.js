@@ -230,7 +230,10 @@ const TOOLS = [
       properties: {
         id: ID,
         effectId: { type: "string", description: "Exact effect id from get_document." },
-        effect: { type: "string", description: "Effect type name, e.g. 'glass'. Used if effectId is absent." },
+        effect: {
+          type: "string",
+          description: "Effect type name, e.g. 'glass'. Used if effectId is absent.",
+        },
         params: { type: "object", description: "Parameter names to new values." },
       },
       required: ["id", "params"],
@@ -288,11 +291,13 @@ async function callEditor(method, params) {
   } catch (e) {
     /* The editor's own server is not running. Distinguished from "running but
      * no tab" because the two have different fixes and the message is the only
-     * thing the person reads. */
+     * thing the person reads. The original network error is kept as `cause` so
+     * a real failure (not just "down") is still recoverable in a stack trace. */
     throw new Error(
       "Could not reach Creative Editor at " +
         BASE +
         ". Start it with `npm run dev` in the creative-editor folder.",
+      { cause: e },
     );
   }
   const body = await r.json().catch(() => ({}));

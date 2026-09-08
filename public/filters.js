@@ -119,14 +119,24 @@
     /* Interpolate premultiplied colour, then return straight RGBA. Otherwise
      * transparent padding contributes hidden black RGB and warped edges grow
      * a dark fringe. */
-    const weights = [(1-fx)*(1-fy), fx*(1-fy), (1-fx)*fy, fx*fy];
-    const indices = [i00,i10,i01,i11];
-    let alpha=0, pr=0, pg=0, pb=0;
-    for(let q=0;q<4;q++){
-      const a=src[indices[q]+3]/255, wt=weights[q];
-      alpha+=a*wt; pr+=src[indices[q]]*a*wt; pg+=src[indices[q]+1]*a*wt; pb+=src[indices[q]+2]*a*wt;
+    const weights = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
+    const indices = [i00, i10, i01, i11];
+    let alpha = 0,
+      pr = 0,
+      pg = 0,
+      pb = 0;
+    for (let q = 0; q < 4; q++) {
+      const a = src[indices[q] + 3] / 255,
+        wt = weights[q];
+      alpha += a * wt;
+      pr += src[indices[q]] * a * wt;
+      pg += src[indices[q] + 1] * a * wt;
+      pb += src[indices[q] + 2] * a * wt;
     }
-    out[oi]=alpha?pr/alpha:0; out[oi+1]=alpha?pg/alpha:0; out[oi+2]=alpha?pb/alpha:0; out[oi+3]=alpha*255;
+    out[oi] = alpha ? pr / alpha : 0;
+    out[oi + 1] = alpha ? pg / alpha : 0;
+    out[oi + 2] = alpha ? pb / alpha : 0;
+    out[oi + 3] = alpha * 255;
   }
 
   /** Run an inverse warp: fn(dx,dy) returns the SOURCE coordinate. */
@@ -134,9 +144,9 @@
     const src = new Uint8ClampedArray(img.data);
     const dst = img.data;
     const p = [0, 0, 0, 0];
-    const step=draft?2:1;
-    for (let y = 0; y < h; y+=step) {
-      for (let x = 0; x < w; x+=step) {
+    const step = draft ? 2 : 1;
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
         const s = fn(x, y);
         const i = (y * w + x) * 4;
         if (!s) {
@@ -144,10 +154,14 @@
           continue;
         }
         sample(src, w, h, s[0], s[1], edge || "clamp", p, 0);
-        for(let by=0;by<step&&y+by<h;by++) for(let bx=0;bx<step&&x+bx<w;bx++){
-          const di=((y+by)*w+x+bx)*4;
-          dst[di]=p[0]; dst[di+1]=p[1]; dst[di+2]=p[2]; dst[di+3]=p[3];
-        }
+        for (let by = 0; by < step && y + by < h; by++)
+          for (let bx = 0; bx < step && x + bx < w; bx++) {
+            const di = ((y + by) * w + x + bx) * 4;
+            dst[di] = p[0];
+            dst[di + 1] = p[1];
+            dst[di + 2] = p[2];
+            dst[di + 3] = p[3];
+          }
       }
     }
   }
@@ -270,7 +284,8 @@
     const seed = Math.round(+P.seed || 1);
     /* Renderer options are not map pixels. A map is now explicit instead of
      * accidentally treating the always-present `{draft}` object as an array. */
-    const mapData=extra&&extra.mapData&&typeof extra.mapData.length==='number'?extra.mapData:null;
+    const mapData =
+      extra && extra.mapData && typeof extra.mapData.length === "number" ? extra.mapData : null;
     const read = (x, y) => {
       if (mapData) {
         const mx = clamp(Math.round(x), 0, w - 1),
@@ -901,8 +916,7 @@
           let r = 0,
             g = 0,
             b = 0,
-            a = 0,
-            n = 0;
+            a = 0;
           const yy = Math.min(h, by + size),
             xx = Math.min(w, bx + size);
           for (let y = by; y < yy; y++)
@@ -913,7 +927,6 @@
               g += src[i + 1] * alpha;
               b += src[i + 2] * alpha;
               a += alpha;
-              n++;
             }
           const rr = a ? r / a : 0,
             gg = a ? g / a : 0,
@@ -935,16 +948,24 @@
      * lands in transparent padding read as transparent black, producing a
      * full ink dot along the edge. Alpha-weighted cell luminance makes absent
      * pixels contribute no tone at all. */
-    const cellKey=new Array(w*h), cells=new Map();
-    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
-      const i=(y*w+x)*4, u=x*ca+y*sa, v=-x*sa+y*ca;
-      const key=Math.floor(u/cell)+','+Math.floor(v/cell);
-      cellKey[y*w+x]=key;
-      let stat=cells.get(key); if(!stat){ stat=[0,0]; cells.set(key,stat); }
-      const alpha=src[i+3]/255;
-      stat[0]+=((.2126*src[i]+.7152*src[i+1]+.0722*src[i+2])/255)*alpha;
-      stat[1]+=alpha;
-    }
+    const cellKey = new Array(w * h),
+      cells = new Map();
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4,
+          u = x * ca + y * sa,
+          v = -x * sa + y * ca;
+        const key = Math.floor(u / cell) + "," + Math.floor(v / cell);
+        cellKey[y * w + x] = key;
+        let stat = cells.get(key);
+        if (!stat) {
+          stat = [0, 0];
+          cells.set(key, stat);
+        }
+        const alpha = src[i + 3] / 255;
+        stat[0] += ((0.2126 * src[i] + 0.7152 * src[i + 1] + 0.0722 * src[i + 2]) / 255) * alpha;
+        stat[1] += alpha;
+      }
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4,
@@ -952,8 +973,9 @@
           v = -x * sa + y * ca;
         const cu = (Math.floor(u / cell) + 0.5) * cell,
           cv = (Math.floor(v / cell) + 0.5) * cell;
-        const stat=cells.get(cellKey[y*w+x]), lum=stat&&stat[1]?stat[0]/stat[1]:1;
-        const coverage=clamp(1-lum,0,1),
+        const stat = cells.get(cellKey[y * w + x]),
+          lum = stat && stat[1] ? stat[0] / stat[1] : 1;
+        const coverage = clamp(1 - lum, 0, 1),
           radius = HALFTONE_R[Math.round(coverage * 256)] * cell,
           dist = Math.hypot(u - cu, v - cv);
         /* ANTIALIASED RIM, and not only for looks. A binary dist <= radius
@@ -967,7 +989,7 @@
         /* The antialias ramp assumes a non-zero boundary. At radius zero its
          * +0.5 term would still paint a grey centre pixel in every pure-white
          * cell. Preserve the exact endpoint required by a printing screen. */
-        const ink = coverage<=1e-7?0:clamp(radius - dist + 0.5, 0, 1);
+        const ink = coverage <= 1e-7 ? 0 : clamp(radius - dist + 0.5, 0, 1);
         blend(
           i,
           bg[0] + (fg[0] - bg[0]) * ink,

@@ -30,9 +30,7 @@ function documentWith(fill, type = "ellipse") {
       w: 500,
       h: 400,
       bg: "#ffffff",
-      artboards: [
-        { id: "board", name: "Board", x: 0, y: 0, w: 500, h: 400, fill: { ...fill } },
-      ],
+      artboards: [{ id: "board", name: "Board", x: 0, y: 0, w: 500, h: 400, fill: { ...fill } }],
       children: [
         { id: "shape", type, name: "Shape", x: 50, y: 60, w: 240, h: 180, fill: { ...fill } },
       ],
@@ -119,7 +117,7 @@ describe("layer inspector", () => {
     const shape = editor.doc.frame.children[0];
     editor.setSelIds(new Set([shape.id]));
     editor.refresh();
-    const kinds = [...document.querySelectorAll('.fxSect .apKind option')].map((o) => o.value);
+    const kinds = [...document.querySelectorAll(".fxSect .apKind option")].map((o) => o.value);
     expect(kinds).toContain("image");
   });
 
@@ -202,7 +200,9 @@ describe("catalog and quick picker", () => {
       fillKind: "image",
       status: "ready",
     });
-    expect(document.querySelector('[data-menu="effects"] [data-capability="imageFill"]')).toBeTruthy();
+    expect(
+      document.querySelector('[data-menu="effects"] [data-capability="imageFill"]'),
+    ).toBeTruthy();
   });
 
   it("does not change existing gradient normalization", () => {

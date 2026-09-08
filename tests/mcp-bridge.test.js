@@ -10,11 +10,13 @@ let editor;
 
 beforeAll(() => {
   ({ editor } = loadEditor());
-  window.EventSource = class {
-    addEventListener() {}
-    close() {}
-  };
-  window.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+  window.EventSource = /** @type {any} */ (
+    class {
+      addEventListener() {}
+      close() {}
+    }
+  );
+  window.fetch = /** @type {any} */ (vi.fn(() => Promise.resolve({ ok: true })));
   window.eval(fs.readFileSync(path.join(ROOT, "public", "mcp-bridge.js"), "utf8"));
 });
 
@@ -26,16 +28,18 @@ function channelLayer() {
       h: 400,
       bg: "#ffffff",
       artboards: [],
-      children: [{
-        type: "rect",
-        name: "Panel",
-        x: 40,
-        y: 40,
-        w: 240,
-        h: 160,
-        fill: { kind: "solid", color: "#888888" },
-        effects: { channelFx: { mode: "rgbSplit", amount: 8, mix: 1 } },
-      }],
+      children: [
+        {
+          type: "rect",
+          name: "Panel",
+          x: 40,
+          y: 40,
+          w: 240,
+          h: 160,
+          fill: { kind: "solid", color: "#888888" },
+          effects: { channelFx: { mode: "rgbSplit", amount: 8, mix: 1 } },
+        },
+      ],
     },
   };
   editor.refresh();
@@ -45,21 +49,25 @@ function channelLayer() {
 describe("MCP channel-effect contract", () => {
   it("accepts the documented aberration mode", () => {
     const o = channelLayer();
-    expect(() => window.__mcp.HANDLERS.update_effect({
-      id: o.id,
-      effect: "channelFx",
-      params: { mode: "aberration" },
-    })).not.toThrow();
+    expect(() =>
+      window.__mcp.HANDLERS.update_effect({
+        id: o.id,
+        effect: "channelFx",
+        params: { mode: "aberration" },
+      }),
+    ).not.toThrow();
     expect(o.effects.channelFx.mode).toBe("aberration");
   });
 
   it("refuses invalid names instead of silently falling back to RGB Split", () => {
     const o = channelLayer();
-    expect(() => window.__mcp.HANDLERS.update_effect({
-      id: o.id,
-      effect: "channelFx",
-      params: { mode: "chromaticAberration" },
-    })).toThrow(/rgbSplit, aberration, channelOffset/);
+    expect(() =>
+      window.__mcp.HANDLERS.update_effect({
+        id: o.id,
+        effect: "channelFx",
+        params: { mode: "chromaticAberration" },
+      }),
+    ).toThrow(/rgbSplit, aberration, channelOffset/);
     expect(o.effects.channelFx.mode).toBe("rgbSplit");
   });
 });
