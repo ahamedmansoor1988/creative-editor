@@ -1616,3 +1616,28 @@ body.rails #leftPanel label.slider > select {
   flex: 0 0 auto;
   max-width: 160px;
 }
+
+/* bars never wrap: items keep their width, the least important hide first */
+body.rails #topbar .ui-brand,
+body.rails #topbar .ui-by,
+body.rails #menubar .menu,
+body.rails #topbar .ui-hist,
+body.rails #appNotch button,
+body.rails #topbar .ui-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+body.rails #topbar {
+  overflow: hidden;
+}
+@media (max-width: 1100px) {
+  body.rails #topbar .ui-by,
+  body.rails #appNotch button:not(#profileBtn) {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
+  body.rails #topbar .ui-hist {
+    display: none;
+  }
+}
