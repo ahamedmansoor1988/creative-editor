@@ -883,7 +883,7 @@ body.rails label.slider {
   color: var(--muted);
   margin: 8px 0 2px;
 }
-body.rails label.slider span {
+body.rails label.slider > span {
   float: right;
   display: inline-flex;
   align-items: center;
@@ -1563,4 +1563,56 @@ body.rails .mSec {
   letter-spacing: var(--track-section);
   text-transform: uppercase;
   color: var(--muted);
+}
+
+/* ---- ui-designer pass (rules 1, 2, 3, 7): controls at their own width ---- */
+body.rails label.slider:has(> select),
+body.rails label.slider:has(> .ui-cswatch),
+body.rails label.slider:has(> input[type="color"]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 0;
+}
+body.rails label.slider > select {
+  width: auto;
+  min-width: 96px;
+  max-width: 160px;
+  margin: 0;
+}
+body.rails label.slider > .ui-cswatch {
+  width: auto;
+  flex: 0 0 auto;
+}
+body.rails .rollBtn,
+body.rails #recipeAdd {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* a range never shares a row with a select: the pair stacks */
+/* a range never shares a row with a select (rule 7): the pair stacks */
+body.rails #rightPanel .row2:has(input[type="range"]):has(select) {
+  display: block;
+}
+body.rails #rightPanel .row2:has(input[type="range"]):has(select) > label.slider {
+  margin: 6px 0;
+}
+/* the prompt is a field like any other: 30 tall */
+body.rails #prompt {
+  height: 30px;
+}
+/* the effect recipe's entry is a list row, not a control: it spans, like a layer */
+body.rails .fxName {
+  text-align: left;
+}
+
+/* selects size to their content (an id rule upstream gives them 100%) */
+body.rails #rightPanel label.slider > select,
+body.rails #leftPanel label.slider > select {
+  width: max-content;
+  flex: 0 0 auto;
+  max-width: 160px;
 }
