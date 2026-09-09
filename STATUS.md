@@ -36,6 +36,10 @@ pass, and not yet deployable as a multi-user product.
   an edge feather (width / softness / taper / direction), and reference-image
   fitting. Two channels are exposed in the panel; the rest are withheld behind
   `?show=nodeFx` rather than removed.
+- **Pattern Studio** (`studio.html`, 9 Sep 2026) — a second front door in the
+  Light-Rails shape: looks → generated controls → themes → the same pattern
+  under nine branded cards → PNG export, with play/pause on each engine's
+  phase parameter. Six generator engines, loaded untouched; static page.
 - **AI generation** — prompt (plus optional reference image) to an editable
   document via Groq; a capability registry injects only the relevant engine
   docs per request.

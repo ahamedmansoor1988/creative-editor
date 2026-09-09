@@ -99,6 +99,13 @@ declare global {
       colorMapPixels?(...args: any[]): any;
       ENVELOPES?: any;
     };
+    /* The Pattern Studio (public/studio.js) and the generator engines it drives.
+     * The studio suite installs STUB engines, so these are loosely typed. */
+    LiquidEngine?: any;
+    FlareEngine?: any;
+    LightEngine?: any;
+    FractalGlassEngine?: any;
+    __studio?: any;
     GradientEngine?: {
       MAX_STOPS: number;
       PRESETS: { name: string; g1: any[]; g2: any[] }[];

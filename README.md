@@ -23,6 +23,7 @@ the browser.
 - [Environment variables](#environment-variables)
 - [Commands](#commands)
 - [Testing](#testing)
+- [Pattern Studio](#pattern-studio)
 - [Architecture](#architecture)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
@@ -135,6 +136,25 @@ exercised — 30+ assertions run the real file — but it is a browser IIFE load
 via `window.eval()` inside jsdom, which v8 cannot instrument. Including it would
 report a permanent, false 0%. It joins the report in Stage 2, once it is
 modularized and importable.
+
+## Pattern Studio
+
+A second front door to the same engines: <http://localhost:8470/studio.html>.
+Pick a **look** (a template), tune it in the generated control panel, colour it
+with a **theme**, and watch the one pattern sit under nine branded
+**cards** — poster, web hero, social square, story, report cover, footer
+banner, stat slide, business card, pattern-only — then export any card (or all
+of them) as PNG at 1–3×. Play runs the engine's own phase parameter on a clock;
+pause and the frame you see is the frame you export.
+
+The whole design is small on purpose (`public/studio.js`): an engine entry is
+defaults + a control schema + one `render(w, h, params)`; a look is an engine
+id plus params; a theme is five colours mapped onto the engine's colour slots
+in order; a card is a native size, a pattern rectangle and one `draw()` shared
+by preview and export. Six engines are in: liquid gradient, mesh gradient,
+prism flare, light cone, fractal glass and gradient bands. The engine files
+are loaded untouched. State (undo, saved presets, autosave) is one snapshot
+shape. No server calls — the page is static.
 
 ## Patterns (linked instances)
 

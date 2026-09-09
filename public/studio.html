@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pattern Studio — Creative Editor</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' font-size='24' text-anchor='middle'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="studio.css?v=2" />
+  </head>
+  <body>
+    <header id="top">
+      <div class="brand">
+        <span class="mark">✦</span>
+        <span class="name">Pattern Studio</span>
+        <a class="by" href="index.html" title="Open the full editor">by Creative Editor</a>
+      </div>
+      <div class="hist">
+        <button type="button" id="undoBtn" class="ico" title="Undo (⌘Z)" aria-label="Undo">
+          ↶
+        </button>
+        <button type="button" id="redoBtn" class="ico" title="Redo (⇧⌘Z)" aria-label="Redo">
+          ↷
+        </button>
+        <span class="sep"></span>
+        <button
+          type="button"
+          id="resetBtn"
+          class="ico"
+          title="Reset this look to its defaults"
+          aria-label="Reset to defaults"
+        >
+          ⟲
+        </button>
+      </div>
+      <div class="actions">
+        <div class="exportWrap">
+          <button type="button" id="exportBtn" class="btn primary">Export</button>
+          <div id="exportMenu" class="menu" hidden>
+            <div class="menuTitle">This card</div>
+            <button type="button" data-mult="1">PNG · 1×</button>
+            <button type="button" data-mult="2">PNG · 2×</button>
+            <button type="button" data-mult="3">PNG · 3×</button>
+            <div class="menuTitle">Every card</div>
+            <button type="button" data-mult="1" data-all="1">All cards · PNG 1×</button>
+            <button type="button" data-mult="2" data-all="1">All cards · PNG 2×</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <aside id="left" class="panel">
+      <h1 class="panelTitle">✦ Looks</h1>
+
+      <details class="sec" open>
+        <summary>My presets</summary>
+        <div class="secBody">
+          <div class="saveRow">
+            <input
+              type="text"
+              id="presetName"
+              placeholder="Name this look"
+              aria-label="Name for the saved look"
+            />
+            <button type="button" id="savePreset" class="btn">Save</button>
+          </div>
+          <div id="presetList"></div>
+        </div>
+      </details>
+
+      <details class="sec" open>
+        <summary>Theme presets</summary>
+        <div class="secBody">
+          <div id="themes" class="themes"></div>
+        </div>
+      </details>
+
+      <details class="sec" open>
+        <summary>Templates</summary>
+        <div class="secBody">
+          <div id="templates" class="tiles"></div>
+        </div>
+      </details>
+
+      <details class="sec">
+        <summary>Copy</summary>
+        <div class="secBody">
+          <div id="copyFields"></div>
+        </div>
+      </details>
+    </aside>
+
+    <main id="centre">
+      <div id="stageWrap">
+        <canvas id="stage" width="10" height="10"></canvas>
+        <div id="stageNote" class="note" hidden></div>
+      </div>
+      <div id="allCards" class="allCards" hidden></div>
+
+      <div id="bottom">
+        <label class="bottomField">
+          <span>Card</span>
+          <select id="cardSelect" aria-label="Which card is on screen"></select>
+        </label>
+        <button
+          type="button"
+          id="allBtn"
+          class="btn"
+          aria-pressed="false"
+          title="See every card at once (B)"
+        >
+          ▦ All cards
+        </button>
+        <div class="uiSwitch">
+          <span>UI</span>
+          <button
+            type="button"
+            id="uiToggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Show or hide the card copy"
+          >
+            <i></i>
+          </button>
+        </div>
+      </div>
+      <div id="toast" class="toast" hidden></div>
+      <button type="button" id="showPanel" class="btn showPanel" hidden title="Show controls panel">
+        Controls
+      </button>
+    </main>
+
+    <aside id="right" class="panel">
+      <div class="rightHead">
+        <div>
+          <h2 class="panelTitle">✦ <span id="engineName">Engine</span></h2>
+          <p id="engineBlurb" class="blurb"></p>
+        </div>
+        <button
+          type="button"
+          id="hidePanel"
+          class="ico"
+          title="Hide controls panel"
+          aria-label="Hide controls panel"
+        >
+          ×
+        </button>
+      </div>
+      <label class="row rowSelect engineRow">
+        <span class="name">Engine</span>
+        <select id="engineSelect" aria-label="Engine"></select>
+      </label>
+      <div id="controls"></div>
+    </aside>
+
+    <script src="meshgradient.js"></script>
+    <script src="gradient.js"></script>
+    <script src="light.js"></script>
+    <script src="liquidgradient.js"></script>
+    <script src="prismflare.js"></script>
+    <script src="fractalglass.js"></script>
+    <script src="studio.js?v=2"></script>
+  </body>
+</html>

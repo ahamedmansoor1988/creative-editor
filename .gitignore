@@ -14,3 +14,4 @@ outputs/
 # Temp render scratch and unrelated SaaS-report side task (not Creative Editor)
 tmp/
 research/
+.claude/

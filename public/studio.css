@@ -1,0 +1,690 @@
+/* Pattern Studio — three panels around one card.
+ * Tokens mirror the editor's (style.css) so the two front doors read as one
+ * product; the layout is the studio's own. */
+:root {
+  --bg: #ececef;
+  --panel: #ffffff;
+  --line: #e2e4e9;
+  --line-strong: #c9cdd5;
+  --text: #1b1d22;
+  --text-strong: #111318;
+  --muted: #6a6d75;
+  --text-soft: #5d636f;
+  --accent: #2563eb;
+  --surface-2: #f8f9fb;
+  --surface-3: #f1f3f6;
+  --surface-hover: #f3f5f8;
+  --surface-selected: #ebeef4;
+  --field-bg: #fbfcfd;
+  --focus-ring: rgba(37, 99, 235, 0.72);
+  --radius: 12px;
+  --radius-s: 8px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.07), 0 10px 30px rgba(15, 23, 42, 0.08);
+  --font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --top-h: 52px;
+  --left-w: 264px;
+  --right-w: 288px;
+  --gap: 12px;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--font-ui);
+  display: grid;
+  grid-template-columns: var(--left-w) 1fr var(--right-w);
+  grid-template-rows: var(--top-h) 1fr;
+  grid-template-areas: "top top top" "left centre right";
+  gap: 0 var(--gap);
+  padding: 0 var(--gap) var(--gap);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body.noRight {
+  grid-template-columns: var(--left-w) 1fr 0;
+}
+body.noRight #right {
+  display: none;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- top bar ---------------------------------------------------------- */
+#top {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.brand .mark {
+  font-size: 14px;
+}
+.brand .by {
+  font-weight: 400;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+}
+.brand .by:hover {
+  color: var(--accent);
+}
+.hist {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.hist .sep {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.ico {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  display: inline-grid;
+  place-items: center;
+}
+.ico:hover {
+  background: var(--surface-hover);
+}
+.ico:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn {
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.btn:hover {
+  background: var(--surface-hover);
+}
+.btn.on {
+  background: var(--text-strong);
+  color: #fff;
+  border-color: var(--text-strong);
+}
+.btn.primary {
+  background: var(--text-strong);
+  color: #fff;
+  border-color: var(--text-strong);
+  padding: 8px 18px;
+}
+.btn.primary:hover {
+  background: #000;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.exportWrap {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  min-width: 190px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.menu button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-s);
+}
+.menu button:hover {
+  background: var(--surface-hover);
+}
+.menuTitle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 10px 2px;
+}
+
+/* ---- panels ----------------------------------------------------------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  padding: 14px 14px 20px;
+  scrollbar-width: thin;
+}
+#left {
+  grid-area: left;
+}
+#right {
+  grid-area: right;
+}
+.panelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 2px 0 10px;
+  color: var(--text-strong);
+}
+.rightHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.rightHead .panelTitle {
+  margin-bottom: 2px;
+}
+.blurb {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sec {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+.sec > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.sec > summary::before {
+  content: "›";
+  display: inline-block;
+  transition: transform 0.12s;
+  font-size: 13px;
+}
+.sec[open] > summary::before {
+  transform: rotate(90deg);
+}
+.secBody {
+  padding: 2px 0 8px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+.hint b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* my presets */
+.saveRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.saveRow input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  padding: 6px 9px;
+  background: var(--field-bg);
+}
+.preset {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 4px 0;
+}
+.preset .load {
+  flex: 1;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--radius-s);
+  padding: 6px 9px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.preset .load:hover {
+  background: var(--surface-hover);
+}
+.preset .load small {
+  color: var(--muted);
+}
+.preset .del {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  width: 24px;
+  border-radius: var(--radius-s);
+}
+.preset .del:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* themes */
+.themes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.theme {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-s);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+}
+.theme:hover {
+  background: var(--surface-hover);
+}
+.theme.on {
+  border-color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px var(--text-strong);
+}
+.swatches {
+  display: flex;
+  gap: 2px;
+}
+.swatches i {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* templates */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.tile {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 5px 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+.tile canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4/3;
+  border-radius: 6px;
+  background: var(--surface-3);
+  display: block;
+}
+.tile:hover {
+  background: var(--surface-hover);
+}
+.tile.on {
+  border-color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px var(--text-strong);
+  color: var(--text-strong);
+}
+
+/* copy fields */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field input,
+.field textarea {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  padding: 6px 8px;
+  background: var(--field-bg);
+  color: var(--text);
+  resize: vertical;
+  font-size: 12px;
+}
+
+/* ---- centre ----------------------------------------------------------- */
+#centre {
+  grid-area: centre;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+#stageWrap {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+#stage {
+  background: #000;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 6px #111,
+    0 12px 40px rgba(0, 0, 0, 0.25);
+  display: block;
+}
+.note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  padding: 8px 12px;
+  box-shadow: var(--shadow);
+  max-width: 70%;
+}
+.allCards {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+  padding: 10px 6px 18px;
+  align-content: start;
+}
+.cell {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.cell canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--ar);
+  display: block;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 3px #111,
+    0 8px 24px rgba(0, 0, 0, 0.18);
+  background: #000;
+}
+.cell:hover {
+  color: var(--text-strong);
+}
+#bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 10px 0 2px;
+}
+.bottomField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+  color: var(--muted);
+}
+.bottomField select {
+  border: 0;
+  background: transparent;
+  font-weight: 500;
+  color: var(--text);
+  padding: 4px 4px;
+}
+.uiSwitch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+  color: var(--muted);
+}
+.switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  border: 0;
+  background: #c9cdd5;
+  position: relative;
+  padding: 0;
+}
+.switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.12s;
+}
+.switch.on {
+  background: var(--text-strong);
+}
+.switch.on i {
+  left: 18px;
+}
+.showPanel {
+  position: absolute;
+  right: 0;
+  top: 8px;
+}
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  background: var(--text-strong);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  box-shadow: var(--shadow);
+}
+
+/* ---- right: generated controls ----------------------------------------- */
+.grp {
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+}
+.grp > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 7px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.grp > summary::before {
+  content: "›";
+  display: inline-block;
+  transition: transform 0.12s;
+  font-size: 13px;
+}
+.grp[open] > summary::before {
+  transform: rotate(90deg);
+}
+.grpBody {
+  padding: 0 0 8px;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "name val" "input input";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 5px 0;
+}
+.row .name {
+  grid-area: name;
+  color: var(--text);
+  font-size: 12px;
+}
+.row .val {
+  grid-area: val;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: #fff;
+  background: var(--text-strong);
+  border-radius: 5px;
+  padding: 2px 7px;
+  min-width: 44px;
+  text-align: center;
+}
+.row .val.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+}
+.row input[type="range"] {
+  grid-area: input;
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: var(--text-strong);
+  height: 18px;
+}
+.rowSelect {
+  grid-template-areas: "name input";
+}
+.rowSelect select {
+  grid-area: input;
+  justify-self: end;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  padding: 4px 8px;
+  background: var(--field-bg);
+  max-width: 160px;
+  font-size: 12px;
+}
+.engineRow {
+  padding: 8px 0 4px;
+}
+.engineRow select {
+  max-width: none;
+  width: 100%;
+  justify-self: stretch;
+}
+.rowColor {
+  grid-template-areas: "name val input";
+  grid-template-columns: 1fr auto auto;
+}
+.rowColor input[type="color"] {
+  grid-area: input;
+  width: 30px;
+  height: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 1px;
+  background: var(--panel);
+}
+.rowToggle {
+  grid-template-areas: "name input";
+  grid-template-columns: 1fr auto;
+}
+.rowToggle input {
+  grid-area: input;
+  accent-color: var(--text-strong);
+  width: 16px;
+  height: 16px;
+}
+.rowBtn {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --left-w: 220px;
+    --right-w: 250px;
+  }
+}
