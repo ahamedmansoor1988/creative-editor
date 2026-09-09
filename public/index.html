@@ -10,9 +10,11 @@
 <link rel="stylesheet" href="style.css?v=20260830-1818">
 <link rel="stylesheet" href="rails.css?v=3">
 </head>
-<body>
+<body class="rails ui">
 
-<!-- top-left menus -->
+<!-- top bar: brand, menus, history, links, export -->
+<div id="topbar" class="ui-topbar">
+  <span class="ui-brand">✦ Creative Editor</span><span class="ui-by">mesh studio</span>
 <div id="menubar" class="floating">
   <div class="menu" data-menu="file">File
     <div class="dropdown">
@@ -138,11 +140,15 @@
       <button type="button" data-capability="stylize"><i data-icon="wand-sparkles"></i>Stylize</button>
     </div>
   </div>
+  
 </div>
 
 <!-- The engine library. Floating like the other panels rather than modal:
      browsing capabilities is something you do WHILE looking at the artwork,
      and a modal would hide the layer you are choosing for. -->
+  <span class="ui-sp"></span>
+  <span class="ui-hist"><button type="button" class="ui-ibtn tbCmd" data-cmd="undo" title="Undo (⌘Z)" aria-label="Undo"><i data-icon="undo"></i></button><button type="button" class="ui-ibtn tbCmd" data-cmd="redo" title="Redo (⇧⌘Z)" aria-label="Redo"><i data-icon="redo"></i></button></span>
+  <span class="ui-sp"></span>
 <div id="enginesPanel" class="floating" hidden aria-label="Add fill or effect">
   <div class="engHead">
     <span class="engTitle"><i data-icon="sliders"></i>Add fill or effect</span>
@@ -160,6 +166,8 @@
   <button type="button">About</button>
   <button type="button">Help</button>
   <button id="profileBtn" type="button" aria-label="User profile" title="User profile">MA</button>
+</div>
+  <button type="button" class="ui-btn ui-btn--outline tbCmd" data-cmd="exportPng">Export</button>
 </div>
 
 <!-- left: tools + pages/layers -->
@@ -214,7 +222,7 @@
     <!-- One tree: a page holds artboards, an artboard holds layers. The old
          separate "Artboards" list showed the same artboards over again with the
          same counts, so it was folded into these headings. -->
-    <div class="sideHead"><span>Artwork</span><span class="headBtns"><button id="layerSearchBtn" data-icon="search" aria-label="Search layers" title="Search layers" aria-expanded="false"></button><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></span></div>
+    <div class="sideHead"><span>Layers</span><span class="headBtns"><button id="layerSearchBtn" data-icon="search" aria-label="Search layers" title="Search layers" aria-expanded="false"></button><button id="btnNewArtboard" data-icon="plus" aria-label="New artboard" title="New artboard"></button></span></div>
     <input id="layerSearch" type="text" placeholder="Search layers…" aria-label="Search layers">
     <div id="layerList"></div>
     <!-- Reusable appearance styles (fill/stroke/effects), saved from a
@@ -615,6 +623,7 @@
 <script src="snap.js"></script>
 <script src="components.js"></script>
 <script src="filters.js?v=20260901-edge2"></script>
+<script>window.FX_ONLY = ["mesh"];</script>
 <script src="fxstack.js?v=20260901-lens1"></script>
 <script src="engine-catalog.js?v=20260901-lens1"></script>
 <script src="reference.js?v=20260906-ref1"></script>
@@ -630,6 +639,7 @@
 <script src="icons.js?v=20260830-1818"></script>
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
+<script src="ui.js?v=1"></script>
   <script src="app.js?v=20260901-ux1"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->

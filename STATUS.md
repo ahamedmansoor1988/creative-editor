@@ -43,6 +43,12 @@ pass, and not yet deployable as a multi-user product.
   editor's own mesh tool (handles on the card, per-node colour, edge feather,
   Match an image, AI prompt), sharing its document shape. Static page apart from
   the AI button.
+- **Studio UI on the editor** (9 Sep 2026) — `index.html` wears the brand
+  book's system (`rails.css`, `body.rails`): 54px top bar with brand, menus,
+  history and Export; panels at 16px inset; section heads, switches, chips,
+  steppers, popover chips and the colour picker throughout. Effects are gated
+  to the mesh (`window.FX_ONLY`); the Mesh page follows the book's inspector
+  spec — reference block first, net as steppers, edge as chips.
 - **AI generation** — prompt (plus optional reference image) to an editable
   document via Groq; a capability registry injects only the relevant engine
   docs per request.

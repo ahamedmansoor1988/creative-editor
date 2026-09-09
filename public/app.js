@@ -51,6 +51,9 @@ let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
 /* Which mesh handle is selected. View state: it says what the user is
  * pointing at, not what the document contains. */
 let meshSel=null;
+/* The mesh reference image, kept across panel refreshes so "Match again"
+ * can re-fit after the net is resized. Session state, not document state. */
+let meshRef={img:null,url:'',note:''}, meshFitGeo=true;
 /* Analyses already paid for, this session. */
 const _analysisCache=new Map();
 let selArtboard=null;      // §6.5 the artboard whose panel is open
@@ -7878,7 +7881,11 @@ function buildFxSection(obj,page,add,body){
    * the colour of whichever point is selected. */
   if(page==='Mesh'){
     const M=obj.effects.mesh, ME=window.MeshGradient;
-    add(`<label class="slider"><input type="checkbox" id="mshOn" ${M.on?'checked':''}> Enable mesh gradient</label>`);
+    /* The panel is the brand book's "Mesh inspector" (brand.html): the
+     * reference block first and the only CTA, the net as two steppers, the
+     * edge as three popover chips, then the selected point. Same document
+     * and the same handlers as before; only the controls changed shape. */
+    add(`<label class="slider uiSwitchRow"><span>Mesh gradient</span><input type="checkbox" id="mshOn" ${M.on?'checked':''}></label>`);
     $('mshOn').addEventListener('change',e=>{
       M.on=e.target.checked;
       if(M.on&&meshSel==null) meshSel=0;
@@ -7887,124 +7894,50 @@ function buildFxSection(obj,page,add,body){
     if(!ME||!ME.available()){
       add(`<div class="fxWarn">WebGL2 is unavailable, so the mesh gradient cannot render here.</div>`);
     }else if(M.on){
-      /* Default the selection when the PANEL OPENS, not only when the enable
-       * checkbox is toggled — which is where this used to live. A mesh that
-       * arrived already on, from a saved file or from the analyser, left the
-       * node section reading "click a handle to pick a point" with a net full
-       * of handles right there. The AI path produces exactly that state, so
-       * the per-node controls were unreachable in the workflow they exist for. */
       if(meshSel==null||meshSel>=M.points.length) meshSel=0;
       const lo=ME.MIN_N, hi=ME.MAX_N;
-      add(`<div class="row2">
-        <label class="slider">Columns <span id="mshCV">${M.cols}</span>
-          <input type="range" id="mshC" min="${lo}" max="${hi}" step="1" value="${M.cols}"></label>
-        <label class="slider">Rows <span id="mshRV">${M.rows}</span>
-          <input type="range" id="mshR" min="${lo}" max="${hi}" step="1" value="${M.rows}"></label>
-      </div>`);
-      /* Resizing RESAMPLES the surface, so the artwork carries across instead
-       * of resetting — the new points are taken off the net that was there. */
-      const resize=(cols,rows)=>{
-        const pts=ME.resample(M.points,M.cols,M.rows,cols,rows);
-        M.cols=cols; M.rows=rows; M.points=pts;
-        if(meshSel!=null) meshSel=Math.min(meshSel,cols*rows-1);
-        pushHistory(); refresh();
-      };
-      $('mshC').addEventListener('change',e=>resize(+e.target.value,M.rows));
-      $('mshR').addEventListener('change',e=>resize(M.cols,+e.target.value));
-      $('mshC').addEventListener('input',e=>{ $('mshCV').textContent=e.target.value; });
-      $('mshR').addEventListener('input',e=>{ $('mshRV').textContent=e.target.value; });
+      const live=()=>{ paintCacheClear(); render(); };
+      const UI=window.UI;
 
-      /* Say what the grid COSTS, because the number of handles is the thing
-       * that decides whether a mesh is editable, and 8x8 is sixty-four of them
-       * on the canvas at once. Resizing resamples, so coarsening is not
-       * destructive — that is worth saying too, since a slider that looks like
-       * it will throw the artwork away does not get dragged. */
-      add(`<div class="fxHint">${M.cols*M.rows} handles. Fewer is easier to edit — resizing resamples the surface, so nothing is thrown away.</div>`);
-      add(`<label class="slider"><input type="checkbox" id="mshNet" ${M.showNet!==false?'checked':''}> Show net while selected</label>`);
-      $('mshNet').addEventListener('change',e=>{ M.showNet=e.target.checked; pushHistory(); render(); });
-
-      /* Shape-level, not per-node: it is a property of the boundary, and every
-       * node sits somewhere other than all of it. */
-      add(`<div class="pSect">Edge</div>`);
-      add(`<label class="slider">Edge blur <span id="mshEdgeV">${Math.round((M.edge||0)*100)}%</span>
-        <input type="range" id="mshEdge" min="0" max="100" step="1" value="${Math.round((M.edge||0)*100)}"></label>`);
-      add(`<label class="slider">Softness <span id="mshSoftV">${Math.round((M.softness===undefined?1:M.softness)*100)}%</span>
-        <input type="range" id="mshSoft" min="0" max="100" step="1" value="${Math.round((M.softness===undefined?1:M.softness)*100)}"></label>`);
-      add(`<label class="slider">Taper <span id="mshTaperV">${Math.round((M.taper===undefined?0.5:M.taper)*100)}%</span>
-        <input type="range" id="mshTaper" min="0" max="100" step="1" value="${Math.round((M.taper===undefined?0.5:M.taper)*100)}"></label>`);
-      {
-        const DIRS=[['inside','Inside'],['both','Both'],['outside','Outside']];
-        const canOut=['rect','ellipse'].includes(obj.type);
-        add(`<label class="slider">Direction<select id="mshEdgeDir"${canOut?'':' disabled'}>`+
-          DIRS.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
-        $('mshEdgeDir').value=M.edgeDir||'inside';
-        $('mshEdgeDir').addEventListener('change',e=>{ M.edgeDir=e.target.value; pushHistory(); refresh(); });
-        if(!canOut) add(`<div class="fxHint">Outward feathering grows the shape's own outline, which is exact for a rectangle and an ellipse and has no honest answer for this shape — an offset curve is a different curve. Inside only here.</div>`);
-      }
-      add(`<div class="fxHint">Three separate things. <b>Edge blur</b> is how WIDE the fade is. <b>Softness</b> is its curve — at 0 a straight ramp, which arrives at full opacity abruptly enough to leave a faint contour; at 100 both ends are eased away. <b>Taper</b> is its bias: below 50% the fade starts early and trails off, above 50% the fill holds and then leaves quickly. <b>Direction</b> places the band inside the shape, straddling its edge, or entirely outside it.</div>`);
-      {
-        const liveE=()=>{ paintCacheClear(); render(); };
-        $('mshEdge').addEventListener('input',e=>{ M.edge=+e.target.value/100; $('mshEdgeV').textContent=e.target.value+'%'; liveE(); });
-        $('mshSoft').addEventListener('input',e=>{ M.softness=+e.target.value/100; $('mshSoftV').textContent=e.target.value+'%'; liveE(); });
-        $('mshTaper').addEventListener('input',e=>{ M.taper=+e.target.value/100; $('mshTaperV').textContent=e.target.value+'%'; liveE(); });
-        ['mshEdge','mshSoft','mshTaper'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
-      }
-
-      add(`<div class="pSect">Selected point</div>`);
-      const sel=(meshSel!=null&&M.points[meshSel])?M.points[meshSel]:null;
-      if(!sel){
-        add(`<div class="fxHint">Click a handle on the canvas to pick a point.</div>`);
-      }else{
-        const hex=rgbHex(sel.color);
-        add(`<div class="row2">
-          <label class="slider">X <span id="mshXV">${Math.round(sel.x*100)}%</span>
-            <input type="range" id="mshX" min="-20" max="120" step="1" value="${Math.round(sel.x*100)}"></label>
-          <label class="slider">Y <span id="mshYV">${Math.round(sel.y*100)}%</span>
-            <input type="range" id="mshY" min="-20" max="120" step="1" value="${Math.round(sel.y*100)}"></label>
-        </div>`);
-        add(`<label class="slider">Colour <input type="color" id="mshCol" value="${hex}"></label>`);
-        const live=()=>{ paintCacheClear(); render(); };
-        $('mshX').addEventListener('input',e=>{ sel.x=+e.target.value/100; $('mshXV').textContent=e.target.value+'%'; live(); });
-        $('mshY').addEventListener('input',e=>{ sel.y=+e.target.value/100; $('mshYV').textContent=e.target.value+'%'; live(); });
-        ['mshX','mshY'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
-        $('mshCol').addEventListener('input',e=>{ sel.color=hexRgb(e.target.value); live(); });
-        $('mshCol').addEventListener('change',()=>pushHistory());
-        /* The per-node channels, built from the engine's own table rather than
-         * repeated here — the shader reads that array as its channel layout,
-         * so a panel written from the same array cannot drift out of step with
-         * what is actually drawn. */
-        /* Two channels, unless the rest are unlocked. Filtered at the panel so
-         * a node keeps whatever the others were set to — hiding a control must
-         * not silently change the artwork it controls. */
-        const NODE_FX_SHOWN=['metallic','glow'];
-        const ALL=(window.MeshGradient&&window.MeshGradient.NODE_FX)||[];
-        const CH=SHOW_CONTROL.nodeFx?ALL:ALL.filter(f=>NODE_FX_SHOWN.includes(f.key));
-        if(CH.length){
-          add(`<div class="pSect">This node</div>`);
-          CH.forEach(f=>{
-            const v=Number.isFinite(+sel[f.key])?+sel[f.key]:f.def;
-            add(`<label class="slider">${f.label} <span id="mshfx_${f.key}V">${Math.round(v*100)}%</span>
-              <input type="range" id="mshfx_${f.key}" min="0" max="100" step="1" value="${Math.round(v*100)}"></label>`);
-            const el=$('mshfx_'+f.key);
-            el.addEventListener('input',e=>{
-              sel[f.key]=+e.target.value/100;
-              $('mshfx_'+f.key+'V').textContent=e.target.value+'%';
-              live();
-            });
-            el.addEventListener('change',()=>pushHistory());
-          });
-          add(`<div class="fxHint">These belong to the selected node, not the shape: each one is interpolated across the net the same way its colour is, so it fades out toward its neighbours.</div>`);
-        }
-      }
-      /* Fit the net to a reference image. This is raster-to-vector inference,
+      /* ---- Reference — the main block. Fit is raster-to-vector inference,
        * which HANDOFF.md:78 rules out; it is here at the author's explicit
-       * direction after the constraint was put to them. The note stays so the
-       * decision is found rather than discovered. */
-      add(`<div class="pSect">Reference</div>`);
-      add(`<button class="rollBtn" id="mshFit">Match an image…</button>`);
-      add(`<label class="slider"><input type="checkbox" id="mshFitGeo" checked> Move nodes to follow the image</label>`);
-      add(`<div class="fxHint" id="mshFitNote">Samples the image, corrects the net against what it actually renders, then moves the interior nodes where that measurably helps.</div>`);
-      $('mshFit').addEventListener('click',()=>{
+       * direction after the constraint was put to them. */
+      const hasRef=!!meshRef.img;
+      add(`<div class="ui-block mshRef">
+        <div class="mshRefHead"><span class="ui-title">Reference</span><span class="ui-label">${hasRef?'loaded':'no image yet'}</span></div>
+        ${hasRef?`<img class="refThumb" src="${meshRef.url}" alt="Reference image">`:''}
+        ${hasRef
+          ?`<div class="rowBtns"><button type="button" class="ui-btn" id="mshFit">Match again</button><button type="button" class="ui-btn" id="mshFitPick">Replace…</button><button type="button" class="ui-btn" id="mshFitClear">Clear</button></div>`
+          :`<button type="button" class="ui-btn ui-btn--cta ui-btn--block" id="mshFit"><i data-icon="image"></i> Match an image…</button>`}
+        <label class="slider uiSwitchRow"><span>Move nodes to follow the image</span><input type="checkbox" id="mshFitGeo" ${meshFitGeo?'checked':''}></label>
+        <div class="fxHint" id="mshFitNote">${hasRef?esc(meshRef.note):'Samples the image, corrects the net against what it actually renders, then moves the interior nodes where that measurably helps.'}</div>
+      </div>`);
+      if(window.Icons) window.Icons.hydrate($('fxBody'));
+      const runFit=(im)=>{
+        const note=$('mshFitNote');
+        if(note) note.textContent='Fitting…';
+        /* Deferred a frame so the note paints before the fit blocks: the
+         * fit renders the net a dozen times and reads it back each time. */
+        setTimeout(()=>{
+          const geo=$('mshFitGeo');
+          meshFitGeo=!geo||geo.checked;
+          const pts=ME.fitToImage(im,M.cols,M.rows,{moveGeometry:meshFitGeo});
+          if(!pts) return;
+          M.points=pts;
+          const err=ME.fitError(im,M.cols,M.rows,pts);
+          /* Reported, not hidden. A photograph cannot be reproduced by
+           * sixteen control points, and a fit that cannot reach its
+           * reference should say so rather than return its best guess as
+           * though it were right. */
+          meshRef.note = err==null ? 'Matched.'
+            : err<12 ? 'Matched — mean colour error '+err.toFixed(1)+'/255 (close).'
+            : err<30 ? 'Matched — mean colour error '+err.toFixed(1)+'/255 (approximate) — more rows and columns will tighten it.'
+            : 'Matched — mean colour error '+err.toFixed(1)+'/255 (far off) — this image has more detail than a mesh of this size can hold.';
+          pushHistory('Match mesh to image');
+          refresh();
+        },16);
+      };
+      const pickRef=()=>{
         const inp=document.createElement('input');
         inp.type='file'; inp.accept='image/*';
         inp.addEventListener('change',()=>{
@@ -8013,53 +7946,120 @@ function buildFxSection(obj,page,add,body){
           const url=URL.createObjectURL(f);
           const im=new Image();
           im.onload=()=>{
-            const note=$('mshFitNote');
-            if(note) note.textContent='Fitting…';
-            /* Deferred a frame so the note paints before the fit blocks: the
-             * fit renders the net a dozen times and reads it back each time,
-             * which is long enough to look like nothing happened. */
-            setTimeout(()=>{
-              try{
-                const geo=$('mshFitGeo');
-                const pts=ME.fitToImage(im,M.cols,M.rows,{moveGeometry:!geo||geo.checked});
-                if(pts){
-                  M.points=pts;
-                  const err=ME.fitError(im,M.cols,M.rows,pts);
-                  pushHistory('Match mesh to image');
-                  refresh();
-                  const n2=$('mshFitNote');
-                  if(n2&&err!=null){
-                    /* Reported, not hidden. A photograph cannot be reproduced
-                     * by sixteen control points, and a fit that cannot reach
-                     * its reference should say so rather than return its best
-                     * guess as though it were right. */
-                    n2.textContent=err<12
-                      ? 'Close fit (mean error '+err.toFixed(1)+'/255). '
-                      : err<30
-                        ? 'Approximate (mean error '+err.toFixed(1)+'/255) — more rows and columns will tighten it.'
-                        : 'Loose (mean error '+err.toFixed(1)+'/255) — this image has more detail than a mesh of this size can hold.';
-                  }
-                }
-              }finally{ URL.revokeObjectURL(url); }
-            },16);
+            if(meshRef.url) URL.revokeObjectURL(meshRef.url);
+            meshRef.img=im; meshRef.url=url; meshRef.note='';
+            runFit(im);
           };
           im.onerror=()=>{ status('That file could not be read as an image.'); URL.revokeObjectURL(url); };
           im.src=url;
         });
         inp.click();
+      };
+      $('mshFit').addEventListener('click',()=>{ if(meshRef.img) runFit(meshRef.img); else pickRef(); });
+      if($('mshFitPick')) $('mshFitPick').addEventListener('click',pickRef);
+      if($('mshFitClear')) $('mshFitClear').addEventListener('click',()=>{
+        if(meshRef.url) URL.revokeObjectURL(meshRef.url);
+        meshRef={img:null,url:'',note:''};
+        refresh();
       });
-      /* Analysis is a SEPARATE pass from the fit, and separate on purpose.
-       *
-       * The fit is exact, instant and free — it measures pixels. The analysis
-       * asks a model to judge how the reference was MADE, which costs a round
-       * trip and can be wrong. Running them together would make a precise
-       * operation wait on an imprecise one, and make a failure of the second
-       * look like a failure of the first.
-       *
-       * So: match the colours first, then decide whether the surface texture
-       * is worth a second opinion. */
-      add(`<button class="rollBtn" id="mshAnalyse">Analyse the reference…</button>`);
-      add(`<div class="fxHint" id="mshAnalyseNote">Asks what else was done to the image — smearing, grain, glass — and applies those engines on top.</div>`);
+      $('mshFitGeo').addEventListener('change',e=>{ meshFitGeo=e.target.checked; });
+
+      /* ---- Net: two steppers. Resizing RESAMPLES the surface, so the
+       * artwork carries across instead of resetting. */
+      add(`<div class="pSect">Net</div>`);
+      add(`<div class="ui-steppers">
+        <div><span class="ui-label">Columns</span><div class="ui-stepper" id="mshC"><button type="button" aria-label="Fewer columns">−</button><output>${M.cols}</output><button type="button" aria-label="More columns">+</button></div></div>
+        <div><span class="ui-label">Rows</span><div class="ui-stepper" id="mshR"><button type="button" aria-label="Fewer rows">−</button><output>${M.rows}</output><button type="button" aria-label="More rows">+</button></div></div>
+      </div>`);
+      const resize=(cols,rows)=>{
+        const pts=ME.resample(M.points,M.cols,M.rows,cols,rows);
+        M.cols=cols; M.rows=rows; M.points=pts;
+        if(meshSel!=null) meshSel=Math.min(meshSel,cols*rows-1);
+        pushHistory(); refresh();
+      };
+      if(UI){
+        UI.stepper($('mshC'),{value:M.cols,min:lo,max:hi,onChange:v=>resize(v,M.rows)});
+        UI.stepper($('mshR'),{value:M.rows,min:lo,max:hi,onChange:v=>resize(M.cols,v)});
+      }
+      /* Say what the grid COSTS: the number of handles is what decides
+       * whether a mesh is editable, and 8x8 is sixty-four of them. */
+      add(`<div class="fxHint">${M.cols*M.rows} handles. Resizing resamples the surface, so nothing is thrown away.</div>`);
+      add(`<label class="slider uiSwitchRow"><span>Show net while selected</span><input type="checkbox" id="mshNet" ${M.showNet!==false?'checked':''}></label>`);
+      $('mshNet').addEventListener('change',e=>{ M.showNet=e.target.checked; pushHistory(); render(); });
+
+      /* ---- Edge: three popover chips. Shape-level, not per-node. ---- */
+      add(`<div class="pSect">Edge</div>`);
+      add(`<div class="ui-pchips" id="mshEdgeChips"></div>`);
+      const pct=v=>Math.round(v*100)+'%';
+      const edgeChip=(id,label,get,set)=>{
+        const b=document.createElement('button');
+        b.type='button'; b.className='ui-pchip'; b.id=id;
+        b.innerHTML=esc(label)+' <span class="ui-chip">'+pct(get())+'</span>';
+        $('mshEdgeChips').appendChild(b);
+        if(UI) UI.popchip(b,{label,min:0,max:100,step:1,value:Math.round(get()*100),format:v=>v+'%',
+          onInput:v=>{ set(v/100); live(); }, onChange:()=>pushHistory()});
+      };
+      edgeChip('mshEdge','Edge blur',()=>M.edge||0,v=>{ M.edge=v; });
+      edgeChip('mshSoft','Softness',()=>M.softness===undefined?1:M.softness,v=>{ M.softness=v; });
+      edgeChip('mshTaper','Taper',()=>M.taper===undefined?0.5:M.taper,v=>{ M.taper=v; });
+      {
+        const DIRS=[['inside','Inside'],['both','Both'],['outside','Outside']];
+        const canOut=['rect','ellipse'].includes(obj.type);
+        add(`<label class="slider uiRow"><span>Direction</span><select id="mshEdgeDir"${canOut?'':' disabled'}>`+
+          DIRS.map(([v,n])=>`<option value="${v}">${n}</option>`).join('')+`</select></label>`);
+        $('mshEdgeDir').value=M.edgeDir||'inside';
+        $('mshEdgeDir').addEventListener('change',e=>{ M.edgeDir=e.target.value; pushHistory(); refresh(); });
+        if(!canOut) add(`<div class="fxHint">Outward feathering grows the shape's own outline, which is exact for a rectangle and an ellipse and has no honest answer for this shape — an offset curve is a different curve. Inside only here.</div>`);
+      }
+
+      /* ---- Selected point ---- */
+      add(`<div class="pSect">Selected point</div>`);
+      const sel=(meshSel!=null&&M.points[meshSel])?M.points[meshSel]:null;
+      if(!sel){
+        add(`<div class="fxHint">Click a handle on the canvas to pick a point.</div>`);
+      }else{
+        add(`<div class="fxHint">Point ${meshSel+1} of ${M.points.length} — drag it on the canvas, or place it.</div>`);
+        add(`<div class="ui-steppers mshXY">
+          <label class="ui-label">X %<input type="number" id="mshX" min="-20" max="120" step="1" value="${Math.round(sel.x*100)}"></label>
+          <label class="ui-label">Y %<input type="number" id="mshY" min="-20" max="120" step="1" value="${Math.round(sel.y*100)}"></label>
+        </div>`);
+        $('mshX').addEventListener('input',e=>{ sel.x=clamp(+e.target.value||0,-20,120)/100; live(); });
+        $('mshY').addEventListener('input',e=>{ sel.y=clamp(+e.target.value||0,-20,120)/100; live(); });
+        ['mshX','mshY'].forEach(id=>$(id).addEventListener('change',()=>pushHistory()));
+        add(`<label class="slider uiRow"><span>Colour</span><input type="color" id="mshCol" value="${rgbHex(sel.color)}" aria-label="Point colour"></label>`);
+        $('mshCol').addEventListener('input',e=>{ sel.color=hexRgb(e.target.value); live(); });
+        $('mshCol').addEventListener('change',()=>pushHistory());
+        /* Per-node channels from the engine's own table, so the panel cannot
+         * drift from the channel layout the shader reads. Two are shown
+         * unless the rest are unlocked; a node keeps whatever the hidden
+         * ones were set to. */
+        const NODE_FX_SHOWN=['metallic','glow'];
+        const ALL=(window.MeshGradient&&window.MeshGradient.NODE_FX)||[];
+        const CH=SHOW_CONTROL.nodeFx?ALL:ALL.filter(f=>NODE_FX_SHOWN.includes(f.key));
+        if(CH.length){
+          add(`<div class="ui-pchips" id="mshNodeChips"></div>`);
+          CH.forEach(f=>{
+            const v=Number.isFinite(+sel[f.key])?+sel[f.key]:f.def;
+            const b=document.createElement('button');
+            b.type='button'; b.className='ui-pchip'; b.id='mshfx_'+f.key;
+            b.innerHTML=esc(f.label)+' <span class="ui-chip">'+Math.round(v*100)+'%</span>';
+            $('mshNodeChips').appendChild(b);
+            if(UI) UI.popchip(b,{label:f.label,min:0,max:100,step:1,value:Math.round(v*100),format:x=>x+'%',
+              onInput:x=>{ sel[f.key]=x/100; live(); }, onChange:()=>pushHistory()});
+          });
+          add(`<div class="fxHint">These belong to the selected node, not the shape: each one is interpolated across the net the same way its colour is, so it fades out toward its neighbours.</div>`);
+        }
+      }
+
+      /* ---- footer: reset, and the analysis pass (a SEPARATE pass from the
+       * fit, on purpose: the fit measures pixels and is exact; the analysis
+       * asks a model how the reference was made and can be wrong). */
+      add(`<div class="rowBtns mshFoot"><button type="button" class="ui-btn" id="mshReset">Reset net</button><button type="button" class="ui-btn" id="mshAnalyse">Analyse the reference…</button></div>`);
+      add(`<div class="fxHint" id="mshAnalyseNote">Analyse asks what else was done to the image — smearing, grain, glass — and applies those engines on top.</div>`);
+      $('mshReset').addEventListener('click',()=>{
+        M.points=ME.defaultPoints(M.cols,M.rows);
+        pushHistory(); refresh();
+      });
       $('mshAnalyse').addEventListener('click',()=>{
         const pick=document.createElement('input');
         pick.type='file'; pick.accept='image/*';
@@ -8106,12 +8106,6 @@ function buildFxSection(obj,page,add,body){
         });
         pick.click();
       });
-      add(`<button class="rollBtn" id="mshReset">Reset net</button>`);
-      $('mshReset').addEventListener('click',()=>{
-        M.points=ME.defaultPoints(M.cols,M.rows);
-        pushHistory(); refresh();
-      });
-      add(`<div class="fxHint">Drag the handles on the canvas. The surface is one bicubic patch through every point, so moving one bends its neighbourhood and leaves the rest alone.</div>`);
     }
   }
 
@@ -11483,6 +11477,29 @@ document.querySelectorAll('.dropdown button').forEach(b=>{
     document.querySelectorAll('.menu').forEach(m=>m.classList.remove('open'));
     CMDS[b.dataset.cmd]&&CMDS[b.dataset.cmd]();
   });
+});
+/* The Effects menu is the one record of every capability (tests hold that).
+ * What this page has gated off — window.FX_ONLY, applied in fxstack.js — is
+ * HIDDEN here, entry by entry, along with a group label left with nothing
+ * visible under it; nothing is removed. */
+(function(){
+  if(!window.FX_ONLY||!window.EngineCatalog||!window.FxStack) return;
+  const menu=document.querySelector('[data-menu="effects"] .dropdown');
+  if(!menu) return;
+  menu.querySelectorAll('[data-capability]').forEach(b=>{
+    const cap=window.EngineCatalog.get(b.dataset.capability);
+    const type=cap&&cap.rendererType;
+    if(type&&!window.FxStack.isReady(type)) b.hidden=true;
+  });
+  menu.querySelectorAll('.menuLabel').forEach(label=>{
+    let n=label.nextElementSibling, any=false;
+    while(n&&!n.classList.contains('menuLabel')){ if(n.tagName==='BUTTON'&&!n.hidden) any=true; n=n.nextElementSibling; }
+    if(!any){ label.hidden=true; const d=label.previousElementSibling; if(d&&d.classList.contains('menuDivider')) d.hidden=true; }
+  });
+})();
+/* Top-bar commands (undo, redo, export) share the menu commands. */
+document.querySelectorAll('.tbCmd[data-cmd]').forEach(b=>{
+  b.addEventListener('click',()=>{ CMDS[b.dataset.cmd]&&CMDS[b.dataset.cmd](); });
 });
 document.addEventListener('keydown',e=>{
   if(/input|select|textarea/i.test(e.target.tagName||''))return;

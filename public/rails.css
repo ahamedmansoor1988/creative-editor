@@ -518,9 +518,9 @@
 .ui-pchip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   height: 30px;
-  padding: 0 6px 0 10px;
+  padding: 0 5px 0 9px;
   background: var(--field);
   border: 1px solid var(--border);
   border-radius: var(--r-field);
@@ -536,11 +536,12 @@
   border-color: var(--ink);
 }
 .ui-pchip .ui-chip {
-  min-width: 36px;
+  min-width: 0;
+  padding: 2px 6px;
 }
 .ui-pchips {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 .ui-popover--slider {
@@ -759,7 +760,6 @@
  * ================================================================== */
 body.rails {
   --bg: var(--ground);
-  --panel: var(--panel);
   --line: var(--hairline);
   --line-strong: var(--border);
   --text: var(--ink);
@@ -1213,4 +1213,354 @@ body.rails #prompt {
   border-radius: 50%;
   border: 1px solid rgba(17, 19, 24, 0.12);
   flex: 0 0 20px;
+}
+
+/* ---- editor adapter, part 2: the frame ------------------------------- */
+body.rails #topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  gap: 8px;
+}
+body.rails #topbar .ui-brand {
+  margin-right: 2px;
+}
+body.rails #topbar .ui-by {
+  margin-right: 10px;
+}
+body.rails #menubar,
+body.rails #appNotch {
+  position: static;
+  width: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+body.rails .menu {
+  padding: 0 10px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-icon);
+  font-size: var(--t-control);
+  font-weight: 400;
+  color: var(--ink);
+}
+body.rails .menu:hover,
+body.rails .menu.open {
+  background: var(--field);
+}
+body.rails #appNotch button {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-icon);
+  font-size: var(--t-control);
+  font-weight: 400;
+  color: var(--muted);
+}
+body.rails #appNotch button:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+body.rails #appNotch #profileBtn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 10px;
+  font-weight: 600;
+  box-shadow: none;
+}
+body.rails #stage {
+  top: var(--topbar-h);
+}
+body.rails #leftPanel,
+body.rails #rightPanel {
+  top: calc(var(--topbar-h) + var(--inset));
+  bottom: var(--inset);
+}
+body.rails #leftPanel {
+  left: var(--inset);
+}
+body.rails #rightPanel {
+  right: var(--inset);
+  padding: 14px 14px 48px;
+}
+body.rails #toolsRail {
+  padding: 12px 0;
+  gap: 6px;
+}
+body.rails #sidebar {
+  padding: 4px 0 40px;
+}
+body.rails .sideHead:has(+ #styleList),
+body.rails #styleList {
+  display: none;
+}
+body.rails .rp-head {
+  font-size: var(--t-section);
+  font-weight: 700;
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0 10px;
+}
+body.rails .rp-head .sep {
+  display: none;
+}
+
+/* switches: every checkbox in the chrome is the book's switch */
+body.rails input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 40px;
+  height: 22px;
+  flex: 0 0 40px;
+  margin: 0;
+  border: 0;
+  border-radius: 11px;
+  background: var(--border-strong);
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background var(--ease);
+}
+body.rails input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(10, 12, 20, 0.25);
+  transition: left var(--ease);
+}
+body.rails input[type="checkbox"]:checked {
+  background: var(--ink);
+}
+body.rails input[type="checkbox"]:checked::after {
+  left: 20px;
+}
+body.rails label.slider:has(> input[type="checkbox"]),
+body.rails label.uiSwitchRow,
+body.rails label.uiRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+/* legacy markup puts the box first; the book puts the label first */
+body.rails label.slider:has(> input[type="checkbox"]:first-child) {
+  flex-direction: row-reverse;
+}
+body.rails label.slider input[type="checkbox"] {
+  margin: 0;
+  width: 40px;
+}
+body.rails label.uiRow select {
+  width: auto;
+  min-width: 110px;
+}
+
+/* ranges and fields, everywhere in the chrome */
+body.rails input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  margin: 0;
+}
+body.rails input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--border);
+}
+body.rails input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(10, 12, 20, 0.3);
+}
+body.rails select,
+body.rails #rightPanel input[type="number"],
+body.rails #rightPanel input[type="text"],
+body.rails #leftPanel input[type="text"],
+body.rails #zoomChip input {
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-field);
+  height: 30px;
+  padding: 0 9px;
+  font-size: var(--t-control);
+  font-weight: 400;
+  color: var(--ink);
+}
+body.rails select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235c6270' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+body.rails .grid4 label,
+body.rails .grid3 label,
+body.rails .iconField {
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+body.rails .grid4 input,
+body.rails .grid3 input {
+  height: 30px;
+  padding: 0 8px;
+}
+body.rails .grid3 button,
+body.rails #alignRow button,
+body.rails .sideHead button {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-icon);
+  background: transparent;
+  color: var(--muted);
+}
+body.rails .grid3 button:hover,
+body.rails #alignRow button:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+body.rails .grid3 button.on,
+body.rails #pRatio[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--on-ink);
+  border-color: var(--ink);
+}
+body.rails .rollBtn,
+body.rails .btn {
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--r-field);
+  font-weight: 400;
+}
+body.rails .rollBtn.primary,
+body.rails .btn.primary {
+  height: 36px;
+  border-radius: var(--r-cta);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  padding: 0 18px;
+}
+
+/* the mesh page's own rows (markup in app.js, Mesh page) */
+body.rails .mshRef {
+  margin: 4px 0 8px;
+}
+body.rails .mshRefHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+body.rails .mshRef .ui-btn--cta {
+  margin-bottom: 6px;
+}
+body.rails .refThumb {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  margin: 0 0 8px;
+}
+body.rails .rowBtns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 6px;
+}
+body.rails .rowBtns .ui-btn {
+  flex: 1 1 auto;
+}
+body.rails .mshFoot {
+  margin-top: 14px;
+}
+body.rails .ui-pchips {
+  margin: 4px 0;
+}
+body.rails .mshXY label.ui-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.rails .mshXY input {
+  width: 100%;
+}
+body.rails #fxBody .pSect {
+  padding-top: 18px;
+}
+
+/* prompt bar and its one CTA */
+body.rails #agentBar {
+  gap: 8px;
+}
+body.rails #generateBtn {
+  background: var(--ink);
+  color: var(--on-ink);
+  border: 0;
+  border-radius: var(--r-cta);
+  height: 36px;
+  padding: 0 18px;
+  font-weight: 500;
+}
+body.rails #generateBtn:hover {
+  background: #000;
+  color: var(--on-ink);
+}
+body.rails #attachBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-icon);
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+}
+
+/* modals and the engines picker wear the panel */
+body.rails .modal,
+body.rails #enginesPanel {
+  border-radius: var(--r-panel);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--sh-panel);
+}
+body.rails .modal h3 {
+  font-size: var(--t-title);
+  font-weight: 700;
+}
+body.rails .mSec {
+  font-size: var(--t-section);
+  font-weight: 700;
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--muted);
 }

@@ -169,7 +169,18 @@
   } catch (e) {
     /* no location in exotic environments; the gate just stays closed */
   }
+  /* A page may narrow what it OFFERS without touching the QA record above:
+   * `window.FX_ONLY = ["mesh"]` before this file loads keeps every other
+   * ready effect out of the menus and panels for that page. Documents that
+   * carry other effects still render them; ?fx= still opens one for work. */
+  const ONLY =
+    typeof window !== "undefined" && Array.isArray(window.FX_ONLY) ? new Set(window.FX_ONLY) : null;
+  /* The menus read READY directly, so the narrowing has to reach the Set
+   * itself, not only isReady(). Tests never set FX_ONLY, so their READY is
+   * the full record above. */
+  if (ONLY) for (const t of Array.from(READY)) if (!ONLY.has(t)) READY.delete(t);
   function isReady(type) {
+    if (ONLY && !ONLY.has(type)) return DEV.has(type);
     return READY.has(type) || DEV.has(type);
   }
 
