@@ -87,6 +87,7 @@ function loadStudio() {
   window.fetch = /** @type {any} */ (vi.fn(() => Promise.reject(new Error("no network in tests"))));
 
   window.localStorage.clear();
+  window.eval(fs.readFileSync(path.join(ROOT, "public", "picker.js"), "utf8"));
   window.eval(fs.readFileSync(path.join(ROOT, "public", "studio.js"), "utf8"));
   return window.__studio;
 }
@@ -97,6 +98,15 @@ const qa = (s) => Array.from(document.querySelectorAll(s));
 const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: true }));
 const rowByLabel = (label) =>
   qa("#controls .row").find((r) => r.querySelector(".name").textContent === label);
+/** Open a colour row's picker, type a hex, commit, close — what a person does. */
+const setColour = (row, hex) => {
+  row.querySelector(".ui-cswatch").click();
+  const inp = document.querySelector(".ui-picker-hex");
+  inp.value = hex;
+  fire(inp, "input");
+  fire(inp, "change");
+  window.UIPicker.close();
+};
 const groupText = (title) =>
   qa("#controls .grp").find((g) => g.querySelector("summary").textContent === title).textContent;
 const pointer = (type, x, y) =>
@@ -251,10 +261,7 @@ describe("handles on the card", () => {
     S.applyTheme("ember");
     pointer("pointerdown", 150, 187.5);
     pointer("pointerup", 150, 187.5);
-    const inp = rowByLabel("Colour").querySelector("input");
-    inp.value = "#ff0000";
-    fire(inp, "input");
-    fire(inp, "change");
+    setColour(rowByLabel("Colour"), "#ff0000");
     expect(S.state.params.points[4].color).toEqual([255, 0, 0]);
     expect(S.state.theme).toBeNull();
   });

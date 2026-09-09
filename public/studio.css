@@ -729,3 +729,9 @@ button {
 #stage {
   touch-action: none;
 }
+
+/* Colour rows carry the system picker's trigger (rails.css) in the input slot. */
+.rowColor .ui-cswatch {
+  grid-column: 2 / 4;
+  justify-self: end;
+}

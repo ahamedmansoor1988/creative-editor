@@ -219,8 +219,8 @@
         margin-bottom: 6px;
       }
       .bk-shadow {
-        width: 150px;
-        height: 92px;
+        width: 118px;
+        height: 80px;
         background: var(--panel-solid);
         border: 1px solid var(--hairline);
         display: grid;
@@ -456,6 +456,7 @@
         <a class="ui-item" href="#spacing">Spacing</a>
         <a class="ui-item" href="#icons">Icons</a>
         <a class="ui-item" href="#components">Components</a>
+        <a class="ui-item" href="#picker">Colour picker</a>
         <a class="ui-item" href="#layouts">Layouts</a>
         <a class="ui-item" href="#inspector">Mesh inspector</a>
         <a class="ui-item" href="#motion">Motion and voice</a>
@@ -892,16 +893,20 @@
                 <button class="ui-btn ui-btn--cta">✦ Roadmap</button>
                 <button class="ui-btn ui-btn--outline">Export</button>
                 <button class="ui-btn ui-btn--ghost">Share</button>
+                <span class="bk-meta" style="margin: 0 0 0 4px">bar family · 36</span>
+              </div>
+              <div class="bk-demo">
                 <button class="ui-btn">Save</button>
                 <button class="ui-btn" disabled>Generate</button>
                 <button class="ui-btn ui-btn--danger">Delete page</button>
+                <span class="bk-meta" style="margin: 0 0 0 4px">panel family · 30</span>
               </div>
               <span class="bk-meta"
                 ><b>Buttons.</b> One CTA per screen, black, uppercase, radius 11
                 (<code>12/18</code>). <b>Outline</b> for the second most important action
-                (<code>11/17</code>). <b>Ghost</b> for top-bar links (<code>9/14</code>, hairline).
-                <b>Secondary</b> is the field: <code>6/9</code>, radius 7, 11.5 px. Disabled is 45%
-                opacity, never grey text on grey.</span
+                (<code>11/17</code>). <b>Ghost</b> for top-bar links, 36 tall (<code>0/14</code>,
+                hairline). <b>Secondary</b> is the field: 30 tall, <code>0/9</code>, radius 7, 11.5
+                px. Disabled is 45% opacity, never grey text on grey.</span
               >
             </div>
             <div class="bk-spec">
@@ -914,6 +919,8 @@
                 <button class="ui-ibtn ui-ibtn--bordered" title="More">
                   <i data-icon="moreHorizontal"></i>
                 </button>
+              </div>
+              <div class="bk-demo">
                 <button class="ui-sbc"><i data-icon="grid"></i> All cards</button>
                 <button class="ui-sbc is-on"><i data-icon="grid"></i> All cards</button>
                 <button
@@ -1252,6 +1259,79 @@
         </section>
 
         <!-- ============================================================ -->
+        <section class="bk-sec" id="picker">
+          <h2 class="ui-title">Colour picker</h2>
+          <p class="bk-intro">
+            Replaces the browser's popup, which ignores the system. It unfolds in three steps — the
+            pill header, the swatch row, the picker — and the swatch row keeps what you press
+            <b>+</b> on. Try it: drag the square, the hue and the alpha; type a hex; press +.
+          </p>
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec" style="align-items: flex-start">
+              <div id="pickerFull"></div>
+              <span class="bk-meta"
+                ><b>Open.</b> 272 wide, panel radius 16, popover shadow. Header: eyedropper (only
+                where the browser has one), swatches toggle, tune toggle, and the hex in a 34 px
+                pill field with the colour as a dot. Square 176 tall with a 14 px ring cursor; hue
+                and alpha bars 12 tall with 16 px thumbs; the alpha bar sits on a 10 px
+                checkerboard. Eight-digit hex when alpha is below 100%.</span
+              >
+            </div>
+            <div class="bk-spec" style="align-items: flex-start; gap: 16px">
+              <div id="pickerSwatches"></div>
+              <div id="pickerHead"></div>
+              <span class="bk-meta"
+                ><b>Swatches only</b> and <b>collapsed</b> — the tune and swatches buttons fold the
+                picker down to what a quick pick needs. Cells are 7-radius squares with a 1 px inner
+                hairline; the current colour carries a white dot; the last cell is the rainbow
+                <b>+</b>.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo">
+                <span class="ui-label">Colour</span
+                ><button
+                  class="ui-cswatch"
+                  id="pickerTrigger"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                >
+                  <i class="ui-cswatch-dot" style="background: #7038f4"></i><span>#7038F4</span>
+                </button>
+              </div>
+              <span class="bk-meta"
+                ><b>In a row.</b> A colour control is a 30 px pill with the dot and the hex. Click
+                it and the picker opens in a popover under it (flipping above when there is no
+                room); a click outside or Escape closes it. Drag fires <code>input</code>, release
+                fires <code>change</code> — the artwork redraws live and the history gets one
+                step.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <ul class="bk-callouts" style="margin: 0; padding-left: 18px">
+                <li>
+                  <b>Hex is the value.</b> RGB/HSL fields are not shown; the hex field accepts 3, 4,
+                  6 and 8 digits with or without the hash and puts the last good value back if you
+                  leave it broken.
+                </li>
+                <li>
+                  <b>Grey keeps its hue.</b> Typing <code>#888</code> does not swing the hue bar to
+                  red; the square stays where it was so the next drag starts from a sensible place.
+                </li>
+                <li>
+                  <b>Keyboard.</b> The square and both bars take arrow keys (shift for ×5). The
+                  whole picker is one tab stop per surface.
+                </li>
+                <li>
+                  <b>Swatches persist</b> per app under a storage key; the defaults are the system's
+                  eight.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
         <section class="bk-sec" id="layouts">
           <h2 class="ui-title">Layouts</h2>
           <p class="bk-intro">
@@ -1316,10 +1396,13 @@
             <div class="ui-panel bk-inspector">
               <div class="rp">
                 <span class="ui-title">✦ Mesh gradient</span
-                ><span class="ui-hist" style="padding: 2px"
-                  ><button class="ui-ibtn" style="width: 26px; height: 26px" title="Hide panel">
-                    <i data-icon="x"></i></button
-                ></span>
+                ><button
+                  class="ui-ibtn ui-ibtn--bordered"
+                  title="Hide panel"
+                  aria-label="Hide panel"
+                >
+                  <i data-icon="x"></i>
+                </button>
               </div>
               <div class="ui-sec-body" style="padding-top: 12px">
                 <div class="ui-block">
@@ -1561,6 +1644,7 @@
     </div>
 
     <script src="icons.js"></script>
+    <script src="picker.js"></script>
     <script>
       (function () {
         "use strict";
@@ -1696,6 +1780,26 @@
           secs.forEach((s) => io.observe(s));
         }
       })();
+    </script>
+    <script>
+      if (window.UIPicker) {
+        new UIPicker({ mount: "#pickerFull", value: "#7038F4", alpha: true });
+        new UIPicker({ mount: "#pickerSwatches", value: "#FFD60A", open: false });
+        new UIPicker({ mount: "#pickerHead", value: "#34C759", open: false, swatches: false });
+        const t = document.getElementById("pickerTrigger");
+        if (t)
+          t.addEventListener("click", () =>
+            UIPicker.popover({
+              anchor: t,
+              value: t.querySelector("span").textContent,
+              alpha: false,
+              onInput: (hex) => {
+                t.querySelector("i").style.background = hex;
+                t.querySelector("span").textContent = hex.toUpperCase();
+              },
+            }),
+          );
+      }
     </script>
   </body>
 </html>

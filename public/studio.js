@@ -533,7 +533,7 @@
               },
             ],
           },
-          { group: "Motion", controls: [R("drift", "Drift", 0, 0.4, 0.01)] },
+          { group: "Drift", controls: [R("drift", "Amount", 0, 0.4, 0.01)] },
         ];
       },
       colors: {
@@ -2168,23 +2168,42 @@
       row.appendChild(out);
       row.appendChild(input);
     } else if (ctl.kind === "color") {
-      input = document.createElement("input");
-      input.type = "color";
-      input.value = hexOk(readValue(ctl)) ? readValue(ctl) : "#888888";
+      // A dot-and-hex trigger; the system picker (picker.js) opens under it.
+      const cur = () => (hexOk(readValue(ctl)) ? readValue(ctl) : "#888888");
+      input = document.createElement("button");
+      input.type = "button";
+      input.className = "ui-cswatch";
+      input.setAttribute("aria-haspopup", "dialog");
+      input.setAttribute("aria-expanded", "false");
+      const dot = document.createElement("i");
+      dot.className = "ui-cswatch-dot";
       out = document.createElement("span");
-      out.className = "val mono";
-      out.textContent = input.value;
-      input.addEventListener("input", () => {
-        writeValue(ctl, input.value);
-        out.textContent = input.value;
-        state.theme = null;
-        dirty = true;
+      const paint = () => {
+        dot.style.background = cur();
+        out.textContent = cur().toUpperCase();
+      };
+      paint();
+      input.append(dot, out);
+      input.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (!window.UIPicker) return;
+        window.UIPicker.popover({
+          anchor: input,
+          value: cur(),
+          alpha: false,
+          storageKey: "studio.swatches",
+          onInput: (hex) => {
+            writeValue(ctl, hex.slice(0, 7));
+            paint();
+            state.theme = null;
+            dirty = true;
+          },
+          onChange: () => {
+            commitFor(ctl);
+            syncLeft();
+          },
+        });
       });
-      input.addEventListener("change", () => {
-        commitFor(ctl);
-        syncLeft();
-      });
-      row.appendChild(out);
       row.appendChild(input);
       row.classList.add("rowColor");
     } else if (ctl.kind === "select") {

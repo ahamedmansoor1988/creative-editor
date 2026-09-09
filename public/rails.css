@@ -90,12 +90,17 @@
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
 }
-.ui button,
-.ui input,
-.ui select,
-.ui textarea {
+:where(.ui) button,
+:where(.ui) input,
+:where(.ui) select,
+:where(.ui) textarea {
   font: inherit;
   color: inherit;
+}
+/* The hidden attribute must win over a component's own display. */
+.ui [hidden],
+.ui-picker [hidden] {
+  display: none !important;
 }
 .ui button {
   cursor: pointer;
@@ -219,7 +224,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
@@ -234,7 +239,8 @@
   background: var(--field);
   border: 1px solid var(--border);
   border-radius: var(--r-field);
-  padding: 6px 9px;
+  height: 30px;
+  padding: 0 9px;
   font-size: var(--t-control);
   line-height: 1.5;
   color: var(--ink);
@@ -257,7 +263,8 @@
   color: var(--on-ink);
   border: 0;
   border-radius: var(--r-cta);
-  padding: 12px 18px;
+  height: 36px;
+  padding: 0 18px;
   text-transform: uppercase;
   letter-spacing: var(--track-cta);
 }
@@ -268,7 +275,8 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-cta);
-  padding: 11px 17px;
+  height: 36px;
+  padding: 0 17px;
   text-transform: uppercase;
   letter-spacing: var(--track-cta);
 }
@@ -279,7 +287,8 @@
   background: transparent;
   border: 1px solid var(--hairline);
   border-radius: var(--r-cta);
-  padding: 9px 14px;
+  height: 36px;
+  padding: 0 14px;
 }
 .ui-btn--ghost:hover {
   background: var(--field);
@@ -395,11 +404,17 @@
   border: 1px solid var(--border);
   border-radius: var(--r-field);
   padding: 6px 9px;
+  height: 30px;
   font-size: var(--t-control);
   line-height: 1.5;
   color: var(--ink);
   width: 100%;
   min-width: 0;
+}
+.ui-textarea {
+  height: auto;
+  min-height: 54px;
+  resize: vertical;
 }
 .ui-input:focus,
 .ui-select:focus,
@@ -425,7 +440,7 @@
 }
 .ui-color {
   width: 30px;
-  height: 28px;
+  height: 30px;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--r-field);
@@ -974,4 +989,224 @@ body.rails #agentBar {
 }
 body.rails #prompt {
   font-size: var(--t-control);
+}
+
+/* ====================================================================
+ * COLOUR PICKER — see picker.js. A pill header, a swatch row, then the
+ * body: saturation/value square, hue bar, alpha bar over a checkerboard.
+ * ================================================================== */
+.ui-picker {
+  --pk-hue: #7038f4;
+  --pk-color: #7038f4;
+  --pk-alpha: 1;
+  width: 272px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-panel);
+  box-shadow: var(--sh-pop);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--ui-font);
+  font-size: var(--t-body);
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.ui-picker *,
+.ui-picker *::before,
+.ui-picker *::after {
+  box-sizing: border-box;
+}
+.ui-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ui-picker-head .ui-ibtn[aria-pressed="true"] {
+  background: var(--field);
+  color: var(--ink);
+}
+.ui-picker-head .ui-ibtn {
+  color: var(--muted);
+  flex: 0 0 30px;
+}
+.ui-picker-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin-left: 4px;
+  padding: 0 10px 0 5px;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  cursor: text;
+}
+.ui-picker-field:focus-within {
+  background: var(--panel-solid);
+  border-color: var(--ink);
+}
+.ui-picker-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex: 0 0 24px;
+  overflow: hidden;
+  border: 1px solid rgba(17, 19, 24, 0.12);
+  background: conic-gradient(#d9d9dd 25%, #fff 0 50%, #d9d9dd 0 75%, #fff 0) 0 0 / 8px 8px;
+}
+.ui-picker-dot i {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ui-picker-hex {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--t-body);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+  outline: 0;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+.ui-picker-swatches {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 2px;
+}
+.ui-picker-cell {
+  aspect-ratio: 1;
+  width: 100%;
+  border: 1px solid rgba(17, 19, 24, 0.1);
+  border-radius: var(--r-field);
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  transition: transform var(--ease);
+}
+.ui-picker-cell:hover {
+  transform: scale(1.08);
+}
+.ui-picker-cell.is-on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.4);
+}
+.ui-picker-add {
+  background: conic-gradient(#ff3b30, #ffd60a, #34c759, #3fa9ff, #7038f4, #ff2d9b, #ff3b30);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.55);
+}
+.ui-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 4px;
+}
+.ui-picker-sv {
+  position: relative;
+  height: 176px;
+  border-radius: 10px;
+  background:
+    linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
+    linear-gradient(to right, #fff, rgba(255, 255, 255, 0)), var(--pk-hue);
+  cursor: crosshair;
+  touch-action: none;
+  outline-offset: 2px;
+}
+.ui-picker-cur {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.ui-picker-hue,
+.ui-picker-alpha {
+  position: relative;
+  height: 12px;
+  border-radius: var(--r-pill);
+  touch-action: none;
+  cursor: pointer;
+  outline-offset: 3px;
+}
+.ui-picker-hue {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.ui-picker-alpha {
+  background:
+    linear-gradient(to right, rgba(255, 255, 255, 0), var(--pk-color)),
+    conic-gradient(#d9d9dd 25%, #fff 0 50%, #d9d9dd 0 75%, #fff 0) 0 0 / 10px 10px;
+}
+.ui-picker-thumb {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.ui-picker-pop {
+  position: fixed;
+}
+
+/* The trigger a colour control shows in a row: a dot and the hex. */
+.ui-cswatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 4px;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-size: var(--t-control);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.ui-cswatch:hover {
+  background: var(--hover);
+}
+.ui-cswatch[aria-expanded="true"] {
+  border-color: var(--ink);
+}
+.ui-cswatch-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(17, 19, 24, 0.12);
+  flex: 0 0 20px;
 }

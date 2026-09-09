@@ -102,6 +102,7 @@ function loadStudio() {
 
   installEngines();
   window.localStorage.clear();
+  window.eval(fs.readFileSync(path.join(ROOT, "public", "picker.js"), "utf8"));
   window.eval(fs.readFileSync(path.join(ROOT, "public", "studio.js"), "utf8"));
   if (!window.__studio) throw new Error("studio.js did not expose window.__studio");
   return window.__studio;
@@ -113,6 +114,15 @@ const qa = (s) => Array.from(document.querySelectorAll(s));
 const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: true }));
 const rowByLabel = (label) =>
   qa("#controls .row").find((r) => r.querySelector(".name").textContent === label);
+/** Open a colour row's picker, type a hex, commit, close — what a person does. */
+const setColour = (row, hex) => {
+  row.querySelector(".ui-cswatch").click();
+  const inp = document.querySelector(".ui-picker-hex");
+  inp.value = hex;
+  fire(inp, "input");
+  fire(inp, "change");
+  window.UIPicker.close();
+};
 
 beforeAll(() => {
   S = loadStudio();
@@ -141,9 +151,7 @@ describe("boot", () => {
     const rows = S.ENGINES.liquid.schema(S.state.params).flatMap((g) => g.controls);
     const ranges = rows.filter((c) => c.kind === "range").length;
     expect(qa("#controls input[type=range]")).toHaveLength(ranges + 1);
-    expect(qa("#controls input[type=color]")).toHaveLength(
-      rows.filter((c) => c.kind === "color").length,
-    );
+    expect(qa("#controls .ui-cswatch")).toHaveLength(rows.filter((c) => c.kind === "color").length);
     expect(qa("#controls select")).toHaveLength(rows.filter((c) => c.kind === "select").length);
   });
 
@@ -176,7 +184,7 @@ describe("controls drive params through real input events", () => {
     inp.value = "3";
     fire(inp, "input");
     fire(inp, "change");
-    expect(qa("#controls input[type=color]")).toHaveLength(3);
+    expect(qa("#controls .ui-cswatch")).toHaveLength(3);
   });
 
   it("a select with an apply() merges the preset and keeps the choice", () => {
@@ -238,10 +246,7 @@ describe("themes map onto each engine's colour slots in order", () => {
   it("editing a colour by hand releases the theme", () => {
     S.switchEngine("liquid");
     S.applyTheme("ember");
-    const inp = rowByLabel("Colour 1").querySelector("input");
-    inp.value = "#123456";
-    fire(inp, "input");
-    fire(inp, "change");
+    setColour(rowByLabel("Colour 1"), "#123456");
     expect(S.state.params.cols[0]).toBe("#123456");
     expect(S.state.theme).toBeNull();
   });
