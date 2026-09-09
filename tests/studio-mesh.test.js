@@ -101,7 +101,7 @@ const rowByLabel = (label) =>
 /** Open a colour row's picker, type a hex, commit, close — what a person does. */
 const setColour = (row, hex) => {
   row.querySelector(".ui-cswatch").click();
-  const inp = document.querySelector(".ui-picker-hex");
+  const inp = /** @type {HTMLInputElement} */ (document.querySelector(".ui-picker-hex"));
   inp.value = hex;
   fire(inp, "input");
   fire(inp, "change");

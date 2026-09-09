@@ -106,6 +106,7 @@ declare global {
     LightEngine?: any;
     FractalGlassEngine?: any;
     __studio?: any;
+    UIPicker?: any;
     GradientEngine?: {
       MAX_STOPS: number;
       PRESETS: { name: string; g1: any[]; g2: any[] }[];
