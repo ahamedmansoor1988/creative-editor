@@ -161,7 +161,7 @@
         '<button type="button" class="ui-ibtn ui-picker-tune" title="Tune" aria-label="Show the picker" aria-pressed="true">' +
         icon("sliders") +
         "</button>" +
-        '<label class="ui-picker-field"><span class="ui-picker-dot"><i></i></span>' +
+        '<label class="ui-picker-field"><span class="ui-picker-dot"></span>' +
         '<input class="ui-picker-hex" type="text" spellcheck="false" autocomplete="off" aria-label="Hex colour" maxlength="9"></label>' +
         "</div>" +
         '<div class="ui-picker-swatches" role="listbox" aria-label="Swatches"></div>' +
@@ -175,7 +175,7 @@
         eye: q(".ui-picker-eye"),
         swbtn: q(".ui-picker-swbtn"),
         tune: q(".ui-picker-tune"),
-        dot: q(".ui-picker-dot i"),
+        dot: q(".ui-picker-dot"),
         hex: q(".ui-picker-hex"),
         swatches: q(".ui-picker-swatches"),
         body: q(".ui-picker-body"),
@@ -313,13 +313,12 @@
       this.el.style.setProperty("--pk-alpha", String(this.a));
       this.ui.cur.style.left = this.s * 100 + "%";
       this.ui.cur.style.top = (1 - this.v) * 100 + "%";
-      this.ui.hueThumb.style.left = `calc(8px + (100% - 16px) * )`;
+      this.ui.hueThumb.style.left = `calc(8px + (100% - 16px) * ${this.h / 360})`;
       this.ui.hueThumb.style.background = hueHex;
-      this.ui.alphaThumb.style.left = `calc(8px + (100% - 16px) * )`;
+      this.ui.alphaThumb.style.left = `calc(8px + (100% - 16px) * ${this.a})`;
       this.ui.alphaThumb.style.background = opaque;
       this.ui.alphaThumb.style.opacity = String(0.35 + this.a * 0.65);
-      this.ui.dot.style.background = opaque;
-      this.ui.dot.style.opacity = String(this.a);
+      this.el.style.setProperty("--pk-rgba", `rgba(${r}, ${g}, ${b}, ${this.a})`);
       this.ui.sv.setAttribute(
         "aria-valuetext",
         `saturation ${Math.round(this.s * 100)}%, value ${Math.round(this.v * 100)}%`,
