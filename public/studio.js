@@ -2190,7 +2190,7 @@
         window.UIPicker.popover({
           anchor: input,
           value: cur(),
-          alpha: false,
+          alpha: true,
           storageKey: "studio.swatches",
           onInput: (hex) => {
             writeValue(ctl, hex.slice(0, 7));

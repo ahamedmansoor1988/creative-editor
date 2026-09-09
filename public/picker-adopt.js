@@ -46,15 +46,21 @@
       window.UIPicker.popover({
         anchor: trig,
         value: HEX.test(input.value) ? input.value : "#000000",
-        alpha: false,
+        alpha: true,
         storageKey: "ui.swatches",
-        onInput: (hex) => {
+        /* The native input can only hold #RRGGBB. Alpha rides alongside as
+         * data-alpha (0..1) and data-hex8 for hosts that read it. */
+        onInput: (hex, rgb, pk) => {
           input.value = hex.slice(0, 7);
+          input.dataset.alpha = String(pk.alpha());
+          input.dataset.hex8 = hex;
           paint();
           input.dispatchEvent(new Event("input", { bubbles: true }));
         },
-        onChange: (hex) => {
+        onChange: (hex, rgb, pk) => {
           input.value = hex.slice(0, 7);
+          input.dataset.alpha = String(pk.alpha());
+          input.dataset.hex8 = hex;
           paint();
           input.dispatchEvent(new Event("change", { bubbles: true }));
         },

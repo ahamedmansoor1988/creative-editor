@@ -967,10 +967,15 @@
                     type="number"
                     value="380"
                     aria-label="Height"
-                  /><input class="ui-color" type="color" value="#111318" aria-label="Colour" /><span
-                    class="ui-label"
-                    >W · H · colour</span
+                  /><button
+                    class="ui-cswatch bk-pick"
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-expanded="false"
                   >
+                    <i class="ui-cswatch-dot" style="background: #111318"></i
+                    ><span>#111318</span></button
+                  ><span class="ui-label">W · H · colour</span>
                 </div>
               </div>
               <span class="bk-meta"
@@ -1154,9 +1159,9 @@
                 </div>
               </div>
               <span class="bk-meta"
-                ><b>Tiles</b> hold a rendered thumbnail, never an illustration of one; caption 9 px.
-                Selected = 1 px ink ring inside the hairline. <b>Swatches</b> are 16 px squares at
-                radius 4 with a 2 px gap.</span
+                ><b>Tiles</b> hold a rendered thumbnail, never an illustration of one; art 50 tall,
+                caption 9 px. Selected = 1 px ink ring inside the hairline. <b>Swatches</b> are 16
+                px squares at radius 4 with a 2 px gap.</span
               >
             </div>
 
@@ -1529,8 +1534,15 @@
                         border: 1px solid var(--border);
                       "
                       >#FF2FB0</span
-                    ><input class="ui-color" type="color" value="#ff2fb0" aria-label="Point colour"
-                  /></span>
+                    ><button
+                      class="ui-cswatch bk-pick"
+                      type="button"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                    >
+                      <i class="ui-cswatch-dot" style="background: #ff2fb0"></i><span>#FF2FB0</span>
+                    </button></span
+                  >
                 </div>
                 <div class="ui-pchips">
                   <span class="bk-pop-host"
@@ -1787,19 +1799,19 @@
         new UIPicker({ mount: "#pickerFull", value: "#7038F4", alpha: true });
         new UIPicker({ mount: "#pickerSwatches", value: "#FFD60A", open: false });
         new UIPicker({ mount: "#pickerHead", value: "#34C759", open: false, swatches: false });
-        const t = document.getElementById("pickerTrigger");
-        if (t)
+        document.querySelectorAll("#pickerTrigger, .bk-pick").forEach((t) =>
           t.addEventListener("click", () =>
             UIPicker.popover({
               anchor: t,
               value: t.querySelector("span").textContent,
-              alpha: false,
+              storageKey: "ui.swatches",
               onInput: (hex) => {
                 t.querySelector("i").style.background = hex;
                 t.querySelector("span").textContent = hex.toUpperCase();
               },
             }),
-          );
+          ),
+        );
       }
     </script>
   </body>

@@ -280,8 +280,7 @@
   border-radius: var(--r-cta);
   height: 36px;
   padding: 0 18px;
-  text-transform: uppercase;
-  letter-spacing: var(--track-cta);
+  font-weight: 500;
 }
 .ui-btn--cta:hover {
   background: #000;
@@ -292,8 +291,7 @@
   border-radius: var(--r-cta);
   height: 36px;
   padding: 0 17px;
-  text-transform: uppercase;
-  letter-spacing: var(--track-cta);
+  font-weight: 500;
 }
 .ui-btn--outline:hover {
   background: var(--field);
@@ -452,14 +450,6 @@
 .ui-num {
   width: 64px;
   text-align: right;
-}
-.ui-color {
-  width: 30px;
-  height: 30px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-field);
-  background: var(--field);
 }
 
 /* ---- stepper: a count, not a slider ---------------------------------- */
@@ -735,7 +725,7 @@
 }
 .ui-tile .ui-tile-art {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  height: 50px; /* fixed, not aspect-ratio: a button tile with a ratio-sized child reports too small a height to its grid row */
   border-radius: 6px;
   background: var(--field);
   display: grid;

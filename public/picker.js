@@ -450,25 +450,34 @@
     const anchor = opts.anchor;
     const wrap = document.createElement("div");
     wrap.className = "ui-picker-pop";
-    wrap.style.position = "fixed";
+    wrap.style.position = "absolute";
     wrap.style.zIndex = "1000";
     document.body.appendChild(wrap);
     const picker = new UIPicker(Object.assign({}, opts, { mount: wrap }));
+    /* Below the anchor, always. If that runs past the viewport, the page
+     * scrolls to it; on a fixed-layout page that cannot scroll, it shifts up
+     * just enough to stay whole. It never flips above the anchor. */
     const place = () => {
       const r =
         anchor && anchor.getBoundingClientRect
           ? anchor.getBoundingClientRect()
           : { left: 0, top: 0, bottom: 0, right: 0 };
       const w = wrap.offsetWidth || 272,
-        h = wrap.offsetHeight || 320;
+        h = wrap.offsetHeight || 340;
       const vw = window.innerWidth || 1024,
         vh = window.innerHeight || 768;
-      let left = r.left,
-        top = r.bottom + 6;
+      const sx = window.scrollX || 0,
+        sy = window.scrollY || 0;
+      let left = r.left;
       if (left + w > vw - 8) left = Math.max(8, vw - 8 - w);
-      if (top + h > vh - 8) top = Math.max(8, r.top - 6 - h);
-      wrap.style.left = left + "px";
-      wrap.style.top = top + "px";
+      let top = r.bottom + 6;
+      const se = document.scrollingElement || document.documentElement;
+      const pageScrolls = se && se.scrollHeight > vh + 1;
+      if (top + h > vh - 8 && !pageScrolls) top = Math.max(8, vh - 8 - h);
+      wrap.style.left = left + sx + "px";
+      wrap.style.top = top + sy + "px";
+      if (top + h > vh - 8 && pageScrolls && wrap.scrollIntoView)
+        wrap.scrollIntoView({ block: "nearest" });
     };
     place();
     const onDoc = (e) => {
