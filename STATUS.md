@@ -39,7 +39,10 @@ pass, and not yet deployable as a multi-user product.
 - **Pattern Studio** (`studio.html`, 9 Sep 2026) — a second front door in the
   Light-Rails shape: looks → generated controls → themes → the same pattern
   under nine branded cards → PNG export, with play/pause on each engine's
-  phase parameter. Six generator engines, loaded untouched; static page.
+  phase parameter. Six generator engines, loaded untouched; the mesh engine is the
+  editor's own mesh tool (handles on the card, per-node colour, edge feather,
+  Match an image, AI prompt), sharing its document shape. Static page apart from
+  the AI button.
 - **AI generation** — prompt (plus optional reference image) to an editable
   document via Groq; a capability registry injects only the relevant engine
   docs per request.

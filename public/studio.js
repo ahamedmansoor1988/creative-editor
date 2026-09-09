@@ -47,6 +47,98 @@
     const n = parseInt((hexOk(h) ? h : "#888888").slice(1), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   };
+  const rgbHex = (c) =>
+    "#" +
+    (Array.isArray(c) ? c : [128, 128, 128])
+      .slice(0, 3)
+      .map((v) =>
+        clamp(Math.round(+v || 0), 0, 255)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("");
+
+  /* ---- mesh net helpers -------------------------------------------------
+   * The net is the editor's own document shape: row-major points with x,y in
+   * 0..1 of the box, colour as [r,g,b], per-node channels alongside. */
+  function sanePoint(pt) {
+    const o = Object.assign({}, pt && typeof pt === "object" ? pt : {});
+    o.x = clamp(+o.x || 0, 0, 1);
+    o.y = clamp(+o.y || 0, 0, 1);
+    let c = o.color;
+    if (typeof c === "string") c = hex2rgb(c);
+    if (!Array.isArray(c) || c.length < 3) c = [128, 128, 128];
+    o.color = c.slice(0, 3).map((v) => clamp(Math.round(+v || 0), 0, 255));
+    return o;
+  }
+  function evenNet(cols, rows) {
+    const out = [];
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        out.push({
+          x: cols === 1 ? 0.5 : c / (cols - 1),
+          y: rows === 1 ? 0.5 : r / (rows - 1),
+          color: [128, 128, 128],
+        });
+    return out;
+  }
+  /* Push interior points off the grid by up to `jitter` of a cell. Edge points
+   * slide along their edge and corners stay put, so the surface still covers
+   * the box. Deterministic in (seed, index). */
+  function scatterNet(points, cols, rows, jitter, seed) {
+    points.forEach((pt, i) => {
+      const c = i % cols,
+        r = (i / cols) | 0;
+      const edgeX = c === 0 || c === cols - 1,
+        edgeY = r === 0 || r === rows - 1;
+      const u = c / (cols - 1),
+        v = r / (rows - 1);
+      const ang = rand01(seed, i, 1) * Math.PI * 2;
+      const amp = jitter * (0.5 + 0.5 * rand01(seed, i, 2));
+      pt.x = edgeX ? u : clamp(u + (Math.cos(ang) * amp) / (cols - 1), 0, 1);
+      pt.y = edgeY ? v : clamp(v + (Math.sin(ang) * amp) / (rows - 1), 0, 1);
+    });
+  }
+  /* Motion copy of the net: each interior point circles its stored position.
+   * Returns new points; the stored net is never touched. */
+  function driftNet(points, cols, rows, amp, phase) {
+    return points.map((pt, i) => {
+      const c = i % cols,
+        r = (i / cols) | 0;
+      const edgeX = c === 0 || c === cols - 1,
+        edgeY = r === 0 || r === rows - 1;
+      const a = rand01(7, i, 3) * Math.PI * 2 + phase;
+      const q = Object.assign({}, pt);
+      if (!edgeX) q.x = clamp(pt.x + (Math.cos(a) * amp) / (cols - 1), 0, 1);
+      if (!edgeY) q.y = clamp(pt.y + (Math.sin(a) * amp) / (rows - 1), 0, 1);
+      return q;
+    });
+  }
+  /* Resize the net by resampling the SURFACE, as the editor does, so colours
+   * carry across instead of resetting. */
+  function resizeNet(p, cols, rows) {
+    cols = clamp(cols | 0, 2, 10);
+    rows = clamp(rows | 0, 2, 10);
+    if (cols === p.cols && rows === p.rows) return;
+    const ME = window.MeshGradient;
+    let pts = null;
+    if (ME && ME.resample && p.points.length === p.cols * p.rows) {
+      try {
+        pts = ME.resample(p.points, p.cols, p.rows, cols, rows);
+      } catch (_) {
+        pts = null;
+      }
+    }
+    if (!pts || pts.length !== cols * rows) {
+      const old = p.points;
+      pts = evenNet(cols, rows).map((pt, i) =>
+        Object.assign(pt, { color: old.length ? old[i % old.length].color.slice() : pt.color }),
+      );
+    }
+    p.cols = cols;
+    p.rows = rows;
+    p.points = pts.map(sanePoint);
+  }
   const rgba = (h, a) => {
     const c = hex2rgb(h);
     return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
@@ -240,96 +332,288 @@
      * The editor stores a hand-placed net. The studio DERIVES the net from
      * a few numbers — grid, jitter, seed, phase — so a look is small, a
      * theme can recolour it, and the clock can swirl it. */
+    /* ---- Mesh gradient ------------------------------------------------
+     * The editor's own tool, in the editor's own document shape: {cols,
+     * rows, points:[{x, y, color:[r,g,b], …channels}]}. Handles you drag on
+     * the card, a colour and channels per selected node, the edge feather,
+     * the image fit and the prompt — so a mesh can travel between the editor
+     * and the studio unchanged. */
     mesh: {
       id: "mesh",
       label: "Mesh gradient",
-      blurb: "A grid of colour points blended into one smooth surface.",
+      blurb: "A net of colour points you drag. Match an image, or ask for one.",
       available: () => !!(window.MeshGradient && window.MeshGradient.available()),
       defaults: () => ({
         cols: 3,
         rows: 3,
-        jitter: 0.25,
-        seed: 7,
+        points: [],
+        showNet: true,
+        edge: 0,
+        softness: 1,
+        taper: 0.5,
+        drift: 0,
         phase: 0,
-        noise: 0,
-        noiseSize: 0,
-        smooth: 1,
-        falloff: 0.5,
-        chromatic: 0,
-        metallic: 0,
-        glow: 0,
-        colors: ["#0b5cff", "#7b2fff", "#ff2fb0", "#ff8a00", "#00d3ff", "#fff2a8"],
       }),
-      schema: (p) => [
-        {
-          group: "Net",
-          controls: [
-            R("cols", "Columns", 2, 6, 1),
-            R("rows", "Rows", 2, 6, 1),
-            R("jitter", "Jitter", 0, 0.45, 0.01),
-            R("seed", "Seed", 1, 99, 1),
-            R("phase", "Swirl", 0, 6.28, 0.01),
-          ],
-        },
-        {
-          group: "Surface",
-          controls: [
-            R("smooth", "Smoothness", 0, 1, 0.01),
-            R("falloff", "Falloff", 0, 1, 0.01),
-            R("chromatic", "Chromatic", 0, 1, 0.01),
-            R("metallic", "Metallic", 0, 1, 0.01),
-            R("glow", "Glow", 0, 1, 0.01),
-            R("noise", "Grain", 0, 1, 0.01),
-            R("noiseSize", "Grain size", 0, 16, 1),
-          ],
-        },
-        {
-          group: "Colours",
-          controls: p.colors.map((_, i) => C(`colors.${i}`, "Colour " + (i + 1))),
-        },
-      ],
+      /* One-shot keys a look may carry. They are materialised here and then
+       * removed, so the stored document is always the plain net the editor
+       * reads:  palette [hex…] colours the net, cycling;  scatter {jitter,
+       * seed} pushes interior points off the grid once;  nodeFx {channel:
+       * value} writes a channel onto every node. */
+      oneShot: ["palette", "scatter", "nodeFx"],
+      prepare: (p) => {
+        const ME = window.MeshGradient;
+        p.cols = clamp(p.cols | 0, 2, 10);
+        p.rows = clamp(p.rows | 0, 2, 10);
+        if (!Array.isArray(p.points) || p.points.length !== p.cols * p.rows)
+          p.points =
+            ME && ME.defaultPoints ? ME.defaultPoints(p.cols, p.rows) : evenNet(p.cols, p.rows);
+        p.points = p.points.map(sanePoint);
+        if (p.palette) {
+          p.points.forEach((pt, i) => (pt.color = hex2rgb(p.palette[i % p.palette.length])));
+          delete p.palette;
+        }
+        if (p.scatter) {
+          scatterNet(p.points, p.cols, p.rows, +p.scatter.jitter || 0, p.scatter.seed | 0 || 1);
+          delete p.scatter;
+        }
+        if (p.nodeFx) {
+          p.points.forEach((pt) => Object.assign(pt, p.nodeFx));
+          delete p.nodeFx;
+        }
+      },
+      schema: (p, ui) => {
+        const ME = window.MeshGradient || {};
+        const sel = ui.meshSel != null && p.points[ui.meshSel] ? ui.meshSel : null;
+        const node = sel != null ? p.points[sel] : null;
+        const chans = (ME.NODE_FX || []).filter((f) =>
+          ["metallic", "glow", "chromatic", "noise", "blur"].includes(f.key),
+        );
+        return [
+          {
+            group: "Net",
+            controls: [
+              R("cols", "Columns", 2, 8, 1, {
+                apply: (q, v) => resizeNet(q, v, q.rows),
+                rebuild: true,
+              }),
+              R("rows", "Rows", 2, 8, 1, {
+                apply: (q, v) => resizeNet(q, q.cols, v),
+                rebuild: true,
+              }),
+              TOG("showNet", "Show net on the card"),
+              {
+                kind: "buttons",
+                buttons: [
+                  {
+                    label: "Shuffle",
+                    onClick: (q) =>
+                      scatterNet(q.points, q.cols, q.rows, 0.35, ((Math.random() * 1e6) | 0) + 1),
+                  },
+                  {
+                    label: "Even out",
+                    onClick: (q) => {
+                      const even = evenNet(q.cols, q.rows);
+                      q.points.forEach((pt, i) => {
+                        pt.x = even[i].x;
+                        pt.y = even[i].y;
+                      });
+                    },
+                  },
+                ],
+              },
+              {
+                kind: "note",
+                text: `${p.cols * p.rows} handles. Resizing resamples the surface, so nothing is thrown away.`,
+              },
+            ],
+          },
+          {
+            group: "Selected point",
+            controls: node
+              ? [
+                  {
+                    kind: "note",
+                    text: `Point ${sel + 1} of ${p.points.length} — drag it on the card.`,
+                  },
+                  {
+                    kind: "color",
+                    label: "Colour",
+                    key: `points.${sel}.color`,
+                    get: () => rgbHex(node.color),
+                    set: (v) => (node.color = hex2rgb(v)),
+                  },
+                  ...chans.map((f) => R(`points.${sel}.${f.key}`, f.label, 0, 1, 0.01)),
+                ]
+              : [{ kind: "note", text: "Click a handle on the card to pick a point." }],
+          },
+          {
+            group: "Edge",
+            open: false,
+            controls: [
+              R("edge", "Edge blur", 0, 1, 0.01),
+              R("softness", "Softness", 0, 1, 0.01),
+              R("taper", "Taper", 0, 1, 0.01),
+              {
+                kind: "note",
+                text: "Blur is how wide the fade is, softness its curve, taper its bias. Shows on cards that inset the pattern, or with a shape.",
+              },
+            ],
+          },
+          {
+            group: "Reference",
+            controls: [
+              {
+                kind: "buttons",
+                buttons: ui.refImage
+                  ? [
+                      {
+                        label: "Match again",
+                        onClick: () => matchImage(ui.refImage.img, ui.refImage.url),
+                        commit: false,
+                      },
+                      { label: "Replace…", onClick: () => pickReference(), commit: false },
+                      {
+                        label: "Clear",
+                        onClick: () => {
+                          ui.refImage = null;
+                          ui.fitNote = "";
+                        },
+                        commit: false,
+                      },
+                    ]
+                  : [{ label: "Match an image…", onClick: () => pickReference(), commit: false }],
+              },
+              {
+                kind: "toggle",
+                label: "Move nodes to follow the image",
+                key: "__fitGeo",
+                get: () => ui.fitGeo,
+                set: (v) => (ui.fitGeo = v),
+                commit: false,
+              },
+              ...(ui.refImage ? [{ kind: "image", get: () => ui.refImage.url }] : []),
+              {
+                kind: "note",
+                get: () =>
+                  ui.fitNote ||
+                  "Samples the image, corrects the net against what it actually renders, then moves the interior nodes where that measurably helps.",
+              },
+            ],
+          },
+          {
+            group: "AI",
+            controls: [
+              {
+                kind: "textarea",
+                label: "Describe the gradient",
+                key: "__prompt",
+                placeholder: "dusk over the sea, magenta into deep navy",
+                get: () => ui.prompt,
+                set: (v) => (ui.prompt = v),
+              },
+              {
+                kind: "buttons",
+                buttons: [
+                  {
+                    label: ui.busy ? "Generating…" : "Generate",
+                    id: "aiGenerate",
+                    disabled: !ui.aiAvailable || ui.busy,
+                    onClick: () => generateMesh(ui.prompt),
+                    commit: false,
+                  },
+                ],
+              },
+              {
+                kind: "note",
+                get: () =>
+                  ui.aiNote ||
+                  (ui.aiAvailable
+                    ? "Sends the prompt to the editor's model and takes the first mesh it returns."
+                    : "AI not configured — add GROQ_API_KEY to .env and restart the server."),
+              },
+            ],
+          },
+          { group: "Motion", controls: [R("drift", "Drift", 0, 0.4, 0.01)] },
+        ];
+      },
       colors: {
-        get: (p) => p.colors.slice(),
-        set: (p, list) => {
-          for (let i = 0; i < p.colors.length; i++) p.colors[i] = list[i % list.length];
-        },
+        get: (p) => p.points.map((pt) => rgbHex(pt.color)),
+        set: (p, list) => p.points.forEach((pt, i) => (pt.color = hex2rgb(list[i % list.length]))),
       },
       motion: { key: "phase", rate: 0.25, max: Math.PI * 2, wrap: true },
-      render: (w, h, p) => {
-        const cols = clamp(p.cols | 0, 2, 10),
-          rows = clamp(p.rows | 0, 2, 10);
-        const pts = [];
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            const i = r * cols + c;
-            const u = c / (cols - 1),
-              v = r / (rows - 1);
-            const edgeX = c === 0 || c === cols - 1,
-              edgeY = r === 0 || r === rows - 1;
-            const ang = rand01(p.seed, i, 1) * Math.PI * 2 + (+p.phase || 0);
-            const amp = p.jitter * (0.5 + 0.5 * rand01(p.seed, i, 2));
-            // edges slide along themselves, corners stay put: the surface
-            // must still cover the box.
-            const x = edgeX ? u : u + (Math.cos(ang) * amp) / (cols - 1);
-            const y = edgeY ? v : v + (Math.sin(ang) * amp) / (rows - 1);
-            pts.push({
-              x: clamp(x, 0, 1),
-              y: clamp(y, 0, 1),
-              color: hex2rgb(p.colors[i % p.colors.length]),
-              noise: +p.noise || 0,
-              noiseSize: +p.noiseSize || 0,
-              noiseContrast: 0,
-              noiseColour: 0,
-              blur: 0,
-              falloff: +p.falloff,
-              smooth: +p.smooth,
-              chromatic: +p.chromatic,
-              metallic: +p.metallic,
-              glow: +p.glow,
-            });
+      /* Drift circles each interior node round where it was placed; the
+       * stored net is never touched, so a paused frame is the exported one. */
+      render: (w, h, p, env) => {
+        const pts =
+          p.drift > 0 ? driftNet(p.points, p.cols, p.rows, +p.drift, +p.phase || 0) : p.points;
+        const short = Math.min(w, h);
+        return window.MeshGradient.render(w, h, {
+          cols: p.cols,
+          rows: p.rows,
+          points: pts,
+          inWidth: clamp(+p.edge || 0, 0, 1) * 0.5 * short,
+          outWidth: 0,
+          margin: 0,
+          softness: p.softness,
+          taper: p.taper,
+          scale: (env && env.scale) || 1,
+        });
+      },
+      /* Net curves and handles over the pattern rect `r` (backing px), drawn
+       * from the STORED net so what you grab is what you edit. */
+      overlay: (ctx, r, p, ui) => {
+        const ME = window.MeshGradient;
+        if (!ME || !p.points.length) return;
+        const pts = p.points;
+        const STEPS = Math.max(32, Math.min(1024, Math.round(Math.max(r.w, r.h) / 3)));
+        ctx.save();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(255,255,255,.7)";
+        const stroke = (arr) => {
+          ctx.beginPath();
+          for (let i = 0; i < arr.length; i += 2) {
+            const x = r.x + arr[i] * r.w,
+              y = r.y + arr[i + 1] * r.h;
+            if (i) ctx.lineTo(x, y);
+            else ctx.moveTo(x, y);
           }
+          ctx.stroke();
+        };
+        if (ME.sampleCurve) {
+          for (let rr = 0; rr < p.rows; rr++)
+            stroke(ME.sampleCurve(pts, p.cols, p.rows, "u", rr / (p.rows - 1), STEPS));
+          for (let c = 0; c < p.cols; c++)
+            stroke(ME.sampleCurve(pts, p.cols, p.rows, "v", c / (p.cols - 1), STEPS));
         }
-        return window.MeshGradient.render(w, h, { cols, rows, points: pts });
+        const R0 = Math.max(4, Math.min(9, r.w / 90));
+        pts.forEach((pt, i) => {
+          const x = r.x + pt.x * r.w,
+            y = r.y + pt.y * r.h;
+          const on = i === ui.meshSel;
+          ctx.beginPath();
+          ctx.arc(x, y, on ? R0 * 1.25 : R0, 0, Math.PI * 2);
+          ctx.fillStyle = rgbHex(pt.color);
+          ctx.fill();
+          ctx.lineWidth = on ? 2.5 : 1.6;
+          ctx.strokeStyle = on ? "#2563eb" : "rgba(255,255,255,.95)";
+          ctx.stroke();
+        });
+        ctx.restore();
+      },
+      /* Nearest handle within the tolerance ellipse (u,v units), or -1. */
+      hit: (u, v, p, tolU, tolV) => {
+        let best = -1,
+          bd = 1;
+        p.points.forEach((pt, i) => {
+          const dx = (pt.x - u) / tolU,
+            dy = (pt.y - v) / tolV;
+          const q = dx * dx + dy * dy;
+          if (q <= 1 && q < bd) {
+            bd = q;
+            best = i;
+          }
+        });
+        return best;
       },
     },
 
@@ -770,13 +1054,23 @@
       id: "chroma",
       label: "Chroma",
       engine: "mesh",
-      params: { cols: 4, rows: 4, jitter: 0.4, seed: 21, chromatic: 0.5, glow: 0.35, noise: 0.08 },
+      params: {
+        cols: 4,
+        rows: 4,
+        scatter: { jitter: 0.4, seed: 21 },
+        nodeFx: { chromatic: 0.5, glow: 0.35, noise: 0.08 },
+      },
     },
     {
       id: "foil",
       label: "Foil",
       engine: "mesh",
-      params: { cols: 5, rows: 3, jitter: 0.3, seed: 44, metallic: 0.7, smooth: 0.6 },
+      params: {
+        cols: 5,
+        rows: 3,
+        scatter: { jitter: 0.3, seed: 44 },
+        nodeFx: { metallic: 0.7, smooth: 0.6 },
+      },
     },
     { id: "reference", label: "Fan", engine: "flare", params: {} },
     {
@@ -1134,10 +1428,24 @@
     card: "poster",
     theme: null, // theme id or null (look's own colours)
     copy: DEFAULT_COPY(),
+    shape: "rect", // what the pattern rect is clipped to: rect | rounded | ellipse | pill
     showUI: true,
     allCards: false,
     playing: false,
     speed: 1,
+  };
+  const SHAPES = ["rect", "rounded", "ellipse", "pill"];
+  /* Tool state that is NOT part of the document — the selected handle, the
+   * loaded reference, the prompt, notes. Never snapshotted, never saved. */
+  const ui = {
+    meshSel: null,
+    fitGeo: true,
+    fitNote: "",
+    refImage: null,
+    prompt: "",
+    aiNote: "",
+    aiAvailable: false,
+    busy: false,
   };
   const history = { past: [], future: [], cap: 100 };
   const openGroups = new Set();
@@ -1153,14 +1461,22 @@
     look: state.look,
     params: clone(state.params),
     card: state.card,
+    shape: state.shape,
     theme: state.theme,
     copy: clone(state.copy),
   });
+  /* An engine may need to materialise params before they are usable (the
+   * mesh fills its net and consumes one-shot look keys). */
+  function prepared(params) {
+    if (E().prepare) E().prepare(params);
+    return params;
+  }
   function restore(s) {
     state.engine = ENGINES[s.engine] ? s.engine : "liquid";
     state.look = LOOKS.some((l) => l.id === s.look) ? s.look : null;
-    state.params = Object.assign(E().defaults(), clone(s.params || {}));
+    state.params = prepared(Object.assign(E().defaults(), clone(s.params || {})));
     state.card = cardById(s.card).id;
+    state.shape = SHAPES.includes(s.shape) ? s.shape : "rect";
     state.theme = themeById(s.theme) ? s.theme : null;
     state.copy = Object.assign(DEFAULT_COPY(), s.copy || {});
   }
@@ -1247,7 +1563,7 @@
   function applyLook(look, keepTheme) {
     state.engine = look.engine;
     state.look = look.id || null;
-    state.params = Object.assign(E().defaults(), clone(look.params));
+    state.params = prepared(Object.assign(E().defaults(), clone(look.params)));
     if (keepTheme && currentTheme()) applyThemeTo(state.params, currentTheme());
     else if (!keepTheme) state.theme = null;
     commit();
@@ -1272,10 +1588,148 @@
     // Back to the look that was applied, not the engine's first look.
     const look =
       LOOKS.find((l) => l.id === state.look) || LOOKS.find((l) => l.engine === state.engine);
-    state.params = Object.assign(E().defaults(), clone((look && look.params) || {}));
+    state.params = prepared(Object.assign(E().defaults(), clone((look && look.params) || {})));
     if (currentTheme()) applyThemeTo(state.params, currentTheme());
     commit();
     afterStateChange();
+  }
+
+  /* ---- Reference: fit the net to an image with the editor's own fitter ---- */
+  function pickReference() {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = "image/*";
+    inp.addEventListener("change", () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => matchImage(img, url);
+      img.onerror = () => {
+        ui.fitNote = "That file could not be decoded as an image.";
+        buildControls();
+      };
+      img.src = url;
+    });
+    inp.click();
+  }
+  /* Fit the current net (its cols x rows) to `img`; report the measured
+   * error. Returns a promise of that error, or null when it could not run. */
+  function matchImage(img, url) {
+    const ME = window.MeshGradient;
+    if (state.engine !== "mesh" || !ME || !ME.fitToImage || !img) return Promise.resolve(null);
+    ui.refImage = { img, url: url || img.src || "" };
+    ui.fitNote = "Fitting…";
+    buildControls();
+    // Deferred a frame so the note paints before the fit blocks (~0.5s: it
+    // renders the net a dozen times and reads it back each time).
+    return new Promise((res) => setTimeout(res, 16)).then(() => {
+      const p = state.params;
+      const pts = ME.fitToImage(img, p.cols, p.rows, { moveGeometry: !!ui.fitGeo });
+      if (!pts || pts.length !== p.cols * p.rows) {
+        ui.fitNote = "The fit could not run — WebGL2 is needed.";
+        buildControls();
+        return null;
+      }
+      p.points = pts.map(sanePoint);
+      const err = ME.fitError ? +ME.fitError(img, p.cols, p.rows, p.points) : NaN;
+      const verdict = !Number.isFinite(err)
+        ? ""
+        : err < 12
+          ? "close"
+          : err < 30
+            ? "approximate"
+            : "far off — try more columns and rows";
+      ui.fitNote = Number.isFinite(err)
+        ? `Matched — mean colour error ${err.toFixed(1)}/255 (${verdict}).`
+        : "Matched.";
+      state.theme = null;
+      state.look = null;
+      commit();
+      afterStateChange();
+      return Number.isFinite(err) ? err : null;
+    });
+  }
+
+  /* ---- AI: a prompt to the editor's model, first mesh out of the reply ---- */
+  async function generateMesh(text) {
+    const prompt = String(text || "").trim();
+    if (!prompt || ui.busy || state.engine !== "mesh") return null;
+    ui.busy = true;
+    ui.aiNote = "Generating…";
+    buildControls();
+    try {
+      const r = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // "mesh" in the prompt is what routes the request to the mesh
+        // capability and its larger reply budget on the server.
+        body: JSON.stringify({
+          prompt: prompt + " — one mesh gradient filling a single rectangle, nothing else",
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok)
+        throw Object.assign(new Error(data.error || "HTTP " + r.status), { code: data.code });
+      const mesh = firstMesh(data.doc);
+      if (!mesh) {
+        ui.aiNote = "The model returned no mesh — try again, naming the colours you want.";
+        return null;
+      }
+      const p = state.params;
+      p.cols = mesh.cols;
+      p.rows = mesh.rows;
+      p.points = mesh.points;
+      ui.meshSel = null;
+      ui.aiNote = `Generated by ${data.model || "the model"} — a ${mesh.cols}×${mesh.rows} net.`;
+      state.theme = null;
+      state.look = null;
+      commit();
+      afterStateChange();
+      return mesh;
+    } catch (e) {
+      ui.aiNote =
+        e && e.code === "NO_KEY"
+          ? "AI not configured — add GROQ_API_KEY to .env and restart the server."
+          : "Generation failed: " + (e && e.message ? e.message : e);
+      return null;
+    } finally {
+      ui.busy = false;
+      buildControls();
+    }
+  }
+  /* The first usable mesh in a generated document: cols x rows points with
+   * finite coordinates and an [r,g,b] colour, or an even default net when the
+   * model omitted the points. A mesh with the WRONG number of points is
+   * skipped rather than repaired. Walks groups. */
+  function firstMesh(doc) {
+    const found = [];
+    const walk = (list) =>
+      (Array.isArray(list) ? list : []).forEach((o) => {
+        if (!o || typeof o !== "object") return;
+        const m = o.effects && o.effects.mesh;
+        if (m && m.on !== false) found.push(m);
+        const fx = Array.isArray(o.fx)
+          ? o.fx.find((e) => e && e.type === "mesh" && e.params)
+          : null;
+        if (fx) found.push(fx.params);
+        if (o.children) walk(o.children);
+      });
+    walk(doc && doc.frame && doc.frame.children);
+    for (const m of found) {
+      const cols = clamp(m.cols | 0, 2, 10),
+        rows = clamp(m.rows | 0, 2, 10);
+      const raw = Array.isArray(m.points) ? m.points : [];
+      if (raw.length && raw.length !== cols * rows) continue;
+      const ME = window.MeshGradient;
+      const pts = raw.length
+        ? raw.map(sanePoint)
+        : ME && ME.defaultPoints
+          ? ME.defaultPoints(cols, rows)
+          : evenNet(cols, rows);
+      return { cols, rows, points: pts.map(sanePoint) };
+    }
+    return null;
   }
 
   /* ======================================================================
@@ -1285,11 +1739,16 @@
   const sctx = stage.getContext("2d");
   const PREVIEW_MAX = 1800; // long edge of the preview backing store, px
 
-  function renderPattern(w, h) {
+  function renderPattern(w, h, env) {
     const eng = E();
     if (!eng.available()) return null;
     try {
-      return eng.render(Math.max(2, Math.round(w)), Math.max(2, Math.round(h)), state.params);
+      return eng.render(
+        Math.max(2, Math.round(w)),
+        Math.max(2, Math.round(h)),
+        state.params,
+        env || { scale: 1 },
+      );
     } catch (err) {
       console.error("[studio] " + eng.id + " render failed:", err);
       unavailableNote =
@@ -1313,20 +1772,39 @@
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.fillStyle = S.bg;
     ctx.fillRect(0, 0, W, H);
-    const pr = {
-      x: card.pattern.x * W,
-      y: card.pattern.y * H,
-      w: card.pattern.w * W,
-      h: card.pattern.h * H,
-    };
-    const img = renderPattern(pr.w * scale, pr.h * scale);
+    const pr = patternRect(card);
+    ctx.save();
+    shapePath(ctx, pr, state.shape);
+    ctx.clip();
+    const img = renderPattern(pr.w * scale, pr.h * scale, { scale });
     if (img) ctx.drawImage(img, pr.x, pr.y, pr.w, pr.h);
     else {
       ctx.fillStyle = rgba(S.ink, 0.06);
       ctx.fillRect(pr.x, pr.y, pr.w, pr.h);
     }
+    ctx.restore();
     if ((opts && opts.ui) !== false && state.showUI) card.draw(ctx, W, H, S);
     ctx.restore();
+  }
+  /* The pattern's rectangle on a card, in native units. */
+  function patternRect(card) {
+    return {
+      x: card.pattern.x * card.w,
+      y: card.pattern.y * card.h,
+      w: card.pattern.w * card.w,
+      h: card.pattern.h * card.h,
+    };
+  }
+  /* The outline the pattern is clipped to — the studio's stand-in for the
+   * editor's shapes. Path only; the caller clips. */
+  function shapePath(ctx, r, shape) {
+    ctx.beginPath();
+    const s = Math.min(r.w, r.h);
+    if (shape === "ellipse")
+      ctx.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
+    else if (shape === "pill") ctx.roundRect(r.x, r.y, r.w, r.h, s / 2);
+    else if (shape === "rounded") ctx.roundRect(r.x, r.y, r.w, r.h, s * 0.08);
+    else ctx.rect(r.x, r.y, r.w, r.h);
   }
 
   function fitStage() {
@@ -1359,7 +1837,19 @@
   function drawStage() {
     const scale = fitStage();
     unavailableNote = "";
-    drawCard(sctx, cardById(state.card), scale);
+    const card = cardById(state.card);
+    drawCard(sctx, card, scale);
+    // Handles live on the stage only: drawCard never draws them, so no export does.
+    const eng = E();
+    if (eng.overlay && state.params.showNet !== false) {
+      const pr = patternRect(card);
+      eng.overlay(
+        sctx,
+        { x: pr.x * scale, y: pr.y * scale, w: pr.w * scale, h: pr.h * scale },
+        state.params,
+        ui,
+      );
+    }
     const note = $("#stageNote");
     if (!E().available())
       note.textContent = E().label + " needs WebGL2, which this browser did not provide.";
@@ -1395,7 +1885,7 @@
       const cv = $("canvas", tile);
       if (!look || !cv) return;
       state.engine = look.engine;
-      state.params = Object.assign(ENGINES[look.engine].defaults(), clone(look.params));
+      state.params = prepared(Object.assign(ENGINES[look.engine].defaults(), clone(look.params)));
       const w = cv.width,
         h = cv.height;
       const img = renderPattern(w, h);
@@ -1516,7 +2006,7 @@
     const sel = $("#engineSelect");
     if (sel.value !== eng.id) sel.value = eng.id;
 
-    const groups = eng.schema(state.params);
+    const groups = eng.schema(state.params, ui);
     groups.forEach((grp) => {
       const gid = eng.id + ":" + grp.group;
       const isOpen = openGroups.has(gid)
@@ -1558,7 +2048,7 @@
       const label =
         (
           eng
-            .schema(state.params)
+            .schema(state.params, ui)
             .flatMap((g) => g.controls)
             .find((c) => c.key === m.key) || {}
         ).label || m.key;
@@ -1572,7 +2062,9 @@
           max: 4,
           step: 0.05,
           kind: "range",
-          virtual: true,
+          get: () => state.speed,
+          set: (v) => (state.speed = v),
+          commit: false,
         }),
       );
       $("#playBtn", body).addEventListener("click", togglePlay);
@@ -1583,20 +2075,62 @@
     host.appendChild(det);
   }
 
+  /* A control binds to a dotted key in the params by default; `get`/`set`
+   * override that for tool state, and `apply` for keys whose write has a
+   * side effect (resizing the net). */
   function readValue(ctl) {
-    if (ctl.virtual) return ctl.key === "__speed" ? state.speed : 0;
+    if (ctl.get) return ctl.get();
     return getPath(state.params, ctl.key);
   }
   function writeValue(ctl, v) {
-    if (ctl.virtual) {
-      if (ctl.key === "__speed") state.speed = v;
+    if (ctl.set) {
+      ctl.set(v);
       return;
     }
     if (ctl.apply) ctl.apply(state.params, v);
     else setPath(state.params, ctl.key, v);
   }
+  const commitFor = (ctl) => {
+    if (ctl.commit !== false) commit();
+  };
 
   function controlRow(ctl) {
+    // Rows without an input of their own: notes, buttons, an image.
+    if (ctl.kind === "note") {
+      const div = document.createElement("div");
+      div.className = "hint rowNote";
+      div.textContent = ctl.get ? ctl.get() : ctl.text || "";
+      return div;
+    }
+    if (ctl.kind === "image") {
+      const img = document.createElement("img");
+      img.className = "refThumb";
+      img.alt = "Reference image";
+      img.src = ctl.get ? ctl.get() : ctl.src || "";
+      return img;
+    }
+    if (ctl.kind === "buttons") {
+      const div = document.createElement("div");
+      div.className = "rowBtns";
+      (ctl.buttons || []).forEach((b) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn";
+        btn.textContent = b.label;
+        if (b.id) btn.id = b.id;
+        btn.disabled = !!b.disabled;
+        btn.addEventListener("click", () => {
+          b.onClick(state.params);
+          dirty = true;
+          if (b.commit !== false) {
+            commit();
+            buildControls();
+          } else buildControls();
+        });
+        div.appendChild(btn);
+      });
+      return div;
+    }
     const row = document.createElement("label");
     row.className = "row";
     const name = document.createElement("span");
@@ -1604,7 +2138,15 @@
     name.textContent = ctl.label;
     row.appendChild(name);
     let input, out;
-    if (ctl.kind === "range") {
+    if (ctl.kind === "textarea") {
+      input = document.createElement("textarea");
+      input.rows = 3;
+      input.placeholder = ctl.placeholder || "";
+      input.value = readValue(ctl) || "";
+      input.addEventListener("input", () => writeValue(ctl, input.value));
+      row.appendChild(input);
+      row.classList.add("rowText");
+    } else if (ctl.kind === "range") {
       out = document.createElement("span");
       out.className = "val";
       out.textContent = fmt(readValue(ctl), ctl);
@@ -1620,7 +2162,7 @@
         dirty = true;
       });
       input.addEventListener("change", () => {
-        commit();
+        commitFor(ctl);
         if (ctl.rebuild) buildControls();
       });
       row.appendChild(out);
@@ -1639,7 +2181,7 @@
         dirty = true;
       });
       input.addEventListener("change", () => {
-        commit();
+        commitFor(ctl);
         syncLeft();
       });
       row.appendChild(out);
@@ -1657,7 +2199,7 @@
       input.addEventListener("change", () => {
         writeValue(ctl, ctl.numeric ? +input.value : input.value);
         dirty = true;
-        commit();
+        commitFor(ctl);
         if (ctl.rebuild) buildControls();
       });
       row.appendChild(input);
@@ -1669,14 +2211,78 @@
       input.addEventListener("change", () => {
         writeValue(ctl, input.checked);
         dirty = true;
-        commit();
+        commitFor(ctl);
       });
       row.appendChild(input);
       row.classList.add("rowToggle");
     }
-    controlEls.set(ctl.key, { input, out, ctl });
+    controlEls.set(ctl.key || ctl.label, { input, out, ctl });
     return row;
   }
+
+  /* ---- handles on the card -------------------------------------------
+   * Pointer position -> pattern-normalised (u,v) -> the engine's hit(). A
+   * drag moves the point live and commits ONE history step on release. */
+  let dragPt = null;
+  function stageUV(e) {
+    const card = cardById(state.card),
+      pr = patternRect(card);
+    const rect = stage.getBoundingClientRect();
+    const rw = rect.width || 1,
+      rh = rect.height || 1;
+    const nx = ((e.clientX - rect.left) / rw) * card.w,
+      ny = ((e.clientY - rect.top) / rh) * card.h;
+    const GRIP = 12; // css px
+    return {
+      u: (nx - pr.x) / pr.w,
+      v: (ny - pr.y) / pr.h,
+      tolU: (GRIP / rw) * (card.w / pr.w),
+      tolV: (GRIP / rh) * (card.h / pr.h),
+    };
+  }
+  const handlesLive = () => !!E().hit && state.params.showNet !== false && !state.allCards;
+  stage.addEventListener("pointerdown", (e) => {
+    if (!handlesLive() || (e.button !== undefined && e.button !== 0)) return;
+    const q = stageUV(e);
+    const i = E().hit(q.u, q.v, state.params, q.tolU, q.tolV);
+    if (i < 0) return;
+    e.preventDefault();
+    ui.meshSel = i;
+    const pt = state.params.points[i];
+    dragPt = { i, du: pt.x - q.u, dv: pt.y - q.v, moved: false };
+    if (stage.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        stage.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* not capturable: the drag still works while the pointer stays over the stage */
+      }
+    }
+    buildControls();
+    dirty = true;
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!dragPt) {
+      if (handlesLive()) {
+        const q = stageUV(e);
+        stage.style.cursor = E().hit(q.u, q.v, state.params, q.tolU, q.tolV) >= 0 ? "grab" : "";
+      }
+      return;
+    }
+    const q = stageUV(e);
+    const pt = state.params.points[dragPt.i];
+    if (!pt) return;
+    pt.x = clamp(q.u + dragPt.du, 0, 1);
+    pt.y = clamp(q.v + dragPt.dv, 0, 1);
+    dragPt.moved = true;
+    dirty = true;
+  });
+  const endDrag = () => {
+    if (!dragPt) return;
+    if (dragPt.moved) commit();
+    dragPt = null;
+  };
+  stage.addEventListener("pointerup", endDrag);
+  stage.addEventListener("pointercancel", endDrag);
   function syncControlValue(key) {
     const c = controlEls.get(key);
     if (!c || !c.input) return;
@@ -1826,6 +2432,12 @@
       syncBottom();
       dirty = true;
     });
+    const shp = $("#shapeSelect");
+    shp.addEventListener("change", () => {
+      state.shape = SHAPES.includes(shp.value) ? shp.value : "rect";
+      commit();
+      dirty = true;
+    });
     $("#allBtn").addEventListener("click", toggleAll);
     $("#uiToggle").addEventListener("click", () => {
       state.showUI = !state.showUI;
@@ -1859,6 +2471,7 @@
   }
   function syncBottom() {
     $("#cardSelect").value = state.card;
+    $("#shapeSelect").value = state.shape;
     $("#allBtn").classList.toggle("on", state.allCards);
     $("#allBtn").setAttribute("aria-pressed", String(state.allCards));
     const ui = $("#uiToggle");
@@ -1969,6 +2582,18 @@
     syncTopbar();
     dirty = true;
     dirtyThumbs = true;
+    // Is the model configured? Only the mesh's Generate button cares.
+    try {
+      fetch("/api/config")
+        .then((r) => r.json())
+        .then((cfg) => {
+          ui.aiAvailable = !!(cfg && cfg.aiAvailable);
+          if (state.engine === "mesh") buildControls();
+        })
+        .catch(() => {});
+    } catch (_) {
+      /* no fetch here: the button stays disabled with its note */
+    }
     // Fonts arrive after first paint; redraw once they are in so canvas text
     // is measured with Inter and not the fallback.
     if (document.fonts && document.fonts.load) {
@@ -2020,6 +2645,16 @@
     },
     step: (dt) => advance(dt),
     snapshot,
+    ui,
+    matchImage,
+    generateMesh,
+    firstMesh,
+    setShape: (s) => {
+      state.shape = SHAPES.includes(s) ? s : "rect";
+      commit();
+      syncBottom();
+      dirty = true;
+    },
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

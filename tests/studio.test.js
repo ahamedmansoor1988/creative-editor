@@ -152,7 +152,9 @@ describe("boot", () => {
       const eng = S.ENGINES[l.engine];
       expect(eng, l.id).toBeDefined();
       const d = eng.defaults();
-      Object.keys(l.params).forEach((k) => expect(k in d, `${l.id}.${k}`).toBe(true));
+      Object.keys(l.params).forEach((k) =>
+        expect(k in d || (eng.oneShot || []).includes(k), `${l.id}.${k}`).toBe(true),
+      );
     });
   });
 });
@@ -208,7 +210,7 @@ describe("themes map onto each engine's colour slots in order", () => {
   const ember = ["#ff5a2d", "#ff0a6c", "#ffb347", "#1636d4", "#fff4ec"];
   const cases = {
     liquid: ember, // 5 points -> 5 colours
-    mesh: ember.concat(ember[0]), // 6 slots cycle
+    mesh: ember.concat(ember.slice(0, 4)), // 9 nodes cycle
     flare: ember.slice(0, 2),
     light: ember.slice(0, 3),
     fractal: ember.slice(0, 4),
@@ -435,49 +437,6 @@ describe("cards", () => {
     const blob = await S.exportCard("hero", 2);
     expect(blob.type).toBe("image/png");
     expect(blob.size).toBe(3200 * 1800);
-  });
-});
-
-describe("mesh net derivation", () => {
-  it("passes cols×rows normalised points, corners pinned, edges on their edge", () => {
-    S.applyLook("chroma"); // 4x4, jitter .4
-    S.drawNow();
-    const P = calls.mesh[0][2];
-    expect(P.cols).toBe(4);
-    expect(P.rows).toBe(4);
-    expect(P.points).toHaveLength(16);
-    P.points.forEach((p) => {
-      expect(p.x).toBeGreaterThanOrEqual(0);
-      expect(p.x).toBeLessThanOrEqual(1);
-      expect(p.y).toBeGreaterThanOrEqual(0);
-      expect(p.y).toBeLessThanOrEqual(1);
-      expect(p.color).toHaveLength(3);
-    });
-    expect([P.points[0].x, P.points[0].y]).toEqual([0, 0]);
-    expect([P.points[15].x, P.points[15].y]).toEqual([1, 1]);
-    // top edge stays on y=0, left edge on x=0
-    for (let c = 0; c < 4; c++) expect(P.points[c].y).toBe(0);
-    for (let r = 0; r < 4; r++) expect(P.points[r * 4].x).toBe(0);
-  });
-
-  it("jitter 0 is a uniform grid regardless of seed", () => {
-    S.setParam("jitter", 0);
-    S.setParam("seed", 55);
-    S.drawNow();
-    const P = calls.mesh[0][2];
-    expect(P.points[5].x).toBeCloseTo(1 / 3, 9);
-    expect(P.points[5].y).toBeCloseTo(1 / 3, 9);
-  });
-
-  it("carries the surface channels onto every point", () => {
-    S.setParam("metallic", 0.7);
-    S.setParam("glow", 0.2);
-    S.drawNow();
-    const P = calls.mesh[0][2];
-    P.points.forEach((p) => {
-      expect(p.metallic).toBe(0.7);
-      expect(p.glow).toBe(0.2);
-    });
   });
 });
 

@@ -154,7 +154,17 @@ in order; a card is a native size, a pattern rectangle and one `draw()` shared
 by preview and export. Six engines are in: liquid gradient, mesh gradient,
 prism flare, light cone, fractal glass and gradient bands. The engine files
 are loaded untouched. State (undo, saved presets, autosave) is one snapshot
-shape. No server calls — the page is static.
+shape.
+
+The **mesh gradient** is the editor's own tool, in the editor's own document
+shape (`cols`, `rows`, row-major `points` with `[r,g,b]` colours and per-node
+channels), so a mesh travels between the two unchanged: handles you drag on
+the card, a colour and channels per selected node, the edge feather, **Match
+an image** (the editor's pixel fitter, with the measured error reported) and
+**AI** (a prompt to `/api/generate`; the first mesh in the reply becomes the
+net — needs `GROQ_API_KEY`, or `npm run dev:mock`). A **Shape** selector clips
+the pattern area to a rectangle, rounded rectangle, ellipse or pill. Only the
+AI button talks to the server; everything else is static.
 
 ## Patterns (linked instances)
 

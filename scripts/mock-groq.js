@@ -37,6 +37,36 @@ const PALETTES = [
   ["#20140b", "#f97316", "#facc15", "#fef3c7"],
 ];
 
+/* A mesh-filled rect, added when the prompt asks for a mesh: the Pattern Studio
+ * reads the first mesh out of a generated document, and this lets that path
+ * run end to end without a key. Points are an even 3x3 net in the palette. */
+function meshRect(pal) {
+  const cols = 3,
+    rows = 3,
+    points = [];
+  const hex = (h) => [
+    parseInt(h.slice(1, 3), 16),
+    parseInt(h.slice(3, 5), 16),
+    parseInt(h.slice(5, 7), 16),
+  ];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      points.push({
+        x: c / (cols - 1),
+        y: r / (rows - 1),
+        color: hex(pal[(r * cols + c) % pal.length]),
+      });
+  return {
+    type: "rect",
+    name: "Mesh",
+    x: 0,
+    y: 0,
+    w: 900,
+    h: 600,
+    effects: { mesh: { on: true, cols, rows, points } },
+  };
+}
+
 function design(prompt, isModify) {
   const h = hash(prompt || "default");
   const pal = PALETTES[h % PALETTES.length];
@@ -48,6 +78,7 @@ function design(prompt, isModify) {
       h: 600,
       bg: pal[0],
       children: [
+        ...(/mesh/i.test(prompt || "") ? [meshRect(pal)] : []),
         {
           type: "rect",
           name: "Backdrop",

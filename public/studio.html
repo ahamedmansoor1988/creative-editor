@@ -14,7 +14,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
     />
-    <link rel="stylesheet" href="studio.css?v=2" />
+    <link rel="stylesheet" href="studio.css?v=3" />
   </head>
   <body>
     <header id="top">
@@ -110,6 +110,15 @@
           <span>Card</span>
           <select id="cardSelect" aria-label="Which card is on screen"></select>
         </label>
+        <label class="bottomField">
+          <span>Shape</span>
+          <select id="shapeSelect" aria-label="Shape the pattern fills">
+            <option value="rect">Rectangle</option>
+            <option value="rounded">Rounded</option>
+            <option value="ellipse">Ellipse</option>
+            <option value="pill">Pill</option>
+          </select>
+        </label>
         <button
           type="button"
           id="allBtn"
@@ -168,6 +177,6 @@
     <script src="liquidgradient.js"></script>
     <script src="prismflare.js"></script>
     <script src="fractalglass.js"></script>
-    <script src="studio.js?v=2"></script>
+    <script src="studio.js?v=3"></script>
   </body>
 </html>
