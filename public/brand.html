@@ -1,0 +1,1701 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Studio UI</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' font-size='24' text-anchor='middle'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <link rel="stylesheet" href="rails.css?v=1" />
+    <style>
+      /* The book's own layout. Everything it SHOWS comes from rails.css; these
+   rules only arrange the specimens. */
+      html {
+        background: var(--ground);
+      }
+      body.bk {
+        margin: 0;
+        background: var(--ground);
+        min-height: 100vh;
+      }
+      .bk-top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .bk-top .ui-by b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .bk-wrap {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        gap: 24px;
+        padding: 16px;
+        align-items: start;
+      }
+      .bk-nav {
+        position: sticky;
+        top: calc(var(--topbar-h) + 16px);
+        padding: 6px 0 12px;
+        max-height: calc(100vh - var(--topbar-h) - 32px);
+        overflow: auto;
+      }
+      .bk-nav .ui-item.is-selected {
+        background: var(--field);
+      }
+      .bk-main {
+        max-width: 920px;
+        min-width: 0;
+      }
+      .bk-cover {
+        padding: 28px 0 8px;
+        max-width: 640px;
+      }
+      .bk-cover .ui-display {
+        font-size: 34px;
+        margin: 0 0 12px;
+        text-wrap: balance;
+      }
+      .bk-lede {
+        font-size: 14px;
+        line-height: 22px;
+        color: var(--ink);
+        margin: 0 0 18px;
+        max-width: 58ch;
+      }
+      .bk-facts {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 16px;
+        font-size: var(--t-control);
+      }
+      .bk-facts dt {
+        color: var(--muted);
+      }
+      .bk-facts dd {
+        margin: 0;
+      }
+      section.bk-sec {
+        padding: 28px 0 8px;
+        border-top: 1px solid var(--hairline);
+        margin-top: 20px;
+        scroll-margin-top: calc(var(--topbar-h) + 16px);
+      }
+      section.bk-sec > h2 {
+        margin: 0 0 4px;
+      }
+      section.bk-sec > p.bk-intro {
+        margin: 0 0 18px;
+        max-width: 62ch;
+        color: var(--muted);
+      }
+      .bk-grid {
+        display: grid;
+        gap: 12px;
+      }
+      .bk-grid--3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .bk-grid--2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .bk-grid--4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      @media (max-width: 900px) {
+        .bk-wrap {
+          grid-template-columns: 1fr;
+        }
+        .bk-nav {
+          position: static;
+          max-height: none;
+        }
+        .bk-grid--3,
+        .bk-grid--4 {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      .bk-spec {
+        background: var(--panel-solid);
+        border: 1px solid var(--hairline);
+        border-radius: var(--r-card);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+      }
+      .bk-spec > .bk-demo {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .bk-spec > .bk-demo--col {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .bk-spec > .bk-demo--ground {
+        background: var(--ground);
+        border-radius: 10px;
+        padding: 18px;
+      }
+      .bk-meta {
+        font-size: var(--t-label);
+        color: var(--muted);
+        line-height: 1.5;
+        margin-top: auto;
+      }
+      .bk-meta b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .bk-meta code {
+        font:
+          11px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: var(--ink);
+      }
+      /* colour */
+      .bk-sw {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .bk-sw i {
+        display: block;
+        height: 64px;
+        border-radius: 10px;
+        border: 1px solid var(--hairline);
+      }
+      .bk-sw b {
+        font-weight: 600;
+        font-size: var(--t-control);
+      }
+      /* type */
+      .bk-type {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 190px;
+        gap: 16px;
+        align-items: baseline;
+        padding: 12px 0;
+        border-top: 1px solid var(--hairline);
+      }
+      .bk-type:first-of-type {
+        border-top: 0;
+      }
+      .bk-type .bk-sample {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      /* shape */
+      .bk-radii {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+      }
+      .bk-radius {
+        text-align: center;
+      }
+      .bk-radius i {
+        display: block;
+        width: 76px;
+        height: 56px;
+        background: var(--field);
+        border: 1px solid var(--border);
+        margin-bottom: 6px;
+      }
+      .bk-shadow {
+        width: 150px;
+        height: 92px;
+        background: var(--panel-solid);
+        border: 1px solid var(--hairline);
+        display: grid;
+        place-items: center;
+        font-size: var(--t-label);
+        color: var(--muted);
+      }
+      /* spacing */
+      .bk-ruler {
+        display: grid;
+        grid-template-columns: 60px 1fr;
+        gap: 6px 12px;
+        align-items: center;
+        font-size: var(--t-label);
+        color: var(--muted);
+      }
+      .bk-ruler i {
+        display: block;
+        height: 10px;
+        background: var(--ink);
+        border-radius: 2px;
+      }
+      /* icons */
+      .bk-icons {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+        gap: 6px;
+      }
+      .bk-icon {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 4px;
+        border-radius: 8px;
+        border: 1px solid var(--hairline);
+        font-size: 9.5px;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+      }
+      .bk-icon .ic {
+        color: var(--ink);
+      }
+      /* frame diagram — drawn at half scale, labelled in real pixels */
+      .bk-frame {
+        position: relative;
+        width: 720px;
+        max-width: 100%;
+        aspect-ratio: 16 / 10;
+        background: var(--ground);
+        border-radius: 8px;
+        overflow: hidden;
+        font-size: 9.5px;
+        color: var(--muted);
+      }
+      .bk-frame > div {
+        position: absolute;
+      }
+      .bk-frame .f-top {
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 27px;
+        background: var(--panel-solid);
+        border-bottom: 1px solid var(--hairline);
+      }
+      .bk-frame .f-left {
+        left: 8px;
+        top: 33px;
+        bottom: 8px;
+        width: 142px;
+        background: var(--panel-solid);
+        border: 1px solid var(--hairline);
+        border-radius: 8px;
+        box-shadow: var(--sh-card);
+      }
+      .bk-frame .f-rail {
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 22px;
+        border-right: 1px solid var(--hairline);
+      }
+      .bk-frame .f-right {
+        right: 8px;
+        top: 33px;
+        bottom: 8px;
+        width: 156px;
+        background: var(--panel-solid);
+        border: 1px solid var(--hairline);
+        border-radius: 8px;
+        box-shadow: var(--sh-card);
+      }
+      .bk-frame .f-stage {
+        left: 166px;
+        right: 180px;
+        top: 60px;
+        bottom: 60px;
+        display: grid;
+        place-items: center;
+      }
+      .bk-frame .f-board {
+        width: 60%;
+        aspect-ratio: 3 / 2;
+        background: #111;
+        border-radius: 7px;
+        box-shadow: var(--sh-board);
+      }
+      .bk-frame .f-bar {
+        left: 50%;
+        bottom: 8px;
+        transform: translateX(-50%);
+        width: 300px;
+        height: 23px;
+        background: var(--panel-solid);
+        border: 1px solid var(--hairline);
+        border-radius: 6px;
+        box-shadow: var(--sh-card);
+      }
+      .bk-frame .f-dim {
+        color: var(--ink);
+        font-weight: 600;
+        background: var(--panel-solid);
+        padding: 1px 5px;
+        border-radius: 4px;
+        border: 1px solid var(--hairline);
+        white-space: nowrap;
+      }
+      .bk-frame .f-note {
+        position: absolute;
+      }
+      .bk-dims {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px 16px;
+        font-size: var(--t-control);
+        margin-top: 12px;
+      }
+      .bk-dims dt {
+        color: var(--muted);
+        font-size: var(--t-label);
+      }
+      .bk-dims dd {
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      /* inspector mock */
+      .bk-inspector {
+        width: 312px;
+        padding: 0 0 14px;
+      }
+      .bk-inspector .ui-sec-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .bk-inspector .rp {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 14px 0;
+      }
+      .bk-two {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      .bk-callouts {
+        font-size: var(--t-control);
+        line-height: 1.6;
+        max-width: 40ch;
+      }
+      .bk-callouts li {
+        margin-bottom: 6px;
+      }
+      .bk-callouts b {
+        font-weight: 600;
+      }
+      /* popover positioning for the demos */
+      .bk-pop-host {
+        position: relative;
+        display: inline-block;
+      }
+      .bk-pop-host .ui-popover {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 5;
+      }
+      .bk-copy {
+        columns: 2;
+        column-gap: 24px;
+        font-size: var(--t-control);
+        line-height: 1.6;
+      }
+      .bk-copy p {
+        break-inside: avoid;
+        margin: 0 0 10px;
+      }
+      .bk-copy b {
+        font-weight: 600;
+      }
+      kbd.bk-k {
+        font:
+          10px/1 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 2px 5px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--field);
+      }
+    </style>
+  </head>
+  <body class="ui bk">
+    <header class="ui-topbar bk-top">
+      <span class="ui-brand">✦ Studio UI</span>
+      <span class="ui-by">brand book · <b>v1</b> · measured 9 Sep 2026</span>
+      <span class="ui-sp"></span>
+      <a class="ui-btn ui-btn--ghost" href="index.html">Open the editor</a>
+      <a class="ui-btn ui-btn--ghost" href="studio.html">Open the studio</a>
+      <a class="ui-btn ui-btn--outline" href="rails.css">rails.css</a>
+    </header>
+
+    <div class="bk-wrap">
+      <nav class="ui-panel bk-nav" aria-label="Contents">
+        <h4 class="ui-sec">Contents</h4>
+        <a class="ui-item" href="#principles">Principles</a>
+        <a class="ui-item" href="#colour">Colour</a>
+        <a class="ui-item" href="#type">Type</a>
+        <a class="ui-item" href="#shape">Shape and depth</a>
+        <a class="ui-item" href="#spacing">Spacing</a>
+        <a class="ui-item" href="#icons">Icons</a>
+        <a class="ui-item" href="#components">Components</a>
+        <a class="ui-item" href="#layouts">Layouts</a>
+        <a class="ui-item" href="#inspector">Mesh inspector</a>
+        <a class="ui-item" href="#motion">Motion and voice</a>
+      </nav>
+
+      <main class="bk-main">
+        <div class="bk-cover">
+          <h1 class="ui-display">Quiet chrome. The artwork is the colour.</h1>
+          <p class="bk-lede">
+            One system for the Creative Editor's shell and the Pattern Studio: white cards on a cool
+            grey ground, a single black ink, one family of type at seven sizes, and every control
+            the same 30 px tall. The studio it is measured from does one thing well — it gets out of
+            the way of the pattern — and that is the whole brief for the editor's chrome too.
+          </p>
+          <dl class="bk-facts">
+            <dt>Source</dt>
+            <dd>
+              Computed styles of the Light Rails pattern studio, read on 9 Sep 2026 — values, not
+              code.
+            </dd>
+            <dt>Applies to</dt>
+            <dd>
+              <code>index.html</code> (the editor, via <code>body.rails</code>) and
+              <code>studio.html</code>.
+            </dd>
+            <dt>Stylesheet</dt>
+            <dd>
+              <code>public/rails.css</code> — tokens, <code>ui-</code> components, and the adapter
+              for the editor's existing class names.
+            </dd>
+            <dt>Theme</dt>
+            <dd>Light only in v1. A dark theme is tracked, not improvised.</dd>
+          </dl>
+        </div>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="principles">
+          <h2 class="ui-title">Principles</h2>
+          <p class="bk-intro">Five rules. If a screen breaks one, the screen is wrong.</p>
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec">
+              <b>The pattern owns colour.</b
+              ><span class="bk-meta"
+                >Chrome is grey, white and black. The only saturated colour in the interface is the
+                canvas selection blue, and it never leaves the canvas.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <b>One control height.</b
+              ><span class="bk-meta"
+                >Buttons, fields, steppers, chips and switches are all 30 px tall (22 for the
+                switch). Rows line up because nothing is taller than the next thing.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <b>Radius by role.</b
+              ><span class="bk-meta"
+                >7 for fields, 9 for icon buttons, 11 for calls to action, 12 for cards and menus,
+                14 for the board, 16 for panels. A radius says what kind of object you are looking
+                at.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <b>A number is a chip.</b
+              ><span class="bk-meta"
+                >Values sit in a black chip beside their label. Sliders open on demand; counts are
+                steppers. The panel shows what a thing <i>is</i>, not a row of tracks.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <b>Say what it costs.</b
+              ><span class="bk-meta"
+                >"9 handles." "Mean error 4.6/255, close." Copy names the consequence of a control,
+                in sentence case, without exclamation marks.</span
+              >
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="colour">
+          <h2 class="ui-title">Colour</h2>
+          <p class="bk-intro">
+            The neutrals lean cool — the ground is <code>#F2F2F4</code>, not <code>#F2F2F2</code> —
+            so the artwork's warm colours read warmer against it. Every alpha is a fraction of the
+            ink, which keeps hairlines and borders the same hue as the text they sit beside.
+          </p>
+          <div class="bk-grid bk-grid--4">
+            <div class="bk-spec bk-sw">
+              <i style="background: #f2f2f4"></i><b>Ground</b
+              ><span class="bk-meta"><code>#F2F2F4</code> · the page behind everything</span>
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: rgba(255, 255, 255, 0.98)"></i><b>Panel</b
+              ><span class="bk-meta"><code>rgba(255,255,255,.98)</code> · panels, bars, menus</span>
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #f4f4f6"></i><b>Field</b
+              ><span class="bk-meta"
+                ><code>#F4F4F6</code> · inputs, secondary buttons, selected rows, blocks inside a
+                panel</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #ececef"></i><b>Hover</b
+              ><span class="bk-meta"
+                ><code>#ECECEF</code> · hover on field surfaces; pressed <code>#E4E4E8</code></span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #111318"></i><b>Ink</b
+              ><span class="bk-meta"
+                ><code>#111318</code> · text, the CTA, chips, the active tool, the switch when
+                on</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #5c6270"></i><b>Muted</b
+              ><span class="bk-meta"
+                ><code>#5C6270</code> · labels, hints, section heads, idle icons — 5.4:1 on the
+                panel</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: rgba(17, 19, 24, 0.08)"></i><b>Hairline</b
+              ><span class="bk-meta"
+                ><code>rgba(17,19,24,.08)</code> · panel and card edges, dividers</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: rgba(17, 19, 24, 0.16)"></i><b>Border</b
+              ><span class="bk-meta"
+                ><code>rgba(17,19,24,.16)</code> · fields, secondary buttons, the history group;
+                <code>.28</code> for the switch track</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #2563eb"></i><b>Selection</b
+              ><span class="bk-meta"
+                ><code>#2563EB</code> · canvas selection rings and handles only. Never in the
+                chrome.</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #b42318"></i><b>Danger</b
+              ><span class="bk-meta"
+                ><code>#B42318</code> on <code>#FFF1F0</code> · destructive actions, failed
+                states</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: #1f7a4d"></i><b>OK</b
+              ><span class="bk-meta"
+                ><code>#1F7A4D</code> · a measured result that passed ("close fit"). Text only,
+                never a fill.</span
+              >
+            </div>
+            <div class="bk-spec bk-sw">
+              <i style="background: rgba(17, 19, 24, 0.35)"></i><b>Focus</b
+              ><span class="bk-meta"
+                ><code>rgba(17,19,24,.35)</code> · 2 px ring, 2 px offset, keyboard focus only</span
+              >
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="type">
+          <h2 class="ui-title">Type</h2>
+          <p class="bk-intro">
+            One family: the system UI face — SF Pro Text on Apple machines, Inter (loaded) elsewhere
+            —
+            <code>ui-sans-serif, -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif</code
+            >. Seven roles, all between 9 and 22 px. Digits are tabular everywhere, so a value chip
+            does not jitter while a slider moves.
+          </p>
+          <div class="bk-spec">
+            <div class="bk-type">
+              <div class="bk-sample ui-display">Draw with light, then brand with it.</div>
+              <div class="bk-meta">
+                <b>Display</b> · 22 / 500 · −0.026em<br />brand marks, the cover of a document.
+                Nowhere in a panel.
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample ui-title">✦ Mesh gradient</div>
+              <div class="bk-meta">
+                <b>Title</b> · 13 / 700 · −0.005em<br />panel titles, the top-bar brand, modal
+                titles
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample" style="font-size: 12px; line-height: 18px">
+                Samples the image, corrects the net against what it actually renders, then moves the
+                interior nodes where that measurably helps.
+              </div>
+              <div class="bk-meta">
+                <b>Body</b> · 12 / 400 · 18 line<br />layer names, page names, list rows, prose
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample" style="font-size: 11.5px">
+                Match an image… &nbsp; Reel, play all &nbsp; Save
+              </div>
+              <div class="bk-meta">
+                <b>Control</b> · 11.5 / 400<br />buttons, inputs, selects, menu items
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample ui-label">
+                Edge blur &nbsp; Softness &nbsp; Taper &nbsp; Move nodes to follow the image
+              </div>
+              <div class="bk-meta">
+                <b>Label</b> · 11 / 400 · muted<br />control labels, hints, notes, the byline
+              </div>
+            </div>
+            <div class="bk-type">
+              <div
+                class="bk-sample"
+                style="
+                  font-size: 9.5px;
+                  font-weight: 700;
+                  letter-spacing: 1.425px;
+                  text-transform: uppercase;
+                  color: var(--muted);
+                "
+              >
+                Reference &nbsp; Net &nbsp; Edge &nbsp; Selected point
+              </div>
+              <div class="bk-meta">
+                <b>Section</b> · 9.5 / 700 · +1.425px · uppercase<br />section heads, menu group
+                labels
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample ui-tilelabel">
+                comb-fan &nbsp; waist-arch &nbsp; horizon &nbsp; soft net
+              </div>
+              <div class="bk-meta">
+                <b>Tile</b> · 9 / 400 · +0.18px<br />template tile captions only
+              </div>
+            </div>
+            <div class="bk-type">
+              <div class="bk-sample">
+                <span class="ui-chip">0.500</span> <span class="ui-chip">3.4</span>
+                <span class="ui-chip">100%</span>
+              </div>
+              <div class="bk-meta">
+                <b>Value</b> · 11 / 500 · tabular · white on ink<br />the number beside a control
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="shape">
+          <h2 class="ui-title">Shape and depth</h2>
+          <p class="bk-intro">
+            Radius grows with the size of the object. Depth is spent three ways: panels float over
+            the ground, cards float inside the working area, the board floats over the stage.
+            Nothing else has a shadow.
+          </p>
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec">
+              <div class="bk-radii">
+                <div class="bk-radius">
+                  <i style="border-radius: 7px"></i><span class="bk-meta"><b>7</b> field</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 9px"></i
+                  ><span class="bk-meta"><b>9</b> icon button</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 11px"></i><span class="bk-meta"><b>11</b> CTA</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 12px"></i
+                  ><span class="bk-meta"><b>12</b> card, menu</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 14px"></i
+                  ><span class="bk-meta"><b>14</b> board, popover</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 16px"></i><span class="bk-meta"><b>16</b> panel</span>
+                </div>
+                <div class="bk-radius">
+                  <i style="border-radius: 999px; width: 56px"></i
+                  ><span class="bk-meta"><b>pill</b> switch, tags</span>
+                </div>
+              </div>
+              <span class="bk-meta"
+                >Borders: <b>hairline</b> <code>1px rgba(17,19,24,.08)</code> on anything that
+                floats; <b>border</b> <code>.16</code> on anything you type into or press. A
+                selected tile draws a second 1 px ring in ink rather than changing colour.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--ground">
+                <div class="bk-shadow" style="border-radius: 16px; box-shadow: var(--sh-panel)">
+                  panel
+                </div>
+                <div class="bk-shadow" style="border-radius: 12px; box-shadow: var(--sh-card)">
+                  card
+                </div>
+                <div
+                  class="bk-shadow"
+                  style="
+                    border-radius: 14px;
+                    box-shadow: var(--sh-board);
+                    background: #111;
+                    color: #bbb;
+                    border: 0;
+                  "
+                >
+                  board
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>panel</b> <code>0 10px 44px rgba(10,12,20,.2), 0 2px 8px rgba(10,12,20,.1)</code
+                ><br /><b>card</b> <code>0 4px 18px rgba(10,12,20,.1)</code><br /><b>board</b>
+                <code>0 8px 32px rgba(10,12,20,.16)</code><br /><b>popover</b>
+                <code>0 12px 36px .18, 0 2px 6px .08</code></span
+              >
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="spacing">
+          <h2 class="ui-title">Spacing</h2>
+          <p class="bk-intro">
+            No 8-point grid; the measured values are what they are, and they repeat. Bars are drawn
+            at twice scale.
+          </p>
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec">
+              <div class="bk-ruler">
+                <span>2 px</span><i style="width: 4px"></i> <span>3 px</span
+                ><i style="width: 6px"></i> <span>5 px</span><i style="width: 10px"></i>
+                <span>6 px</span><i style="width: 12px"></i> <span>9 px</span
+                ><i style="width: 18px"></i> <span>10 px</span><i style="width: 20px"></i>
+                <span>12 px</span><i style="width: 24px"></i> <span>14 px</span
+                ><i style="width: 28px"></i> <span>16 px</span><i style="width: 32px"></i>
+                <span>18 px</span><i style="width: 36px"></i>
+              </div>
+              <span class="bk-meta"
+                ><b>2</b> gap inside the history group · <b>3</b> its padding · <b>5</b> row
+                vertical padding · <b>6</b> gap between paired controls · <b>9</b> bottom-bar gap,
+                field padding-x · <b>10</b> top-bar gap, row gap-x · <b>12</b> card padding-x ·
+                <b>14</b> panel content inset · <b>16</b> frame inset · <b>18</b> section head
+                top</span
+              >
+            </div>
+            <div class="bk-spec">
+              <dl class="bk-dims" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+                <dt>Section head</dt>
+                <dd>18 / 14 / 10</dd>
+                <dt>Row</dt>
+                <dd>5 / 14</dd>
+                <dt>Control height</dt>
+                <dd>30</dd>
+                <dt>Switch</dt>
+                <dd>40 × 22</dd>
+                <dt>Icon button</dt>
+                <dd>30 × 30</dd>
+                <dt>Tool button</dt>
+                <dd>30 × 30 in a 44 rail</dd>
+                <dt>Panel bottom padding</dt>
+                <dd>40 left · 48 right</dd>
+                <dt>Top bar</dt>
+                <dd>54 · padding 0 16</dd>
+              </dl>
+              <span class="bk-meta"
+                >Panels scroll their own contents; the extra bottom padding is so the last control
+                never sits on the panel's edge.</span
+              >
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="icons">
+          <h2 class="ui-title">Icons</h2>
+          <p class="bk-intro">
+            Lucide, vendored in <code>icons.js</code>. 16 px in rows and menus, 18 px in the tool
+            rail, 1.75 stroke, round caps, <code>currentColor</code>. Idle icons are muted; the
+            active tool is white on ink; nothing is ever blue.
+          </p>
+          <div class="bk-spec">
+            <div class="bk-demo">
+              <button class="ui-tool" title="Select">
+                <i data-icon="select" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool is-active" title="Pen">
+                <i data-icon="pen" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool" title="Pencil">
+                <i data-icon="pencil" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool" title="Rectangle">
+                <i data-icon="rect" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool" title="Text">
+                <i data-icon="text" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool" title="Crop">
+                <i data-icon="crop" data-icon-size="18"></i>
+              </button>
+              <button class="ui-tool" title="Zoom">
+                <i data-icon="zoom" data-icon-size="18"></i>
+              </button>
+              <span class="bk-meta" style="margin: 0 0 0 8px"
+                >tool rail · 18 px · active = ink</span
+              >
+            </div>
+            <div class="bk-icons" id="iconGrid"></div>
+            <span class="bk-meta"
+              >Every icon the editor ships, by its <code>data-icon</code> name. New icons come from
+              Lucide at the same stroke; an icon drawn by hand is the tell of a different
+              system.</span
+            >
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="components">
+          <h2 class="ui-title">Components</h2>
+          <p class="bk-intro">Rendered live from <code>rails.css</code>. Press them.</p>
+
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec">
+              <div class="bk-demo">
+                <button class="ui-btn ui-btn--cta">✦ Roadmap</button>
+                <button class="ui-btn ui-btn--outline">Export</button>
+                <button class="ui-btn ui-btn--ghost">Share</button>
+                <button class="ui-btn">Save</button>
+                <button class="ui-btn" disabled>Generate</button>
+                <button class="ui-btn ui-btn--danger">Delete page</button>
+              </div>
+              <span class="bk-meta"
+                ><b>Buttons.</b> One CTA per screen, black, uppercase, radius 11
+                (<code>12/18</code>). <b>Outline</b> for the second most important action
+                (<code>11/17</code>). <b>Ghost</b> for top-bar links (<code>9/14</code>, hairline).
+                <b>Secondary</b> is the field: <code>6/9</code>, radius 7, 11.5 px. Disabled is 45%
+                opacity, never grey text on grey.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo">
+                <span class="ui-hist"
+                  ><button class="ui-ibtn" title="Undo"><i data-icon="undo"></i></button
+                  ><button class="ui-ibtn" title="Redo" disabled><i data-icon="redo"></i></button
+                  ><button class="ui-ibtn" title="Reset"><i data-icon="reset"></i></button
+                ></span>
+                <button class="ui-ibtn ui-ibtn--bordered" title="More">
+                  <i data-icon="moreHorizontal"></i>
+                </button>
+                <button class="ui-sbc"><i data-icon="grid"></i> All cards</button>
+                <button class="ui-sbc is-on"><i data-icon="grid"></i> All cards</button>
+                <button
+                  class="ui-switch"
+                  role="switch"
+                  aria-checked="true"
+                  aria-label="Show net"
+                ></button>
+                <button
+                  class="ui-switch"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="Move nodes"
+                ></button>
+              </div>
+              <span class="bk-meta"
+                ><b>Icon buttons</b> are 30 × 30, radius 9, inside a history group (panel, border
+                .16, radius 12, padding 3, gap 2); disabled = 28% opacity. <b>Bar buttons</b> are 30
+                tall, radius 9, and go solid ink when on. The <b>switch</b> is 40 × 22 and its
+                on-state is ink — there is no green.</span
+              >
+            </div>
+
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col">
+                <input
+                  class="ui-input"
+                  type="text"
+                  placeholder="Name this look"
+                  aria-label="Name"
+                />
+                <select class="ui-select" aria-label="Motion">
+                  <option>Trails, run in, sweep, run out, loop</option>
+                  <option>Solid, colours loop</option>
+                </select>
+                <div style="display: flex; gap: 6px; align-items: center">
+                  <input
+                    class="ui-input ui-num"
+                    type="number"
+                    value="520"
+                    aria-label="Width"
+                  /><input
+                    class="ui-input ui-num"
+                    type="number"
+                    value="380"
+                    aria-label="Height"
+                  /><input class="ui-color" type="color" value="#111318" aria-label="Colour" /><span
+                    class="ui-label"
+                    >W · H · colour</span
+                  >
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Fields.</b> Field colour, border .16, radius 7, <code>6/9</code> padding, 11.5
+                px. Focus turns the field white behind a 2 px ring. Selects hide the native arrow
+                and draw a muted chevron. Numbers are right-aligned and tabular.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col">
+                <div class="ui-steppers">
+                  <div>
+                    <span class="ui-label">Columns</span>
+                    <div class="ui-stepper" data-min="2" data-max="10">
+                      <button type="button" aria-label="Fewer columns">−</button><output>3</output
+                      ><button type="button" aria-label="More columns">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="ui-label">Rows</span>
+                    <div class="ui-stepper" data-min="2" data-max="10">
+                      <button type="button" aria-label="Fewer rows">−</button><output>3</output
+                      ><button type="button" aria-label="More rows">+</button>
+                    </div>
+                  </div>
+                </div>
+                <span class="ui-hint" id="stepNote"
+                  >9 handles. Resizing resamples the surface, so nothing is thrown away.</span
+                >
+              </div>
+              <span class="bk-meta"
+                ><b>Stepper.</b> A count is not a slider: <code>−</code> / value / <code>+</code> in
+                one 30 px field, side by side when two counts belong together. The bound is visible
+                — a button goes to 35% at its limit — and the note below says what the count
+                costs.</span
+              >
+            </div>
+
+            <div class="bk-spec">
+              <div class="bk-demo">
+                <div class="ui-pchips">
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Edge blur"
+                      data-value="0"
+                      data-unit="%"
+                    >
+                      Edge blur <span class="ui-chip">0%</span>
+                    </button></span
+                  >
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Softness"
+                      data-value="100"
+                      data-unit="%"
+                    >
+                      Softness <span class="ui-chip">100%</span>
+                    </button></span
+                  >
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Taper"
+                      data-value="50"
+                      data-unit="%"
+                    >
+                      Taper <span class="ui-chip">50%</span>
+                    </button></span
+                  >
+                </div>
+              </div>
+              <div class="bk-demo bk-demo--col" style="max-width: 260px">
+                <div class="ui-row ui-row--stack" style="padding: 0">
+                  <span class="ui-label" style="display: flex; justify-content: space-between"
+                    >Softness <span class="ui-chip">3.4</span></span
+                  ><input
+                    class="ui-range"
+                    type="range"
+                    min="1.2"
+                    max="6"
+                    step="0.1"
+                    value="3.4"
+                    aria-label="Softness"
+                  />
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Popover chip.</b> A label with its value in a chip. Click, and a 220 px popover
+                (radius 14, popover shadow) opens below it with the slider; drag, release, click
+                away. The panel keeps its height whether the value is 0 or 100. <b>Range</b>, when
+                it is shown inline: a 3 px border-coloured track and a 14 px ink thumb with a white
+                ring.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col" style="gap: 0">
+                <h4 class="ui-sec" style="padding-left: 0; padding-top: 4px">Edge</h4>
+                <div class="ui-sec-body" style="padding-left: 0">
+                  <div class="ui-row" style="padding-left: 0; padding-right: 0">
+                    <span class="ui-label">Direction</span
+                    ><select class="ui-select" style="width: 120px" aria-label="Direction">
+                      <option>Inside</option>
+                      <option>Both</option>
+                      <option>Outside</option>
+                    </select>
+                  </div>
+                  <div class="ui-row" style="padding-left: 0; padding-right: 0">
+                    <span class="ui-label">Show net on the card</span
+                    ><button
+                      class="ui-switch"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Show net"
+                    ></button>
+                  </div>
+                </div>
+                <h4 class="ui-sec is-shut" style="padding-left: 0">Selected point</h4>
+                <div class="ui-sec-body" style="padding-left: 0" hidden>
+                  <span class="ui-hint">Click a handle on the canvas to pick a point.</span>
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Section head</b> 9.5/700 uppercase +1.425px, muted, <code>18/14/10</code>, with
+                a 5 px chevron drawn from two borders; it turns to point right when shut.
+                <b>Row</b>: label left in muted 11 px, control right, <code>5/14</code>. A row is
+                one line; when the control needs the width, the label stacks above it.</span
+              >
+            </div>
+
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col" style="gap: 2px">
+                <div class="ui-item">
+                  <span class="ui-glyph"><i data-icon="frame"></i></span>Artboard 1<span
+                    class="ui-count"
+                    >2</span
+                  >
+                </div>
+                <div class="ui-item is-selected">
+                  <span class="ui-glyph"><i data-icon="rect"></i></span>Mesh rect
+                </div>
+                <div class="ui-item">
+                  <span class="ui-glyph"><i data-icon="text"></i></span>Headline
+                </div>
+                <div class="ui-item" style="opacity: 0.45">
+                  <span class="ui-glyph"><i data-icon="eyeOff"></i></span>Hidden layer
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Lists</b> (pages, layers): 12 px rows, <code>7/10</code>, radius 7, 8 px in from
+                the panel edge. Hover and selected are both the field colour — selected adds weight
+                600, not a colour. Hidden layers drop to 45%.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col">
+                <div class="ui-tiles" style="max-width: 250px">
+                  <button class="ui-tile is-selected">
+                    <span class="ui-tile-art"><i data-icon="sparkles"></i></span>soft net
+                  </button>
+                  <button class="ui-tile">
+                    <span class="ui-tile-art"><i data-icon="layers"></i></span>chroma
+                  </button>
+                  <button class="ui-tile">
+                    <span class="ui-tile-art"><i data-icon="sliders"></i></span>foil
+                  </button>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center">
+                  <span class="ui-swatches"
+                    ><i style="background: #ff5a2d"></i><i style="background: #ff0a6c"></i
+                    ><i style="background: #ffb347"></i><i style="background: #1636d4"></i
+                    ><i style="background: #fff4ec"></i></span
+                  ><span class="ui-label">Ember</span>
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Tiles</b> hold a rendered thumbnail, never an illustration of one; caption 9 px.
+                Selected = 1 px ink ring inside the hairline. <b>Swatches</b> are 16 px squares at
+                radius 4 with a 2 px gap.</span
+              >
+            </div>
+
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--ground" style="align-items: flex-start">
+                <div class="ui-menu">
+                  <div class="ui-menu-label">This card</div>
+                  <button>PNG · 1×</button><button>PNG · 2×</button><button>PNG · 3×</button>
+                  <div class="ui-menu-label">Every card</div>
+                  <button>All cards · PNG 1× <span>9 files</span></button>
+                </div>
+                <div class="ui-toast">Exported Poster at 2×</div>
+              </div>
+              <span class="bk-meta"
+                ><b>Menu</b>: panel, hairline, radius 12, padding 6, items 11.5 px at radius 8 with
+                the field colour on hover; group labels use the section style. <b>Toast</b>: radius
+                14, <code>13/14</code>, bottom-centre of the working area, 2.2 s.</span
+              >
+            </div>
+            <div class="bk-spec">
+              <div class="bk-demo bk-demo--col">
+                <div class="ui-block">
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      margin-bottom: 8px;
+                    "
+                  >
+                    <span class="ui-title">Reference</span
+                    ><span class="ui-label">no image yet</span>
+                  </div>
+                  <button class="ui-btn ui-btn--cta ui-btn--block" style="margin-bottom: 8px">
+                    <i data-icon="image"></i> Match an image…
+                  </button>
+                  <div class="ui-row" style="padding: 2px 0">
+                    <span class="ui-label">Move nodes to follow the image</span
+                    ><button
+                      class="ui-switch"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Move nodes"
+                    ></button>
+                  </div>
+                  <span class="ui-hint"
+                    >Samples the image, corrects the net against what it renders, then moves the
+                    interior nodes where that measurably helps.</span
+                  >
+                </div>
+              </div>
+              <span class="bk-meta"
+                ><b>Block.</b> A region inside a panel — field colour, hairline, radius 12, padding
+                12, no shadow. The reference block is the one place the CTA appears inside the
+                inspector.</span
+              >
+            </div>
+          </div>
+
+          <div class="bk-spec" style="margin-top: 12px">
+            <div
+              class="ui-topbar"
+              style="border: 1px solid var(--hairline); border-radius: var(--r-card)"
+            >
+              <span class="ui-brand">✦ Creative Editor</span><span class="ui-by">mesh studio</span>
+              <span style="display: flex; gap: 2px; margin-left: 8px"
+                ><button
+                  class="ui-btn ui-btn--ghost"
+                  style="border-color: transparent; padding: 6px 10px"
+                >
+                  File</button
+                ><button
+                  class="ui-btn ui-btn--ghost"
+                  style="border-color: transparent; padding: 6px 10px"
+                >
+                  Edit</button
+                ><button
+                  class="ui-btn ui-btn--ghost"
+                  style="border-color: transparent; padding: 6px 10px"
+                >
+                  View
+                </button></span
+              >
+              <span class="ui-sp"></span>
+              <span class="ui-hist"
+                ><button class="ui-ibtn" title="Undo"><i data-icon="undo"></i></button
+                ><button class="ui-ibtn" title="Redo" disabled><i data-icon="redo"></i></button
+              ></span>
+              <span class="ui-sp"></span>
+              <button class="ui-btn ui-btn--ghost">Help</button>
+              <button class="ui-btn ui-btn--outline">Export</button>
+              <button class="ui-btn ui-btn--cta">✦ Generate</button>
+            </div>
+            <span class="bk-meta"
+              ><b>Top bar assembly.</b> 54 px, full width, panel colour with a hairline below. Brand
+              and byline left, menus as borderless ghosts beside them, the history group centred,
+              links and the one CTA right. Nothing in it is taller than 42 px.</span
+            >
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="layouts">
+          <h2 class="ui-title">Layouts</h2>
+          <p class="bk-intro">
+            One frame for both products. Drawn at half scale; the labels are real pixels.
+          </p>
+          <div class="bk-spec">
+            <div class="bk-frame" aria-label="Editor frame at half scale">
+              <div class="f-top">
+                <span class="f-note f-dim" style="left: 8px; top: 6px">54 top bar</span>
+              </div>
+              <div class="f-left">
+                <div class="f-rail"></div>
+                <span class="f-note f-dim" style="left: 28px; top: 6px">44 + 240</span>
+              </div>
+              <div class="f-right">
+                <span class="f-note f-dim" style="left: 6px; top: 6px">312</span>
+              </div>
+              <div class="f-stage"><div class="f-board"></div></div>
+              <span class="f-note f-dim" style="left: 157px; top: 36px">16</span>
+              <span class="f-note f-dim" style="right: 170px; top: 36px">16</span>
+              <span class="f-note f-dim" style="left: 340px; top: 140px">board · r14</span>
+              <div class="f-bar">
+                <span class="f-note f-dim" style="left: 6px; top: 3px">prompt bar · 46</span>
+              </div>
+            </div>
+            <dl class="bk-dims">
+              <dt>Top bar</dt>
+              <dd>54 · padding 0 16</dd>
+              <dt>Panels</dt>
+              <dd>top 66 · inset 16</dd>
+              <dt>Left</dt>
+              <dd>44 rail + 240</dd>
+              <dt>Right</dt>
+              <dd>312</dd>
+              <dt>Working area</dt>
+              <dd>between the panels, ground colour</dd>
+              <dt>Board / card</dt>
+              <dd>radius 14, board shadow</dd>
+              <dt>Bottom bar</dt>
+              <dd>centred, 16 from the bottom, card</dd>
+              <dt>Min width</dt>
+              <dd>1000 — below it the left panel collapses to its rail</dd>
+            </dl>
+            <span class="bk-meta"
+              ><b>Editor:</b> the left panel is the tool rail, Pages and Layers; the right panel is
+              the inspector; the working area is the artboards; the bottom bar is the prompt.
+              <b>Studio:</b> the same frame with Looks on the left, controls on the right, one card
+              in the working area and the card/shape/UI bar at the bottom.</span
+            >
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="inspector">
+          <h2 class="ui-title">Mesh inspector</h2>
+          <p class="bk-intro">
+            The right panel with every effect gated off except the mesh. Reference is the main block
+            and comes first; the net is two steppers; the edge is three chips; the point is what you
+            clicked.
+          </p>
+          <div class="bk-two">
+            <div class="ui-panel bk-inspector">
+              <div class="rp">
+                <span class="ui-title">✦ Mesh gradient</span
+                ><span class="ui-hist" style="padding: 2px"
+                  ><button class="ui-ibtn" style="width: 26px; height: 26px" title="Hide panel">
+                    <i data-icon="x"></i></button
+                ></span>
+              </div>
+              <div class="ui-sec-body" style="padding-top: 12px">
+                <div class="ui-block">
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      margin-bottom: 8px;
+                    "
+                  >
+                    <span class="ui-title">Reference</span
+                    ><span class="ui-label">no image yet</span>
+                  </div>
+                  <button class="ui-btn ui-btn--cta ui-btn--block" style="margin-bottom: 8px">
+                    <i data-icon="image"></i> Match an image…
+                  </button>
+                  <div class="ui-row" style="padding: 2px 0">
+                    <span class="ui-label">Move nodes to follow the image</span
+                    ><button
+                      class="ui-switch"
+                      role="switch"
+                      aria-checked="true"
+                      aria-label="Move nodes"
+                    ></button>
+                  </div>
+                  <span class="ui-hint"
+                    >Samples the image, corrects the net against what it renders, then moves the
+                    interior nodes where that measurably helps.</span
+                  >
+                </div>
+              </div>
+              <h4 class="ui-sec">Net</h4>
+              <div class="ui-sec-body">
+                <div class="ui-steppers">
+                  <div>
+                    <span class="ui-label">Columns</span>
+                    <div class="ui-stepper" data-min="2" data-max="10">
+                      <button type="button" aria-label="Fewer columns">−</button><output>3</output
+                      ><button type="button" aria-label="More columns">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="ui-label">Rows</span>
+                    <div class="ui-stepper" data-min="2" data-max="10">
+                      <button type="button" aria-label="Fewer rows">−</button><output>3</output
+                      ><button type="button" aria-label="More rows">+</button>
+                    </div>
+                  </div>
+                </div>
+                <span class="ui-hint"
+                  >9 handles. Resizing resamples the surface, so nothing is thrown away.</span
+                >
+                <div class="ui-row" style="padding: 2px 0">
+                  <span class="ui-label">Show net while selected</span
+                  ><button
+                    class="ui-switch"
+                    role="switch"
+                    aria-checked="true"
+                    aria-label="Show net"
+                  ></button>
+                </div>
+              </div>
+              <h4 class="ui-sec">Edge</h4>
+              <div class="ui-sec-body">
+                <div class="ui-pchips">
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Edge blur"
+                      data-value="0"
+                      data-unit="%"
+                    >
+                      Edge blur <span class="ui-chip">0%</span>
+                    </button></span
+                  >
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Softness"
+                      data-value="100"
+                      data-unit="%"
+                    >
+                      Softness <span class="ui-chip">100%</span>
+                    </button></span
+                  >
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Taper"
+                      data-value="50"
+                      data-unit="%"
+                    >
+                      Taper <span class="ui-chip">50%</span>
+                    </button></span
+                  >
+                </div>
+                <div class="ui-row" style="padding: 2px 0">
+                  <span class="ui-label">Direction</span
+                  ><select class="ui-select" style="width: 110px" aria-label="Direction">
+                    <option>Inside</option>
+                    <option>Both</option>
+                    <option>Outside</option>
+                  </select>
+                </div>
+              </div>
+              <h4 class="ui-sec">Selected point</h4>
+              <div class="ui-sec-body">
+                <span class="ui-hint">Point 5 of 9 — drag it on the canvas.</span>
+                <div class="ui-row" style="padding: 2px 0">
+                  <span class="ui-label">Colour</span
+                  ><span style="display: flex; gap: 6px; align-items: center"
+                    ><span
+                      class="ui-chip"
+                      style="
+                        background: var(--field);
+                        color: var(--ink);
+                        border: 1px solid var(--border);
+                      "
+                      >#FF2FB0</span
+                    ><input class="ui-color" type="color" value="#ff2fb0" aria-label="Point colour"
+                  /></span>
+                </div>
+                <div class="ui-pchips">
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Metallic"
+                      data-value="0"
+                      data-unit="%"
+                    >
+                      Metallic <span class="ui-chip">0%</span>
+                    </button></span
+                  >
+                  <span class="bk-pop-host"
+                    ><button
+                      class="ui-pchip"
+                      type="button"
+                      aria-expanded="false"
+                      data-label="Glow"
+                      data-value="0"
+                      data-unit="%"
+                    >
+                      Glow <span class="ui-chip">0%</span>
+                    </button></span
+                  >
+                </div>
+              </div>
+              <div
+                class="ui-sec-body"
+                style="padding-top: 10px; display: flex; gap: 6px; flex-direction: row"
+              >
+                <button class="ui-btn" style="flex: 1">Reset net</button
+                ><button class="ui-btn" style="flex: 1">Analyse…</button>
+              </div>
+            </div>
+            <ul class="bk-callouts">
+              <li>
+                <b>Reference first.</b> Matching an image is the reason to open this panel, so it is
+                the first thing in it and the only CTA. Once an image is loaded the block shows its
+                thumbnail, the measured error, and <i>Match again · Replace · Clear</i>.
+              </li>
+              <li>
+                <b>Net as steppers.</b> Columns and rows side by side, bounded 2–10; the hint under
+                them says how many handles that is.
+              </li>
+              <li>
+                <b>Edge as chips.</b> Blur, softness and taper are three chips on one line; each
+                opens its slider in a popover, so the panel is one line tall whatever the values
+                are.
+              </li>
+              <li>
+                <b>Selected point.</b> Appears with the handle you click. Colour as a swatch and
+                hex; the per-node channels as chips.
+              </li>
+              <li>
+                <b>Everything else is gated.</b> Shadow, glow, blur and the rest stay in the code
+                but are not offered; the Effects menu lists the mesh alone.
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <section class="bk-sec" id="motion">
+          <h2 class="ui-title">Motion and voice</h2>
+          <div class="bk-copy">
+            <p>
+              <b>Motion.</b> One duration: 120 ms, ease. Hover fills, switch knobs and section
+              chevrons use it; nothing bounces, nothing fades in on scroll. Panels do not animate
+              open. <code>prefers-reduced-motion</code> collapses every transition to nothing.
+            </p>
+            <p>
+              <b>Live values.</b> A slider redraws on every <code>input</code> and commits one
+              history step on <code>change</code>; a drag on the canvas is the same. The value chip
+              updates with the pointer; the artwork never lags the chip.
+            </p>
+            <p>
+              <b>Sentence case.</b> Labels, buttons and menus are sentence case ("Match an image…",
+              "Show net while selected"); only section heads and the CTA are uppercase, and the
+              stylesheet does that, not the copy.
+            </p>
+            <p>
+              <b>Say the cost, then the promise.</b> "9 handles. Resizing resamples the surface, so
+              nothing is thrown away." Numbers first, consequence second, no adjectives.
+            </p>
+            <p>
+              <b>Report measurements, not confidence.</b> "Matched — mean colour error 4.6/255
+              (close)." A fit that missed says so: "far off — try more columns and rows."
+            </p>
+            <p>
+              <b>Errors name the fix.</b> "AI not configured — add GROQ_API_KEY to .env and restart
+              the server." Never "Something went wrong."
+            </p>
+            <p>
+              <b>Shortcuts</b> are shown in menus as <kbd class="bk-k">⌘Z</kbd>, right-aligned,
+              muted, and nowhere else.
+            </p>
+            <p>
+              <b>Ellipsis</b> means a dialog or picker follows ("Match an image…"); its absence
+              means the action happens now ("Reset net").
+            </p>
+          </div>
+        </section>
+
+        <p class="ui-hint" style="margin: 32px 0 8px">
+          Studio UI v1 · rails.css · measured 9 Sep 2026. Change the stylesheet and this page
+          changes with it.
+        </p>
+      </main>
+    </div>
+
+    <script src="icons.js"></script>
+    <script>
+      (function () {
+        "use strict";
+        const $ = (s, r) => (r || document).querySelector(s),
+          $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+        if (window.Icons) {
+          window.Icons.hydrate(document);
+          const grid = $("#iconGrid");
+          if (grid)
+            window.Icons.names()
+              .sort()
+              .forEach((n) => {
+                const d = document.createElement("div");
+                d.className = "bk-icon";
+                d.innerHTML = window.Icons.svg(n) + "<span>" + n + "</span>";
+                grid.appendChild(d);
+              });
+        }
+        // switches
+        $$(".ui-switch").forEach((sw) =>
+          sw.addEventListener("click", () =>
+            sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true")),
+          ),
+        );
+        // steppers, with the handle-count note where one is paired
+        $$(".ui-steppers").forEach((pair) => {
+          const steps = $$(".ui-stepper", pair),
+            note = pair.parentElement.querySelector(".ui-hint");
+          const sync = () => {
+            steps.forEach((st) => {
+              const v = +$("output", st).value || +$("output", st).textContent;
+              const [a, b] = $$("button", st);
+              a.disabled = v <= +st.dataset.min;
+              b.disabled = v >= +st.dataset.max;
+            });
+            if (note && steps.length === 2) {
+              const n = +$("output", steps[0]).textContent * +$("output", steps[1]).textContent;
+              note.textContent =
+                n + " handles. Resizing resamples the surface, so nothing is thrown away.";
+            }
+          };
+          steps.forEach((st) => {
+            const [a, out, b] = [st.children[0], st.children[1], st.children[2]];
+            a.addEventListener("click", () => {
+              out.textContent = Math.max(+st.dataset.min, +out.textContent - 1);
+              sync();
+            });
+            b.addEventListener("click", () => {
+              out.textContent = Math.min(+st.dataset.max, +out.textContent + 1);
+              sync();
+            });
+          });
+          sync();
+        });
+        // popover chips
+        let open = null;
+        const close = () => {
+          if (!open) return;
+          open.pop.remove();
+          open.btn.setAttribute("aria-expanded", "false");
+          open = null;
+        };
+        $$(".ui-pchip").forEach((btn) =>
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (open && open.btn === btn) {
+              close();
+              return;
+            }
+            close();
+            const host = btn.parentElement,
+              chip = $(".ui-chip", btn),
+              unit = btn.dataset.unit || "";
+            const pop = document.createElement("div");
+            pop.className = "ui-popover ui-popover--slider";
+            pop.innerHTML =
+              '<span class="ui-label">' +
+              btn.dataset.label +
+              ' <span class="ui-chip">' +
+              btn.dataset.value +
+              unit +
+              '</span></span><input class="ui-range" type="range" min="0" max="100" step="1" value="' +
+              btn.dataset.value +
+              '" aria-label="' +
+              btn.dataset.label +
+              '">';
+            pop.addEventListener("click", (ev) => ev.stopPropagation());
+            const r = $("input", pop),
+              pc = $(".ui-chip", pop);
+            r.addEventListener("input", () => {
+              btn.dataset.value = r.value;
+              chip.textContent = r.value + unit;
+              pc.textContent = r.value + unit;
+            });
+            host.appendChild(pop);
+            btn.setAttribute("aria-expanded", "true");
+            open = { btn, pop };
+            r.focus();
+          }),
+        );
+        document.addEventListener("click", close);
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") close();
+        });
+        // section heads
+        $$(".ui-sec").forEach((h) => {
+          const body = h.nextElementSibling;
+          if (!body || !body.classList.contains("ui-sec-body")) return;
+          h.addEventListener("click", () => {
+            const shut = h.classList.toggle("is-shut");
+            body.hidden = shut;
+          });
+        });
+        // contents highlight
+        const links = $$(".bk-nav .ui-item"),
+          secs = links.map((a) => $(a.getAttribute("href"))).filter(Boolean);
+        if ("IntersectionObserver" in window) {
+          const io = new IntersectionObserver(
+            (es) => {
+              es.forEach((en) => {
+                if (en.isIntersecting) {
+                  links.forEach((a) =>
+                    a.classList.toggle(
+                      "is-selected",
+                      a.getAttribute("href") === "#" + en.target.id,
+                    ),
+                  );
+                }
+              });
+            },
+            { rootMargin: "-20% 0px -70% 0px" },
+          );
+          secs.forEach((s) => io.observe(s));
+        }
+      })();
+    </script>
+  </body>
+</html>

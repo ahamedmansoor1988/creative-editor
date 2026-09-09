@@ -166,6 +166,12 @@ net — needs `GROQ_API_KEY`, or `npm run dev:mock`). A **Shape** selector clips
 the pattern area to a rectangle, rounded rectangle, ellipse or pill. Only the
 AI button talks to the server; everything else is static.
 
+**Brand book.** `brand.html` is the living style guide for the new shell —
+colour, type, shape, spacing, icons, every component rendered live, the frame
+layout and the mesh-inspector spec — and `rails.css` is the stylesheet it
+documents: tokens, `ui-` components, and an adapter that maps the editor's
+existing class names onto the same tokens (`body.rails`).
+
 ## Patterns (linked instances)
 
 Applying a **pattern** to a shape turns it into a **parent**: complete duplicate
