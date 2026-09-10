@@ -77,6 +77,7 @@
   --gap-pair: 8px;
   --gap-row: 12px; /* label to control */
   --gap-btns: 8px; /* buttons on a row */
+  --ruler: 22px; /* the canvas rulers, drawn at its top and left edges */
   --ease: 120ms ease;
 }
 
@@ -1655,7 +1656,7 @@ body.rails #topbar .ui-btn {
   white-space: nowrap;
 }
 body.rails #topbar {
-  overflow: hidden;
+  flex-wrap: nowrap; /* never clip: the menus drop out of this bar */
 }
 @media (max-width: 1100px) {
   body.rails #topbar .ui-by,
@@ -2199,4 +2200,16 @@ body.rails #alignRow {
 body.rails label.uiRow > .headBtns > button.on {
   color: var(--ink);
   border-color: var(--ink);
+}
+
+/* ---- ui-designer pass 9: nothing floats over the rulers ------------------
+ * The canvas draws its rulers at its own top and left edges; the floating
+ * panels cleared the top bar but not the rulers. With rulers on (body.rulers,
+ * kept in sync by app.js) the panels start 8px past them. */
+body.rails.rulers #leftPanel,
+body.rails.rulers #rightPanel {
+  top: calc(var(--topbar-h) + var(--ruler) + 8px);
+}
+body.rails.rulers #leftPanel {
+  left: calc(var(--ruler) + 8px);
 }

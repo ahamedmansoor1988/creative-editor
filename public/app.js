@@ -47,6 +47,9 @@ let enteredId=null;
 let snapCfg={on:true, radius:7,
   edges:true, centers:true, anchors:true, guides:true, grid:true, artboard:true};
 let showRulers=true;
+/* The floating panels keep clear of the rulers through this class (rails.css). */
+function syncRulersClass(){ if(document.body) document.body.classList.toggle('rulers',showRulers); }
+syncRulersClass();
 let alignTo='selection';   // 'selection' | 'artboard' | 'key'  (§2.8)
 /* Which mesh handle is selected. View state: it says what the user is
  * pointing at, not what the document contains. */
@@ -11362,7 +11365,7 @@ const CMDS={
     const n=parseFloat(v); if(Number.isFinite(n)) setHistoryLimit(n);
   },
   clearHistory(){ if(HIST){ HIST.reset(); syncHistoryPanel(); } },
-  toggleRulers(){ showRulers=!showRulers; paint(); },
+  toggleRulers(){ showRulers=!showRulers; syncRulersClass(); paint(); },
   toggleGrid(){ if(doc){ doc.frame.grid.show=!doc.frame.grid.show; pushHistory(); render(); } },
   toggleSnap(){ snapCfg.on=!snapCfg.on; paint(); },
   toggleGuides(){ if(doc){ guidesHidden=!guidesHidden; paint(); } },
@@ -12018,7 +12021,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get snapLines(){return snapLines;},
   get gapHints(){return gapHints;},
   set alignTo(v){alignTo=v;}, get alignTo(){return alignTo;},
-  set showRulers(v){showRulers=v; paint();}, get showRulers(){return showRulers;},
+  set showRulers(v){showRulers=v; syncRulersClass(); paint();}, get showRulers(){return showRulers;},
   get enteredId(){return enteredId;},
   setSelIds, selObjs, allObjects, findById, activeList, primary,
   groupSel, ungroupSel, distributeSel, enterContainer, exitContainer,
