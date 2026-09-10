@@ -295,9 +295,9 @@
       </label>
       <div class="hint">Creates an editable Background layer — refine it any time with the Fill engine.</div>
     </div>
-    <div class="row2" style="margin-top:14px">
-      <button class="btn" id="npCancel">Cancel</button>
-      <button class="btn primary" id="npCreate">Create page</button>
+    <div class="rowBtns" style="margin-top:14px">
+      <button class="ui-btn ui-btn--ghost" id="npCancel">Cancel</button>
+      <button class="ui-btn ui-btn--cta" id="npCreate">Create page</button>
     </div>
   </div>
 </div>
@@ -413,9 +413,13 @@
   <div id="artboardPanel" style="display:none">
     <hr>
     <div class="pSect" data-absect="Artboard">Artboard</div>
-    <label class="iconField" title="Artboard name"><i data-icon="text"></i><input type="text" id="abName" maxlength="60" placeholder="Name" aria-label="Artboard name"></label>
-    <div class="fieldRow" style="margin-top:6px">
-      <label class="iconField" title="Size preset"><i data-icon="frame"></i><select id="abPreset" aria-label="Size preset">
+    <!-- The book's rows, the same markup the mesh page uses: a word on the
+         left, one control at its own width on the right. Text takes the row,
+         numbers are 64px, selects size to their content, booleans are switch
+         rows. Icon labels and the icon-field grid are gone: they were the one
+         panel that spoke a different language. -->
+    <label class="slider"><input type="text" id="abName" maxlength="60" placeholder="Name" aria-label="Artboard name"></label>
+    <label class="slider uiRow"><span>Size</span><span class="headBtns"><select id="abPreset" aria-label="Size preset">
         <option value="">Custom size…</option>
         <optgroup label="Desktop">
           <option value="1440x1024">Desktop — 1440×1024</option>
@@ -438,25 +442,10 @@
         <optgroup label="Print">
           <option value="2480x3508">A4 @300dpi — 2480×3508</option>
         </optgroup>
-      </select></label>
-      <button id="abSwap" data-icon="shuffle" aria-label="Swap width and height" title="Swap width and height"></button>
-    </div>
-    <div class="grid4" style="margin-top:6px">
-      <label class="iconField" title="Corner radius" style="grid-column:span 2"><i data-icon="squircle"></i>
-        <input type="number" id="abRadius" min="0" step="1" aria-label="Artboard corner radius">
-      </label>
-    </div>
-    <!-- An artboard paints like a frame, so it gets the frame properties, and
-         they are grouped the way a shape's are: Fill, then Stroke, then the
-         behaviour switches. Fill offers the same solid/linear/radial the object
-         paint model does. -->
-    <!-- Fill and stroke share one section and one row each. As two sections
-         they cost two headers, and the stroke's width and colour were `span 2`
-         in a two-column grid, so each took a full row of its own — three rows
-         and a header spent on what fits in two lines. -->
+      </select><button id="abSwap" data-icon="shuffle" aria-label="Swap width and height" title="Swap width and height"></button></span></label>
+    <label class="slider uiRow"><span>Corner radius</span><input type="number" id="abRadius" min="0" step="1" aria-label="Artboard corner radius"></label>
     <div class="pSect" data-absect="Paint">Fill &amp; stroke</div>
-    <div class="fieldRow" style="margin-top:6px">
-      <label class="iconField" title="Fill type"><i data-icon="palette"></i><select id="abFillKind" aria-label="Artboard fill type">
+    <label class="slider uiRow"><span>Fill</span><select id="abFillKind" aria-label="Artboard fill type">
         <option value="solid">Solid</option>
         <option value="linear">Linear gradient</option>
         <option value="radial">Radial gradient</option>
@@ -464,9 +453,8 @@
         <option value="diamond">Diamond gradient</option>
         <option value="image">Image fill</option>
       </select></label>
-      <input type="color" id="abBg" aria-label="Artboard fill color" title="Artboard fill colour">
-    </div>
-    <div id="abGradRow" style="margin-top:8px; display:none">
+    <label class="slider uiRow"><span>Colour</span><input type="color" id="abBg" aria-label="Artboard fill color" title="Artboard fill colour"></label>
+    <div id="abGradRow" style="display:none">
       <label class="slider">Blend space<select id="abGradSpace">
         <option value="srgb">sRGB (classic)</option>
         <option value="linear">Linear light</option>
@@ -482,46 +470,28 @@
       </div>
     </div>
     <div id="abImageFillRow" style="display:none"></div>
-    <div class="row2" style="margin-top:6px">
-      <label class="slider">Opacity <span id="abFillOpacityValue">100%</span>
-        <input type="range" id="abFillOpacity" min="0" max="100" value="100">
-      </label>
-      <label class="slider">Blend<select id="abFillBlend">
+    <label class="slider">Opacity <span id="abFillOpacityValue">100%</span>
+      <input type="range" id="abFillOpacity" min="0" max="100" value="100">
+    </label>
+    <label class="slider uiRow"><span>Blend</span><select id="abFillBlend">
         <option value="normal">Normal</option><option value="multiply">Multiply</option>
         <option value="screen">Screen</option><option value="overlay">Overlay</option>
         <option value="darken">Darken</option><option value="lighten">Lighten</option>
       </select></label>
-    </div>
-    <div class="fieldRow">
-      <label class="iconField" title="Stroke width"><i data-icon="pen"></i>
-        <input type="number" id="abStrokeW" min="0" step="1" aria-label="Artboard stroke width">
-      </label>
-      <input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour">
-    </div>
-    <div class="fieldRow">
-      <label class="iconField" title="Stroke alignment"><i data-icon="sliders"></i><select id="abStrokeAlign" aria-label="Artboard stroke alignment">
+    <label class="slider uiRow"><span>Stroke</span><input type="number" id="abStrokeW" min="0" step="1" aria-label="Artboard stroke width"></label>
+    <label class="slider uiRow"><span>Stroke colour</span><input type="color" id="abStrokeColor" aria-label="Artboard stroke color" title="Stroke colour"></label>
+    <label class="slider uiRow"><span>Stroke align</span><select id="abStrokeAlign" aria-label="Artboard stroke alignment">
         <option value="center">Centre</option>
         <option value="inside">Inside</option>
         <option value="outside">Outside</option>
       </select></label>
-    </div>
-    <!-- Clip content earns a LABELLED row of its own. As one unlabelled crop
-         glyph among three it was undiscoverable — the property most likely to
-         explain "why is my artwork hanging off the edge" was the one control
-         nobody could find. Lock and visibility stay as icons: the layer list
-         already teaches those two glyphs. -->
     <div class="pSect" data-absect="Options">Options</div>
-    <label class="checkRow" title="Hide anything that extends past this artboard's edges">
-      <input type="checkbox" id="abClip">
-      <span>Clip content</span>
-    </label>
-    <div id="abToggles" class="iconToggleRow">
-      <button type="button" id="abLocked" data-icon="unlock" aria-pressed="false" aria-label="Lock artboard" title="Lock artboard"></button>
-      <button type="button" id="abShow" data-icon="eye" aria-pressed="true" aria-label="Artboard visibility" title="Artboard visibility"></button>
-    </div>
-    <div class="grid4 abActions" data-nofold style="margin-top:8px">
-      <button id="abDuplicate" class="iconBtn" style="grid-column:span 2"><i data-icon="duplicate"></i>Duplicate</button>
-      <button id="abDelete" class="iconBtn" style="grid-column:span 2"><i data-icon="trash"></i>Delete</button>
+    <label class="slider uiSwitchRow" title="Hide anything that extends past this artboard's edges"><span>Clip content</span><input type="checkbox" id="abClip"></label>
+    <label class="slider uiSwitchRow"><span>Locked</span><input type="checkbox" id="abLocked" aria-label="Lock artboard"></label>
+    <label class="slider uiSwitchRow"><span>Visible</span><input type="checkbox" id="abShow" aria-label="Artboard visibility"></label>
+    <div class="rowBtns" data-nofold>
+      <button id="abDuplicate" class="rollBtn"><i data-icon="duplicate"></i>Duplicate</button>
+      <button id="abDelete" class="rollBtn"><i data-icon="trash"></i>Delete</button>
     </div>
   </div>
 

@@ -1875,9 +1875,137 @@ body.rails #fxBody .fxRow .fxMore {
 }
 /* a switch row is a control row: 40 pitch like the rest */
 body.rails #rightPanel .checkRow,
+body.rails #rightPanel label.chk,
 body.rails #rightPanel label.uiSwitchRow {
   box-sizing: border-box;
   min-height: 40px;
   display: flex;
   align-items: center;
+}
+
+/* ---- ui-designer pass 6: one row language, everywhere -----------------------
+ * The artboard panel and the position block spoke the legacy icon-field
+ * dialect: glyph labels, full-width fields, a select and a colour on one
+ * row, icon toggles. They now use the same rows as the mesh page. */
+/* a control with its one action (the size preset and its swap) */
+body.rails label.uiRow > .headBtns {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.rails label.uiRow > .headBtns > button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-field);
+  color: var(--muted);
+}
+body.rails label.uiRow > .headBtns > button:hover {
+  color: var(--ink);
+}
+/* numbers are 64px right-aligned fields (rule 4); the letter is the label */
+body.rails .grid4 label {
+  justify-content: space-between;
+}
+body.rails .grid4 label > input[type="number"],
+body.rails label.uiRow > input[type="number"],
+body.rails .modal label.num > input[type="number"] {
+  width: 64px;
+  flex: 0 0 auto;
+  text-align: right;
+}
+/* the position block's proportion lock reads as a row: icon button, then its word */
+body.rails #ratioRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  margin: 0;
+}
+body.rails #ratioRow > button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-field);
+  color: var(--muted);
+}
+body.rails #ratioRow > button[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+body.rails #pRatioHint {
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+/* the page modal: fields and buttons at family size, footer right-aligned */
+body.rails #npName {
+  height: 30px;
+  padding: 0 9px;
+  border-color: var(--border);
+  background: var(--field);
+}
+body.rails .modal label.num {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+body.rails #sizeChips button {
+  padding: 8px;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--r-field);
+  color: var(--ink);
+}
+body.rails #sizeChips button.on {
+  border-color: var(--ink);
+  background: var(--field);
+}
+body.rails .modal .rowBtns {
+  justify-content: flex-end;
+}
+body.rails .modal .rowBtns .ui-btn {
+  flex: 0 0 auto;
+}
+/* a field inside a row carries no margin of its own; the row's 5/5 is the pitch */
+body.rails label.uiRow > input,
+body.rails label.uiRow > select,
+body.rails label.uiRow > .headBtns > select,
+body.rails #rightPanel label.slider > input[type="text"] {
+  margin: 0;
+}
+body.rails label.uiRow > .headBtns > select {
+  width: max-content;
+  flex: 0 0 auto;
+  max-width: 160px;
+}
+/* a number in a block-style row is still a 64px field on the right (rule 4) */
+body.rails #rightPanel label.slider:has(> input[type="number"]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+body.rails #rightPanel label.slider > input[type="number"] {
+  width: 64px;
+  flex: 0 0 auto;
+  text-align: right;
+  margin: 0;
+}
+body.rails .modal input[type="number"] {
+  height: 30px;
+  padding: 0 8px;
 }

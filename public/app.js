@@ -5030,9 +5030,13 @@ const FX_PAGES=obj=>{
   const emptyShape=obj.type==='rect'&&!SHOW_CONTROL.cornerStyle;
   // Export applies to every type — boxOf always returns real bounds — so it
   // is appended unconditionally rather than added to each FX_PAGES_RAW list.
+  /* 'Text' has no inspector controls yet (type is set on creation, the copy
+   * is edited on the canvas), so its head would sit over nothing. The book
+   * has no empty sections: the page returns when it has content. */
   return live
     .filter(p=>p!=='Effects'||anyEffect)
     .filter(p=>p!=='Shape'||!emptyShape)
+    .filter(p=>p!=='Text')
     .filter(p=>p!=='Pattern'||SHOW_CONTROL.pattern)
     .concat('Export');
 };
@@ -5247,7 +5251,7 @@ function syncInstancePanel(obj){
   if(!def||def.kind!=='component'){
     box.innerHTML='<div class="hint">'+(def&&def.kind==='symbol'
       ? 'Symbols do not take overrides — every instance follows the source.'
-      : '')+'</div>';
+      : 'No overrides here — this instance follows its source.')+'</div>';
     return;
   }
   let src=def.root;
@@ -5893,16 +5897,10 @@ function syncPagePanel(){
 function syncArtboardPanel(ab){
   $('abName').value=ab.name||'';
   $('abBg').value=/^#[0-9a-fA-F]{6}$/.test(ab.bg||'')?ab.bg:'#ffffff';
-  // Icon toggles, not checkboxes — state lives on aria-pressed, and lock and
-  // visibility swap their glyph the way the layer list's own toggles do.
-  const tgl=(id,on,icon)=>{
-    const b=$(id);
-    b.setAttribute('aria-pressed',on?'true':'false');
-    if(icon&&window.Icons) b.innerHTML=Icons.svg(icon);
-  };
+  // Three switch rows (the book's boolean): the checkbox carries the state.
   $('abClip').checked=ab.clip!==false;
-  tgl('abLocked',!!ab.locked,ab.locked?'lock':'unlock');
-  tgl('abShow',ab.show!==false,ab.show!==false?'eye':'eyeOff');
+  $('abLocked').checked=!!ab.locked;
+  $('abShow').checked=ab.show!==false;
   // Reflects the CURRENT size as a preset when it happens to match one
   // exactly; otherwise "Custom size…". Never overwrites W/H itself — this is
   // read-only reflection, so typing into W/H can't fight the dropdown.
@@ -6822,9 +6820,10 @@ function buildFxSection(obj,page,add,body){
           (o.children||[]).forEach(k=>walk(k,t));
         })(def.root,[]);
         add(`<div class="pSect">Overrides</div>`);
+        if(!rows.length) add(`<div class="fxHint">Nothing overridable in this component.</div>`); // no empty section (brand book)
         rows.slice(0,12).forEach((r,ri)=>{
           const ov=obj.overrides[r.key]||{};
-          add(`<div class="pSect" style="border:0;margin:6px 0 2px;opacity:.7">${r.key}</div>`);
+          add(`<div class="appearanceSubhead">${r.key}</div>`); // the book's sub-head, not a second section head
           if(r.o.type==='text'){
             add(`<label class="slider">Text <input type="text" id="ovT${ri}" value="${(ov.text!==undefined?ov.text:r.o.text)||''}"></label>`);
             $('ovT'+ri).addEventListener('input',e=>{
@@ -6920,9 +6919,9 @@ function buildFxSection(obj,page,add,body){
       everything below it inside the container.</div>`);
     add(`<label class="slider">Mask type<select id="mkMode">
       <option value="none">None</option>
-      <option value="clip">Clipping mask (vector shape)</option>
-      <option value="alpha">Alpha mask (mask opacity)</option>
-      <option value="luminance">Luminance mask (mask brightness)</option>
+      <option value="clip">Clipping mask</option>
+      <option value="alpha">Alpha mask</option>
+      <option value="luminance">Luminance mask</option>
     </select></label>`);
     $('mkMode').value=obj.maskMode||'none';
     $('mkMode').addEventListener('change',e=>{ obj.maskMode=e.target.value; pushHistory(); refresh(); });
@@ -8575,13 +8574,11 @@ $('abClip').addEventListener('change',e=>{
 });
 [['abLocked','locked','Lock artboard'],['abShow','show','Artboard visibility']]
   .forEach(([id,key,label])=>{
-    // icon toggles: click flips the flag, aria-pressed is resynced by
-    // syncArtboardPanel on the refresh below
-    $(id).addEventListener('click',()=>{
+    // switch rows: the checkbox carries the state, syncArtboardPanel re-reads
+    // it on the refresh below
+    $(id).addEventListener('change',e=>{
       const ab=posArtboard(); if(!ab)return;
-      ab[key]=key==='clip'?!(ab.clip!==false)
-             :key==='show'?!(ab.show!==false)
-             :!ab.locked;
+      ab[key]=e.target.checked;
       if(key==='locked'){
         // mirrors the layer-panel lock button: a selection stuck inside a
         // freshly-locked board must not silently keep editing it
