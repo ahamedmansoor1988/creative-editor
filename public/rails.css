@@ -2213,3 +2213,22 @@ body.rails.rulers #rightPanel {
 body.rails.rulers #leftPanel {
   left: calc(var(--ruler) + 8px);
 }
+
+/* ---- ui-designer pass 10: menus never scroll sideways ---------------------
+ * The dividers bled past the menu's padding, and a menu that scrolls
+ * vertically also scrolls sideways by default — the grey pill at the foot of
+ * every menu was a horizontal scrollbar for two pixels of divider. Items read
+ * left to right: glyph, label, shortcut at the end. */
+body.rails .menu .dropdown {
+  overflow-x: hidden;
+}
+body.rails .menuDivider {
+  margin: 6px 0;
+}
+body.rails .dropdown button {
+  justify-content: flex-start;
+  gap: 10px;
+}
+body.rails .dropdown button kbd {
+  margin-left: auto;
+}
