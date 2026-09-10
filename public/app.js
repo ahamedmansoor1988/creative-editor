@@ -6347,14 +6347,14 @@ function buildFx(obj){
 }
 function buildFxSection(obj,page,add,body){
   if(page==='Text'){
-    /* The book's rows: a word left, one control in the column. The copy is the
-     * one control that takes the row. Values as Figma names them: letter
-     * spacing in px, line height in % of the size (empty = the font's own). */
+    /* The book's rows: a word left, one control in the column. The copy itself
+     * is edited on the artboard (double-click), not here. Values as Figma names
+     * them: letter spacing in px, line height in % of the size (empty = the
+     * font's own). */
     const o=obj;
     const opts=(pairs,val)=>pairs.map(([v,l])=>`<option value="${esc(String(v))}"${String(v)===String(val)?' selected':''}>${esc(l)}</option>`).join('');
     const used=[...new Set(allObjects().filter(x=>x.type==='text'&&x.font).map(x=>x.font))];
     const group=(label,list)=>list.length?`<optgroup label="${esc(label)}">${opts(list.map(f=>[f,f]),o.font)}</optgroup>`:'';
-    add(`<label class="slider">Text<textarea id="txContent" rows="3" spellcheck="false">${esc(o.text)}</textarea></label>`);
     add(`<label class="slider uiRow"><span>Font</span><select id="txFont">${group('In this document',used)}${group('Google Fonts',Object.keys(FONT_CATALOG.google))}${group('This Mac',FONT_CATALOG.local)}${group('Generic',FONT_CATALOG.generic)}</select></label>`);
     if(typeof window.queryLocalFonts==='function'&&!FONT_CATALOG.local.length)
       add(`<div class="rowBtns"><button class="rollBtn" id="txLocalFonts">Load fonts from this Mac…</button></div>`);
@@ -6369,8 +6369,6 @@ function buildFxSection(obj,page,add,body){
     if(sizing==='fixed') add(`<label class="slider uiRow"><span>Vertical align</span><select id="txValign">${opts([['top','Top'],['middle','Middle'],['bottom','Bottom']],o.valign)}</select></label>`);
     add(`<div class="fxHint">Letter spacing is in pixels. Line height is a percentage of the size; leave it empty for the font's own. Vertical align applies to a fixed size.</div>`);
     const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
-    $('txContent').addEventListener('input',e=>{ o.text=e.target.value; paintCacheClear(); render(); });
-    $('txContent').addEventListener('change',()=>commit('Edit text'));
     $('txFont').addEventListener('change',e=>{ o.font=e.target.value; ensureFont(o); commit('Font'); });
     const lf=$('txLocalFonts');
     if(lf) lf.addEventListener('click',async()=>{ try{ await loadLocalFonts(); refresh(); }catch(_){ status('Access to the fonts on this Mac was not allowed.'); } });
