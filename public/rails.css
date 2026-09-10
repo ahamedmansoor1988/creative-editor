@@ -72,6 +72,11 @@
   --panel-right-w: 312px;
   --pad-head: 18px 14px 10px;
   --pad-row: 5px 14px;
+  /* the control column: every row control shares one width and one left edge */
+  --ctl-w: 120px;
+  --gap-pair: 8px;
+  --gap-row: 12px; /* label to control */
+  --gap-btns: 8px; /* buttons on a row */
   --ease: 120ms ease;
 }
 
@@ -448,8 +453,22 @@
   background-position: right 9px center;
 }
 .ui-num {
-  width: 64px;
+  width: var(--ctl-w);
   text-align: right;
+}
+/* a row control fills its column */
+.ui-row > .ui-input,
+.ui-row > .ui-select,
+.ui-row > select,
+.ui-row > .ui-cswatch,
+.ui-row > .ui-stepper,
+.ui-row > .ui-pchip {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
+.ui-row > .ui-switch {
+  justify-self: end;
 }
 
 /* ---- stepper: a count, not a slider ---------------------------------- */
@@ -666,9 +685,9 @@
 /* ---- rows ------------------------------------------------------------- */
 .ui-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) var(--ctl-w);
   align-items: center;
-  gap: 0 10px;
+  gap: 0 var(--gap-row);
   padding: var(--pad-row);
 }
 .ui-row > .ui-label {
@@ -2008,4 +2027,128 @@ body.rails #rightPanel label.slider > input[type="number"] {
 body.rails .modal input[type="number"] {
   height: 30px;
   padding: 0 8px;
+}
+
+/* ---- ui-designer pass 7: the control column --------------------------------
+ * One rule for every row: the label takes the left, the control sits in a
+ * 120px column on the right, so every box shares one left edge and one
+ * width. A pair is two halves of the row, each control 120 on its half's
+ * right edge. Text inputs and ranges take the row. Numbers are right-aligned.
+ * The scale for gaps is 4 / 8 / 12 / 16. */
+body.rails label.uiRow,
+body.rails #rightPanel label.slider:has(> select),
+body.rails #rightPanel label.slider:has(> .ui-cswatch),
+body.rails #rightPanel label.slider:has(> input[type="number"]),
+body.rails #leftPanel label.slider:has(> select) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--ctl-w);
+  align-items: center;
+  gap: 0 var(--gap-row);
+  justify-content: normal;
+}
+body.rails label.uiRow > select,
+body.rails label.uiRow > input[type="number"],
+body.rails label.uiRow > .ui-cswatch,
+body.rails label.uiRow > .ui-stepper,
+body.rails label.uiRow > .ui-pchip,
+body.rails label.uiRow > .headBtns,
+body.rails #rightPanel label.slider > select,
+body.rails #rightPanel label.slider > input[type="number"],
+body.rails #rightPanel label.slider > .ui-cswatch,
+body.rails #leftPanel label.slider > select {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  flex: none;
+  justify-self: stretch;
+}
+body.rails label.uiRow > .headBtns {
+  gap: var(--gap-pair);
+}
+body.rails label.uiRow > .headBtns > select {
+  width: calc(var(--ctl-w) - 30px - var(--gap-pair));
+  min-width: 0; /* the row rule's 110px floor would overflow the column */
+  max-width: none;
+  flex: 0 0 auto;
+}
+/* switch rows: the switch sits at the column's right edge */
+body.rails label.uiSwitchRow,
+body.rails label.chk,
+body.rails #rightPanel .checkRow {
+  display: flex;
+  justify-content: space-between;
+}
+/* pairs: the position letters and the point's X/Y — the field is the column, right-aligned in its half */
+body.rails .grid4 {
+  gap: 0 var(--gap-pair);
+}
+body.rails .grid4 label {
+  justify-content: space-between;
+}
+body.rails .grid4 label > input[type="number"] {
+  width: var(--ctl-w);
+}
+body.rails .ui-steppers {
+  gap: 0 var(--gap-pair);
+}
+body.rails .ui-steppers > div,
+body.rails .ui-steppers > label {
+  display: grid;
+  justify-items: end;
+  margin: 0;
+}
+body.rails .ui-steppers > div > .ui-label,
+body.rails .ui-steppers > label {
+  justify-self: start;
+}
+body.rails .ui-steppers > label,
+body.rails #fxBody .ui-steppers > label {
+  /* the word stays left, the field goes to the half's edge (an id rule upstream makes labels block) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin: 0;
+}
+body.rails #fxBody .ui-steppers > label > input {
+  align-self: flex-end;
+}
+body.rails .ui-steppers > div > .ui-stepper,
+body.rails .ui-steppers > div > input,
+body.rails .ui-steppers > label > input,
+body.rails #fxBody .ui-steppers > label > input {
+  /* the id rule upstream gives fields 100%; the column wins */
+  width: var(--ctl-w);
+  justify-self: end;
+  margin: 5px 0 0;
+}
+body.rails .ui-stepper output {
+  flex: 1 1 auto;
+}
+/* popover chips: two per row, each the column's width, on the column's edge */
+body.rails #rightPanel .ui-pchips {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-items: end;
+  gap: 0 var(--gap-pair);
+}
+body.rails #rightPanel .ui-pchips .ui-pchip {
+  width: var(--ctl-w);
+}
+/* a legacy pair row stacks: one row, one control */
+body.rails #rightPanel .row2 {
+  display: block;
+}
+/* the scale for gaps between siblings */
+body.rails .rowBtns,
+body.rails .gsBtns {
+  gap: var(--gap-btns);
+}
+/* the modal's rows follow the same column */
+body.rails .modal label.num {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--ctl-w);
+  gap: 0 var(--gap-row);
+}
+body.rails .modal label.num > input[type="number"] {
+  width: 100%;
 }

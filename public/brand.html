@@ -789,9 +789,59 @@
         <section class="bk-sec" id="spacing">
           <h2 class="ui-title">Spacing</h2>
           <p class="bk-intro">
-            No 8-point grid; the measured values are what they are, and they repeat. Bars are drawn
-            at twice scale.
+            Two values are measured from the reference and kept — a 30px control and an 18px section
+            top. Everything else sits on a 4 / 8 / 12 / 16 scale. Bars are drawn at twice scale.
           </p>
+          <div class="bk-grid bk-grid--2">
+            <div class="bk-spec">
+              <span class="ui-title" style="display: block; margin-bottom: 8px">Space rules</span>
+              <dl class="bk-dims" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+                <dt>Panel inset</dt>
+                <dd>16</dd>
+                <dt>Section head</dt>
+                <dd>18 above · 6 below</dd>
+                <dt>Row pitch</dt>
+                <dd>40 = 5 · 30 · 5</dd>
+                <dt>Range row</dt>
+                <dd>57 (label line, then the track)</dd>
+                <dt>Label to control</dt>
+                <dd>12</dd>
+                <dt>Paired controls</dt>
+                <dd>8 apart (the halves)</dd>
+                <dt>Buttons on a row</dt>
+                <dd>8 apart</dd>
+                <dt>Hint</dt>
+                <dd>2 above · 6 below</dd>
+                <dt>Block padding</dt>
+                <dd>12</dd>
+              </dl>
+            </div>
+            <div class="bk-spec">
+              <span class="ui-title" style="display: block; margin-bottom: 8px">Field rules</span>
+              <dl class="bk-dims" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+                <dt>The column</dt>
+                <dd>every row control is 120 wide, on the row's right edge</dd>
+                <dt>A pair</dt>
+                <dd>two halves of the row, each control 120 on its half's right edge</dd>
+                <dt>Min · max</dt>
+                <dd>120 · 120; only text, search, prompt and range take the row</dd>
+                <dt>Number</dt>
+                <dd>120, right-aligned digits</dd>
+                <dt>Select</dt>
+                <dd>120, ellipsis; never sized to its options</dd>
+                <dt>Colour</dt>
+                <dd>120: dot, then hex</dd>
+                <dt>Stepper · chip</dt>
+                <dd>120</dd>
+                <dt>Button</dt>
+                <dd>content width; two share a row; only a block's CTA spans</dd>
+              </dl>
+              <span class="bk-meta"
+                >One left edge down the panel is what makes a panel read as designed. A box sized to
+                its content moves that edge on every row.</span
+              >
+            </div>
+          </div>
           <div class="bk-grid bk-grid--2">
             <div class="bk-spec">
               <div class="bk-ruler">

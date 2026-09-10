@@ -6550,7 +6550,7 @@ function buildFxSection(obj,page,add,body){
         add(`<div class="row2">
           <label class="slider">Opacity <span class="apEOpV">${Math.round(f.opacity*100)}%</span><input type="range" class="apEOp" data-i="${fi}" min="0" max="100" value="${Math.round(f.opacity*100)}"></label>
           <label class="slider">Blend<select class="apBlend" data-i="${fi}">`+
-          BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>
+          BLEND_MODES.map(m=>`<option value="${m}">${m.charAt(0).toUpperCase()+m.slice(1).replace(/-/g,' ')}</option>`).join('')+`</select></label>
         </div>`);
         body.querySelectorAll('.apBlend')[fi].value=f.blend;
       });
