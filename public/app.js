@@ -3100,6 +3100,30 @@ function drawOneUncached(c,W,H,obj){
   drawOneInner(c,W,H,obj);
 }
 
+/* The same transform applyObjectTransform puts on a context, as [a,b,c,d,e,f],
+ * and its inverse applied to one point — so hit-tests and drags can work in
+ * the shape's own frame while the pointer arrives in document space. */
+function objectMatrix(obj){
+  const bb=boxOf(obj), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
+  let a=1,b=0,c=0,d=1,e=0,f=0;
+  const mul=([a2,b2,c2,d2,e2,f2])=>{
+    const na=a*a2+c*b2, nb=b*a2+d*b2, nc=a*c2+c*d2, nd=b*c2+d*d2, ne=a*e2+c*f2+e, nf=b*e2+d*f2+f;
+    a=na; b=nb; c=nc; d=nd; e=ne; f=nf;
+  };
+  mul([1,0,0,1,cx,cy]);
+  if(obj.rot){ const r=obj.rot*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r); mul([cs,sn,-sn,cs,0,0]); }
+  if(obj.skewX||obj.skewY) mul([1,Math.tan((obj.skewY||0)*Math.PI/180),Math.tan((obj.skewX||0)*Math.PI/180),1,0,0]);
+  if(obj.mirrorX||obj.mirrorY) mul([obj.mirrorX?-1:1,0,0,obj.mirrorY?-1:1,0,0]);
+  mul([1,0,0,1,-cx,-cy]);
+  return [a,b,c,d,e,f];
+}
+function localPoint(obj,p){
+  if(!(obj.rot||obj.mirrorX||obj.mirrorY||obj.skewX||obj.skewY)) return p;
+  const [a,b,c,d,e,f]=objectMatrix(obj);
+  const det=a*d-b*c; if(!det) return p;
+  const x=p.x-e, y=p.y-f;
+  return {x:(d*x-c*y)/det, y:(-b*x+a*y)/det};
+}
 function applyObjectTransform(c,obj){
   if(!(obj.rot||obj.mirrorX||obj.mirrorY||obj.skewX||obj.skewY)) return;
   const bb=boxOf(obj), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
@@ -3263,6 +3287,7 @@ function drawOneInner(c,W,H,obj){
            margin:outW,inWidth:inW,outWidth:outW});
         if(!img) return;
         c.save();
+        applyObjectTransform(c,o); // the tile follows the shape's rotation, skew and mirror
         c.imageSmoothingEnabled=true;
         if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
         c.globalAlpha=obj.opacity;
@@ -3288,6 +3313,7 @@ function drawOneInner(c,W,H,obj){
         const img=window.LiquidEngine.render(o.w,o.h,lq);
         if(!img) return;
         c.save();
+        applyObjectTransform(c,o);
         c.globalAlpha=obj.opacity;
         c.beginPath(); pathFor(c,o); c.clip();
         c.drawImage(img,o.x,o.y,o.w,o.h);
@@ -4193,6 +4219,7 @@ function paint(){
     if(!M.points||M.points.length!==M.cols*M.rows) return;
     const b=boxOf(o);
     ctx.save();
+    applyObjectTransform(ctx,o); // the net turns with the shape, like the selection box
     ctx.lineWidth=1/z;
     ctx.strokeStyle='rgba(255,255,255,.85)';
     /* SEGMENTS FOLLOW THE ZOOM. This was a flat 32, which is a segment every
@@ -9196,17 +9223,18 @@ canvas.addEventListener('pointerdown',e=>{
     if(!M||!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
     if(!M.points||M.points.length!==M.cols*M.rows) return;
     const b=boxOf(o), grip=11/view.z;
+    const L=localPoint(o,p); // the net lives in the shape's own frame
     let best=-1, bd=grip*grip;
     M.points.forEach((pt,idx)=>{
-      const dx=(b.x+pt.x*b.w)-p.x, dy=(b.y+pt.y*b.h)-p.y, q=dx*dx+dy*dy;
+      const dx=(b.x+pt.x*b.w)-L.x, dy=(b.y+pt.y*b.h)-L.y, q=dx*dx+dy*dy;
       if(q<=bd){ bd=q; best=idx; }
     });
     if(best<0) return;
     meshSel=best;
     const pt=M.points[best];
-    // grab OFFSET, so a handle does not jump to the cursor on grab
+    // grab OFFSET (in the shape's frame), so a handle does not jump to the cursor on grab
     drag={mode:'meshPt', obj:o, i:best, box:b,
-      dx:(b.x+pt.x*b.w)-p.x, dy:(b.y+pt.y*b.h)-p.y};
+      dx:(b.x+pt.x*b.w)-L.x, dy:(b.y+pt.y*b.h)-L.y};
     cap(); refresh();
   })();
   if(drag&&drag.mode==='meshPt') return;
@@ -9492,8 +9520,9 @@ canvas.addEventListener('pointermove',e=>{
       /* Stored normalised to the shape's box, so the net survives the shape
        * being resized. Allowed a little outside 0..1: a control point beyond
        * the edge is how you steer the surface AT the edge. */
-      pt.x=clamp(((p.x+drag.dx)-b.x)/Math.max(b.w,1e-6),-0.2,1.2);
-      pt.y=clamp(((p.y+drag.dy)-b.y)/Math.max(b.h,1e-6),-0.2,1.2);
+      const L=localPoint(drag.obj,p);
+      pt.x=clamp(((L.x+drag.dx)-b.x)/Math.max(b.w,1e-6),-0.2,1.2);
+      pt.y=clamp(((L.y+drag.dy)-b.y)/Math.max(b.h,1e-6),-0.2,1.2);
       paintCacheClear();
       render(); syncInspector();
     }
