@@ -313,20 +313,24 @@
       <label>W<input type="number" id="pW" step="1"></label>
       <label>H<input type="number" id="pH" step="1"></label>
     </div>
-    <!-- Proportional scaling. A link toggle between W and H, the affordance
-         Figma, Sketch and Illustrator all use: with it on, typing either
-         dimension scales the other by the same factor. -->
-    <div id="ratioRow">
-      <button type="button" id="pRatio" data-icon="link" aria-pressed="false"
-        aria-label="Constrain proportions" title="Constrain proportions"></button>
-      <span id="pRatioHint">Constrain proportions</span>
+    <!-- Proportional scaling: with it on, typing either dimension scales the
+         other by the same factor. A switch row, like every other boolean. -->
+    <label class="slider uiSwitchRow" id="ratioRow"><span>Constrain proportions</span><input type="checkbox" id="pRatio" aria-label="Constrain proportions"></label>
+    <!-- The values Figma keeps in sight — rotation and corner radius — sit
+         with the geometry, open. Object-only: an artboard hides this block. -->
+    <div id="objectOnlyPos">
+      <label class="slider uiRow"><span>Rotation</span><input type="number" id="trRot" step="1"></label>
+      <label class="slider uiRow" id="cornerField" style="display:none"><span>Corner radius</span><span class="headBtns"><input type="number" id="pRad" min="0" step="1" value="0"><button type="button" id="cornerExpand" style="display:none" aria-label="Independent corners" title="Independent corners" data-icon="expand"></button></span></label>
+      <!-- four words, four rows: two-letter labels do not fit beside a column field in a half -->
+      <div id="cornerIndRow" style="display:none">
+        <label class="slider uiRow"><span>Top left</span><input type="number" id="pRadTL" min="0" step="1"></label>
+        <label class="slider uiRow"><span>Top right</span><input type="number" id="pRadTR" min="0" step="1"></label>
+        <label class="slider uiRow"><span>Bottom right</span><input type="number" id="pRadBR" min="0" step="1"></label>
+        <label class="slider uiRow"><span>Bottom left</span><input type="number" id="pRadBL" min="0" step="1"></label>
+      </div>
     </div>
-    <!-- object-only: rotation, opacity, blend, constraints, flip — none of
-         these apply to an artboard, so this block is hidden (not the whole
-         Position section) when the selection is an artboard. -->
-    <!-- Rotation, opacity, blend, flips and constraints are the SECOND thing
-         you reach for; X/Y/W/H is the first. Collapsed by default so the
-         panel opens on what is used most. -->
+    <!-- Align, layer opacity, scale, skew, blend and constraints are the
+         SECOND thing you reach for. Collapsed by default. -->
     <div class="pSect collapser" id="transformHead" data-collapse="objectOnlyFields"
       role="button" tabindex="0" aria-expanded="false">Transform</div>
     <div id="objectOnlyFields">
@@ -338,54 +342,31 @@
         <button data-align="vcenter" data-icon="alignVCenter" aria-label="Center vertically" title="Center vertically"></button>
         <button data-align="bottom" data-icon="alignBottom" aria-label="Align bottom" title="Align bottom"></button>
       </div>
-      <!-- Appearance: Opacity and Corner radius as permanent icon+number
-           fields, matching Figma's own Rectangle panel (compact, always
-           visible — no click-to-reveal needed for a field this small). The
-           expand button next to Corner radius reveals independent per-corner
-           editing in place, same data (obj.radii) the Shape fx page used to
-           own exclusively. -->
-      <div class="grid3" id="appearanceRow">
-        <label title="Opacity"><i data-icon="circle-dashed"></i><input type="number" id="pOpacity" min="5" max="100" value="100"></label>
-        <label title="Corner radius" id="cornerField" style="display:none"><i data-icon="squircle"></i><input type="number" id="pRad" min="0" step="1" value="0"></label>
-        <button type="button" id="cornerExpand" style="display:none" aria-label="Independent corners" title="Independent corners" data-icon="expand"></button>
-      </div>
-      <div class="grid4" id="cornerIndRow" style="display:none; margin-top:6px">
-        <label title="Top left"><input type="number" id="pRadTL" min="0" step="1"></label>
-        <label title="Top right"><input type="number" id="pRadTR" min="0" step="1"></label>
-        <label title="Bottom right"><input type="number" id="pRadBR" min="0" step="1"></label>
-        <label title="Bottom left"><input type="number" id="pRadBL" min="0" step="1"></label>
-      </div>
-      <div class="grid4" style="margin-top:6px">
-        <label title="Rotation">⟳°<input type="number" id="trRot" step="1"></label>
-        <label title="Scale by percent, about each centre">%<input type="number" id="trScale" placeholder="100"></label>
-        <label title="Skew horizontal">⧩x<input type="number" id="trSkX" step="1"></label>
-        <label title="Skew vertical">⧨y<input type="number" id="trSkY" step="1"></label>
-      </div>
-      <label class="slider" style="margin-top:2px">Blend mode
+      <label class="slider uiRow"><span>Layer opacity</span><input type="number" id="pOpacity" min="5" max="100" value="100"></label>
+      <label class="slider uiRow"><span>Scale %</span><input type="number" id="trScale" placeholder="100" title="Scale by percent, about each centre"></label>
+      <label class="slider uiRow"><span>Skew X</span><input type="number" id="trSkX" step="1"></label>
+      <label class="slider uiRow"><span>Skew Y</span><input type="number" id="trSkY" step="1"></label>
+      <label class="slider uiRow"><span>Blend mode</span>
         <select id="objBlend">
-          <option>normal</option><option>multiply</option><option>screen</option>
-          <option>overlay</option><option>darken</option><option>lighten</option>
-          <option>color-dodge</option><option>color-burn</option><option>hard-light</option>
-          <option>soft-light</option><option>difference</option><option>exclusion</option>
-          <option>hue</option><option>saturation</option><option>color</option><option>luminosity</option>
+          <option value="normal">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option>
+          <option value="overlay">Overlay</option><option value="darken">Darken</option><option value="lighten">Lighten</option>
+          <option value="color-dodge">Color dodge</option><option value="color-burn">Color burn</option><option value="hard-light">Hard light</option>
+          <option value="soft-light">Soft light</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option>
+          <option value="hue">Hue</option><option value="saturation">Saturation</option><option value="color">Color</option><option value="luminosity">Luminosity</option>
         </select></label>
       <div id="constraintRow" style="display:none">
-        <div class="grid4" style="margin-top:6px">
-          <label title="Horizontal constraint">↔<select id="cH">
+        <label class="slider uiRow"><span>Horizontal</span><select id="cH">
             <option value="left">Left</option><option value="right">Right</option>
             <option value="both">Both</option><option value="center">Center</option>
             <option value="scale">Scale</option></select></label>
-          <label title="Vertical constraint">↕<select id="cV">
+        <label class="slider uiRow"><span>Vertical</span><select id="cV">
             <option value="top">Top</option><option value="bottom">Bottom</option>
             <option value="both">Both</option><option value="center">Center</option>
             <option value="scale">Scale</option></select></label>
-        </div>
-        <div class="grid4">
-          <label title="Sizing inside a stack">⤢<select id="cSize">
+        <label class="slider uiRow"><span>Sizing</span><select id="cSize">
             <option value="fixed">Fixed</option><option value="hug">Hug</option>
             <option value="fill">Fill</option></select></label>
-          <label class="chk" style="margin:0"><input type="checkbox" id="cAbs"> Absolute</label>
-        </div>
+        <label class="slider uiSwitchRow"><span>Absolute</span><input type="checkbox" id="cAbs"></label>
       </div>
       <div id="alignRow" style="margin-top:2px">
         <button id="trR90L" data-icon="rotateCcw" aria-label="Rotate 90 counter-clockwise" title="Rotate 90 counter-clockwise"></button>

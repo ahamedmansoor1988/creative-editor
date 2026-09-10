@@ -2080,7 +2080,7 @@ body.rails #rightPanel .checkRow {
 }
 /* pairs: the position letters and the point's X/Y — the field is the column, right-aligned in its half */
 body.rails .grid4 {
-  gap: 0 var(--gap-pair);
+  gap: 10px var(--gap-pair); /* rows keep the 40 pitch: 30 + 10 */
 }
 body.rails .grid4 label {
   justify-content: space-between;
@@ -2089,7 +2089,7 @@ body.rails .grid4 label > input[type="number"] {
   width: var(--ctl-w);
 }
 body.rails .ui-steppers {
-  gap: 0 var(--gap-pair);
+  gap: 10px var(--gap-pair);
 }
 body.rails .ui-steppers > div,
 body.rails .ui-steppers > label {
@@ -2129,7 +2129,7 @@ body.rails .ui-stepper output {
 body.rails #rightPanel .ui-pchips {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-items: end;
-  gap: 0 var(--gap-pair);
+  gap: 10px var(--gap-pair);
 }
 body.rails #rightPanel .ui-pchips .ui-pchip {
   width: var(--ctl-w);
@@ -2151,4 +2151,52 @@ body.rails .modal label.num {
 }
 body.rails .modal label.num > input[type="number"] {
   width: 100%;
+}
+
+/* ---- ui-designer pass 8: one box, and Figma's fields ---------------------
+ * The zoom value wore a card around a field (a box in a box); the field is
+ * the box. Number fields hide the native spinner: a value is typed or
+ * nudged with the arrow keys, as in Figma. A field paired with its one
+ * action (corner radius and its per-corner toggle) shares the column. */
+body.rails #zoomChip {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0 0 8px auto;
+}
+body.rails #zoomChip input {
+  width: var(--ctl-w);
+  text-align: right;
+}
+body.rails input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+body.rails input[type="number"]::-webkit-inner-spin-button,
+body.rails input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+body.rails label.uiRow > .headBtns > input[type="number"] {
+  width: calc(var(--ctl-w) - 30px - var(--gap-pair));
+  min-width: 0;
+  flex: 0 0 auto;
+  text-align: right;
+}
+/* the transform block's own rows follow the column */
+body.rails #objectOnlyFields > .grid4,
+body.rails #objectOnlyPos > .grid4 {
+  margin: 0 !important;
+  padding: 5px 0;
+}
+body.rails #alignRow {
+  display: flex;
+  gap: var(--gap-pair);
+  padding: 5px 0;
+  margin: 0;
+}
+body.rails label.uiRow > .headBtns > button.on {
+  color: var(--ink);
+  border-color: var(--ink);
 }

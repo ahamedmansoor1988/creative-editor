@@ -5119,6 +5119,7 @@ function syncInspector(){
    * fold the user cannot undo is a disappearance. */
   const showTransform=!!(obj&&!ab);
   $('transformHead').style.display=showTransform?'':'none';
+  $('objectOnlyPos').style.display=showTransform?'':'none';
   $('objectOnlyFields').style.display=(showTransform&&!_collapsed.has('Transform'))?'':'none';
   $('artboardPanel').style.display=ab?'':'none';
   if(ab) $('pagePanel').style.display='none';
@@ -5167,7 +5168,8 @@ function syncInspector(){
   // to own exclusively before this moved to the top level.
   const hasRadius=obj.type==='rect'||obj.type==='polygon';
   const mixedRadius=Array.isArray(obj.radii);
-  $('cornerField').style.display=hasRadius&&!mixedRadius?'':'none';
+  $('cornerField').style.display=hasRadius?'':'none';
+  $('pRad').style.display=mixedRadius?'none':''; // the row stays for its per-corner toggle
   $('cornerExpand').style.display=hasRadius?'':'none';
   $('cornerExpand').classList.toggle('on',mixedRadius);
   $('cornerExpand').title=mixedRadius?'Merge into one corner radius':'Independent corners';
@@ -8273,11 +8275,8 @@ function posArtboard(){
  * an edit is interpreted, not what the document holds, so it is deliberately
  * not in the doc and not in history — the same call Figma and Sketch make. */
 let keepRatio=false;
-$('pRatio').addEventListener('click',()=>{
-  keepRatio=!keepRatio;
-  const b=$('pRatio');
-  b.setAttribute('aria-pressed',keepRatio?'true':'false');
-  if(window.Icons) b.innerHTML=Icons.svg(keepRatio?'link':'unlink');
+$('pRatio').addEventListener('change',e=>{
+  keepRatio=e.target.checked; // a switch row, like every other boolean
   status(keepRatio?'Proportions constrained.':'Proportions free.');
 });
 [['pX','x'],['pY','y'],['pW','w'],['pH','h']].forEach(([id,k])=>{
