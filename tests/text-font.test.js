@@ -104,6 +104,29 @@ describe("typography (docs/research/text-typography.md)", () => {
     expect(editor.historyList().length).toBe(n0 + 1);
   });
 
+  it("the fonts on this Mac are remembered once loaded, and the button goes away", async () => {
+    // @ts-ignore the Local Font Access API is not in jsdom
+    window.queryLocalFonts = async () => [
+      { family: "Avenir" },
+      { family: "Avenir" },
+      { family: "Gill Sans" },
+    ];
+    const fams = await editor.loadLocalFonts();
+    expect(fams).toEqual(["Avenir", "Gill Sans"]);
+    expect(JSON.parse(localStorage.getItem("ce.localFonts") || "[]")).toEqual([
+      "Avenir",
+      "Gill Sans",
+    ]);
+    textDoc();
+    const groups = [...document.querySelectorAll("#txFont optgroup")].map((g) =>
+      g.getAttribute("label"),
+    );
+    expect(groups).toContain("This Mac");
+    expect(document.getElementById("txLocalFonts")).toBeNull();
+    // @ts-ignore
+    delete window.queryLocalFonts;
+  });
+
   it("editing the rows writes the layer and keeps history", () => {
     const t = textDoc();
     const n0 = editor.historySize();

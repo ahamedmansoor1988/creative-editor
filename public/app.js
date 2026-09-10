@@ -3908,12 +3908,32 @@ function lineBox(obj){
   const sum=(m.fontBoundingBoxAscent||0)+(m.fontBoundingBoxDescent||0);
   return sum>0?sum/obj.size:1.2;
 }
+/* The browser hands out the installed font names only on a user gesture, but
+ * the names themselves can be kept: the list is remembered across sessions,
+ * and once the permission is granted it refreshes itself on the first gesture
+ * of each session. The canvas needs no permission to USE an installed font. */
+const LOCAL_FONTS_KEY='ce.localFonts';
+(function restoreLocalFonts(){
+  try{ const a=JSON.parse(localStorage.getItem(LOCAL_FONTS_KEY)||'[]'); if(Array.isArray(a)&&a.length) FONT_CATALOG.local=a.map(String); }catch(_){}
+})();
 async function loadLocalFonts(){
   if(typeof window.queryLocalFonts!=='function') return [];
   const fonts=await window.queryLocalFonts();
   FONT_CATALOG.local=[...new Set(fonts.map(f=>f.family))].sort((a,b)=>a.localeCompare(b));
+  try{ localStorage.setItem(LOCAL_FONTS_KEY,JSON.stringify(FONT_CATALOG.local)); }catch(_){}
   return FONT_CATALOG.local;
 }
+(function refreshLocalFontsOnFirstGesture(){
+  if(typeof window.queryLocalFonts!=='function'||!navigator.permissions||!navigator.permissions.query) return;
+  Promise.resolve().then(()=>navigator.permissions.query({name:'local-fonts'})).then(st=>{
+    if(!st||st.state!=='granted') return;
+    const once=()=>{
+      document.removeEventListener('pointerdown',once,true); document.removeEventListener('keydown',once,true);
+      loadLocalFonts().then(()=>{ if(doc) syncInspector(); }).catch(()=>{});
+    };
+    document.addEventListener('pointerdown',once,true); document.addEventListener('keydown',once,true);
+  }).catch(()=>{});
+})();
 /* Shared layout for draw + bounds. Point text: one line, natural width.
  * Area text: word wrap into obj.w; autosize 'height' grows the box to fit;
  * 'fixed' keeps it and reports overflow (§1.9 overflow indicator). */
