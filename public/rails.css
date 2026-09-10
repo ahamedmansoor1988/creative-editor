@@ -2232,3 +2232,20 @@ body.rails .dropdown button {
 body.rails .dropdown button kbd {
   margin-left: auto;
 }
+
+/* ---- text page: the copy takes the row ----------------------------------- */
+body.rails #rightPanel label.slider > textarea {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  margin-top: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-field);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-control);
+  line-height: 1.4;
+  resize: vertical;
+}

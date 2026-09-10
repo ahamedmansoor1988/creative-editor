@@ -636,7 +636,8 @@ function normChildren(list,depth){
       // §1.9: area text with wrap, leading, tracking, vertical alignment
       c.mode=c.mode==='area'?'area':'point';
       if(c.mode==='area'){ c.w=Math.max(20,+c.w||240); c.h=Math.max(16,+c.h||120); }
-      c.lineHeight=clamp(+c.lineHeight||1.2,0.7,3);
+      c.font=(typeof c.font==='string'&&c.font.trim())?c.font.trim().slice(0,80):'Inter';
+      c.lineHeight=c.lineHeight===0?0:clamp(+c.lineHeight||1.2,0.7,3); // 0 = Auto, the font's line box
       c.tracking=clamp(+c.tracking||0,-10,60);
       c.valign=['top','middle','bottom'].includes(c.valign)?c.valign:'top';
       c.autosize=['fixed','height'].includes(c.autosize)?c.autosize:'fixed';
@@ -3542,7 +3543,8 @@ function drawOneInner(c,W,H,obj){
 
 function drawTextGlyphs(c,obj,mode){
   const L=textLayout(obj);
-  c.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
+  ensureFont(obj);
+  c.font=fontCss(obj);
   c.letterSpacing=(obj.tracking||0)+'px'; c.textBaseline='top'; c.textAlign=obj.align;
   const area=obj.mode==='area';
   let ty=obj.y;
@@ -3781,14 +3783,79 @@ function caseText(t,tf){
   if(tf==='title') return t.replace(/\b\w/g,ch=>ch.toUpperCase());
   return t;
 }
+/* ---- Typography: the family, its loading, the line box -------------------
+ * Lab note: docs/research/text-typography.md. A family is a name: canvas
+ * resolves installed fonts by name, a Google family is linked on demand, and
+ * document.fonts.load() settles the face and repaints. Letter spacing is in
+ * pixels (Figma's unit, and what this document already stores); line height
+ * is a multiplier of the size, 0 meaning Auto — the font's own line box,
+ * measured from its metrics. */
+const FONT_FALLBACK='Inter, -apple-system, sans-serif';
+const FONT_CATALOG={
+  /* family -> the wght axis Google serves for it (a range for a variable font,
+   * a list for a static one); a wrong axis makes the request fail, so these are
+   * conservative. */
+  google:{'Inter':'100..900','Roboto':'100..900','DM Sans':'100..1000','Space Grotesk':'300..700',
+    'Montserrat':'100..900','Oswald':'200..700','Playfair Display':'400..900','Lora':'400..700',
+    'Fraunces':'100..900','Source Serif 4':'200..900','JetBrains Mono':'100..800',
+    'Poppins':'100;200;300;400;500;600;700;800;900','Bebas Neue':'400',
+    'Cormorant Garamond':'300;400;500;600;700','IBM Plex Sans':'100;200;300;400;500;600;700',
+    'IBM Plex Mono':'100;200;300;400;500;600;700'},
+  generic:['system-ui','serif','sans-serif','monospace'],
+  local:[] // filled by loadLocalFonts(), which the browser only allows from a user gesture
+};
+const WEIGHT_NAMES={100:'Thin',200:'Extra light',300:'Light',400:'Regular',500:'Medium',600:'Semibold',700:'Bold',800:'Extra bold',900:'Black'};
+const _fontLinks=new Set(), _fontLoads=new Set();
+function fontCss(obj){
+  const fam=obj.font&&obj.font!=='Inter'?`"${String(obj.font).replace(/"/g,'')}", `:'';
+  return `${obj.weight||400} ${obj.size}px ${fam}${FONT_FALLBACK}`;
+}
+function ensureFont(obj){
+  const fam=obj.font;
+  if(!fam||fam==='Inter'||FONT_CATALOG.generic.includes(fam)) return;
+  const key=`${obj.weight||400} ${fam}`;
+  /* document.fonts.load() only loads faces the document already knows, so a
+   * Google family's stylesheet has to arrive first: the load is issued from
+   * the link's load event, and straight away when the link is already there. */
+  const load=()=>{
+    if(!document.fonts||!document.fonts.load||_fontLoads.has(key)) return;
+    _fontLoads.add(key);
+    document.fonts.load(`${obj.weight||400} ${obj.size||16}px "${fam}"`)
+      .then(()=>{ paintCacheClear(); if(doc) render(); })
+      .catch(()=>{ _fontLoads.delete(key); });
+  };
+  const axis=FONT_CATALOG.google[fam];
+  if(axis&&!_fontLinks.has(fam)&&document.head){
+    _fontLinks.add(fam);
+    const l=document.createElement('link'); l.rel='stylesheet';
+    l.href='https://fonts.googleapis.com/css2?family='+encodeURIComponent(fam).replace(/%20/g,'+')+':wght@'+axis+'&display=swap';
+    l.addEventListener('load',load);
+    document.head.appendChild(l);
+    return;
+  }
+  load();
+}
+/* The font's own line box as a multiplier of the size — what Figma calls Auto. */
+function lineBox(obj){
+  ctx.font=fontCss(obj);
+  const m=ctx.measureText('Hg');
+  const sum=(m.fontBoundingBoxAscent||0)+(m.fontBoundingBoxDescent||0);
+  return sum>0?sum/obj.size:1.2;
+}
+async function loadLocalFonts(){
+  if(typeof window.queryLocalFonts!=='function') return [];
+  const fonts=await window.queryLocalFonts();
+  FONT_CATALOG.local=[...new Set(fonts.map(f=>f.family))].sort((a,b)=>a.localeCompare(b));
+  return FONT_CATALOG.local;
+}
 /* Shared layout for draw + bounds. Point text: one line, natural width.
  * Area text: word wrap into obj.w; autosize 'height' grows the box to fit;
  * 'fixed' keeps it and reports overflow (§1.9 overflow indicator). */
 function textLayout(obj){
-  ctx.font=`${obj.weight} ${obj.size}px Inter,-apple-system,sans-serif`;
+  const lh=obj.size*(obj.lineHeight>0?obj.lineHeight:lineBox(obj));
+  ctx.font=fontCss(obj);
   ctx.letterSpacing=(obj.tracking||0)+'px';
   const text=caseText(String(obj.text),obj.caseTf);
-  const lh=obj.size*(obj.lineHeight||1.2);
   let lines, width;
   if(obj.mode!=='area'){
     lines=text.split('\n');
@@ -5085,13 +5152,9 @@ const FX_PAGES=obj=>{
   const emptyShape=obj.type==='rect'&&!SHOW_CONTROL.cornerStyle;
   // Export applies to every type — boxOf always returns real bounds — so it
   // is appended unconditionally rather than added to each FX_PAGES_RAW list.
-  /* 'Text' has no inspector controls yet (type is set on creation, the copy
-   * is edited on the canvas), so its head would sit over nothing. The book
-   * has no empty sections: the page returns when it has content. */
   return live
     .filter(p=>p!=='Effects'||anyEffect)
     .filter(p=>p!=='Shape'||!emptyShape)
-    .filter(p=>p!=='Text')
     .filter(p=>p!=='Pattern'||SHOW_CONTROL.pattern)
     .concat('Export');
 };
@@ -6217,6 +6280,52 @@ function buildFx(obj){
   $('engineSearchWrap').style.display='none';
 }
 function buildFxSection(obj,page,add,body){
+  if(page==='Text'){
+    /* The book's rows: a word left, one control in the column. The copy is the
+     * one control that takes the row. Values as Figma names them: letter
+     * spacing in px, line height in % of the size (empty = the font's own). */
+    const o=obj;
+    const opts=(pairs,val)=>pairs.map(([v,l])=>`<option value="${esc(String(v))}"${String(v)===String(val)?' selected':''}>${esc(l)}</option>`).join('');
+    const used=[...new Set(allObjects().filter(x=>x.type==='text'&&x.font).map(x=>x.font))];
+    const group=(label,list)=>list.length?`<optgroup label="${esc(label)}">${opts(list.map(f=>[f,f]),o.font)}</optgroup>`:'';
+    add(`<label class="slider">Text<textarea id="txContent" rows="3" spellcheck="false">${esc(o.text)}</textarea></label>`);
+    add(`<label class="slider uiRow"><span>Font</span><select id="txFont">${group('In this document',used)}${group('Google Fonts',Object.keys(FONT_CATALOG.google))}${group('This Mac',FONT_CATALOG.local)}${group('Generic',FONT_CATALOG.generic)}</select></label>`);
+    if(typeof window.queryLocalFonts==='function'&&!FONT_CATALOG.local.length)
+      add(`<div class="rowBtns"><button class="rollBtn" id="txLocalFonts">Load fonts from this Mac…</button></div>`);
+    add(`<label class="slider uiRow"><span>Weight</span><select id="txWeight">${opts(Object.keys(WEIGHT_NAMES).map(w=>[w,w+' '+WEIGHT_NAMES[w]]),o.weight)}</select></label>`);
+    add(`<label class="slider uiRow"><span>Size</span><input type="number" id="txSize" min="8" max="300" step="1" value="${o.size}"></label>`);
+    add(`<label class="slider uiRow"><span>Line height %</span><input type="number" id="txLH" min="70" max="300" step="5" value="${o.lineHeight>0?Math.round(o.lineHeight*100):''}" placeholder="Auto"></label>`);
+    add(`<label class="slider uiRow"><span>Letter spacing</span><input type="number" id="txTrack" min="-10" max="60" step="0.5" value="${o.tracking||0}"></label>`);
+    add(`<label class="slider uiRow"><span>Align</span><select id="txAlign">${opts([['left','Left'],['center','Center'],['right','Right']],o.align)}</select></label>`);
+    add(`<label class="slider uiRow"><span>Case</span><select id="txCase">${opts([['none','As typed'],['upper','Uppercase'],['lower','Lowercase'],['title','Title case']],o.caseTf)}</select></label>`);
+    const sizing=o.mode!=='area'?'width':o.autosize==='height'?'height':'fixed';
+    add(`<label class="slider uiRow"><span>Sizing</span><select id="txSizing">${opts([['width','Auto width'],['height','Auto height'],['fixed','Fixed size']],sizing)}</select></label>`);
+    if(sizing==='fixed') add(`<label class="slider uiRow"><span>Vertical align</span><select id="txValign">${opts([['top','Top'],['middle','Middle'],['bottom','Bottom']],o.valign)}</select></label>`);
+    add(`<div class="fxHint">Letter spacing is in pixels. Line height is a percentage of the size; leave it empty for the font's own. Vertical align applies to a fixed size.</div>`);
+    const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
+    $('txContent').addEventListener('input',e=>{ o.text=e.target.value; paintCacheClear(); render(); });
+    $('txContent').addEventListener('change',()=>commit('Edit text'));
+    $('txFont').addEventListener('change',e=>{ o.font=e.target.value; ensureFont(o); commit('Font'); });
+    const lf=$('txLocalFonts');
+    if(lf) lf.addEventListener('click',async()=>{ try{ await loadLocalFonts(); refresh(); }catch(_){ status('Access to the fonts on this Mac was not allowed.'); } });
+    $('txWeight').addEventListener('change',e=>{ o.weight=+e.target.value; ensureFont(o); commit('Weight'); });
+    $('txSize').addEventListener('change',e=>{ o.size=clamp(Math.round(+e.target.value)||o.size,8,300); commit('Size'); });
+    $('txLH').addEventListener('change',e=>{ const v=e.target.value.trim(); o.lineHeight=v===''?0:clamp((+v||120)/100,0.7,3); commit('Line height'); });
+    $('txTrack').addEventListener('change',e=>{ o.tracking=clamp(+e.target.value||0,-10,60); commit('Letter spacing'); });
+    $('txAlign').addEventListener('change',e=>{ o.align=e.target.value; commit('Align'); });
+    $('txCase').addEventListener('change',e=>{ o.caseTf=e.target.value; commit('Case'); });
+    $('txSizing').addEventListener('change',e=>{
+      const v=e.target.value;
+      if(v==='width') o.mode='point';
+      else{
+        if(o.mode!=='area'){ const L=textLayout(o); o.mode='area'; o.w=Math.max(20,Math.round(L.width)); o.h=Math.max(16,Math.round(L.contentH)); }
+        o.autosize=v==='height'?'height':'fixed';
+      }
+      commit('Sizing');
+    });
+    const va=$('txValign'); if(va) va.addEventListener('change',e=>{ o.valign=e.target.value; commit('Vertical align'); });
+    return;
+  }
 
   if(page==='Shape'){
     const sl=(id,label,min,max,step,key,fmt)=>{
@@ -12103,6 +12212,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
    * door into one model has to use that model's own locks, or the two
    * doors disagree about what a valid object is. */
   makeShape, normPaint, DEFAULT_EFFECTS,
+  fontCss, ensureFont, lineBox, textLayout, loadLocalFonts, FONT_CATALOG,
   compactDoc, compactPages, paintCacheClear,
   autosaveNow, restoreAutosave, clearAutosave, saveDocument, openDocument,
   loadDocumentFromText, serializeDocument,
