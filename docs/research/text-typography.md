@@ -99,6 +99,30 @@ On the page (Chrome 152, 87 % zoom, "Hello world" at 48 px / 600):
   Line height % · Letter spacing · Align · Case · Sizing in the book's rows.
   Gate: `npm run verify` green, 573 tests (6 new). Screenshot in the delivery report.
 
+## Slice 2 — editing on the artboard (same day)
+
+**Acceptance.** Double-click a text layer, or click with the Text tool: type in place, on the
+artboard, in the layer's own font at the current zoom; Esc or a press elsewhere commits one
+history entry; nothing draws twice.
+
+**Mechanism.** A `textarea` (`#textEditor`) is laid over the layer inside `#stage`, styled
+from the layer: font at size × zoom, line height = pitch × zoom, letter spacing × zoom,
+colour, alignment, `text-transform` for case, `white-space: pre` (auto width) or `pre-wrap`
+(area), a CSS rotation for a rotated layer. The canvas draws with `textBaseline = 'top'` (the
+em square's top) while CSS sets the baseline at half-leading + ascent [7][2]; the overlay is
+shifted by `dy = emHeightAscent − (pitch − (A + D)) / 2 − A` so the glyphs coincide (3 px on
+Playfair Display at 48 px, measured). `drawOne` skips the layer while it is being edited; the
+overlay repositions on every frame so pans and zooms keep it in place. Entry: double-click
+(select tool) or the Text tool's release, which creates the layer and edits it with the
+placeholder selected. Exit: Esc, blur (a press anywhere else), commit with one history entry;
+an emptied layer keeps the word "Text".
+
+**Verification.** On the page: overlay at 371 / 574 / 246 × 52 over a layer box at
+371 / 571 / 244 × 50 (2 px of padding, 3 px of baseline shift); font
+`600 41.6px / 49.92px "Playfair Display"` at 87 % zoom; letter spacing 2.08 px; typing
+re-flowed the layer live (width 282 → 774); Esc removed the overlay and left one "Edit text"
+history entry. Gate green, 574 tests (7 in `tests/text-font.test.js`).
+
 ## Open
 
 Justify alignment, paragraph spacing, decoration, small caps, per-range styling, and a

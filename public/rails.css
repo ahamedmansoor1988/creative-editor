@@ -2249,3 +2249,17 @@ body.rails #rightPanel label.slider > textarea {
   line-height: 1.4;
   resize: vertical;
 }
+
+/* ---- in-place text editing: the layer's own glyphs, editable ------------ */
+#textEditor {
+  position: absolute;
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  caret-color: currentColor;
+}

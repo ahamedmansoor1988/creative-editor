@@ -57,6 +57,71 @@ function meshEditable(o){
   const M=o&&o.effects&&o.effects.mesh;
   return !!(o&&M&&M.on&&fxOn(o,'mesh')&&M.points&&M.points.length===M.cols*M.rows);
 }
+/* In-place text editing: a textarea laid over the layer, in its font at the
+ * current zoom; the canvas skips the layer while it is being edited so nothing
+ * draws twice. Enter by double-click, or by the Text tool (which creates the
+ * layer and starts editing); leave by Esc or by pressing anywhere else.
+ * Lab note: docs/research/text-typography.md. */
+let textEditId=null, _textEditor=null;
+/* Canvas draws with textBaseline 'top' (the em square's top); CSS puts the
+ * baseline at half-leading + ascent. dy lines the two up. */
+function textEditMetrics(o){
+  ctx.font=fontCss(o);
+  const m=ctx.measureText('Hg');
+  const A=m.fontBoundingBoxAscent||o.size*0.9, D=m.fontBoundingBoxDescent||o.size*0.25;
+  const emA=m.emHeightAscent!==undefined?m.emHeightAscent:A;
+  const lh=o.size*(o.lineHeight>0?o.lineHeight:lineBox(o));
+  return {lh, dy:emA-(lh-(A+D))/2-A};
+}
+function placeTextEditor(){
+  const ta=_textEditor, f=textEditId&&findById(textEditId);
+  if(!ta||!f) return;
+  const o=f.obj, z=view.z;
+  const r=canvas.getBoundingClientRect(), st=$('stage').getBoundingClientRect();
+  const L=textLayout(o), b=textBox(o), M=textEditMetrics(o);
+  const area=o.mode==='area', fixed=area&&o.autosize==='fixed';
+  let ty=o.y;
+  if(fixed){ if(o.valign==='middle') ty+=Math.max(0,(o.h-L.contentH)/2); else if(o.valign==='bottom') ty+=Math.max(0,o.h-L.contentH); }
+  const w=area?o.w:Math.max(L.width,o.size), h=fixed?o.h:L.contentH;
+  const fam=o.font&&o.font!=='Inter'?'"'+String(o.font).replace(/"/g,'')+'", ':'';
+  Object.assign(ta.style,{
+    left:(r.left-st.left+view.x+b.x*z)+'px', top:(r.top-st.top+view.y+(ty+M.dy)*z)+'px',
+    width:(w*z+2)+'px', height:(h*z+2)+'px',
+    font:`${o.weight||400} ${o.size*z}px ${fam}${FONT_FALLBACK}`,
+    lineHeight:(M.lh*z)+'px', letterSpacing:((o.tracking||0)*z)+'px', color:o.color,
+    textAlign:o.align, whiteSpace:area?'pre-wrap':'pre',
+    textTransform:({upper:'uppercase',lower:'lowercase',title:'capitalize'})[o.caseTf]||'none',
+    transform:o.rot?`rotate(${o.rot}deg)`:'none', transformOrigin:'50% 50%'});
+}
+function startTextEdit(id,selectAll){
+  const f=findById(id); if(!f||f.obj.type!=='text') return;
+  if(textEditId) endTextEdit(true);
+  textEditId=id;
+  const o=f.obj;
+  const ta=document.createElement('textarea');
+  ta.id='textEditor'; ta.spellcheck=false; ta.value=o.text; ta.setAttribute('aria-label','Edit text');
+  $('stage').appendChild(ta); _textEditor=ta;
+  ta.addEventListener('input',()=>{ o.text=ta.value; paintCacheClear(); render(); placeTextEditor(); syncInspector(); });
+  ta.addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Escape'){ e.preventDefault(); endTextEdit(true); } });
+  ta.addEventListener('pointerdown',e=>e.stopPropagation());
+  ta.addEventListener('blur',()=>{ if(textEditId===id) endTextEdit(true); });
+  paintCacheClear(); render(); placeTextEditor();
+  ta.focus();
+  if(selectAll) ta.select(); else ta.setSelectionRange(ta.value.length,ta.value.length);
+  // follow pans and zooms while editing
+  if(typeof requestAnimationFrame==='function'){ const tick=()=>{ if(textEditId===id){ placeTextEditor(); requestAnimationFrame(tick); } }; requestAnimationFrame(tick); }
+}
+function endTextEdit(commit){
+  if(!textEditId) return;
+  const f=findById(textEditId), ta=_textEditor;
+  textEditId=null; _textEditor=null;
+  if(ta) ta.remove();
+  if(f&&f.obj.type==='text'&&commit&&ta){
+    f.obj.text=ta.value.trim()?ta.value:'Text';
+    pushHistory('Edit text');
+  }
+  paintCacheClear(); refresh();
+}
 function setMeshEdit(on){
   on=!!on&&selIds.size===1&&meshEditable(primary());
   if(on===meshEdit) return;
@@ -3046,6 +3111,7 @@ function paintCacheable(obj){
   return worth;
 }
 function drawOne(c,W,H,obj){
+  if(obj.type==='text'&&obj.id===textEditId) return; // the overlay shows it while it is edited
   if(paintCacheable(obj)){
     const sig=paintSig(obj);
     let ent=_paintCache.get(obj.id);
@@ -9895,7 +9961,9 @@ const endDrag=e=>{
     activeList().push(obj);
     setSel(activeList().length-1);
     setTool('select');
-    pushHistory(); refresh(); return;
+    pushHistory(); refresh();
+    if(obj.id) startTextEdit(obj.id,true); // type straight away, replacing the placeholder
+    return;
   }
   if(d.mode==='cropRect'){
     marquee=null;
@@ -10926,6 +10994,7 @@ canvas.addEventListener('dblclick',e=>{
   // §6.9 select tool: double-click enters a container, or starts node editing
   if(tool==='select'){
     const o=hitObj(p.x,p.y);
+    if(o&&o.type==='text'){ if(!selIds.has(o.id)||selIds.size!==1) setSelIds(new Set([o.id])); startTextEdit(o.id,false); return; }
     if(o&&meshEditable(o)){ if(!selIds.has(o.id)||selIds.size!==1) setSelIds(new Set([o.id])); setMeshEdit(true); return; }
     if(o&&CONTAINER(o)){ enterContainer(o.id); return; }
     if(o&&o.type==='path'){
@@ -12213,6 +12282,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
    * doors disagree about what a valid object is. */
   makeShape, normPaint, DEFAULT_EFFECTS,
   fontCss, ensureFont, lineBox, textLayout, loadLocalFonts, FONT_CATALOG,
+  startTextEdit, endTextEdit, get textEditId(){return textEditId;},
   compactDoc, compactPages, paintCacheClear,
   autosaveNow, restoreAutosave, clearAutosave, saveDocument, openDocument,
   loadDocumentFromText, serializeDocument,
