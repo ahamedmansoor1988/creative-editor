@@ -1606,7 +1606,7 @@ body.rails #rightPanel .row2:has(input[type="range"]):has(select) {
   display: block;
 }
 body.rails #rightPanel .row2:has(input[type="range"]):has(select) > label.slider {
-  margin: 6px 0;
+  margin: 0; /* the rows' 5px padding carries the pitch */
 }
 /* the prompt is a field like any other: 30 tall */
 body.rails #prompt {
@@ -1681,4 +1681,55 @@ body.rails .floating,
 body.rails #leftPanel,
 body.rails #rightPanel {
   background: var(--panel-solid);
+}
+
+/* ---- ui-designer pass 4: one vertical rhythm in the inspector --------------
+ * A control row is 30 tall with 5 above and 5 below (pitch 40); a range row
+ * is its label line plus the track (pitch 50); sub-heads take the section
+ * head's 18/10. Every row type had carried its own margin. */
+body.rails #rightPanel label.slider,
+body.rails #rightPanel label.chk,
+body.rails #rightPanel label.uiRow,
+body.rails #rightPanel label.uiSwitchRow,
+body.rails #rightPanel .apRow,
+body.rails #rightPanel .row2 > label.slider,
+body.rails #rightPanel .rollBtn,
+body.rails #rightPanel .ui-steppers,
+body.rails #rightPanel .ui-pchips {
+  /* padding, not margin: sibling margins collapse and the pitch drifts */
+  margin: 0;
+  padding: 5px 0;
+}
+body.rails #rightPanel .apRow {
+  height: auto;
+  min-height: 40px;
+  align-items: center;
+}
+body.rails #rightPanel .row2 {
+  margin: 0;
+}
+body.rails #rightPanel label.slider > input[type="range"] {
+  margin-top: 0;
+}
+body.rails #rightPanel .fxHint {
+  margin: 2px 0 6px;
+}
+body.rails #rightPanel .appearanceSubhead {
+  margin: 0;
+  padding: 18px 0 10px;
+  font-size: var(--t-section);
+  font-weight: 700;
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* the two rows that still broke the pitch: an inline margin on the paint
+   pair, and the Visible row's own padding */
+body.rails #rightPanel .row2 {
+  margin: 0 !important;
+}
+body.rails #rightPanel .apRow {
+  padding: 5px 0;
+  height: 40px;
+  min-height: 0;
 }
