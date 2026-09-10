@@ -3230,6 +3230,7 @@ function drawOneInner(c,W,H,obj){
           c.translate(-cx,-cy);
         }
         c.globalAlpha=o.opacity;
+        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
         pathFor(c,o); c.clip();
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
@@ -3291,6 +3292,7 @@ function drawOneInner(c,W,H,obj){
         c.imageSmoothingEnabled=true;
         if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
         c.globalAlpha=obj.opacity;
+        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend); // the layer blend, as the fill path applies it
         c.beginPath(); pathFor(c,g); c.clip();
         c.drawImage(img,g.x,g.y,g.w,g.h);
         c.restore();
@@ -3315,6 +3317,7 @@ function drawOneInner(c,W,H,obj){
         c.save();
         applyObjectTransform(c,o);
         c.globalAlpha=obj.opacity;
+        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
         c.beginPath(); pathFor(c,o); c.clip();
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
