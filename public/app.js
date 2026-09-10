@@ -9181,31 +9181,12 @@ canvas.addEventListener('pointerdown',e=>{
     drag={mode:'draw',kind:tool,ox:p.x,oy:p.y,obj,moved:false};
     cap(); refresh(); return;
   }
-  // §2.6: transform handles come before hit-testing — the rotate zones (and
-  // corner grips at the exact boundary) sit OUTSIDE the object, where hit()
-  // misses and the marquee would swallow the gesture.
-  const prim0=primary();
-  if(prim0&&!prim0.locked&&selIds.size===1&&prim0.type!=='line'){
-    const grab=handleAt(prim0,p);
-    if(grab&&grab.kind==='resize'){
-      const b0=boxOf(prim0);
-      buildSnapIndex(new Set([prim0.id]));
-      drag={mode:'resize',ix:grab.ix,b0:{...b0},rot:prim0.rot||0,size0:prim0.size,
-        pts0:prim0.type==='path'?(prim0.subpaths||[]).map(sp=>sp.points.map(q=>({...q}))):null};
-      cap(); return;
-    }
-    if(grab&&grab.kind==='rotate'){
-      const b0=boxOf(prim0);
-      const cx=b0.x+b0.w/2, cy=b0.y+b0.h/2;
-      drag={mode:'rotate',cx,cy,rot0:prim0.rot||0,a0:Math.atan2(p.y-cy,p.x-cx),
-        copy:JSON.stringify(prim0)};
-      cap(); return;
-    }
-  }
-  /* §4.7 mesh handles take priority over a body hit on their own object: the
-   * handles sit ON the shape, so without this every grab would move the shape
-   * instead of the point under the cursor. Same standing as the line endpoint
-   * grips below, and for the same reason. */
+  /* §4.7 mesh handles come FIRST — before the transform grips as well as the
+   * body hit. Edge and corner points of the net sit exactly on the shape's
+   * resize grips (an edge midpoint IS the side grip), so tested after them a
+   * press there resized the shape and the point could never be moved. While
+   * the net is shown, the point under the cursor wins; the grips are one
+   * pixel away in every direction. */
   (function(){
     const ME=window.MeshGradient;
     if(!ME||!ME.available()) return;
@@ -9229,6 +9210,27 @@ canvas.addEventListener('pointerdown',e=>{
     cap(); refresh();
   })();
   if(drag&&drag.mode==='meshPt') return;
+  // §2.6: transform handles come before hit-testing — the rotate zones (and
+  // corner grips at the exact boundary) sit OUTSIDE the object, where hit()
+  // misses and the marquee would swallow the gesture.
+  const prim0=primary();
+  if(prim0&&!prim0.locked&&selIds.size===1&&prim0.type!=='line'){
+    const grab=handleAt(prim0,p);
+    if(grab&&grab.kind==='resize'){
+      const b0=boxOf(prim0);
+      buildSnapIndex(new Set([prim0.id]));
+      drag={mode:'resize',ix:grab.ix,b0:{...b0},rot:prim0.rot||0,size0:prim0.size,
+        pts0:prim0.type==='path'?(prim0.subpaths||[]).map(sp=>sp.points.map(q=>({...q}))):null};
+      cap(); return;
+    }
+    if(grab&&grab.kind==='rotate'){
+      const b0=boxOf(prim0);
+      const cx=b0.x+b0.w/2, cy=b0.y+b0.h/2;
+      drag={mode:'rotate',cx,cy,rot0:prim0.rot||0,a0:Math.atan2(p.y-cy,p.x-cx),
+        copy:JSON.stringify(prim0)};
+      cap(); return;
+    }
+  }
   // line endpoint grips take priority over a body hit on the primary line
   const prim=primary();
   if(prim&&prim.type==='line'&&selIds.size===1&&!prim.locked){
