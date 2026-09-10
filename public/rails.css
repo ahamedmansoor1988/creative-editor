@@ -1641,3 +1641,14 @@ body.rails #topbar {
     display: none;
   }
 }
+
+/* a switch row reads label first, control right — the paint rows' "Visible" too */
+body.rails label.chk {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-label);
+  color: var(--muted);
+}

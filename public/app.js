@@ -6550,7 +6550,7 @@ function buildFxSection(obj,page,add,body){
             <input type="range" class="apDashOff" data-i="${fi}" min="-100" max="100" value="${Math.round(f.dashOffset)}"></label>`);
         }
         add(`<div class="row2">
-          <label class="slider">Opacity <input type="range" class="apEOp" data-i="${fi}" min="0" max="100" value="${Math.round(f.opacity*100)}"></label>
+          <label class="slider">Opacity <span class="apEOpV">${Math.round(f.opacity*100)}%</span><input type="range" class="apEOp" data-i="${fi}" min="0" max="100" value="${Math.round(f.opacity*100)}"></label>
           <label class="slider">Blend<select class="apBlend" data-i="${fi}">`+
           BLEND_MODES.map(m=>`<option value="${m}">${m}</option>`).join('')+`</select></label>
         </div>`);
@@ -6632,7 +6632,7 @@ function buildFxSection(obj,page,add,body){
         f.dash=e.target.value.split(/[,\s]+/).map(v=>parseFloat(v)).filter(v=>Number.isFinite(v)&&v>=0);
       });
       each('apDashOff','input',(f,e,el)=>{ f.dashOffset=+e.target.value; const sp=$('apDO'+I(el)); if(sp) sp.textContent=e.target.value; });
-      each('apEOp','input',(f,e)=>f.opacity=+e.target.value/100);
+      each('apEOp','input',(f,e)=>{ f.opacity=+e.target.value/100; const v=e.target.parentElement.querySelector('.apEOpV'); if(v) v.textContent=Math.round(f.opacity*100)+'%'; });
       each('apBlend','change',(f,e)=>f.blend=e.target.value);
       each('apUp','click',(f,e,el)=>{ const i2=I(el); [obj[key][i2],obj[key][i2+1]]=[obj[key][i2+1],obj[key][i2]]; },true);
       each('apDn','click',(f,e,el)=>{ const i2=I(el); [obj[key][i2],obj[key][i2-1]]=[obj[key][i2-1],obj[key][i2]]; },true);
@@ -11779,7 +11779,7 @@ async function probeProvider(){
     btn.setAttribute('aria-disabled',String(!aiAvailable));
     if(!aiAvailable){
       btn.title=cfg.reason||'AI is not configured on this server.';
-      box.placeholder='AI unavailable — set GROQ_API_KEY in .env, or run npm run dev:mock';
+      // the status line beside the field already says why; the field keeps its own placeholder
       box.disabled=true;
       status('AI not configured — see README setup',true);
     } else if(cfg.mode==='mock'){
