@@ -47,6 +47,24 @@ let enteredId=null;
 let snapCfg={on:true, radius:7,
   edges:true, centers:true, anchors:true, guides:true, grid:true, artboard:true};
 let showRulers=true;
+/* Edit net mode. The mesh handles and the resize grips share the box edge,
+ * so one of them has to own the pointer: outside the mode the grips do;
+ * inside it only the net's points are interactive. Enter by double-click,
+ * Enter, or the Net section's button; leave with Esc, a press on empty
+ * canvas, or the same button. Option-drag grabs a point without entering. */
+let meshEdit=false;
+function meshEditable(o){
+  const M=o&&o.effects&&o.effects.mesh;
+  return !!(o&&M&&M.on&&fxOn(o,'mesh')&&M.points&&M.points.length===M.cols*M.rows);
+}
+function setMeshEdit(on){
+  on=!!on&&selIds.size===1&&meshEditable(primary());
+  if(on===meshEdit) return;
+  meshEdit=on;
+  if(on){ _collapsed.delete('Selected point'); saveCollapsed(); }
+  else meshSel=null;
+  refresh();
+}
 /* The floating panels keep clear of the rulers through this class (rails.css). */
 function syncRulersClass(){ if(document.body) document.body.classList.toggle('rulers',showRulers); }
 syncRulersClass();
@@ -1577,6 +1595,7 @@ function activeList(){
 /* ================= selection model ================= */
 /** Single-select: collapses the id-set to one object (or none). */
 function setSel(i){
+  if(meshEdit){ const o=i>=0&&activeList()[i]; if(!o||!selIds.has(o.id)) meshEdit=false; }
   sel=i;
   selIds.clear();
   const o=i>=0&&activeList()[i];
@@ -1584,6 +1603,7 @@ function setSel(i){
 }
 /** Multi-select from ids. `primaryId` (default: last id) becomes `sel`. */
 function setSelIds(ids,primaryId){
+  if(meshEdit){ const a=[...ids]; if(a.length!==1||!selIds.has(a[0])) meshEdit=false; }
   selIds=new Set(ids);
   if(!doc||!selIds.size){ sel=-1; return; }
   // drop ids that no longer exist ANYWHERE in the tree
@@ -4218,13 +4238,14 @@ function paint(){
     const o=primary();
     if(!o||!o.effects||!o.effects.mesh) return;
     const M=o.effects.mesh;
-    if(!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
+    if(!M.on||!fxOn(o,'mesh')) return;
+    if(!meshEdit&&M.showNet===false) return; // the preview is optional; the mode always shows the net
     if(!M.points||M.points.length!==M.cols*M.rows) return;
     const b=boxOf(o);
     ctx.save();
     applyObjectTransform(ctx,o); // the net turns with the shape, like the selection box
     ctx.lineWidth=1/z;
-    ctx.strokeStyle='rgba(255,255,255,.85)';
+    ctx.strokeStyle=meshEdit?'rgba(255,255,255,.85)':'rgba(255,255,255,.45)';
     /* SEGMENTS FOLLOW THE ZOOM. This was a flat 32, which is a segment every
      * 12 document pixels on a 400px shape — and at 5x zoom, every 62 SCREEN
      * pixels. The curves visibly went polygonal exactly when a user leaned in
@@ -4252,7 +4273,7 @@ function paint(){
       stroke(ME.sampleCurve(M.points,M.cols,M.rows,'u',M.rows===1?0:r/(M.rows-1),STEPS));
     for(let c2=0;c2<M.cols;c2++)
       stroke(ME.sampleCurve(M.points,M.cols,M.rows,'v',M.cols===1?0:c2/(M.cols-1),STEPS));
-    M.points.forEach((pt,i)=>{
+    if(meshEdit) M.points.forEach((pt,i)=>{ // handles only where they can be grabbed
       const x=b.x+pt.x*b.w, y=b.y+pt.y*b.h;
       ctx.beginPath(); ctx.arc(x,y,(i===meshSel?6:5)/z,0,Math.PI*2);
       ctx.fillStyle=rgbHex(pt.color); ctx.fill();
@@ -4279,13 +4300,14 @@ function paint(){
     if(o.rot){ const cx=b.x+b.w/2, cy=b.y+b.h/2;
       ctx.translate(cx,cy); ctx.rotate(o.rot*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
+    if(meshEdit&&o===primary()){ ctx.lineWidth=1/z; ctx.setLineDash([4/z,3/z]); } // editing: a thin dashed frame, no grips
     ctx.strokeRect(b.x,b.y,b.w,b.h);
     ctx.restore();
   });
   // §2.6: eight handles on the primary object, drawn in its rotated frame,
   // constant screen size. Lines keep their endpoint grips instead.
   const obj=primary();
-  if(obj&&obj.type!=='line'&&!obj.locked&&selIds.size===1&&tool==='select'){
+  if(obj&&obj.type!=='line'&&!obj.locked&&selIds.size===1&&tool==='select'&&!meshEdit){
     handlePts(obj).forEach(h=>{
       const hs=7/z;
       ctx.fillStyle='#fff'; ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.6/z;
@@ -8002,6 +8024,9 @@ function buildFxSection(obj,page,add,body){
       /* ---- Net: two steppers. Resizing RESAMPLES the surface, so the
        * artwork carries across instead of resetting. */
       add(`<div class="pSect">Net</div>`);
+      add(`<div class="rowBtns"><button class="rollBtn" id="mshEdit">${meshEdit?'Done':'Edit net'}</button></div>`);
+      if(meshEdit) add(`<div class="fxHint">Editing the net — drag its points on the canvas. Esc to finish.</div>`);
+      $('mshEdit').addEventListener('click',()=>setMeshEdit(!meshEdit));
       add(`<div class="ui-steppers">
         <div><span class="ui-label">Columns</span><div class="ui-stepper" id="mshC"><button type="button" aria-label="Fewer columns">−</button><output>${M.cols}</output><button type="button" aria-label="More columns">+</button></div></div>
         <div><span class="ui-label">Rows</span><div class="ui-stepper" id="mshR"><button type="button" aria-label="Fewer rows">−</button><output>${M.rows}</output><button type="button" aria-label="More rows">+</button></div></div>
@@ -9223,8 +9248,9 @@ canvas.addEventListener('pointerdown',e=>{
     const o=primary();
     if(!o||selIds.size!==1||o.locked) return;
     const M=o.effects&&o.effects.mesh;
-    if(!M||!M.on||M.showNet===false||!fxOn(o,'mesh')) return;
+    if(!M||!M.on||!fxOn(o,'mesh')) return;
     if(!M.points||M.points.length!==M.cols*M.rows) return;
+    if(!meshEdit&&!e.altKey) return; // outside the mode the grips own the edge
     const b=boxOf(o), grip=11/view.z;
     const L=localPoint(o,p); // the net lives in the shape's own frame
     let best=-1, bd=grip*grip;
@@ -9241,6 +9267,13 @@ canvas.addEventListener('pointerdown',e=>{
     cap(); refresh();
   })();
   if(drag&&drag.mode==='meshPt') return;
+  if(meshEdit){
+    // in the mode a press on the shape does nothing else; a press off it leaves the mode
+    const o=primary();
+    if(o&&hitObj(p.x,p.y)===o) return;
+    setMeshEdit(false);
+    return;
+  }
   // §2.6: transform handles come before hit-testing — the rotate zones (and
   // corner grips at the exact boundary) sit OUTSIDE the object, where hit()
   // misses and the marquee would swallow the gesture.
@@ -10784,6 +10817,7 @@ canvas.addEventListener('dblclick',e=>{
   // §6.9 select tool: double-click enters a container, or starts node editing
   if(tool==='select'){
     const o=hitObj(p.x,p.y);
+    if(o&&meshEditable(o)){ if(!selIds.has(o.id)||selIds.size!==1) setSelIds(new Set([o.id])); setMeshEdit(true); return; }
     if(o&&CONTAINER(o)){ enterContainer(o.id); return; }
     if(o&&o.type==='path'){
       const i=activeList().indexOf(o);
@@ -11556,6 +11590,9 @@ document.addEventListener('keydown',e=>{
   else if(meta&&e.key==='1'){ e.preventDefault(); zoomTo(1); }
   else if(meta&&e.key==='2'){ e.preventDefault(); zoomTo(2); }
   else if(!meta&&e.shiftKey&&e.code==='Digit2'){ e.preventDefault(); zoomToSelection(); }
+  else if(e.key==='Escape'&&meshEdit){ e.preventDefault(); setMeshEdit(false); }
+  else if(e.key==='Enter'&&!meshEdit&&tool==='select'&&selIds.size===1&&meshEditable(primary())
+          &&!/^(INPUT|SELECT|TEXTAREA)$/.test(((document.activeElement||{}).tagName)||'')){ e.preventDefault(); setMeshEdit(true); }
   else if(e.key==='Escape'&&$('pageModal').style.display!=='none'){ closePageModal(); }
   else if((e.key==='Escape'||e.key==='Enter')&&penDraft){ e.preventDefault(); penCommit(); }
   else if(e.key==='Escape'&&tool==='node'&&nodeSel){ nodeSel=null; setTool('select'); paint(); }
