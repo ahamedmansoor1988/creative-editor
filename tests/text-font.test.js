@@ -86,7 +86,7 @@ describe("typography (docs/research/text-typography.md)", () => {
 
   it("edits in place: a textarea over the layer, in its font, committed on Escape", () => {
     const t = textDoc({ font: "Lora" });
-    const n0 = editor.historySize();
+    const n0 = editor.historyList().length; // entries, not bytes
     editor.startTextEdit(t.id, true);
     const ta = /** @type {HTMLTextAreaElement} */ (document.getElementById("textEditor"));
     expect(ta).toBeTruthy();
@@ -101,7 +101,7 @@ describe("typography (docs/research/text-typography.md)", () => {
     expect(document.getElementById("textEditor")).toBeNull();
     expect(editor.textEditId).toBeNull();
     expect(t.text).toBe("Changed");
-    expect(editor.historySize()).toBe(n0 + 1);
+    expect(editor.historyList().length).toBe(n0 + 1);
   });
 
   it("editing the rows writes the layer and keeps history", () => {
