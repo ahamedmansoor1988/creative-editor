@@ -1733,3 +1733,151 @@ body.rails #rightPanel .apRow {
   height: 40px;
   min-height: 0;
 }
+
+/* ---- ui-designer pass 5: the artboard inspector joins the book ------------
+ * Its rows were the legacy icon-field grid: selects and numbers took the
+ * row, the colour trigger was boxed to the native input's 38px so its hex
+ * spilled past the panel (which then scrolled sideways), the two toggles and
+ * the two actions each took half a row, and every row carried its own
+ * margin. Same language as the shape pages: icon or label left, control at
+ * its own width right, 5/5 rows. */
+body.rails #rightPanel .fieldRow,
+body.rails #rightPanel .grid4,
+body.rails #rightPanel #artboardPanel > .iconField,
+body.rails #rightPanel .checkRow,
+body.rails #rightPanel .iconToggleRow {
+  margin: 0 !important; /* the rows carry inline margin-tops */
+  padding: 5px 0;
+}
+body.rails #rightPanel .fieldRow > .iconField,
+body.rails #rightPanel .grid4 > .iconField {
+  margin: 0;
+}
+/* a select or a number is as wide as its content (rules 1, 4) */
+body.rails .iconField:has(> select),
+body.rails .iconField:has(> input[type="number"]) {
+  justify-content: space-between;
+}
+body.rails .iconField > select {
+  width: max-content;
+  flex: 0 0 auto;
+  max-width: 160px;
+}
+body.rails .iconField > input[type="number"] {
+  width: 64px;
+  flex: 0 0 auto;
+  text-align: right;
+}
+/* the colour trigger keeps its own width: the 38px box was the native input's (rule 13) */
+body.rails .fieldRow > .ui-cswatch {
+  flex: 0 0 auto;
+  width: auto;
+}
+body.rails .fieldRow > button:not(.ui-cswatch) {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+}
+/* Clip content reads like every other switch row: label left, switch right */
+body.rails #rightPanel .checkRow {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 0;
+  background: none;
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+/* lock and visibility are icon buttons at their own size (rule 3) */
+body.rails .iconToggleRow {
+  gap: 6px;
+}
+body.rails .iconToggleRow button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--r-field);
+  border-color: var(--border);
+}
+/* two actions share a row (rules 3, 14) */
+body.rails .abActions > button {
+  grid-column: auto !important; /* the markup pins span 2 inline */
+  height: 30px;
+}
+
+/* ---- ui-designer pass 5: the effect recipe is a list -----------------------
+ * The step rows were filled cards with a centred name (the row's buttons
+ * inherit a centred flex reset); the head stacked its title over the count;
+ * pass 4's row padding had landed on the Add button itself and squeezed its
+ * label. Now: the head is one line (title, count, button at its own width),
+ * the rows are the book's list rows (30 tall, fill on hover and on the
+ * selected step), and the hint sits under the list it explains. */
+body.rails #rightPanel .rollBtn {
+  margin: 5px 0;
+  padding: 0 9px;
+}
+body.rails #rightPanel .recipeHead {
+  margin: 0;
+  padding: 5px 0;
+}
+body.rails #rightPanel .recipeHead .rollBtn {
+  margin: 0;
+}
+body.rails .recipeHead > div {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+body.rails .recipeHead b {
+  font-size: var(--t-body);
+  font-weight: 600;
+}
+body.rails .recipeHead span {
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+body.rails #rightPanel .recipeHint {
+  margin: 2px 0 6px !important; /* style.css pins its own !important margin */
+}
+body.rails #fxBody .fxRow {
+  height: 30px;
+  margin: 0;
+  padding: 0 1px;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--r-field);
+  background: none;
+  opacity: 0.62;
+}
+body.rails #fxBody .fxRow.on {
+  opacity: 1;
+  background: none;
+}
+body.rails #fxBody .fxRow:hover,
+body.rails #fxBody .fxRow.active {
+  background: var(--field);
+  box-shadow: none;
+}
+body.rails #fxBody .fxRow .fxName {
+  justify-content: flex-start;
+  padding: 0 4px;
+  font-size: var(--t-body);
+  font-weight: 500;
+  color: var(--ink);
+}
+body.rails #fxBody .fxRow .fxEye,
+body.rails #fxBody .fxRow .fxMore {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-field);
+}
+/* a switch row is a control row: 40 pitch like the rest */
+body.rails #rightPanel .checkRow,
+body.rails #rightPanel label.uiSwitchRow {
+  box-sizing: border-box;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}

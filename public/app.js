@@ -6704,7 +6704,6 @@ function buildFxSection(obj,page,add,body){
       const recipe=visibleRecipeEntries(obj);
       add(`<div class="recipeHead"><div><b>Effect recipe</b><span>${recipe.length} step${recipe.length===1?'':'s'}</span></div>
         <button class="rollBtn" id="recipeAdd">${IC('plus',12)} Add effect</button></div>`);
-      add(`<div class="fxHint recipeHint">Processed bottom to top. Select a step to edit it.</div>`);
       if(shadowed.length){
         add(`<div class="fxWarn">${shadowed.length} material effect${shadowed.length===1?' is':'s are'}
           enabled below <b>${FS.label(mat.type)}</b> and cannot show —
@@ -6731,6 +6730,8 @@ function buildFxSection(obj,page,add,body){
         </div>`);
       });
       if(!recipe.length) add(`<div class="recipeEmpty">No effects yet. Add one to build a reusable recipe.</div>`);
+      /* the hint explains the list, so it sits under it (brand book: a hint follows its control) */
+      add(`<div class="fxHint recipeHint">Processed bottom to top. Select a step to edit it.</div>`);
       const wire=(cls,fn)=>body.querySelectorAll('.'+cls).forEach(el=>
         el.addEventListener('click',ev=>{ ev.stopPropagation(); fn(+el.dataset.i,el); }));
       $('recipeAdd').addEventListener('click',()=>{ const b=$('enginesOpen'); if(b) b.click(); });
