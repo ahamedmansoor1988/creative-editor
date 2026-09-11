@@ -4034,8 +4034,13 @@ function pathHit(o,px,py,tol){
   hitCtx.beginPath(); pathPath(hitCtx,o);
   hitCtx.lineWidth=Math.max(tol*2,(o.stroke?o.stroke.width:3)+tol);
   const anyClosed=(o.subpaths||[]).some(sp=>sp.closed);
-  if(o.fillOn&&anyClosed&&
-     hitCtx.isPointInPath(px,py,o.fillRule==='evenodd'?'evenodd':'nonzero')) return true;
+  /* The painted region counts: the fill of a closed, filled path, or the
+   * stroke. A path that is ALREADY selected can also be grabbed from inside
+   * its outline (the implicit closed region), so an unfilled or open path
+   * moves like a shape once you have it — clicking its stroke, the marquee or
+   * the layer list still does the selecting. */
+  const grabbable=(o.fillOn&&anyClosed)||(o.id&&selIds.has(o.id));
+  if(grabbable&&hitCtx.isPointInPath(px,py,o.fillRule==='evenodd'?'evenodd':'nonzero')) return true;
   return hitCtx.isPointInStroke(px,py);
 }
 /* §2.7: visual AABB of a possibly-rotated object. boxOf stays the unrotated
@@ -9785,12 +9790,11 @@ canvas.addEventListener('pointermove',e=>{
     const ab=drag.ab;
     if(!ab.locked){
       ab.x=drag.ox+ddx; ab.y=drag.oy+ddy;
-      // content follows the board, exactly like the panel's X/Y inputs
-      drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
-        if(o.locked) return;
-        o.x=ox+ddx; o.y=oy+ddy;
-        if(o.type==='line'){ o.x2=ox2+ddx; o.y2=oy2+ddy; }
-      });
+      // content follows the board, exactly like the panel's X/Y inputs —
+      // through translateObj, so paths and containers come along too
+      const adx=drag.adx||0, ady=drag.ady||0;
+      drag.offs.forEach(({o})=>{ if(o.locked) return; translateObj(o,ddx-adx,ddy-ady); });
+      drag.adx=ddx; drag.ady=ddy;
       growFrameToArtboards();
     }
     render(); syncInspector(); return;
@@ -9804,6 +9808,7 @@ canvas.addEventListener('pointermove',e=>{
       doc.frame.children.push(...clones);
       setSelIds(new Set(clones.map(c2=>c2.id)));
       drag.offs=clones.map(o=>({o,ox:o.x,oy:o.y,ox2:o.x2,oy2:o.y2}));
+      drag.adx=0; drag.ady=0; // the clones start where the originals sit
       drag.clickI=doc.frame.children.length-1;
       syncLayers();
     }
@@ -9820,11 +9825,12 @@ canvas.addEventListener('pointermove',e=>{
       ddx+=Math.round(sn.dx); ddy+=Math.round(sn.dy);
       if(e.shiftKey){ if(Math.abs(ddx)>Math.abs(ddy)) ddy=0; else ddx=0; }
     }
-    drag.offs.forEach(({o,ox,oy,ox2,oy2})=>{
-      if(o.locked) return;
-      o.x=ox+ddx; o.y=oy+ddy;
-      if(o.type==='line'){ o.x2=ox2+ddx; o.y2=oy2+ddy; }
-    });
+    /* Through translateObj, as every mover must: a path's anchors and a
+     * container's children move with it. The delta is applied incrementally,
+     * so no object type needs a position snapshot. */
+    const adx=drag.adx||0, ady=drag.ady||0;
+    drag.offs.forEach(({o})=>{ if(o.locked) return; translateObj(o,ddx-adx,ddy-ady); });
+    drag.adx=ddx; drag.ady=ddy;
     render(); syncInspector(); return;
   }
   if(drag.mode==='rotate'){
@@ -12301,7 +12307,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
    * door into one model has to use that model's own locks, or the two
    * doors disagree about what a valid object is. */
   makeShape, normPaint, DEFAULT_EFFECTS,
-  fontCss, ensureFont, lineBox, textLayout, loadLocalFonts, FONT_CATALOG,
+  fontCss, ensureFont, lineBox, textLayout, loadLocalFonts, FONT_CATALOG, hitObj,
   startTextEdit, endTextEdit, get textEditId(){return textEditId;},
   compactDoc, compactPages, paintCacheClear,
   autosaveNow, restoreAutosave, clearAutosave, saveDocument, openDocument,
