@@ -4626,8 +4626,9 @@ function paint(){
     ctx.stroke();
     ctx.restore();
   });
-  // §2.11 live alignment guides, drawn only while a snap is active
-  if(snapLines.length){
+  // §2.11 live alignment guides, drawn only while an interaction is live — a
+  // drag, or the pen placing anchors. The pen's snaps used to outlive the path.
+  if(snapLines.length&&(drag||penDraft)){
     ctx.save();
     ctx.strokeStyle='#f43f5e'; ctx.lineWidth=1/z;
     ctx.setLineDash([5/z,3/z]);
@@ -10058,6 +10059,7 @@ function relinkPath(o){
   o.subpaths[0].closed=o.closed;
 }
 function penCommit(){
+  snapLines=[]; // the pen's last snap must not outlive the path
   const o=penObj();
   relinkPath(o);
   penDraft=null; penHover=null;
