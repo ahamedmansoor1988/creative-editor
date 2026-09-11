@@ -12491,48 +12491,53 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     const C=EC(); if(!C) return;
     const obj=primary();
 
+    /* One line says the state; the rows say what each engine does. */
     const tgt=$('engTarget');
     if(tgt) tgt.textContent=obj
-      ? 'Layer: '+(obj.name||obj.type)
+      ? 'Applies to '+(obj.name||obj.type)+'.'
       : 'No layer selected — pick one to apply an engine.';
 
+    const ready=C.search('').filter(i=>!i.hidden&&C.status(i.id)===C.READY);
+    const inCat=(i,id)=>id==='all'||(id==='effect'?(i.category==='effect'||i.category==='shader'):i.category===id);
     const cats=$('engCats');
     if(cats&&!cats.childElementCount){
       [{id:'all',label:'All'},{id:'fill',label:'Fills'},{id:'effect',label:'Effects'},{id:'filter',label:'Filters'}].forEach(c=>{
         const b=document.createElement('button');
-        b.className='engCat'; b.type='button';
-        const icon=c.id==='fill'?'palette':c.id==='effect'?'sparkles':c.id==='filter'?'sliders':'layers';
+        b.className='engCat ui-sbc'; b.type='button'; b.dataset.cat=c.id;
+        const icon=c.id==='fill'?'palette':c.id==='effect'?'sparkles':c.id==='filter'?'sliders':'grid';
         b.innerHTML=(window.Icons?Icons.svg(icon,{size:12}):'')+'<span>'+c.label+'</span>';
-        b.setAttribute('aria-pressed',String(engFilter===c.id));
-        b.addEventListener('click',()=>{ engFilter=c.id;
-          cats.querySelectorAll('.engCat').forEach(x=>x.setAttribute('aria-pressed','false'));
-          b.setAttribute('aria-pressed','true'); engRender(); });
+        b.addEventListener('click',()=>{ engFilter=c.id; engRender(); });
         cats.appendChild(b);
       });
     }
+    /* a category with nothing in it is not offered (the book has no empty sections) */
+    if(cats) cats.querySelectorAll('.engCat').forEach(b=>{
+      const on=engFilter===b.dataset.cat;
+      b.setAttribute('aria-pressed',String(on)); b.classList.toggle('is-on',on);
+      b.hidden=!ready.some(i=>inCat(i,b.dataset.cat));
+    });
     const list=$('engList'); if(!list) return;
     list.innerHTML='';
     /* Hidden capabilities remain loadable for existing documents but do not
        appear in the creation UI. This lets us retire an experiment without
        breaking files that already contain it. */
     let items=C.search(engQuery).filter(i=>!i.hidden&&C.status(i.id)===C.READY);
-    if(engFilter!=='all') items=items.filter(i=>
-      engFilter==='effect'
-        ? i.category==='effect'||i.category==='shader'
-        : i.category===engFilter);
+    if(engFilter!=='all') items=items.filter(i=>inCat(i,engFilter));
     if(!items.length){ list.innerHTML='<div class="engEmpty">No fills or effects match that search.</div>'; }
 
+    /* List rows: glyph, name, one line on the right — the engine's description,
+     * or the reason it cannot apply to THIS layer. With no layer at all the
+     * hint above already says so, and every row keeps its description. */
     items.forEach(item=>{
       const compat=C.compatibility(item.id,obj);
       const row=document.createElement('button');
       row.type='button'; row.className='engRow'; row.dataset.engine=item.id;
       if(!compat.ok) row.disabled=true;
       row.appendChild(engPreview(item));
-      const mid=document.createElement('span');
-      mid.innerHTML='<span class="engName">'+item.label+'</span>'+
-                    '<span class="engDesc">'+(compat.ok?(item.description||''):compat.reason)+'</span>';
-      row.appendChild(mid);
-      row.title=compat.ok?(item.description||item.label):compat.reason;
+      const name=document.createElement('span'); name.className='engName'; name.textContent=item.label;
+      const desc=document.createElement('span'); desc.className='engDesc';
+      desc.textContent=(compat.ok||!obj)?(item.tagline||item.description||''):compat.reason; // a tagline fits the line; the sentence is for the docs
+      row.appendChild(name); row.appendChild(desc);
       row.addEventListener('click',()=>engApply(item));
       list.appendChild(row);
     });

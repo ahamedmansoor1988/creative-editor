@@ -2246,3 +2246,108 @@ body.rails .dropdown button kbd {
   overflow: hidden;
   caret-color: currentColor;
 }
+
+/* ---- the engine picker: a panel beside the inspector, a list inside ------
+ * It floated over the artboard as a card grid; it docks left of the right
+ * panel at the panel width, with the book's head, a 30px search, 30px
+ * category chips (an empty category is hidden), one hint line, and list rows
+ * — glyph, name, one line on the right — dimmed where they cannot apply. */
+body.rails #enginesPanel {
+  top: calc(var(--topbar-h) + var(--inset));
+  right: calc(var(--inset) + var(--panel-right-w) + 8px);
+  width: var(--panel-right-w);
+  padding: 14px 0 8px;
+  gap: 0;
+}
+body.rails.rulers #enginesPanel {
+  top: calc(var(--topbar-h) + var(--ruler) + 8px);
+}
+body.rails #enginesPanel .engHead {
+  padding: 0 14px 12px;
+}
+body.rails #enginesPanel .engTitle {
+  font-size: var(--t-title);
+  font-weight: 700;
+  gap: 0;
+}
+body.rails #enginesPanel #engSearch {
+  width: calc(100% - 28px);
+  height: 30px;
+  margin: 0 14px;
+  padding: 0 9px;
+  border-color: var(--border);
+  font-size: var(--t-control);
+}
+body.rails #enginesPanel .engCats {
+  padding: 8px 14px 0;
+  gap: var(--gap-btns);
+}
+body.rails #enginesPanel .engCat {
+  height: 30px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: var(--t-control);
+}
+body.rails #enginesPanel .engTarget {
+  margin: 0;
+  padding: 10px 14px 4px;
+  white-space: normal;
+  font-size: var(--t-label);
+  color: var(--muted);
+}
+body.rails #enginesPanel .engList {
+  display: block;
+  min-height: 0;
+  padding: 0 6px;
+  overflow: auto;
+}
+body.rails #enginesPanel .engRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-field);
+  background: none;
+}
+body.rails #enginesPanel .engRow:hover:not([disabled]) {
+  background: var(--field);
+  border-color: transparent;
+}
+body.rails #enginesPanel .engRow[disabled] {
+  opacity: 0.55;
+  background: none;
+}
+body.rails #enginesPanel .engIcon {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  background: none;
+  color: var(--muted);
+}
+body.rails #enginesPanel .engName {
+  font-size: var(--t-body);
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+body.rails #enginesPanel .engDesc {
+  display: block;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: unset;
+  font-size: var(--t-label);
+  color: var(--muted);
+  text-align: right;
+}
+body.rails #enginesPanel .engEmpty,
+body.rails #enginesPanel .engStatus {
+  padding: 8px 14px;
+}

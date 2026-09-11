@@ -56,6 +56,7 @@
       rendererType: null,
       supportedInputs: PAINTABLE_SHAPES,
       description: "Place, crop, fit, stretch, or tile an image inside any shape.",
+      tagline: "photo or texture",
     },
     {
       id: "linearGradient",
@@ -67,6 +68,7 @@
       rendererType: null,
       supportedInputs: SHAPES.concat("text"),
       description: "One editable gradient fill for every supported layer.",
+      tagline: "linear, radial, angular",
     },
     {
       id: "mesh",
@@ -77,6 +79,7 @@
       rendererType: "mesh",
       supportedInputs: SHAPES,
       description: "A grid of colour points blended into one smooth surface.",
+      tagline: "editable colour net",
     },
 
     /* ---- materials ------------------------------------------------------

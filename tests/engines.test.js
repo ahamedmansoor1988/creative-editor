@@ -377,7 +377,8 @@ describe("compatibility is explained, never silently ignored", () => {
     open();
     expect(document.getElementById("engTarget").textContent).toMatch(/no layer selected/i);
     expect(row("grain").disabled).toBe(true);
-    expect(row("grain").querySelector(".engDesc").textContent).toMatch(/select a layer/i);
+    // the hint says it once; each row keeps its own description
+    expect(row("grain").querySelector(".engDesc").textContent).not.toMatch(/select a layer/i);
   });
 });
 
