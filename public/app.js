@@ -339,6 +339,9 @@ const MAX_SYMMETRY_COUNT=24, MAX_SYMMETRY_RADIUS=2000, MAX_SYMMETRY_GAP=400;
 /* How many pixels one mesh tile may cost, and the most it may oversample a
  * shape. The budget is what keeps a small shape sharp when zoomed into. */
 const MESH_TILE_BUDGET_PX=2000000, MESH_TILE_MAX_SCALE=16;
+/* The most stops one gradient carries. The panel's bar and the canvas line
+ * are one editor, so the limit belongs to the gradient, not to either. */
+const MAX_GRADIENT_STOPS=12;
 const SYMMETRY_MODES=['mirror','radial'];
 const SYMMETRY_AXES=['vertical','horizontal','both'];
 const DEFAULT_SYMMETRY=()=>({
@@ -4670,8 +4673,25 @@ function activeGradientHandles(){
   const x0=axial?cx-Math.cos(a)*len:cx, y0=axial?cy-Math.sin(a)*len:cy;
   const x1=cx+Math.cos(a)*len, y1=cy+Math.sin(a)*len;
   const focal=fill.kind==='radial'?{x:cx+(fill.fx||0)*b.w/2,y:cy+(fill.fy||0)*b.h/2}:null;
-  return {target,fill,b,cx,cy,x0,y0,x1,y1,focal,stops:(fill.stops||[]).map((s,i)=>({
-    i,x:x0+(x1-x0)*s.pos,y:y0+(y1-y0)*s.pos,color:s.color}))};
+  const stops=(fill.stops||[]).map((s,i)=>({
+    i,x:x0+(x1-x0)*s.pos,y:y0+(y1-y0)*s.pos,color:s.color}));
+  /* The canvas control and the panel's ramp are ONE editor of the same
+   * gradient, so they share a selected stop and the same owner key. Clicking
+   * a handle here moves the panel's rows to that stop, and selecting in the
+   * panel rings the handle here. */
+  const key=target===posArtboard()?'artboard':'fill0';
+  const sel=rampSel(key,(fill.stops||[]).length);
+  /* A midpoint belongs to the SPAN between two stops, so it is a diamond
+   * between two handles — the same object the panel's ramp draws. */
+  const mids=[];
+  rampOrder(fill.stops||[]).forEach((e,k,arr)=>{
+    if(k>=arr.length-1) return;
+    const a=e.st, bnext=arr[k+1].st;
+    const t=clamp(+a.pos||0,0,1)+(clamp(+bnext.pos||0,0,1)-clamp(+a.pos||0,0,1))
+      *clamp(a.mid===undefined?0.5:+a.mid,0.05,0.95);
+    mids.push({i:e.i,next:arr[k+1].i,x:x0+(x1-x0)*t,y:y0+(y1-y0)*t});
+  });
+  return {target,fill,b,cx,cy,x0,y0,x1,y1,focal,stops,mids,key,sel};
 }
 function activeImageHandles(){
   let target=primary(), fill=target&&target.fill, b=target&&boxOf(target);
@@ -4847,9 +4867,21 @@ function paint(){
     if(gh){
       ctx.save(); ctx.lineWidth=1.5/z; ctx.strokeStyle='rgba(37,99,235,.9)';
       ctx.beginPath(); ctx.moveTo(gh.x0,gh.y0); ctx.lineTo(gh.x1,gh.y1); ctx.stroke();
+      gh.mids.forEach(m=>{
+        ctx.save(); ctx.translate(m.x,m.y); ctx.rotate(Math.PI/4);
+        const d=4.5/z;
+        ctx.fillStyle='#fff'; ctx.fillRect(-d,-d,d*2,d*2);
+        ctx.strokeStyle='#111318'; ctx.lineWidth=1/z; ctx.strokeRect(-d,-d,d*2,d*2);
+        ctx.restore();
+      });
       gh.stops.forEach(h=>{
         ctx.beginPath(); ctx.arc(h.x,h.y,6/z,0,Math.PI*2);
-        ctx.fillStyle=h.color; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=2/z; ctx.stroke();
+        ctx.fillStyle=h.color; ctx.fill();
+        ctx.strokeStyle='#fff'; ctx.lineWidth=2/z; ctx.stroke();
+        if(h.i===gh.sel){                    // the stop the panel's rows edit
+          ctx.beginPath(); ctx.arc(h.x,h.y,8.5/z,0,Math.PI*2);
+          ctx.strokeStyle='#111318'; ctx.lineWidth=1.5/z; ctx.stroke();
+        }
       });
       ctx.beginPath(); ctx.arc(gh.x1,gh.y1,5/z,0,Math.PI*2);
       ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#2563eb'; ctx.lineWidth=1.5/z; ctx.stroke();
@@ -9755,15 +9787,48 @@ canvas.addEventListener('pointerdown',e=>{
     const gh=activeGradientHandles();
     if(gh){
       const tol=9/view.z;
-      /* Endpoints own the gradient geometry. They coincide with 0%/100%
-       * stops, so test them FIRST; otherwise the stop drag clamps at an edge
-       * and the handle appears dead. */
+      /* Which stops are the ENDS is a question about position, not about array
+       * order. Reading it as "index 0 and index length-1" was wrong the moment
+       * a stop was added in the middle: the new stop's index put it outside
+       * the guard, so pressing it fell through to the add-a-stop branch and
+       * made another one. */
+      const ord=rampOrder(gh.fill.stops||[]);
+      const loI=ord.length?ord[0].i:0, hiI=ord.length?ord[ord.length-1].i:0;
+      const pick=i=>{ if(i!==gh.sel){ setRampSel(gh.key,i); syncInspector(); } };
+      /* Endpoints own the gradient geometry. They coincide with the 0% and
+       * 100% stops, so test them FIRST; otherwise the stop drag clamps at an
+       * edge and the handle appears dead. Pressing one still tells the panel
+       * which stop it is, so the rows below follow the canvas. */
       if(gh.focal&&Math.hypot(p.x-gh.focal.x,p.y-gh.focal.y)<=tol){ drag={mode:'gradientFocal',gh}; cap(); return; }
-      if(gh.fill.kind!=='linear'&&Math.hypot(p.x-gh.cx,p.y-gh.cy)<=tol){ drag={mode:'gradientCenter',gh}; cap(); return; }
-      if(gh.fill.kind==='linear'&&Math.hypot(p.x-gh.x0,p.y-gh.y0)<=tol){ drag={mode:'gradientAxis',gh,end:-1}; cap(); return; }
-      if(Math.hypot(p.x-gh.x1,p.y-gh.y1)<=tol){ drag={mode:'gradientAxis',gh,end:1}; cap(); return; }
-      const stop=gh.stops.find(h=>h.i>0&&h.i<gh.stops.length-1&&Math.hypot(p.x-h.x,p.y-h.y)<=tol);
-      if(stop){ drag={mode:'gradientStop',gh,index:stop.i}; cap(); return; }
+      if(gh.fill.kind!=='linear'&&Math.hypot(p.x-gh.cx,p.y-gh.cy)<=tol){
+        pick(loI); drag={mode:'gradientCenter',gh}; cap(); return; }
+      if(gh.fill.kind==='linear'&&Math.hypot(p.x-gh.x0,p.y-gh.y0)<=tol){
+        pick(loI); drag={mode:'gradientAxis',gh,end:-1}; cap(); return; }
+      if(Math.hypot(p.x-gh.x1,p.y-gh.y1)<=tol){
+        pick(hiI); drag={mode:'gradientAxis',gh,end:1}; cap(); return; }
+      const stop=gh.stops.find(h=>h.i!==loI&&h.i!==hiI&&Math.hypot(p.x-h.x,p.y-h.y)<=tol);
+      if(stop){ pick(stop.i); drag={mode:'gradientStop',gh,index:stop.i}; cap(); return; }
+      /* A midpoint belongs to the SPAN between two stops — the same diamond
+       * the panel's ramp draws, dragged the same way. */
+      const mid=gh.mids.find(m=>Math.hypot(p.x-m.x,p.y-m.y)<=tol);
+      if(mid){ drag={mode:'gradientMid',gh,index:mid.i,next:mid.next}; cap(); return; }
+      /* The line itself does two things, told apart by whether the pointer
+       * travels: DRAG it and the whole gradient slides across the shape;
+       * press and release without moving and a stop is added where you
+       * pressed, in the colour the gradient already shows — which is what the
+       * panel's bar does. The ends rotate and stretch the line; nothing else
+       * could slide it, so a linear gradient could never be re-centred. */
+      const ax=gh.x1-gh.x0, ay=gh.y1-gh.y0, len2=ax*ax+ay*ay;
+      if(len2>1){
+        const t=((p.x-gh.x0)*ax+(p.y-gh.y0)*ay)/len2;
+        const px=gh.x0+ax*t, py=gh.y0+ay*t;
+        if(t>0.02&&t<0.98&&Math.hypot(p.x-px,p.y-py)<=tol){
+          drag={mode:'gradientMove',gh,t,moved:false,ox:p.x,oy:p.y,
+            gx0:clamp(gh.fill.gx===undefined?0.5:+gh.fill.gx,0,1),
+            gy0:clamp(gh.fill.gy===undefined?0.5:+gh.fill.gy,0,1)};
+          cap(); return;
+        }
+      }
     }
   }
   if(tool==='zoom'||tool==='zoomOut'){
@@ -10021,6 +10086,25 @@ canvas.addEventListener('pointermove',e=>{
     }
     g.pos=Math.round(v);
     paint(); return;
+  }
+  if(drag&&drag.mode==='gradientMove'){
+    const p2=evtPage(e), g=drag.gh;
+    if(!drag.moved&&Math.hypot(p2.x-drag.ox,p2.y-drag.oy)<3/view.z) return;
+    drag.moved=true;
+    if(g.b.w>0) g.fill.gx=clamp(drag.gx0+(p2.x-drag.ox)/g.b.w,0,1);
+    if(g.b.h>0) g.fill.gy=clamp(drag.gy0+(p2.y-drag.oy)/g.b.h,0,1);
+    render(); syncInspector(); return;
+  }
+  if(drag&&drag.mode==='gradientMid'){
+    const p2=evtPage(e), g=drag.gh;
+    const a=g.fill.stops[drag.index], b2=g.fill.stops[drag.next];
+    if(a&&b2){
+      const ax=g.x1-g.x0, ay=g.y1-g.y0, len2=ax*ax+ay*ay;
+      const t=len2>1?clamp(((p2.x-g.x0)*ax+(p2.y-g.y0)*ay)/len2,0,1):0.5;
+      const span=b2.pos-a.pos;
+      if(Math.abs(span)>0.005) a.mid=clamp((t-a.pos)/span,0.05,0.95);
+    }
+    render(); syncInspector(); return;
   }
   if(drag&&drag.mode==='gradientStop'){
     const p2=evtPage(e), g=drag.gh, dx=g.x1-g.x0, dy=g.y1-g.y0;
@@ -10387,7 +10471,23 @@ const endDrag=e=>{
   if(['imagePosition','imageScale'].includes(d.mode)){
     pushHistory('Edit image fill'); refresh(); return;
   }
-  if(['gradientStop','gradientAxis','gradientCenter','gradientFocal'].includes(d.mode)){
+  if(d.mode==='gradientMove'){
+    if(d.moved){ pushHistory('Move gradient'); refresh(); return; }
+    /* A press that never travelled: add a stop where it landed. */
+    const g=d.gh, stops=g.fill.stops||[];
+    if(stops.length>=MAX_GRADIENT_STOPS){ status('A gradient carries at most '+MAX_GRADIENT_STOPS+' stops.'); return; }
+    const ord=rampOrder(stops);
+    let before=ord[0].st, after=ord[ord.length-1].st;
+    for(let k=0;k<ord.length-1;k++)
+      if(d.t>=ord[k].st.pos&&d.t<=ord[k+1].st.pos){ before=ord[k].st; after=ord[k+1].st; break; }
+    const span=(after.pos-before.pos)||1, u=clamp((d.t-before.pos)/span,0,1);
+    stops.push({pos:clamp(d.t,0,1),color:rampMix(before.color,after.color,u),
+      opacity:(before.opacity===undefined?1:before.opacity)*(1-u)
+             +(after.opacity===undefined?1:after.opacity)*u, mid:0.5});
+    setRampSel(g.key,stops.length-1);
+    pushHistory('Add gradient stop'); refresh(); return;
+  }
+  if(['gradientStop','gradientMid','gradientAxis','gradientCenter','gradientFocal'].includes(d.mode)){
     pushHistory('Edit gradient'); refresh(); return;
   }
   if(d.mode==='pan'){ canvas.style.cursor=spaceDown?'grab':cursorForTool(); return; }
@@ -12787,7 +12887,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
-  symmetryOps, applySymmetryOp,
+  symmetryOps, applySymmetryOp, activeGradientHandles,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
