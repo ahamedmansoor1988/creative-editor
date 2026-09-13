@@ -118,3 +118,91 @@ describe("what may be cached at all", () => {
     expect(editor.paintCacheable(o)).toBe(false);
   });
 });
+
+describe("what the cache renders is the object at that scale", () => {
+  /* The bug this guards, found by looking at drop shadow: the cache CONTEXT
+   * was scaled by k. A canvas shadow's offset and blur are in device pixels
+   * and ignore the transformation matrix, so the geometry grew and every
+   * shadow stayed at 1x. A shadow 40px below a card landed 20px below it at
+   * k=2 and disappeared under the card's own edge — it read as "drop shadow
+   * does nothing", at every zoom where k>1, which on a 2x display is most of
+   * them. The fix scales the OBJECT instead, through the same function the
+   * exporter uses. */
+  const shadowed = () => ({
+    type: "rect",
+    name: "Card",
+    x: 300,
+    y: 200,
+    w: 300,
+    h: 200,
+    fill: { kind: "solid", color: "#ffffff" },
+    fx: [
+      {
+        id: "s1",
+        type: "shadow",
+        added: true,
+        on: true,
+        params: {
+          on: true,
+          type: "drop",
+          x: 40,
+          y: 40,
+          blur: 0,
+          spread: 0,
+          alpha: 1,
+          color: "#000000",
+          blend: "normal",
+        },
+      },
+    ],
+    effects: {
+      shadow: {
+        on: true,
+        type: "drop",
+        x: 40,
+        y: 40,
+        blur: 0,
+        spread: 0,
+        alpha: 1,
+        color: "#000000",
+        blend: "normal",
+      },
+    },
+  });
+
+  it("scaling an object scales its shadow offset with its geometry", () => {
+    const o = shadowed();
+    const s = editor.scaleObjectForRender(o, 2);
+    expect(s.x).toBe(600);
+    expect(s.w).toBe(600);
+    const sd = s.fx.find((e) => e.type === "shadow").params;
+    expect(sd.x).toBe(80);
+    expect(sd.y).toBe(80);
+  });
+
+  it("blur and spread scale too, or the softness would change with the zoom", () => {
+    const o = shadowed();
+    o.fx[0].params.blur = 18;
+    o.fx[0].params.spread = 10;
+    const sd = editor.scaleObjectForRender(o, 4).fx.find((e) => e.type === "shadow").params;
+    expect(sd.blur).toBe(72);
+    expect(sd.spread).toBe(40);
+  });
+
+  it("scaling leaves the document object untouched", () => {
+    const o = shadowed();
+    editor.scaleObjectForRender(o, 8);
+    expect(o.x).toBe(300);
+    expect(o.fx[0].params.x).toBe(40);
+  });
+
+  it("a shadow big enough to leave the box is inside the cache's padding", () => {
+    editor.doc = {
+      frame: { name: "F", w: 900, h: 600, bg: "#ffffff", children: [shadowed()] },
+    };
+    const o = editor.doc.frame.children[0];
+    // the bitmap covers the object plus the spill; the shadow lands at +40,+40
+    const pad = editor.spillPad(o);
+    expect(pad).toBeGreaterThanOrEqual(80);
+  });
+});

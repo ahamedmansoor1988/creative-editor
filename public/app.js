@@ -3494,8 +3494,20 @@ function drawOne(c,W,H,obj){
         const cv=document.createElement('canvas');
         cv.width=pw; cv.height=ph;
         const cc=cv.getContext('2d');
-        cc.setTransform(k,0,0,k,-lx*k,-ly*k);
-        drawOneUncached(cc,W,H,obj);
+        /* Scale the OBJECT, never the context.
+         *
+         * A canvas shadow's offset and blur ignore the transformation matrix —
+         * they are in device pixels by specification. Scaling the context by k
+         * therefore grew the geometry and left every shadow, inner shadow and
+         * glow at 1x, so a drop shadow 40px below a card landed 20px below it
+         * at k=2 and vanished under the card's own edge. It looked exactly like
+         * "drop shadow does nothing".
+         *
+         * scaleObjectForRender is the same function the exporter uses, and it
+         * already scales effect parameters as well as geometry. It clones, so
+         * the document is untouched. */
+        cc.setTransform(1,0,0,1,-lx*k,-ly*k);
+        drawOneUncached(cc,W,H,k===1?obj:scaleObjectForRender(obj,k));
         ent={sig,cv,lx,ly,lw,lh,px:pw*ph};
         _paintCache.set(obj.id,ent);
         _paintCachePx+=ent.px;
@@ -4054,18 +4066,38 @@ function drawObject(c,obj,plain){
         if(sd.type==='long'&&sd.length>0){
           /* Long shadow is the same silhouette capability sampled along one
            * vector. It lives in Shadow rather than becoming another engine,
-           * so colour/opacity/blend and stack ordering remain reusable. */
+           * so colour/opacity/blend and stack ordering remain reusable.
+           *
+           * The copies are stacked OPAQUE on their own layer, and that layer
+           * is composited once at the requested opacity.
+           *
+           * Painting each copy at a fraction of the opacity instead makes
+           * them compound: N copies at per-copy alpha p cover 1-(1-p)^N. With
+           * steps = length/2 and per-copy alpha 8a/steps, a 120px shadow at
+           * opacity 0.4 already covered 96% and 0.4 through 1.0 were
+           * indistinguishable — the slider was dead over most of its range,
+           * and how dead depended on the length. */
           const a=sd.angle*Math.PI/180;
           const steps=Math.max(2,Math.min(240,Math.ceil(sd.length/2)));
-          const passInk=hexAlpha(sd.color,sd.alpha/Math.max(1,steps/8));
-          sc.shadowColor='transparent'; sc.fillStyle=passInk; sc.strokeStyle=passInk;
+          const lay=document.createElement('canvas');
+          lay.width=sc.canvas.width; lay.height=sc.canvas.height;
+          const lc=lay.getContext('2d');
+          if(sc.getTransform) lc.setTransform(sc.getTransform());
+          const solid=hexAlpha(sd.color,1);
+          lc.fillStyle=solid; lc.strokeStyle=solid;
           for(let i=steps;i>=1;i--){
             const d=sd.length*i/steps;
-            sc.save(); sc.translate(Math.cos(a)*d,Math.sin(a)*d);
-            sc.beginPath(); mkPath(sc);
-            if(sd.spread>0){ sc.lineWidth=sd.spread*2; sc.stroke(); }
-            sc.fill(); sc.restore();
+            lc.save(); lc.translate(Math.cos(a)*d,Math.sin(a)*d);
+            lc.beginPath(); mkPath(lc);
+            if(sd.spread>0){ lc.lineWidth=sd.spread*2; lc.stroke(); }
+            lc.fill(); lc.restore();
           }
+          sc.save();
+          sc.setTransform(1,0,0,1,0,0);
+          sc.shadowColor='transparent';
+          sc.globalAlpha=clamp(+sd.alpha||0,0,1);
+          sc.drawImage(lay,0,0);
+          sc.restore();
         }else{
           /* Creative-editor Spread is a SOFT expansion. A geometric stroke
            * around the caster produces a solid frame at high opacity (the
@@ -12887,7 +12919,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
-  symmetryOps, applySymmetryOp, activeGradientHandles,
+  symmetryOps, applySymmetryOp, activeGradientHandles, spillPad,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,

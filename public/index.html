@@ -581,9 +581,12 @@
      fxstack.js. Everything in the READY set has passed the gate and has a
      panel, but passing the gate is not the same as having been LOOKED at in
      this UI; they are being opened one at a time, each with its own pass.
-     Add an id here to offer it. Documents carrying other effects render
+     Add an id here to offer it. Opened so far: mesh; shadow (13 Sep 2026 —
+     see the Drop shadow pass, which found it invisible at every zoom where
+     the paint cache ran above 1x, and its long-shadow opacity dead above
+     about 0.3). Documents carrying other effects render
      either way. -->
-<script>window.FX_ONLY = ["mesh"];</script>
+<script>window.FX_ONLY = ["mesh", "shadow"];</script>
 <script src="fxstack.js?v=20260901-lens1"></script>
 <script src="engine-catalog.js?v=20260901-lens1"></script>
 <script src="reference.js?v=20260906-ref1"></script>
