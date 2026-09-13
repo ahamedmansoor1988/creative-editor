@@ -134,3 +134,20 @@ report, and the select-same key.
 
 The lesson is the same one the seam taught, one level up: naming an engine in a
 rule is a bug waiting for the second engine. Five tests hold this now.
+
+## The selected layer paints last (13 Sep 2026)
+
+Near a radial pivot the copies overlap each other, and with the parent painted
+first it disappeared under a copy of itself. That is the one shape that must
+stay visible: it carries the selection handles, and every edit goes to it.
+
+The order is now one function rather than a line repeated at each paint path:
+
+    function paintWithInstances(obj, paint){
+      derivedInstances(obj).forEach(paint);   // the copies
+      paint(obj);                             // then the layer itself, on top
+    }
+
+Seven paths use it — the ordinary fill and six materials — so the order cannot
+drift between them. The repeater follows the same rule, because an order that
+differs by engine is the kind of detail nobody can predict from the panel.

@@ -327,3 +327,33 @@ describe("a structure engine is never cached into the parent's own box", () => {
     expect(scaled.symmetry.gap).toBe(40);
   });
 });
+
+describe("the layer you selected paints on top of its copies", () => {
+  /* Near a radial pivot the copies overlap, and with the parent painted first
+   * it ended up buried under a copy of itself — the thing whose handles are on
+   * screen and whose edits you are watching. */
+  it("paints every copy, then the parent last", () => {
+    const o = withLayer({}, { mode: "radial", count: 5, radius: 80 });
+    const painted = [];
+    editor.paintWithInstances(o, (x) => painted.push(x.id));
+    expect(painted.length).toBe(5);
+    expect(painted[painted.length - 1]).toBe(o.id);
+    expect(painted.slice(0, -1).every((id) => id !== o.id)).toBe(true);
+  });
+
+  it("a layer with no structure is still painted exactly once", () => {
+    const o = withLayer();
+    const painted = [];
+    editor.paintWithInstances(o, (x) => painted.push(x.id));
+    expect(painted).toEqual([o.id]);
+  });
+
+  it("the repeater follows the same rule, so the order never differs by engine", () => {
+    const o = withLayer();
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1 });
+    const painted = [];
+    editor.paintWithInstances(o, (x) => painted.push(x.id));
+    expect(painted[painted.length - 1]).toBe(o.id);
+    expect(painted.length).toBe(editor.patternInstances(o).length + 1);
+  });
+});

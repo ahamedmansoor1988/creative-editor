@@ -2709,6 +2709,19 @@ function derivedInstances(parent){
   if(parent&&parent.pattern) return patternInstances(parent);
   return symmetryInstances(parent);
 }
+/** Paint a layer and every copy a structure engine derives from it.
+ *
+ * The parent paints LAST, over its copies. It is the layer you selected, the
+ * one whose handles are on screen and the one every edit goes to, so it must
+ * never end up buried under a copy of itself — which is exactly what a radial
+ * figure did, because later copies overlap earlier ones near the pivot.
+ *
+ * One function, so the order cannot drift between the seven paint paths that
+ * need it: the ordinary fill and six materials. */
+function paintWithInstances(obj,paint){
+  derivedInstances(obj).forEach(paint);
+  paint(obj);
+}
 /** Does this layer carry a structure engine — anything that draws copies of
  *  it OUTSIDE its own box? Every rule that has to know (the paint cache, the
  *  render scaler, the report) asks this rather than naming the engines, so a
@@ -3615,8 +3628,7 @@ function drawOneInner(c,W,H,obj){
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
       };
-      draw(obj);
-      derivedInstances(obj).forEach(draw);
+      paintWithInstances(obj,draw);
       return;
     }
     /* §4.x Liquid Gradient and §5.x Prism Flare. Both GENERATE their own
@@ -3677,8 +3689,7 @@ function drawOneInner(c,W,H,obj){
         c.drawImage(img,g.x,g.y,g.w,g.h);
         c.restore();
       };
-      draw(obj);
-      derivedInstances(obj).forEach(draw);
+      paintWithInstances(obj,draw);
       /* Falls THROUGH rather than returning, which is the one place this
        * material differs from the others.
        *
@@ -3702,8 +3713,7 @@ function drawOneInner(c,W,H,obj){
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
       };
-      draw(obj);
-      derivedInstances(obj).forEach(draw);
+      paintWithInstances(obj,draw);
       return;
     }
     /* §5.x Fractal Glass. The colours are sampled from the SHAPE'S OWN
@@ -3723,8 +3733,7 @@ function drawOneInner(c,W,H,obj){
           c.drawImage(img,o.x,o.y,o.w,o.h);
           c.restore();
         };
-        place(obj);
-        derivedInstances(obj).forEach(place);
+        paintWithInstances(obj,place);
         return;
       }
     }
@@ -3745,8 +3754,7 @@ function drawOneInner(c,W,H,obj){
           c.drawImage(img,o.x,o.y,o.w,o.h);
           c.restore();
         };
-        place(obj);
-        derivedInstances(obj).forEach(place);
+        paintWithInstances(obj,place);
         return;
       }
     }
@@ -3761,8 +3769,7 @@ function drawOneInner(c,W,H,obj){
         c.drawImage(img,o.x,o.y,o.w,o.h);
         c.restore();
       };
-      draw(obj);
-      derivedInstances(obj).forEach(draw);
+      paintWithInstances(obj,draw);
       return;
     }
     const pr=fx.prism;
@@ -3896,8 +3903,7 @@ function drawOneInner(c,W,H,obj){
       finishBackdropMaterial(c,obj,cleanBackdrop,backdropPixelState);                  // C composite, D, E
       return;
     }
-    drawObject(c,obj);
-    derivedInstances(obj).forEach(inst=>drawObject(c,inst));
+    paintWithInstances(obj,o=>drawObject(c,o));
 }
 
 function drawTextGlyphs(c,obj,mode){
@@ -12712,7 +12718,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   render, refresh, renderImmediate,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
-  hasStructure, paintCacheable,
+  hasStructure, paintCacheable, paintWithInstances,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
