@@ -11,6 +11,8 @@
  * or disabled with the reason visible.
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadEditor } from "./helpers/load-editor.js";
 
 let editor;
@@ -450,5 +452,27 @@ describe("the stack survives a document round trip", () => {
     expect(wire).toMatch(/"fx"/);
     editor.loadDocumentFromText(wire);
     expect(seen()).toBe(before);
+  });
+});
+
+describe("every menu row carries its glyph", () => {
+  /* Four names in the Effects menu — sun, waves, scan, wand-sparkles — were
+   * never in the vendored icon set, so Bloom, Distortion, Displacement and
+   * Stylize rendered as bare text beside siblings that all had an icon. It
+   * showed only once the gate opened and those rows became visible. */
+  it("no data-icon in the markup names an icon the set does not have", () => {
+    const html = readFileSync(join(process.cwd(), "public/index.html"), "utf8");
+    const used = [...new Set([...html.matchAll(/data-icon="([a-z-]+)"/g)].map((m) => m[1]))];
+    expect(used.length).toBeGreaterThan(20);
+    const Icons = /** @type {any} */ (window).Icons;
+    const missing = used.filter((n) => !Icons.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  it("every capability row in the Effects menu has an icon element", () => {
+    const menu = document.querySelector('[data-menu="effects"] .dropdown');
+    const rows = [...menu.querySelectorAll("[data-capability]")];
+    expect(rows.length).toBeGreaterThan(15);
+    for (const b of rows) expect(b.querySelector("i[data-icon], svg")).toBeTruthy();
   });
 });

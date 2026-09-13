@@ -6547,7 +6547,7 @@ function imageFillEditorHTML(f,prefix,fi){
   const at=fi===undefined?'':` data-i="${fi}"`;
   return `<div class="imageFillEditor">
     <div class="imageFillPreview">${f.src?`<img src="${esc(f.src)}" alt="Image fill preview">`:'<span>No image selected</span>'}</div>
-    <button type="button" class="rollBtn ${prefix}Pick"${at}>${f.src?'Replace image':'Choose image'}</button>
+    <div class="rowBtns"><button type="button" class="rollBtn ${prefix}Pick"${at}>${f.src?'Replace image':'Choose image'}</button></div>
     <label class="slider">Mode<select class="${prefix}Mode"${at}>
       <option value="fill" ${f.mode==='fill'?'selected':''}>Fill</option><option value="fit" ${f.mode==='fit'?'selected':''}>Fit</option>
       <option value="crop" ${f.mode==='crop'?'selected':''}>Crop</option><option value="stretch" ${f.mode==='stretch'?'selected':''}>Stretch</option>
@@ -6560,7 +6560,7 @@ function imageFillEditorHTML(f,prefix,fi){
       <input type="range" class="${prefix}Scale"${at} min="5" max="400" value="${Math.round((f.scale??1)*100)}"></label>
     <label class="slider">Rotation <span>${Math.round(f.rotation||0)}°</span>
       <input type="range" class="${prefix}Rotation"${at} min="0" max="359" value="${Math.round(f.rotation||0)}"></label>
-    <button type="button" class="rollBtn ${prefix}Reset"${at}>Reset crop</button>
+    <div class="rowBtns"><button type="button" class="rollBtn ${prefix}Reset"${at}>Reset crop</button></div>
   </div>`;
 }
 
