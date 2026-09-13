@@ -78,6 +78,7 @@ describe("the panel renders", () => {
       "distortion",
       "warp",
       "displacement",
+      "symmetry",
       "colorAdjust",
       "colorMap",
       "channelFx",
@@ -144,6 +145,7 @@ describe("the proven capabilities are discoverable", () => {
       "blur",
       "grain",
       "noise",
+      "symmetry",
     ]);
   });
 

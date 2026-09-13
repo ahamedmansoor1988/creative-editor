@@ -330,6 +330,18 @@ const MAX_PATTERN_INSTANCES=400;
 const MAX_GRID_AXIS=32, MAX_GAP=400, MAX_OFFSET=500, MAX_JITTER=500;
 const MAX_HOLES=0.9, MIN_SIZE_FACTOR=0.1;
 const MIRRORS=['none','horizontal','vertical','alt-horizontal','alt-vertical'];
+/* ---- symmetry (§ structure) ----
+ * The second structure engine. Where the repeater lays a GRID, symmetry
+ * REFLECTS or TURNS — Illustrator's mirror and radial repeat. Both are pure
+ * functions of the layer plus these few numbers: no seed, no randomness, so
+ * the same document always draws the same figure. */
+const MAX_SYMMETRY_COUNT=24, MAX_SYMMETRY_RADIUS=2000, MAX_SYMMETRY_GAP=400;
+const SYMMETRY_MODES=['mirror','radial'];
+const SYMMETRY_AXES=['vertical','horizontal','both'];
+const DEFAULT_SYMMETRY=()=>({
+  mode:'mirror', axis:'vertical', gap:0,
+  count:6, radius:0, angle:0, faceOut:true,
+});
 const DEFAULT_PATTERN=()=>({
   columns:4, rows:1,
   hGap:16, vGap:16, rowOffsetX:0, colOffsetY:0,
@@ -1287,10 +1299,15 @@ function normChildren(list,depth){
       delete c.engine;
       c.pattern=normalizePattern(c.pattern);
       if(!c.pattern) delete c.pattern;
+      /* Symmetry normalizes on the same terms: absent IS off, so a document
+       * never carries a disabled engine and an old file without the field
+       * simply has none. */
+      c.symmetry=normalizeSymmetry(c.symmetry);
+      if(!c.symmetry) delete c.symmetry;
     } else {
-      delete c.engine; delete c.pattern;
+      delete c.engine; delete c.pattern; delete c.symmetry;
     }
-    if(CONTAINER(c)){ delete c.pattern; delete c.engine; }
+    if(CONTAINER(c)){ delete c.pattern; delete c.engine; delete c.symmetry; }
     return c;
   });
 }
@@ -1860,7 +1877,7 @@ function paintOverSlot(c,obj,plain,transformed){
  * painted straight onto c, as Solid 3D does). */
 function finishBackdropMaterial(c,obj,clean,state){
   if(clean){
-    const shapes=[obj,...patternInstances(obj)];
+    const shapes=[obj,...derivedInstances(obj)];
     c.save();
     c.beginPath(); shapes.forEach(o=>addPath(c,o)); c.clip();
     c.setTransform(1,0,0,1,0,0);
@@ -1882,7 +1899,7 @@ function captureBackdropMaterialPixels(c,obj){
   if(!FS||!obj.fx||!window.Filters) return null;
   const entries=FS.inSlot(obj.fx,'pixel');
   if(!entries.length) return null;
-  const shapes=[obj,...patternInstances(obj)];
+  const shapes=[obj,...derivedInstances(obj)];
   const boxes=shapes.map(boxOf);
   const minX=Math.min(...boxes.map(b=>b.x)), minY=Math.min(...boxes.map(b=>b.y));
   const maxX=Math.max(...boxes.map(b=>b.x+b.w)), maxY=Math.max(...boxes.map(b=>b.y+b.h));
@@ -2599,6 +2616,99 @@ function patternInstances(parent){
   }
   return out;
 }
+/* Clamped, complete, or null. Null means "no symmetry on this layer", the
+ * same way a missing `pattern` means no repeater: an absent field is the OFF
+ * state, so nothing has to store a disabled engine. */
+function normalizeSymmetry(raw){
+  if(!raw||typeof raw!=='object') return null;
+  const d=DEFAULT_SYMMETRY();
+  const out=Object.assign(d,raw);
+  const num=(v,def,lo,hi)=>{ const n=+v; return Number.isFinite(n)?clamp(n,lo,hi):def; };
+  out.mode=SYMMETRY_MODES.includes(out.mode)?out.mode:'mirror';
+  out.axis=SYMMETRY_AXES.includes(out.axis)?out.axis:'vertical';
+  out.gap=num(out.gap,0,-MAX_SYMMETRY_GAP,MAX_SYMMETRY_GAP);
+  out.count=clamp(Math.round(num(out.count,6,2,MAX_SYMMETRY_COUNT)),2,MAX_SYMMETRY_COUNT);
+  out.radius=num(out.radius,0,-MAX_SYMMETRY_RADIUS,MAX_SYMMETRY_RADIUS);
+  out.angle=num(out.angle,0,-180,180);
+  out.faceOut=!!out.faceOut;
+  return out;
+}
+
+/* ---- symmetry layout ----
+ * Pure function of (parent, parent.symmetry). Returns COMPLETE derived
+ * instances, the same shallow-view shape the repeater emits, so every
+ * appearance property (fill, radius, opacity, effects) is inherited live and
+ * no copied state can drift.
+ *
+ *   mirror — the layer reflected across a line set `gap` clear of its own
+ *            rotated bounds. One copy per axis; `both` adds the diagonal, so
+ *            the figure is the familiar quad.
+ *   radial — count-1 copies turned about a pivot `radius` from the layer's
+ *            centre. radius 0 turns them about that centre itself, which is
+ *            the pinwheel.
+ *
+ * Rotation of a reflected copy is NOT the parent's. The draw order is
+ * rotate(rot) then scale(mirror) (see applyObjectTransform), and a true
+ * reflection of a rotated body across a world axis is scale then rotate. The
+ * two agree when a single-axis copy carries -rot; reflecting BOTH axes is a
+ * half turn, which commutes, so the diagonal copy keeps +rot.
+ */
+function symmetryInstances(parent){
+  const S=parent&&parent.symmetry;
+  const out=[];
+  if(!S) return out;
+  if(parent.type==='text') return out;          // as with the repeater
+  if(parent.parentId) return out;               // instances never recurse
+  const pw=parent.w, ph=parent.h;
+  if(!isFinite(pw)||!isFinite(ph)||pw<=0||ph<=0) return out;
+  if(!isFinite(parent.x)||!isFinite(parent.y)) return out;
+  const emit=(i,x,y,rot,mx,my)=>{
+    if(!isFinite(x)||!isFinite(y)) return;
+    out.push({...parent,
+      id:parent.id+'~'+i, parentId:parent.id, instanceIndex:i,
+      x, y, w:pw, h:ph, rot,
+      mirrorX:!!mx, mirrorY:!!my,
+      pattern:undefined, symmetry:undefined});   // never recurse
+  };
+  const cx=parent.x+pw/2, cy=parent.y+ph/2;
+
+  if(S.mode==='radial'){
+    const n=S.count, step=360/n, RAD=Math.PI/180;
+    const px=cx, py=cy+S.radius;                 // the pivot
+    const dx=cx-px, dy=cy-py;
+    for(let i=1;i<n;i++){
+      const turn=S.angle+step*i, a=turn*RAD;
+      const ca=Math.cos(a), sa=Math.sin(a);
+      const nx=px+dx*ca-dy*sa, ny=py+dx*sa+dy*ca;
+      emit(i,nx-pw/2,ny-ph/2,(parent.rot||0)+(S.faceOut?turn:0),parent.mirrorX,parent.mirrorY);
+    }
+    return out;
+  }
+
+  // Spacing runs off the layer's ACTUAL rotated bounds, never its w/h — the
+  // same rule the repeater's gaps follow, so a turned layer is not padded.
+  const b=instanceBounds(parent);
+  const rot=parent.rot||0, flip=-rot;
+  const dx=b.w+S.gap, dy=b.h+S.gap;
+  const doX=S.axis==='vertical'||S.axis==='both';
+  const doY=S.axis==='horizontal'||S.axis==='both';
+  /* Fixed indices, not a running counter: a copy's id must not change when
+   * the axis does, or history and selection would follow the wrong one. */
+  if(doX) emit(1,parent.x+dx,parent.y,flip,!parent.mirrorX,!!parent.mirrorY);
+  if(doY) emit(2,parent.x,parent.y+dy,flip,!!parent.mirrorX,!parent.mirrorY);
+  if(doX&&doY) emit(3,parent.x+dx,parent.y+dy,rot,!parent.mirrorX,!parent.mirrorY);
+  return out;
+}
+
+/* ONE seam for both structure engines. Every draw, hit-test, export and count
+ * path asks this, not either layout directly, so adding the second engine did
+ * not scatter a second call beside the first at fifteen sites. A layer carries
+ * one structure at a time: the repeater wins when both are set, and the
+ * Symmetry panel says so rather than silently multiplying the two grids. */
+function derivedInstances(parent){
+  if(parent&&parent.pattern) return patternInstances(parent);
+  return symmetryInstances(parent);
+}
 /** Axis-aligned visual bounds of an instance's rotated geometry. */
 function instanceBounds(o){
   // Must mirror the layout's aabb(): ellipses get their exact tangent box,
@@ -2620,7 +2730,7 @@ function allInstances(){
   /* nested-aware */
   if(!doc) return [];
   const out=[];
-  allObjects().forEach(c=>{ patternInstances(c).forEach(i=>out.push(i)); });
+  allObjects().forEach(c=>{ derivedInstances(c).forEach(i=>out.push(i)); });
   return out;
 }
 
@@ -2641,7 +2751,7 @@ function blobGroup(){
   /* nested-aware: blob members can live inside groups */
   if(!doc) return [];
   const out=[];
-  allObjects().forEach(o=>{ if(inBlobGroup(o)) out.push(o,...patternInstances(o)); });
+  allObjects().forEach(o=>{ if(inBlobGroup(o)) out.push(o,...derivedInstances(o)); });
   return out;
 }
 function groupGlassParams(){
@@ -3323,7 +3433,7 @@ function drawOneInner(c,W,H,obj){
         c.restore();
       };
       draw(obj);
-      patternInstances(obj).forEach(draw);
+      derivedInstances(obj).forEach(draw);
       return;
     }
     /* §4.x Liquid Gradient and §5.x Prism Flare. Both GENERATE their own
@@ -3385,7 +3495,7 @@ function drawOneInner(c,W,H,obj){
         c.restore();
       };
       draw(obj);
-      patternInstances(obj).forEach(draw);
+      derivedInstances(obj).forEach(draw);
       /* Falls THROUGH rather than returning, which is the one place this
        * material differs from the others.
        *
@@ -3410,7 +3520,7 @@ function drawOneInner(c,W,H,obj){
         c.restore();
       };
       draw(obj);
-      patternInstances(obj).forEach(draw);
+      derivedInstances(obj).forEach(draw);
       return;
     }
     /* §5.x Fractal Glass. The colours are sampled from the SHAPE'S OWN
@@ -3431,7 +3541,7 @@ function drawOneInner(c,W,H,obj){
           c.restore();
         };
         place(obj);
-        patternInstances(obj).forEach(place);
+        derivedInstances(obj).forEach(place);
         return;
       }
     }
@@ -3453,7 +3563,7 @@ function drawOneInner(c,W,H,obj){
           c.restore();
         };
         place(obj);
-        patternInstances(obj).forEach(place);
+        derivedInstances(obj).forEach(place);
         return;
       }
     }
@@ -3469,7 +3579,7 @@ function drawOneInner(c,W,H,obj){
         c.restore();
       };
       draw(obj);
-      patternInstances(obj).forEach(draw);
+      derivedInstances(obj).forEach(draw);
       return;
     }
     const pr=fx.prism;
@@ -3570,7 +3680,7 @@ function drawOneInner(c,W,H,obj){
        * Deliberately NOT rounded: snapping to whole pixels here is what makes
        * an edge crawl by one pixel as a shape is dragged. */
       const gs=targetScale(c), gcw=c.canvas.width, gch=c.canvas.height;
-      const geoms=[obj,...patternInstances(obj)].map(o=>({
+      const geoms=[obj,...derivedInstances(obj)].map(o=>({
         cx:(o.x+o.w/2)*gs, cy:(o.y+o.h/2)*gs, w:o.w*gs, h:o.h*gs,
         // shader shapes: 0 rect, 1 circle, 2 pill, 3 ellipse. Rotation is not
         // supported by the shader and is ignored for the glass pass.
@@ -3604,7 +3714,7 @@ function drawOneInner(c,W,H,obj){
       return;
     }
     drawObject(c,obj);
-    patternInstances(obj).forEach(inst=>drawObject(c,inst));
+    derivedInstances(obj).forEach(inst=>drawObject(c,inst));
 }
 
 function drawTextGlyphs(c,obj,mode){
@@ -4071,7 +4181,7 @@ function visualAabbOf(o){
     const x1=Math.max(...boxes.map(b=>b.x+b.w)), y1=Math.max(...boxes.map(b=>b.y+b.h));
     return {x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)};
   }
-  const shapes=[o,...patternInstances(o)];
+  const shapes=[o,...derivedInstances(o)];
   const boxes=shapes.map(aabbOf);
   let x0=Math.min(...boxes.map(b=>b.x)), y0=Math.min(...boxes.map(b=>b.y));
   let x1=Math.max(...boxes.map(b=>b.x+b.w)), y1=Math.max(...boxes.map(b=>b.y+b.h));
@@ -4881,7 +4991,7 @@ function syncLayers(){
     nm.className='lname';
     nm.textContent=c.type==='text'?c.text:c.name;
     r.appendChild(nm);
-    const n=patternInstances(c).length;
+    const n=derivedInstances(c).length;
     if(n){
       const badge=document.createElement('span');
       badge.className='linkBadge'; badge.textContent=`⇢ ${n}`;
@@ -5255,14 +5365,14 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
   if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
-  if(obj.type==='image') return ['Image','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='image') return ['Image','Symmetry','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6533,6 +6643,53 @@ function buildFxSection(obj,page,add,body){
     });
     sl('lnAS','Arrow size',4,60,1,()=>L.arrowSize,v=>L.arrowSize=v,int);
     add(`<div class="fxHint">Drag either endpoint on canvas; shift snaps to 45°. Heads align their tip to the endpoint.</div>`);
+  }
+
+  if(page==='Symmetry'){
+    /* The book's rows: a word left, one control in the 120 column. Every
+     * number is a plain right-aligned field — no spinner, no slider-plus-box
+     * pair — and every boolean is a switch row. The page opens with the one
+     * button that turns the engine on, because an absent field is OFF. */
+    const S=obj.symmetry;
+    const opts=(pairs,val)=>pairs.map(([v,l])=>`<option value="${esc(String(v))}"${String(v)===String(val)?' selected':''}>${esc(l)}</option>`).join('');
+    if(!S){
+      add(`<div class="fxHint">Reflects or turns this layer into a figure. The copies
+        follow the original: change its fill or its corners and every copy changes with it.</div>`);
+      add(`<div class="rowBtns"><button class="rollBtn" id="syAdd">+ Add symmetry</button></div>`);
+      $('syAdd').addEventListener('click',()=>{ obj.symmetry=normalizeSymmetry({}); pushHistory('Add symmetry'); refresh(); });
+      return;
+    }
+    const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
+    add(`<label class="slider uiRow"><span>Mode</span><select id="syMode">${opts([['mirror','Mirror'],['radial','Radial']],S.mode)}</select></label>`);
+    if(S.mode==='mirror'){
+      add(`<label class="slider uiRow"><span>Axis</span><select id="syAxis">${opts([['vertical','Vertical'],['horizontal','Horizontal'],['both','Both']],S.axis)}</select></label>`);
+      add(`<label class="slider uiRow"><span>Gap</span><input type="number" id="syGap" min="${-MAX_SYMMETRY_GAP}" max="${MAX_SYMMETRY_GAP}" step="1" value="${Math.round(S.gap)}"></label>`);
+    }else{
+      add(`<label class="slider uiRow"><span>Count</span><input type="number" id="syCount" min="2" max="${MAX_SYMMETRY_COUNT}" step="1" value="${S.count}"></label>`);
+      add(`<label class="slider uiRow"><span>Radius</span><input type="number" id="syRad" min="${-MAX_SYMMETRY_RADIUS}" max="${MAX_SYMMETRY_RADIUS}" step="1" value="${Math.round(S.radius)}"></label>`);
+      add(`<label class="slider uiRow"><span>Start angle</span><input type="number" id="syAng" min="-180" max="180" step="1" value="${Math.round(S.angle)}"></label>`);
+      add(`<label class="slider uiSwitchRow"><span>Turn copies</span><input type="checkbox" id="syFace" ${S.faceOut?'checked':''} aria-label="Turn copies to follow the circle"></label>`);
+    }
+    const made=symmetryInstances(obj).length;
+    add(`<div class="fxHint">${made} cop${made===1?'y':'ies'}, and the original.
+      ${S.mode==='mirror'
+        ? 'Gap is the clear space between the layer and its reflection; it reads the turned bounds, so a rotated layer is not padded.'
+        : 'Radius 0 turns the copies about the layer’s own centre.'}</div>`);
+    if(obj.pattern) add(`<div class="fxHint">This layer also has a repeater, and a layer
+      carries one structure at a time — the repeater is drawing. Remove it to see symmetry.</div>`);
+    add(`<div class="rowBtns"><button class="rollBtn" id="syDrop">Remove symmetry</button></div>`);
+    $('syMode').addEventListener('change',e=>{ S.mode=e.target.value; commit('Symmetry mode'); });
+    const num=(id,key,lo,hi,label,round)=>{ const el=$(id); if(!el) return;
+      el.addEventListener('change',e=>{ const v=+e.target.value;
+        S[key]=clamp(Number.isFinite(v)?(round?Math.round(v):v):S[key],lo,hi); commit(label); }); };
+    const ax=$('syAxis'); if(ax) ax.addEventListener('change',e=>{ S.axis=e.target.value; commit('Symmetry axis'); });
+    num('syGap','gap',-MAX_SYMMETRY_GAP,MAX_SYMMETRY_GAP,'Symmetry gap',true);
+    num('syCount','count',2,MAX_SYMMETRY_COUNT,'Symmetry count',true);
+    num('syRad','radius',-MAX_SYMMETRY_RADIUS,MAX_SYMMETRY_RADIUS,'Symmetry radius',true);
+    num('syAng','angle',-180,180,'Symmetry angle',true);
+    const fc=$('syFace'); if(fc) fc.addEventListener('change',e=>{ S.faceOut=e.target.checked; commit('Turn copies'); });
+    $('syDrop').addEventListener('click',()=>{ delete obj.symmetry; commit('Remove symmetry'); });
+    return;
   }
 
   if(page==='Pattern'){
@@ -12329,9 +12486,11 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
   render, refresh, renderImmediate,
-  patternInstances, allInstances, instanceBounds, normalizePattern,
+  patternInstances, symmetryInstances, derivedInstances,
+  allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
-  limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR} };
+  limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
+    MAX_SYMMETRY_COUNT,MAX_SYMMETRY_RADIUS,MAX_SYMMETRY_GAP} };
 
 /* ---- engine library panel ------------------------------------------------
  * A browsable list of what this editor can do, built on EngineCatalog for the
@@ -12433,6 +12592,23 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
       engOpenPage('Fill');
       status(item.label+' applied. Adjust it in Fill.');
       engClose();
+      return;
+    }
+
+    /* A structure engine changes how many of the layer there are. It is set
+     * on the layer, like a fill is — pushing it on the effect stack would put
+     * a layout in a slot meant for something composited over pixels. */
+    if(item.kind==='structure'){
+      if(item.id==='symmetry'){
+        if(!obj.symmetry) obj.symmetry=normalizeSymmetry({});
+        pushHistory('Apply '+item.label);
+        refresh();
+        engOpenPage('Symmetry');
+        status(item.label+' applied. Adjust it in Symmetry.');
+        engClose();
+        return;
+      }
+      engSay('That engine has no renderer yet.');
       return;
     }
 

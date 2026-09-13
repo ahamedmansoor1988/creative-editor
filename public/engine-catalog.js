@@ -322,12 +322,15 @@
       id: "symmetry",
       label: "Symmetry",
       category: "generator",
-      status: MIGRATION,
-      kind: "effect",
+      status: READY,
+      /* Not an effect: nothing is composited over the layer. Like the
+       * repeater it changes how MANY of the layer there are, so it is set on
+       * the layer itself and read by the one instancing seam. */
+      kind: "structure",
       rendererType: null,
-      supportedInputs: ALL_LAYERS,
-      statusReason: "No renderer yet.",
-      description: "Mirrors the layer across one or more axes.",
+      supportedInputs: SHAPES.concat("image"),
+      description: "Mirrors or turns the layer into a figure of live copies.",
+      tagline: "mirror and radial repeat",
     },
     {
       id: "mask",
