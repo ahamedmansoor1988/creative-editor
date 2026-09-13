@@ -240,9 +240,44 @@ describe("one structure per layer, through one seam", () => {
     expect(editor.derivedInstances(o).length).toBe(3);
   });
 
-  it("the repeater wins when a layer carries both", () => {
-    const o = withLayer({}, { mode: "mirror", axis: "both" });
+  it("both engines compose: symmetry reflects the whole repeated field", () => {
+    const o = withLayer({}, { mode: "mirror", axis: "vertical" });
     o.pattern = editor.normalizePattern({ columns: 2, rows: 1 });
+    const grid = editor.patternInstances(o); // 1 copy: the parent is cell 0
+    const mine = editor.symmetryInstances(o); // 1 reflection of the parent
+    // the grid, the parent's own reflection, and a reflection of each grid copy
+    expect(editor.derivedInstances(o).length).toBe(grid.length + mine.length + grid.length);
+  });
+
+  it("every copy in a composed field has its own id", () => {
+    const o = withLayer({}, { mode: "mirror", axis: "both" });
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 2 });
+    const ids = editor.derivedInstances(o).map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => id !== o.id)).toBe(true);
+  });
+
+  it("a composed copy still carries no structure, so nothing recurses", () => {
+    const o = withLayer({}, { mode: "mirror", axis: "both" });
+    o.pattern = editor.normalizePattern({ columns: 2, rows: 2 });
+    for (const i of editor.derivedInstances(o)) {
+      expect(i.pattern).toBeUndefined();
+      expect(i.symmetry).toBeUndefined();
+      expect(i.parentId).toBe(o.id);
+    }
+  });
+
+  it("the composed field is capped, so a big grid cannot explode", () => {
+    const o = withLayer({}, { mode: "radial", count: 24, radius: 200 });
+    o.pattern = editor.normalizePattern({ columns: 20, rows: 20 });
+    const n = editor.derivedInstances(o).length;
+    expect(n).toBeLessThanOrEqual(editor.limits.MAX_PATTERN_INSTANCES);
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it("a repeater with no symmetry is untouched by the composition", () => {
+    const o = withLayer();
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1 });
     expect(editor.derivedInstances(o)).toEqual(editor.patternInstances(o));
   });
 
@@ -355,5 +390,86 @@ describe("the layer you selected paints on top of its copies", () => {
     editor.paintWithInstances(o, (x) => painted.push(x.id));
     expect(painted[painted.length - 1]).toBe(o.id);
     expect(painted.length).toBe(editor.patternInstances(o).length + 1);
+  });
+});
+
+describe("the whole field moves as one body", () => {
+  /* The first attempt let each repeater copy compute its own pivot, so every
+   * shape spun in place and the field never turned at all. The operations are
+   * the parent's, and they are applied to every member. */
+  const centre = (o) => ({ x: o.x + o.w / 2, y: o.y + o.h / 2 });
+
+  it("a turned row fans out — its members keep their distances from the pivot", () => {
+    const o = withLayer({ x: 400, y: 275, w: 26, h: 60 }, { mode: "radial", count: 10, radius: 0 });
+    o.pattern = editor.normalizePattern({ columns: 4, rows: 1, hGap: 14, vGap: 0 });
+    const pivot = centre(o);
+    const dists = editor
+      .derivedInstances(o)
+      .map((i) => Math.round(Math.hypot(centre(i).x - pivot.x, centre(i).y - pivot.y)));
+    // four members of the row, so four rings — not one distance
+    expect(new Set(dists).size).toBe(4);
+  });
+
+  it("a turned row uses every angle of the turn", () => {
+    const o = withLayer({}, { mode: "radial", count: 6, radius: 0, faceOut: true });
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1 });
+    const angles = new Set(editor.derivedInstances(o).map((i) => Math.round(i.rot)));
+    // the grid copies at 0, plus the five turns
+    expect(angles.size).toBe(6);
+  });
+
+  it("a mirrored row reflects as one body, so its order reverses", () => {
+    const o = withLayer(
+      { x: 100, y: 100, w: 60, h: 40 },
+      { mode: "mirror", axis: "vertical", gap: 0 },
+    );
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1, hGap: 20, vGap: 0 });
+    const all = editor.derivedInstances(o);
+    const flipped = all.filter((i) => i.mirrorX).map((i) => Math.round(i.x));
+    // the parent and its two copies sit at 100, 180, 260; the mirror line is
+    // at 160, so their reflections land at 160, 80, 0 — the row, reversed
+    expect(flipped.sort((a, b) => a - b)).toEqual([0, 80, 160]);
+  });
+
+  it("every member of the field is reflected, not just the parent", () => {
+    const o = withLayer({}, { mode: "mirror", axis: "vertical" });
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1 });
+    const all = editor.derivedInstances(o);
+    expect(all.filter((i) => i.mirrorX).length).toBe(editor.patternInstances(o).length + 1);
+  });
+});
+
+describe("the operations themselves", () => {
+  it("a radial symmetry is count-1 turns about one pivot", () => {
+    const o = withLayer({}, { mode: "radial", count: 6, radius: 50 });
+    const ops = editor.symmetryOps(o);
+    expect(ops.length).toBe(5);
+    expect(new Set(ops.map((p) => p.px + "," + p.py)).size).toBe(1);
+    expect(ops.map((p) => Math.round(p.deg))).toEqual([60, 120, 180, 240, 300]);
+  });
+
+  it("a mirror on both axes is three reflections", () => {
+    const ops = editor.symmetryOps(withLayer({}, { mode: "mirror", axis: "both" }));
+    expect(ops.length).toBe(3);
+    expect(ops.every((p) => p.kind === "flip")).toBe(true);
+  });
+
+  it("no symmetry means no operations", () => {
+    expect(editor.symmetryOps(withLayer())).toEqual([]);
+    expect(editor.symmetryOps(null)).toEqual([]);
+  });
+
+  it("an operation applied to a layer strips its structure", () => {
+    const o = withLayer({}, { mode: "mirror", axis: "vertical" });
+    o.pattern = editor.normalizePattern({ columns: 2, rows: 1 });
+    const c = editor.applySymmetryOp(o, editor.symmetryOps(o)[0]);
+    expect(c.pattern).toBeUndefined();
+    expect(c.symmetry).toBeUndefined();
+  });
+
+  it("a degenerate member yields null rather than NaN geometry", () => {
+    const o = withLayer({}, { mode: "radial", count: 4, radius: 50 });
+    const op = editor.symmetryOps(o)[0];
+    expect(editor.applySymmetryOp({ x: NaN, y: 0, w: 10, h: 10 }, op)).toBeNull();
   });
 });

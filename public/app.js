@@ -2614,7 +2614,7 @@ function patternInstances(parent){
       rot:k.rot,
       mirrorX: m==='horizontal' || (m==='alt-horizontal' && c%2===1),
       mirrorY: m==='vertical'   || (m==='alt-vertical'   && r%2===1),
-      pattern:undefined,                        // never recurse
+      pattern:undefined, symmetry:undefined,    // a copy carries no structure
     });
   }
   return out;
@@ -2637,80 +2637,113 @@ function normalizeSymmetry(raw){
   return out;
 }
 
-/* ---- symmetry layout ----
- * Pure function of (parent, parent.symmetry). Returns COMPLETE derived
- * instances, the same shallow-view shape the repeater emits, so every
- * appearance property (fill, radius, opacity, effects) is inherited live and
- * no copied state can drift.
+/* ---- symmetry as operations on the plane ----
+ * A symmetry is a set of RIGID TRANSFORMS — turns about a pivot, or
+ * reflections across a line — computed once from the parent. Apply them to
+ * the parent alone and you get symmetry. Apply them to the parent AND its
+ * repeater copies and the whole field moves as one body, which is the
+ * kaleidoscope.
  *
- *   mirror — the layer reflected across a line set `gap` clear of its own
- *            rotated bounds. One copy per axis; `both` adds the diagonal, so
- *            the figure is the familiar quad.
- *   radial — count-1 copies turned about a pivot `radius` from the layer's
- *            centre. radius 0 turns them about that centre itself, which is
- *            the pinwheel.
- *
- * Rotation of a reflected copy is NOT the parent's. The draw order is
- * rotate(rot) then scale(mirror) (see applyObjectTransform), and a true
- * reflection of a rotated body across a world axis is scale then rotate. The
- * two agree when a single-axis copy carries -rot; reflecting BOTH axes is a
- * half turn, which commutes, so the diagonal copy keeps +rot.
+ * Splitting the operations from their application is what makes the second
+ * case correct rather than merely plausible: the pivot and the mirror lines
+ * belong to the PARENT, so every member turns about the same centre. Letting
+ * each copy compute its own pivot spins each shape in place and the field
+ * never turns at all — which is exactly what the first attempt drew.
  */
-function symmetryInstances(parent){
-  const S=parent&&parent.symmetry;
-  const out=[];
+function symmetryOps(parent){
+  const S=parent&&parent.symmetry, out=[];
   if(!S) return out;
-  if(parent.type==='text') return out;          // as with the repeater
-  if(parent.parentId) return out;               // instances never recurse
   const pw=parent.w, ph=parent.h;
   if(!isFinite(pw)||!isFinite(ph)||pw<=0||ph<=0) return out;
   if(!isFinite(parent.x)||!isFinite(parent.y)) return out;
-  const emit=(i,x,y,rot,mx,my)=>{
-    if(!isFinite(x)||!isFinite(y)) return;
-    out.push({...parent,
-      id:parent.id+'~'+i, parentId:parent.id, instanceIndex:i,
-      x, y, w:pw, h:ph, rot,
-      mirrorX:!!mx, mirrorY:!!my,
-      pattern:undefined, symmetry:undefined});   // never recurse
-  };
   const cx=parent.x+pw/2, cy=parent.y+ph/2;
-
   if(S.mode==='radial'){
-    const n=S.count, step=360/n, RAD=Math.PI/180;
-    const px=cx, py=cy+S.radius;                 // the pivot
-    const dx=cx-px, dy=cy-py;
-    for(let i=1;i<n;i++){
-      const turn=S.angle+step*i, a=turn*RAD;
-      const ca=Math.cos(a), sa=Math.sin(a);
-      const nx=px+dx*ca-dy*sa, ny=py+dx*sa+dy*ca;
-      emit(i,nx-pw/2,ny-ph/2,(parent.rot||0)+(S.faceOut?turn:0),parent.mirrorX,parent.mirrorY);
-    }
+    const n=S.count, step=360/n;
+    for(let i=1;i<n;i++)
+      out.push({kind:'turn',i,deg:S.angle+step*i,px:cx,py:cy+S.radius,face:S.faceOut});
     return out;
   }
-
-  // Spacing runs off the layer's ACTUAL rotated bounds, never its w/h — the
-  // same rule the repeater's gaps follow, so a turned layer is not padded.
+  /* The mirror line sits half a gap beyond the layer's own TURNED bounds, so
+   * `gap` is the exact clear space between the layer and its reflection — the
+   * same rule the repeater's gaps follow. */
   const b=instanceBounds(parent);
-  const rot=parent.rot||0, flip=-rot;
-  const dx=b.w+S.gap, dy=b.h+S.gap;
+  const lx=cx+(b.w+S.gap)/2, ly=cy+(b.h+S.gap)/2;
   const doX=S.axis==='vertical'||S.axis==='both';
   const doY=S.axis==='horizontal'||S.axis==='both';
-  /* Fixed indices, not a running counter: a copy's id must not change when
-   * the axis does, or history and selection would follow the wrong one. */
-  if(doX) emit(1,parent.x+dx,parent.y,flip,!parent.mirrorX,!!parent.mirrorY);
-  if(doY) emit(2,parent.x,parent.y+dy,flip,!!parent.mirrorX,!parent.mirrorY);
-  if(doX&&doY) emit(3,parent.x+dx,parent.y+dy,rot,!parent.mirrorX,!parent.mirrorY);
+  if(doX) out.push({kind:'flip',i:1,fx:lx});
+  if(doY) out.push({kind:'flip',i:2,fy:ly});
+  if(doX&&doY) out.push({kind:'flip',i:3,fx:lx,fy:ly});
+  return out;
+}
+
+/** One operation applied to one layer. Returns a complete derived instance —
+ *  a shallow view of the layer with only geometry substituted, so every
+ *  appearance property is inherited live — or null if it would not be finite. */
+function applySymmetryOp(m,op){
+  const w=m.w, h=m.h, cx=m.x+w/2, cy=m.y+h/2;
+  let nx, ny, rot=m.rot||0, mx=!!m.mirrorX, my=!!m.mirrorY;
+  if(op.kind==='turn'){
+    const a=op.deg*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+    const dx=cx-op.px, dy=cy-op.py;
+    nx=op.px+dx*ca-dy*sa; ny=op.py+dx*sa+dy*ca;
+    if(op.face) rot+=op.deg;
+  }else{
+    const bothAxes=op.fx!==undefined&&op.fy!==undefined;
+    nx=op.fx!==undefined?2*op.fx-cx:cx;
+    ny=op.fy!==undefined?2*op.fy-cy:cy;
+    if(op.fx!==undefined) mx=!mx;
+    if(op.fy!==undefined) my=!my;
+    /* The draw order is rotate(rot) then scale(mirror), and a true reflection
+     * of a turned body across a world axis is scale then rotate. The two agree
+     * when a single-axis copy carries -rot. Reflecting BOTH axes is a half
+     * turn, which commutes, so the diagonal copy keeps +rot. */
+    rot=bothAxes?rot:-rot;
+  }
+  if(!isFinite(nx)||!isFinite(ny)) return null;
+  return {...m, x:nx-w/2, y:ny-h/2, rot, mirrorX:mx, mirrorY:my,
+    pattern:undefined, symmetry:undefined};      // a copy carries no structure
+}
+
+/** The parent's own symmetry copies: every operation applied to the parent. */
+function symmetryInstances(parent){
+  const out=[];
+  if(!parent||!parent.symmetry) return out;
+  if(parent.type==='text') return out;          // as with the repeater
+  if(parent.parentId) return out;               // instances never recurse
+  for(const op of symmetryOps(parent)){
+    const c=applySymmetryOp(parent,op);
+    if(c) out.push({...c,id:parent.id+'~'+op.i,parentId:parent.id,instanceIndex:op.i});
+  }
   return out;
 }
 
 /* ONE seam for both structure engines. Every draw, hit-test, export and count
- * path asks this, not either layout directly, so adding the second engine did
- * not scatter a second call beside the first at fifteen sites. A layer carries
- * one structure at a time: the repeater wins when both are set, and the
- * Symmetry panel says so rather than silently multiplying the two grids. */
+ * path asks this, not either layout directly, so the second engine did not
+ * scatter a second call beside the first at fifteen sites.
+ *
+ * The repeater lays the field out; symmetry moves the whole field. A layer
+ * carrying only one of them gets exactly that engine's layout, unchanged.
+ * Carrying both, the operations are applied to the parent AND to every copy
+ * the repeater made, capped at the repeater's own instance limit. */
 function derivedInstances(parent){
-  if(parent&&parent.pattern) return patternInstances(parent);
-  return symmetryInstances(parent);
+  if(!parent) return [];
+  const grid=parent.pattern?patternInstances(parent):[];
+  if(!parent.symmetry) return grid;
+  const ops=symmetryOps(parent);
+  if(!ops.length) return grid;
+  const out=grid.slice();
+  const field=[parent,...grid];
+  for(const op of ops){
+    for(const m of field){
+      if(out.length>=MAX_PATTERN_INSTANCES) return out;
+      const c=applySymmetryOp(m,op);
+      if(!c) continue;
+      out.push({...c,
+        id:parent.id+'~'+op.i+(m===parent?'':'#'+m.instanceIndex),
+        parentId:parent.id, instanceIndex:op.i});
+    }
+  }
+  return out;
 }
 /** Paint a layer and every copy a structure engine derives from it.
  *
@@ -6914,8 +6947,8 @@ function buildFxSection(obj,page,add,body){
       ${S.mode==='mirror'
         ? 'Gap is the clear space between the layer and its reflection; it reads the turned bounds, so a rotated layer is not padded.'
         : 'Radius 0 turns the copies about the layer’s own centre.'}</div>`);
-    if(obj.pattern) add(`<div class="fxHint">This layer also has a repeater, and a layer
-      carries one structure at a time — the repeater is drawing. Remove it to see symmetry.</div>`);
+    if(obj.pattern) add(`<div class="fxHint">This layer also has a repeater, so symmetry
+      reflects the whole repeated field, not just the one layer. Capped at ${MAX_PATTERN_INSTANCES} copies.</div>`);
     add(`<div class="rowBtns"><button class="rollBtn" id="syDrop">Remove symmetry</button></div>`);
     $('syMode').addEventListener('change',e=>{ S.mode=e.target.value; commit('Symmetry mode'); });
     const num=(id,key,lo,hi,label,round)=>{ const el=$(id); if(!el) return;
@@ -12754,6 +12787,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
+  symmetryOps, applySymmetryOp,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,

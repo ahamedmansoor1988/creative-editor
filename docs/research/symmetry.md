@@ -97,9 +97,6 @@ findings in both modes and in the empty state.
 ## Known limits
 
 - Text is not a symmetry parent, matching the repeater's rule.
-- A layer carries one structure at a time; symmetry over a repeated field
-  (a kaleidoscope of a grid) is not available and would need the seam to
-  compose the two layouts rather than choose between them.
 - The mirror gap is one number for both axes. The repeater has separate
   horizontal and vertical gaps; if a quad ever needs different spacing per
   axis, that is where the second field goes.
@@ -151,3 +148,42 @@ The order is now one function rather than a line repeated at each paint path:
 Seven paths use it — the ordinary fill and six materials — so the order cannot
 drift between them. The repeater follows the same rule, because an order that
 differs by engine is the kind of detail nobody can predict from the panel.
+
+## Both engines at once — the kaleidoscope (13 Sep 2026)
+
+The limitation above is gone. A layer may carry the repeater and symmetry
+together: the repeater lays the field out, and symmetry moves the **whole
+field** rather than the one layer. A row of four turned ten times is forty
+shapes in concentric rings.
+
+### Operations, not a second layout
+
+Getting this right needed the symmetry rewritten as a set of **rigid transforms
+of the plane**, computed once from the parent:
+
+    symmetryOps(parent)        -> turns about a pivot, or reflections across a line
+    applySymmetryOp(member,op) -> that transform applied to one layer
+
+Symmetry alone is every operation applied to the parent. The kaleidoscope is
+every operation applied to the parent **and** to each repeater copy. The output
+for a layer carrying only one engine is byte-identical to before, so the
+existing tests all stood.
+
+The first attempt handed each repeater copy its own symmetry and asked it to
+lay itself out. The counts came out exactly right — 39 copies for a row of four
+turned ten times — and the picture was a blob, because each copy computed its
+pivot from its **own** centre and spun in place. The field never turned. That is
+the reason the operations are separated from their application: the pivot and
+the mirror lines belong to the parent, and there is now no way to express
+anything else.
+
+The measurement that caught it, and that guards it now, is the set of distances
+from the pivot. A field that turns as one body keeps one ring per member of the
+row — four distinct distances. A field whose members each spin in place has
+one.
+
+### The cap
+
+The two engines multiply. A 20×20 grid with 24-fold radial symmetry asks for
+9,600 copies and receives the repeater's existing limit of 400. Where the cap
+bites the figure is incomplete rather than wrong, and the panel says so.
