@@ -2351,3 +2351,76 @@ body.rails #enginesPanel .engEmpty,
 body.rails #enginesPanel .engStatus {
   padding: 8px 14px;
 }
+
+/* ---- gradient ramp ---------------------------------------------------------
+ * One bar carrying the stops, replacing a block per stop. It is a row of the
+ * panel like any other: full width, the 40 pitch around it, and it does not
+ * grow when stops are added. */
+body.rails .gRamp {
+  margin: 5px 0 12px;
+  /* the end handles hang half their width past the bar; the padding is where
+     that overhang goes, so the panel never gains a sideways scroll */
+  padding: 8px 9px;
+  touch-action: none;
+}
+body.rails .gRampTrack {
+  position: relative;
+}
+body.rails .gRampBar {
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  cursor: copy;
+  /* the gradient over a checkerboard, so stop opacity is visible */
+  background-image: var(--g), repeating-conic-gradient(#00000014 0 25%, transparent 0 50%);
+  background-size:
+    auto,
+    10px 10px;
+}
+/* a handle is a dot ON the bar: the position it sits at IS the stop's */
+body.rails .gStop {
+  position: absolute;
+  top: 2px;
+  width: 18px;
+  height: 40px;
+  margin-left: -9px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+body.rails .gStop > i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--line-strong, #c9ccd4);
+}
+body.rails .gStop.is-sel > i {
+  box-shadow: 0 0 0 2px var(--ink, #111318);
+}
+body.rails .gStop:focus-visible > i {
+  outline: 2px solid var(--focus, #2563eb);
+  outline-offset: 2px;
+}
+/* a midpoint belongs to the SPAN, so it sits between its two handles */
+body.rails .gMid {
+  position: absolute;
+  top: 13px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  padding: 0;
+  border: 1px solid var(--ink, #111318);
+  border-radius: 2px;
+  background: #fff;
+  transform: rotate(45deg);
+  cursor: ew-resize;
+}
+body.rails .gMid:focus-visible {
+  outline: 2px solid var(--focus, #2563eb);
+  outline-offset: 2px;
+}

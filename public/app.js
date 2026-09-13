@@ -2709,6 +2709,179 @@ function derivedInstances(parent){
   if(parent&&parent.pattern) return patternInstances(parent);
   return symmetryInstances(parent);
 }
+/* ================= gradient ramp =================
+ * The stops drawn ON the gradient, the way Figma, Illustrator and Sketch all
+ * draw them: one bar that is at once the preview, the ordering and the
+ * control. What it replaces was a BLOCK per stop — a colour row plus a pair
+ * of sliders for opacity and midpoint — so the panel grew by 139px for every
+ * stop and listed them in array order rather than the order they appear in
+ * the gradient. The ramp is one height whatever the stop count, and a stop's
+ * place on the bar IS its position.
+ *
+ * A midpoint belongs to the SPAN between two stops, not to one of them, so it
+ * is a diamond sitting between its two handles rather than a slider hanging
+ * under the earlier one.
+ *
+ * Selection is kept out here, keyed by owner, so a rebuild of the panel does
+ * not throw away which stop the user was editing. */
+const _rampSel=Object.create(null);
+function rampSel(key,count){
+  const v=_rampSel[key];
+  return Number.isInteger(v)?clamp(v,0,Math.max(0,count-1)):0;
+}
+function setRampSel(key,i){ _rampSel[key]=i; }
+
+/** Stop order as drawn, carrying each stop's index in the array. */
+function rampOrder(stops){
+  return stops.map((st,i)=>({st,i})).sort((a,b)=>(a.st.pos-b.st.pos)||(a.i-b.i));
+}
+/** The gradient as a CSS image, so the bar shows exactly what the layer has. */
+function rampGradientCss(stops){
+  const parts=rampOrder(stops).map(({st})=>{
+    const a=st.opacity===undefined?1:clamp(+st.opacity,0,1);
+    return hexToRgba(st.color,a)+' '+(clamp(+st.pos||0,0,1)*100).toFixed(2)+'%';
+  });
+  return parts.length>1?'linear-gradient(90deg,'+parts.join(',')+')'
+    :'linear-gradient(90deg,'+(parts[0]||'transparent')+','+(parts[0]||'transparent')+')';
+}
+function hexToRgba(hex,a){
+  const m=/^#?([0-9a-f]{6})$/i.exec(String(hex||''));
+  if(!m) return 'rgba(0,0,0,'+a+')';
+  const n=parseInt(m[1],16);
+  return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
+}
+
+/** The bar, its handles and its midpoint diamonds. `attrs` addresses the
+ *  owning paint row for the delegated listeners below. */
+function rampHTML(stops,sel,attrs){
+  const ord=rampOrder(stops);
+  let h='';
+  ord.forEach((e,k)=>{
+    if(k<ord.length-1){
+      const a=e.st, b=ord[k+1].st;
+      const mid=clamp(a.mid===undefined?0.5:+a.mid,0.05,0.95);
+      const at=(clamp(+a.pos||0,0,1)+(clamp(+b.pos||0,0,1)-clamp(+a.pos||0,0,1))*mid)*100;
+      h+=`<button type="button" class="gMid" ${attrs} data-s="${e.i}" style="left:${at.toFixed(2)}%"
+        title="Midpoint — where the blend is halfway" aria-label="Midpoint between stop ${k+1} and ${k+2}"></button>`;
+    }
+  });
+  ord.forEach((e,k)=>{
+    h+=`<button type="button" class="gStop${e.i===sel?' is-sel':''}" ${attrs} data-s="${e.i}"
+      style="left:${(clamp(+e.st.pos||0,0,1)*100).toFixed(2)}%"
+      aria-label="Stop ${k+1} of ${ord.length}" aria-pressed="${e.i===sel}"
+      ><i style="background:${esc(e.st.color)}"></i></button>`;
+  });
+  /* The track is exactly the bar's box, so a handle's `left: N%` is N% of the
+   * GRADIENT. The outer .gRamp carries the padding that the end handles hang
+   * into — without it the handle at 100% pushed the panel into a scroll. */
+  return `<div class="gRamp" ${attrs}><div class="gRampTrack">`
+    +`<div class="gRampBar" style="--g:${rampGradientCss(stops)}"></div>${h}</div></div>`;
+}
+
+/** The colour the gradient already shows between two stops. Guarded, because
+ *  the editor's mixHex assumes two well-formed hex strings. */
+function rampMix(a,b,t){
+  const ok=v=>/^#[0-9a-f]{6}$/i.test(String(v||''));
+  if(!ok(a)) return ok(b)?b:'#888888';
+  if(!ok(b)) return a;
+  return mixHex(a,b,clamp(t,0,1));
+}
+/** Pointer behaviour for one ramp: click the bar to add, drag a handle to
+ *  move, drag a diamond to skew the blend. One listener set per ramp. */
+function wireRamp(el,getStops,key,onLive,onCommit){
+  const posAt=ev=>{
+    const bar=el.querySelector('.gRampBar').getBoundingClientRect();
+    return bar.width?clamp((ev.clientX-bar.left)/bar.width,0,1):0;
+  };
+  let drag=null;
+  el.addEventListener('pointerdown',ev=>{
+    const stops=getStops(); if(!stops) return;
+    const stop=ev.target.closest('.gStop'), mid=ev.target.closest('.gMid');
+    if(stop){
+      const i=+stop.dataset.s;
+      setRampSel(key,i); drag={kind:'stop',i};
+    }else if(mid){
+      const i=+mid.dataset.s, ord=rampOrder(stops);
+      const k=ord.findIndex(e=>e.i===i);
+      if(k<0||k>=ord.length-1) return;
+      drag={kind:'mid',a:ord[k].st,b:ord[k+1].st};
+    }else{
+      /* A press on the bar adds a stop there, coloured by what the gradient
+       * already shows at that point — Figma's behaviour, and it means the
+       * gradient does not change until the new stop is moved. */
+      const p=posAt(ev), ord=rampOrder(stops);
+      let before=ord[0].st, after=ord[ord.length-1].st;
+      for(let k=0;k<ord.length-1;k++){
+        if(p>=ord[k].st.pos&&p<=ord[k+1].st.pos){ before=ord[k].st; after=ord[k+1].st; break; }
+      }
+      const span=(after.pos-before.pos)||1;
+      const t=clamp((p-before.pos)/span,0,1);
+      stops.push({pos:p,color:rampMix(before.color,after.color,t),
+        opacity:(before.opacity===undefined?1:before.opacity)*(1-t)+(after.opacity===undefined?1:after.opacity)*t,
+        mid:0.5});
+      setRampSel(key,stops.length-1);
+      onCommit('Add gradient stop');
+      return;
+    }
+    el.setPointerCapture&&el.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+    onLive();
+  });
+  el.addEventListener('pointermove',ev=>{
+    if(!drag) return;
+    const stops=getStops(); if(!stops) return;
+    const p=posAt(ev);
+    if(drag.kind==='stop'){ if(stops[drag.i]) stops[drag.i].pos=p; }
+    else{
+      const span=drag.b.pos-drag.a.pos;
+      if(Math.abs(span)>0.005) drag.a.mid=clamp((p-drag.a.pos)/span,0.05,0.95);
+    }
+    onLive();
+  });
+  const end=()=>{ if(!drag) return; const k=drag.kind; drag=null;
+    onCommit(k==='mid'?'Gradient midpoint':'Move gradient stop'); };
+  el.addEventListener('pointerup',end);
+  el.addEventListener('pointercancel',end);
+
+  /* Every handle and diamond is a real button, so the whole ramp is reachable
+   * by keyboard: arrows nudge, shift-arrows jump, Delete removes the stop.
+   * This is why the midpoint needs no row of its own — the diamond IS the
+   * control, and it can be driven without a mouse. */
+  el.addEventListener('keydown',ev=>{
+    const stops=getStops(); if(!stops) return;
+    const stop=ev.target.closest('.gStop'), mid=ev.target.closest('.gMid');
+    if(!stop&&!mid) return;
+    const step=(ev.shiftKey?0.1:0.01)*(ev.key==='ArrowLeft'||ev.key==='ArrowDown'?-1:1);
+    const arrow=/^Arrow(Left|Right|Up|Down)$/.test(ev.key);
+    /* Every key this ramp consumes stops here. Delete in particular: the
+     * document-level handler reads it as "delete the selected layer", so a
+     * handle that removed a stop and then let the key through deleted the
+     * whole layer underneath it. */
+    const consume=()=>{ ev.preventDefault(); ev.stopPropagation(); };
+    if(stop){
+      const i=+stop.dataset.s, st=stops[i]; if(!st) return;
+      if(arrow){ consume(); setRampSel(key,i);
+        st.pos=clamp((+st.pos||0)+step,0,1); onCommit('Move gradient stop'); return; }
+      if(ev.key==='Delete'||ev.key==='Backspace'){
+        consume();
+        if(stops.length<=2){ status('A gradient keeps at least two stops.'); return; }
+        stops.splice(i,1);
+        setRampSel(key,Math.max(0,i-1)); onCommit('Remove gradient stop'); return;
+      }
+      if(ev.key===' '||ev.key==='Enter'){ consume(); setRampSel(key,i); onCommit('Select gradient stop'); }
+      return;
+    }
+    if(arrow){
+      const i=+mid.dataset.s, ord=rampOrder(stops), k=ord.findIndex(e=>e.i===i);
+      if(k<0||k>=ord.length-1) return;
+      consume();
+      const a=ord[k].st, b=ord[k+1].st, span=b.pos-a.pos;
+      if(Math.abs(span)>0.005) a.mid=clamp((a.mid??0.5)+step*(span<0?-1:1),0.05,0.95);
+      onCommit('Gradient midpoint');
+    }
+  });
+}
+
 /** Axis-aligned visual bounds of an instance's rotated geometry. */
 function instanceBounds(o){
   // Must mirror the layout's aabb(): ellipses get their exact tangent box,
@@ -6249,20 +6422,32 @@ function syncArtboardPanel(ab){
     $('abGradAngle').value=Math.round(F.angle||0);
     $('abGradAngleValue').textContent=Math.round(F.angle||0)+'°';
     $('abGradSpace').value=F.space||'srgb';
+    /* The artboard's gradient reads the same way the layer's does — one ramp,
+     * then the rows for the stop it has selected. */
     const host=$('abGradStops');
-    host.innerHTML='';
-    (F.stops||[]).forEach((st,si)=>{
-      host.insertAdjacentHTML('beforeend',`<div class="stopRow">
-        <input type="color" class="abGColor" data-s="${si}" value="${st.color}">
-        <input type="range" class="abGPos" data-s="${si}" min="0" max="100" value="${Math.round(st.pos*100)}">
-        <button class="stopDel abGDel" data-s="${si}" title="Remove stop" aria-label="Remove stop" ${(F.stops||[]).length<=2?'disabled':''}>${IC('x',12)}</button>
-      </div><div class="row2" style="margin:-4px 0 6px">
-        <label class="slider" style="font-size:10px">Stop opacity
-          <input type="range" class="abGOpacity" data-s="${si}" min="0" max="100" value="${Math.round((st.opacity??1)*100)}"></label>
-        <label class="slider" style="font-size:10px">Midpoint
-          <input type="range" class="abGMid" data-s="${si}" min="5" max="95" value="${Math.round((st.mid??.5)*100)}"></label>
-      </div>`);
-    });
+    const S=F.stops||[], sel=rampSel('artboard',S.length), st=S[sel]||S[0]||{color:'#ffffff',pos:0};
+    host.innerHTML=rampHTML(S,sel,'data-ab="1"')
+      +`<label class="slider uiRow"><span>Colour</span>
+          <input type="color" class="abGColor" data-s="${sel}" value="${esc(st.color)}"></label>
+        <label class="slider uiRow"><span>Position</span>
+          <input type="number" class="abGPos" data-s="${sel}" min="0" max="100" step="1" value="${Math.round((st.pos||0)*100)}"></label>
+        <label class="slider uiRow"><span>Opacity</span>
+          <input type="number" class="abGOpacity" data-s="${sel}" min="0" max="100" step="1" value="${Math.round((st.opacity??1)*100)}"></label>`
+      +`<div class="fxHint">Click the bar to add a stop, drag a handle to move it,
+          drag a diamond to shift where the blend is halfway. Arrows nudge, Delete removes.</div>`;
+    const ramp=host.querySelector('.gRamp');
+    if(ramp) wireRamp(ramp,()=>{ const a=posArtboard(); return a&&a.fill&&a.fill.stops; },'artboard',
+      ()=>{ const a=posArtboard(); if(!a||!a.fill) return;
+        const bar=ramp.querySelector('.gRampBar');
+        if(bar) bar.style.setProperty('--g',rampGradientCss(a.fill.stops));
+        ramp.querySelectorAll('.gStop').forEach(h=>{ const t=a.fill.stops[+h.dataset.s];
+          if(t) h.style.left=(clamp(+t.pos||0,0,1)*100).toFixed(2)+'%'; });
+        const o2=rampOrder(a.fill.stops);
+        ramp.querySelectorAll('.gMid').forEach(h=>{ const k=o2.findIndex(e=>e.i===+h.dataset.s);
+          if(k>=0&&k<o2.length-1){ const x=o2[k].st,y=o2[k+1].st;
+            h.style.left=((x.pos+(y.pos-x.pos)*clamp(x.mid??0.5,0.05,0.95))*100).toFixed(2)+'%'; } });
+        render(); },
+      label=>{ const a=posArtboard(); if(a) syncArtboardPanel(a); pushHistory(label); render(); });
   }
   $('abRadius').value=Math.round(ab.radius||0);
   const S=ab.stroke||{};
@@ -6907,22 +7092,27 @@ function buildFxSection(obj,page,add,body){
               add(`<label class="slider">Aspect <span id="apAsp${fi}">${(+f.aspect).toFixed(2)}</span>
               <input type="range" class="apAspect" data-i="${fi}" min="0.2" max="5" step="0.05" value="${f.aspect}"></label>`);
           }
-          f.stops.forEach((st,si)=>{
-            add(`<div class="stopRow">
-              <input type="color" class="apSC" data-i="${fi}" data-s="${si}" value="${st.color}">
-              <input type="range" class="apSP" data-i="${fi}" data-s="${si}" min="0" max="100" value="${Math.round(st.pos*100)}">
-              <button class="stopDel apSD" data-i="${fi}" data-s="${si}" title="Remove stop" aria-label="Remove stop" ${f.stops.length<=2?'disabled':''}>${IC('x',12)}</button>
-            </div>
-            <div class="row2" style="margin:-4px 0 6px">
-              <label class="slider" style="font-size:10px">Stop opacity
-                <input type="range" class="apSO" data-i="${fi}" data-s="${si}" min="0" max="100" value="${Math.round((st.opacity??1)*100)}"></label>
-              <label class="slider" style="font-size:10px">Midpoint
-                <input type="range" class="apSM" data-i="${fi}" data-s="${si}" min="5" max="95" value="${Math.round((st.mid??0.5)*100)}"></label>
-            </div>`);
-          });
+          /* The ramp, then the rows for the ONE stop it has selected. What
+           * was here listed every stop as a block, so five stops was 556px of
+           * panel and the order on screen was the array's, not the
+           * gradient's. */
+          const rkey='fill'+fi, rsel=rampSel(rkey,f.stops.length);
+          add(rampHTML(f.stops,rsel,`data-i="${fi}"`));
+          const st=f.stops[rsel]||f.stops[0];
+          add(`<label class="slider uiRow"><span>Colour</span>
+            <input type="color" class="apSC" data-i="${fi}" data-s="${rsel}" value="${esc(st.color)}"></label>`);
+          add(`<label class="slider uiRow"><span>Position</span>
+            <input type="number" class="apSP" data-i="${fi}" data-s="${rsel}" min="0" max="100" step="1" value="${Math.round(st.pos*100)}"></label>`);
+          add(`<label class="slider uiRow"><span>Opacity</span>
+            <input type="number" class="apSO" data-i="${fi}" data-s="${rsel}" min="0" max="100" step="1" value="${Math.round((st.opacity??1)*100)}"></label>`);
+          /* No Midpoint row: a midpoint belongs to the span between two stops,
+           * not to one of them, and the diamond on the bar already says so.
+           * Arrow keys on a focused diamond are the keyboard path. */
+          add(`<div class="fxHint">Click the bar to add a stop, drag a handle to move it,
+            drag a diamond to shift where the blend is halfway. Arrows nudge, Delete removes.</div>`);
           add(`<div class="gsBtns">
-            <button class="rollBtn apAddStop" data-i="${fi}">+ Stop</button>
-            <button class="rollBtn apRev" data-i="${fi}">Reverse</button></div>`);
+            <button class="rollBtn apRev" data-i="${fi}">Reverse</button>
+            <button class="rollBtn apSD" data-i="${fi}" data-s="${rsel}" ${f.stops.length<=2?'disabled':''}>Delete stop</button></div>`);
         }
         if(!isFill){
           add(`<div class="row2">
@@ -7019,20 +7209,41 @@ function buildFxSection(obj,page,add,body){
       each('apAspect','input',(f,e,el)=>{ f.aspect=+e.target.value; const sp=$('apAsp'+I(el)); if(sp) sp.textContent=(+e.target.value).toFixed(2); });
       each('apTaper','input',(f,e,el)=>{ f.taper=+e.target.value/100; const sp=$('apTap'+I(el)); if(sp) sp.textContent=e.target.value+'%'; });
       each('apSC','input',(f,e,el)=>f.stops[SI(el)].color=e.target.value);
-      each('apSP','input',(f,e,el)=>f.stops[SI(el)].pos=+e.target.value/100);
-      each('apSO','input',(f,e,el)=>f.stops[SI(el)].opacity=+e.target.value/100);
-      each('apSM','input',(f,e,el)=>f.stops[SI(el)].mid=+e.target.value/100);
-      each('apSD','click',(f,e,el)=>{ if(f.stops.length>2) f.stops.splice(SI(el),1); },true);
-      each('apAddStop','click',f=>{
-        const last=f.stops[f.stops.length-1];
-        f.stops.push({pos:1,color:last.color,opacity:1,mid:0.5});
-        f.stops.forEach((st,i2)=>st.pos=i2/(f.stops.length-1));
+      /* The three rows are numbers now, not ranges: the ramp is where a value
+       * is dragged, and a field beside it is the keyboard path. */
+      each('apSP','change',(f,e,el)=>f.stops[SI(el)].pos=clamp(+e.target.value||0,0,100)/100,true);
+      each('apSO','change',(f,e,el)=>f.stops[SI(el)].opacity=clamp(+e.target.value||0,0,100)/100,true);
+      each('apSD','click',(f,e,el)=>{
+        if(f.stops.length<=2) return;
+        const si=SI(el);
+        f.stops.splice(si,1);
+        setRampSel('fill'+I(el),Math.max(0,si-1));
       },true);
       each('apRev','click',f=>{
-        const cols=f.stops.map(st=>st.color).reverse();
-        const ops=f.stops.map(st=>st.opacity).reverse();
-        f.stops.forEach((st,i2)=>{ st.color=cols[i2]; st.opacity=ops[i2]; });
+        /* Reverse the FIGURE, not the array: positions mirror and each span's
+         * midpoint mirrors with it, so the gradient reads backwards exactly. */
+        const back=f.stops.map(st=>({...st,pos:1-(+st.pos||0)}));
+        const ord=rampOrder(back);
+        ord.forEach((e2,k)=>{ e2.st.mid=k<ord.length-1?1-((ord[k+1].st.mid??0.5)):0.5; });
+        f.stops.forEach((st,i2)=>{ st.pos=back[i2].pos; st.mid=back[i2].mid; });
       },true);
+      body.querySelectorAll('.gRamp').forEach(el=>{
+        const fi=I(el);
+        wireRamp(el,()=>{ const f=list[fi]; return f&&f.stops; },'fill'+fi,
+          ()=>{ const f=list[fi];
+            if(f){ const bar=el.querySelector('.gRampBar');
+              if(bar) bar.style.setProperty('--g',rampGradientCss(f.stops));
+              el.querySelectorAll('.gStop').forEach(h=>{ const st=f.stops[+h.dataset.s];
+                if(st) h.style.left=(clamp(+st.pos||0,0,1)*100).toFixed(2)+'%'; });
+              const ord2=rampOrder(f.stops);
+              el.querySelectorAll('.gMid').forEach(h=>{ const i2=+h.dataset.s;
+                const k=ord2.findIndex(e2=>e2.i===i2);
+                if(k>=0&&k<ord2.length-1){ const a=ord2[k].st,b=ord2[k+1].st;
+                  h.style.left=((a.pos+(b.pos-a.pos)*clamp(a.mid??0.5,0.05,0.95))*100).toFixed(2)+'%'; } });
+            }
+            render(); },
+          label=>{ pushHistory(label); refresh(); });
+      });
       each('apW','input',(f,e)=>f.width=clamp(+e.target.value||0,0,200));
       each('apAlign','change',(f,e)=>f.align=e.target.value);
       // rebuild: the hint below the control appears/disappears with the value
@@ -8913,32 +9124,31 @@ $('abGradSpace').addEventListener('change',e=>{
 $('abGradStops').addEventListener('input',e=>{
   const ab=posArtboard(); if(!ab||!ab.fill)return;
   const i=+e.target.dataset.s, st=ab.fill.stops&&ab.fill.stops[i]; if(!st)return;
-  if(e.target.classList.contains('abGColor')) st.color=e.target.value;
-  if(e.target.classList.contains('abGPos')) st.pos=+e.target.value/100;
-  if(e.target.classList.contains('abGOpacity')) st.opacity=+e.target.value/100;
-  if(e.target.classList.contains('abGMid')) st.mid=+e.target.value/100;
-  render();
+  if(e.target.classList.contains('abGColor')){ st.color=e.target.value; render(); }
 });
 $('abGradStops').addEventListener('change',e=>{
-  if(e.target.matches('input')) pushHistory('Edit gradient stop');
+  const ab=posArtboard(); if(!ab||!ab.fill)return;
+  const i=+e.target.dataset.s, st=ab.fill.stops&&ab.fill.stops[i]; if(!st)return;
+  const v=+e.target.value;
+  if(e.target.classList.contains('abGPos')) st.pos=clamp(v||0,0,100)/100;
+  else if(e.target.classList.contains('abGOpacity')) st.opacity=clamp(v||0,0,100)/100;
+  else if(!e.target.classList.contains('abGColor')) return;
+  syncArtboardPanel(ab); pushHistory('Edit gradient stop'); render();
 });
-$('abGradStops').addEventListener('click',e=>{
-  const b=e.target.closest('.abGDel'); if(!b)return;
+$('abGradDel').addEventListener('click',()=>{
   const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.stops.length<=2)return;
-  ab.fill.stops.splice(+b.dataset.s,1); syncArtboardPanel(ab);
-  pushHistory('Remove gradient stop'); render();
-});
-$('abGradAdd').addEventListener('click',()=>{
-  const ab=posArtboard(); if(!ab||!ab.fill||ab.fill.stops.length>=8)return;
-  const S=ab.fill.stops, last=S[S.length-1];
-  S.push({pos:1,color:last.color,opacity:1,mid:.5});
-  S.forEach((st,i)=>st.pos=i/(S.length-1));
-  syncArtboardPanel(ab); pushHistory('Add gradient stop'); render();
+  const sel=rampSel('artboard',ab.fill.stops.length);
+  ab.fill.stops.splice(sel,1);
+  setRampSel('artboard',Math.max(0,sel-1));
+  syncArtboardPanel(ab); pushHistory('Remove gradient stop'); render();
 });
 $('abGradReverse').addEventListener('click',()=>{
   const ab=posArtboard(); if(!ab||!ab.fill)return;
-  const S=ab.fill.stops, cols=S.map(s=>s.color).reverse(), ops=S.map(s=>s.opacity).reverse();
-  S.forEach((st,i)=>{st.color=cols[i];st.opacity=ops[i];});
+  /* Mirror the figure: positions flip and each span's midpoint flips with it. */
+  const S=ab.fill.stops, back=S.map(st=>({...st,pos:1-(+st.pos||0)}));
+  const ord=rampOrder(back);
+  ord.forEach((e2,k)=>{ e2.st.mid=k<ord.length-1?1-(ord[k+1].st.mid??0.5):0.5; });
+  S.forEach((st,i)=>{ st.pos=back[i].pos; st.mid=back[i].mid; });
   syncArtboardPanel(ab); pushHistory('Reverse gradient'); render();
 });
 $('abFillOpacity').addEventListener('input',e=>{
@@ -12487,6 +12697,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   historyJump, setHistoryLimit, pushHistory,
   render, refresh, renderImmediate,
   patternInstances, symmetryInstances, derivedInstances,
+  rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
