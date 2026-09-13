@@ -103,3 +103,34 @@ findings in both modes and in the empty state.
 - The mirror gap is one number for both axes. The repeater has separate
   horizontal and vertical gaps; if a quad ever needs different spacing per
   axis, that is where the second field goes.
+
+## Postscript — the mesh that made no copies (13 Sep 2026)
+
+Reported after shipping: a solid fill and a gradient fill both made symmetry
+copies, but a mesh gradient drew one shape.
+
+The fault was not in the layout. `paintCacheable` renders an expensive layer
+once into an offscreen bitmap sized to `aabbOf(parent)`, and the copies land
+outside it, so they are clipped away. The function already knew this and bailed
+out for the repeater — with a comment describing exactly this failure — but it
+named the field:
+
+    if (obj.pattern) return false;
+
+Symmetry arrived and was not in that test. The reason the bug showed only for a
+mesh is that the cache is worth using only when a material, pixel or behind
+effect is on. A solid or gradient fill turns nothing on, so the layer was never
+cached and the copies drew fine. A mesh is a material, which is precisely what
+makes a layer worth caching.
+
+The fix is a predicate rather than another field name:
+
+    function hasStructure(o){ return !!(o && (o.pattern || o.symmetry)); }
+
+Three other places named the repeater the same way and now ask the predicate or
+carry the symmetry case: the paint cache, the render scaler (symmetry's `gap`
+and `radius` are page-unit lengths and must scale with an export), the engines
+report, and the select-same key.
+
+The lesson is the same one the seam taught, one level up: naming an engine in a
+rule is a bug waiting for the second engine. Five tests hold this now.

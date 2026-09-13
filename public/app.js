@@ -2709,6 +2709,11 @@ function derivedInstances(parent){
   if(parent&&parent.pattern) return patternInstances(parent);
   return symmetryInstances(parent);
 }
+/** Does this layer carry a structure engine — anything that draws copies of
+ *  it OUTSIDE its own box? Every rule that has to know (the paint cache, the
+ *  render scaler, the report) asks this rather than naming the engines, so a
+ *  third one is added in one place instead of found by a bug. */
+function hasStructure(o){ return !!(o&&(o.pattern||o.symmetry)); }
 /* ================= gradient ramp =================
  * The stops drawn ON the gradient, the way Figma, Illustrator and Sketch all
  * draw them: one bar that is at once the preview, the ordering and the
@@ -3381,13 +3386,18 @@ function paintCacheable(obj){
   const m=FS.activeMaterial(obj.fx);
   if(m&&FS.isBackdrop(m.type)) return false;
   if(window.BlobEngine&&window.BlobEngine.available()&&inBlobGroup(obj)) return false;
-  /* PATTERNED OBJECTS. drawOneUncached paints the parent AND its linked copies,
-   * but the cache bitmap is sized to aabbOf(parent) — the copies land outside
-   * it and are clipped away, so a patterned object with a drop shadow rendered
-   * as a single shape. The signature does not track `pattern` either. Sizing
-   * the bitmap to cover every instance would work and is not worth it: the
-   * pattern path already redraws N copies, which is the expensive part. */
-  if(obj.pattern) return false;
+  /* LAYERS THAT MAKE COPIES. drawOneUncached paints the parent AND its derived
+   * copies, but the cache bitmap is sized to aabbOf(parent) — the copies land
+   * outside it and are clipped away, so the layer rendered as a single shape.
+   * The signature does not track the structure fields either. Sizing the
+   * bitmap to cover every instance would work and is not worth it: the path
+   * already redraws N copies, which is the expensive part.
+   *
+   * This read `obj.pattern` alone, so symmetry arrived and a mesh — a
+   * material, which is exactly what makes a layer worth caching — drew one
+   * shape and no copies, while a solid or gradient fill (never cached, since
+   * nothing expensive is on) made copies fine. */
+  if(hasStructure(obj)) return false;
   // only worth it when something expensive is on
   const worth=obj.fx.some(e=>FS.entryOn(e)&&
     (FS.slotOf(e.type)==='behind'||FS.slotOf(e.type)==='pixel'||FS.slotOf(e.type)==='material'));
@@ -4399,6 +4409,8 @@ function scaleObjectForRender(source,s){
   if(o.pattern){
     ['hGap','vGap','rowOffsetX','colOffsetY','jitterX','jitterY'].forEach(k=>mul(k,o.pattern));
   }
+  // symmetry's gap and radius are lengths in the same page units
+  if(o.symmetry){ ['gap','radius'].forEach(k=>mul(k,o.symmetry)); }
   if(o.layout){ ['gap','padding','paddingX','paddingY'].forEach(k=>mul(k,o.layout)); }
   if(Array.isArray(o.fx)) o.fx=o.fx.map(e=>scaleFxForRender(e,s));
   if(CONTAINER(o)) o.children=(o.children||[]).map(k=>scaleObjectForRender(k,s));
@@ -6123,6 +6135,7 @@ function enginesInDoc(d){
   const out=new Set();
   const walk=list=>(list||[]).forEach(o=>{
     if(o.pattern) out.add('pattern ×'+(o.pattern.columns*o.pattern.rows));
+    if(o.symmetry) out.add('symmetry '+o.symmetry.mode);
     if(o.fill&&o.fill.kind&&o.fill.kind!=='solid') out.add(o.fill.kind+' fill');
     (o.fx||[]).forEach(e=>{ if(e.added&&e.on!==false) out.add(e.type); });
     if(o.type==='text') out.add('text');
@@ -11418,7 +11431,8 @@ function selectSame(kind){
     return ['gradient','light','prism','capsule','strip','blob','glass','glass2','shadow']
       .filter(k=>fx[k]&&fx[k].on).join(',')
       +(fx.grain&&fx.grain.amount>0?'+grain':'')
-      +(o.pattern?'+pattern':'');
+      +(o.pattern?'+pattern':'')
+      +(o.symmetry?'+symmetry:'+o.symmetry.mode:'');
   };
   const rk=key(ref);
   setSelIds(new Set(allObjects().filter(c=>selectable(c)&&key(c)===rk).map(c=>c.id)),ref.id);
@@ -12698,6 +12712,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   render, refresh, renderImmediate,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
+  hasStructure, paintCacheable,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,

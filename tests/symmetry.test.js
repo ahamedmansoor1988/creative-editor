@@ -284,3 +284,46 @@ describe("the document round-trips", () => {
     expect(editor.doc.frame.children[0].symmetry).toBeUndefined();
   });
 });
+
+describe("a structure engine is never cached into the parent's own box", () => {
+  /* The bug: paintCacheable named `pattern` alone. Symmetry arrived, and a
+   * mesh — a material, which is exactly what makes a layer worth caching —
+   * drew one shape and no copies, because the cache bitmap is sized to
+   * aabbOf(parent) and the copies land outside it. A solid or gradient fill
+   * never hit it: nothing expensive is on, so the layer is not cached. */
+  const meshy = () => ({
+    fx: [{ id: "m1", type: "mesh", added: true, on: true, params: { on: true } }],
+    effects: { mesh: { on: true } },
+  });
+
+  it("hasStructure is true for either engine and false for a plain layer", () => {
+    expect(editor.hasStructure({ symmetry: { mode: "mirror" } })).toBe(true);
+    expect(editor.hasStructure({ pattern: { columns: 2 } })).toBe(true);
+    expect(editor.hasStructure({})).toBe(false);
+    expect(editor.hasStructure(null)).toBe(false);
+  });
+
+  it("a mesh layer with symmetry is not paint-cached", () => {
+    const o = withLayer(meshy(), { mode: "radial", count: 12, radius: 120 });
+    expect(editor.symmetryInstances(o).length).toBe(11);
+    expect(editor.paintCacheable(o)).toBe(false);
+  });
+
+  it("a mesh layer with a repeater is not paint-cached either", () => {
+    const o = withLayer(meshy());
+    o.pattern = editor.normalizePattern({ columns: 3, rows: 1 });
+    expect(editor.paintCacheable(o)).toBe(false);
+  });
+
+  it("a mesh layer with no structure still caches, so nothing got slower", () => {
+    const o = withLayer(meshy());
+    expect(editor.paintCacheable(o)).toBe(true);
+  });
+
+  it("symmetry's lengths scale with the render, like the repeater's gaps", () => {
+    const o = withLayer({}, { mode: "radial", count: 6, radius: 100, gap: 20 });
+    const scaled = editor.scaleObjectForRender(JSON.parse(JSON.stringify(o)), 2);
+    expect(scaled.symmetry.radius).toBe(200);
+    expect(scaled.symmetry.gap).toBe(40);
+  });
+});
