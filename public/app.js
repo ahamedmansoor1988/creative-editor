@@ -336,6 +336,9 @@ const MIRRORS=['none','horizontal','vertical','alt-horizontal','alt-vertical'];
  * functions of the layer plus these few numbers: no seed, no randomness, so
  * the same document always draws the same figure. */
 const MAX_SYMMETRY_COUNT=24, MAX_SYMMETRY_RADIUS=2000, MAX_SYMMETRY_GAP=400;
+/* How many pixels one mesh tile may cost, and the most it may oversample a
+ * shape. The budget is what keeps a small shape sharp when zoomed into. */
+const MESH_TILE_BUDGET_PX=2000000, MESH_TILE_MAX_SCALE=16;
 const SYMMETRY_MODES=['mirror','radial'];
 const SYMMETRY_AXES=['vertical','horizontal','both'];
 const DEFAULT_SYMMETRY=()=>({
@@ -3389,6 +3392,23 @@ function spillPad(obj){
   }
   return Math.ceil(pad);
 }
+/* The cache bitmap used to be rendered at one pixel per DOCUMENT unit and
+ * blitted at whatever the view transform happened to be, and the key held no
+ * scale term — so a bitmap built while zoomed out stayed "valid" zoomed in and
+ * was simply magnified. A mesh gradient's edge smeared from 1 device pixel at
+ * 100% to 11 at 1200%.
+ *
+ * The bitmap is now rendered AT the scale it will be seen at, and that scale
+ * is in the key. Quantized to powers of two so a continuous zoom rebuilds a
+ * handful of times rather than every frame, and rounded UP so the bitmap is
+ * never undersampled — at most it is oversampled twofold, which costs memory
+ * and never sharpness. Past the ceiling the size guard below falls through to
+ * the uncached path, which is exact at any zoom. */
+const PAINT_CACHE_MAX_SCALE=8;
+function paintScaleStep(scale){
+  const s=Number.isFinite(scale)&&scale>0?scale:1;
+  return clamp(Math.pow(2,Math.ceil(Math.log2(s))),1,PAINT_CACHE_MAX_SCALE);
+}
 function paintCacheable(obj){
   const FS=window.FxStack;
   if(_paintCacheOff) return false;
@@ -3418,27 +3438,34 @@ function paintCacheable(obj){
 }
 function drawOne(c,W,H,obj){
   if(obj.type==='text'&&obj.id===textEditId) return; // the overlay shows it while it is edited
-  if(paintCacheable(obj)){
-    const sig=paintSig(obj);
+  /* Past the ceiling the bitmap can no longer match what is on screen, and a
+   * magnified cache is exactly the artefact this cache was making. Zoomed in
+   * that far there are few objects in view, so drawing exactly is affordable
+   * and it is also when someone is inspecting the edge. */
+  if(paintCacheable(obj)&&targetScale(c)<=PAINT_CACHE_MAX_SCALE){
+    const k=paintScaleStep(targetScale(c));
+    const sig=paintSig(obj)+'|@'+k;
     let ent=_paintCache.get(obj.id);
     if(!ent||ent.sig!==sig){
       const b=aabbOf(obj), pad=spillPad(obj);
       const lx=Math.floor(b.x-pad), ly=Math.floor(b.y-pad);
       const lw=Math.ceil(b.w+pad*2), lh=Math.ceil(b.h+pad*2);
-      if(lw>0&&lh>0&&lw<6000&&lh<6000){
+      // the bitmap's own pixels; the box it covers stays in document units
+      const pw=Math.ceil(lw*k), ph=Math.ceil(lh*k);
+      if(lw>0&&lh>0&&pw<6000&&ph<6000){
         if(ent){ _paintCachePx-=ent.px; _paintCache.delete(obj.id); }
         if(_paintCachePx>PAINT_CACHE_MAX_PX) paintCacheClear();
         const cv=document.createElement('canvas');
-        cv.width=lw; cv.height=lh;
+        cv.width=pw; cv.height=ph;
         const cc=cv.getContext('2d');
-        cc.setTransform(1,0,0,1,-lx,-ly);
+        cc.setTransform(k,0,0,k,-lx*k,-ly*k);
         drawOneUncached(cc,W,H,obj);
-        ent={sig,cv,lx,ly,px:lw*lh};
+        ent={sig,cv,lx,ly,lw,lh,px:pw*ph};
         _paintCache.set(obj.id,ent);
         _paintCachePx+=ent.px;
-      }
+      }else if(ent){ _paintCachePx-=ent.px; _paintCache.delete(obj.id); ent=null; }
     }
-    if(ent){ c.drawImage(ent.cv,ent.lx,ent.ly); return; }
+    if(ent){ c.drawImage(ent.cv,ent.lx,ent.ly,ent.lw,ent.lh); return; }
   }
   drawOneUncached(c,W,H,obj);
 }
@@ -3670,8 +3697,16 @@ function drawOneInner(c,W,H,obj){
          * a larger ellipse. */
         const g=outW>0?{...o,x:o.x-outW,y:o.y-outW,w:o.w+2*outW,h:o.h+2*outW,
           radius:o.radius?o.radius+outW:o.radius}:o;
+        /* The tile's resolution is a PIXEL BUDGET, not a fixed multiple of
+         * the shape. A flat 4x cap meant a small shape got a small tile
+         * however far you zoomed — a 70x260 petal was stuck at 280x1040 and
+         * stretched sixfold at 1200%. The budget spends the same memory on a
+         * small shape as on a large one, which is where it is wanted. */
         const tf=c.getTransform?c.getTransform():null;
-        const sc=clamp(tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1,1,4);
+        const want=tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1;
+        const area=Math.max(1,g.w*g.h);
+        const fit=Math.sqrt(MESH_TILE_BUDGET_PX/area);
+        const sc=clamp(Math.min(want,fit),1,MESH_TILE_MAX_SCALE);
         const tw=Math.min(4096,Math.max(1,Math.round(g.w*sc)));
         const th=Math.min(4096,Math.max(1,Math.round(g.h*sc)));
         const img=window.MeshGradient.get(tw,th,
@@ -12718,7 +12753,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   render, refresh, renderImmediate,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
-  hasStructure, paintCacheable, paintWithInstances,
+  hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
