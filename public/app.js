@@ -214,10 +214,7 @@ const DEFAULT_EFFECTS=()=>({
     spectrum:0.78,refraction:1.40,rim:0.62,depth:0.72,softness:0.42,
     colorCore:'#e8dd19',colorLeft:'#fa2438',colorRight:'#31df43',
     colorTop:'#20cfe7',colorEdge:'#314fea',
-    scale:1,stretch:1,rotation:0,
-    hue:0,saturation:1.35,exposure:1.04,
-    echoes:0,spacing:0.54,squash:0.55,echoRotation:0,echoJitter:0,echoSeed:1,
-    glow:false,glowAmount:0.55,glowSize:0.28,glowMix:0.25,glowTint:'#ff5da8'},
+    hue:0,saturation:1.35,exposure:1.04},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
@@ -859,25 +856,15 @@ function normChildren(list,depth){
       iri.on=!!iri.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const n01=(k,def)=>{ iri[k]=Number.isFinite(+iri[k])?clamp(+iri[k],0,1):def; };
       n01('spectrum',0.78); n01('rim',0.62); n01('depth',0.72); n01('softness',0.42);
-      n01('spacing',0.54); n01('glowAmount',0.55); n01('glowSize',0.28); n01('glowMix',0.25);
-      iri.squash=Number.isFinite(+iri.squash)?clamp(+iri.squash,0.2,0.95):0.55;
       iri.refraction=Number.isFinite(+iri.refraction)?clamp(+iri.refraction,0,3):1.40;
-      iri.scale=Number.isFinite(+iri.scale)?clamp(+iri.scale,0.15,2):1;
-      iri.stretch=Number.isFinite(+iri.stretch)?clamp(+iri.stretch,0.2,3):1;
-      iri.rotation=Number.isFinite(+iri.rotation)?clamp(+iri.rotation,-180,180):0;
       iri.hue=Number.isFinite(+iri.hue)?clamp(+iri.hue,0,360):0;
       iri.saturation=Number.isFinite(+iri.saturation)?clamp(+iri.saturation,0,3):1.35;
       iri.exposure=Number.isFinite(+iri.exposure)?clamp(+iri.exposure,0.2,3):1.04;
-      iri.echoes=clamp(Math.round(+iri.echoes)||0,0,6);
-      iri.echoRotation=Number.isFinite(+iri.echoRotation)?clamp(+iri.echoRotation,-180,180):0;
-      iri.echoJitter=Number.isFinite(+iri.echoJitter)?clamp(+iri.echoJitter,0,1):0;
-      iri.echoSeed=clamp(Math.round(+iri.echoSeed)||1,1,9999);
-      iri.glow=!!iri.glow;
       /* The fallback has to come from a FRESH default: `de.iridescent` is the
        * object Object.assign just wrote the document's values into, so reading
        * a default back out of it returns the very value being rejected. */
       const iriDefaults=DEFAULT_EFFECTS().iridescent;
-      ['colorCore','colorLeft','colorRight','colorTop','colorEdge','glowTint']
+      ['colorCore','colorLeft','colorRight','colorTop','colorEdge']
         .forEach(k=>{ if(!/^#[0-9a-f]{6}$/i.test(String(iri[k]||''))) iri[k]=iriDefaults[k]; });
 
       const msh=Object.assign(de.mesh, ce.mesh||{});
@@ -2979,6 +2966,54 @@ function wireRamp(el,getStops,key,onLive,onCommit){
   });
 }
 
+/* ---- a layer's silhouette, as pixels ----
+ * The shape's OWN outline rasterised into an alpha mask, which is what a
+ * material needs when it cannot assume a closed form. addPath is the same
+ * function the fill uses, so the mask is the fill region exactly: corner
+ * radii, star points, arcs and hand-drawn paths all included, with no family
+ * of approximations to keep in step.
+ *
+ * Drawn UNROTATED and unmirrored, at the origin: the transform belongs to the
+ * draw path, which applies it to the finished tile. A mask that carried the
+ * rotation would turn the material inside the shape as well as turning the
+ * shape.
+ *
+ * The key is what the SHAPE is, not what it looks like, so a colour change
+ * reuses both the mask and the dome solved from it. */
+const _maskCache=new Map();
+const MASK_CACHE_MAX=12;
+function shapeMaskKey(o,w,h){
+  return o.type+'|'+w+'x'+h
+    +'|'+Math.round(o.w)+'x'+Math.round(o.h)
+    +'|'+(o.radii?o.radii.join('.'):(o.radius||0))+'|'+(o.cornerStyle||'')
+    +'|'+(o.sides||0)+'|'+(o.innerRatio===undefined?'':o.innerRatio)
+    +'|'+(o.startAngle||0)+'.'+(o.endAngle===undefined?'':o.endAngle)
+    +'|'+(o.fillRule||'')
+    +(o.type==='path'?'|'+(o.subpaths||[]).map(sp=>sp.points.length+(sp.closed?'c':'o')).join('.')
+      +'|'+(o.subpaths||[]).map(sp=>sp.points.map(pt=>Math.round(pt.x)+','+Math.round(pt.y)).join(';')).join('/'):'');
+}
+function shapeMask(o,w,h){
+  if(!(w>0&&h>0)) return null;
+  const key=shapeMaskKey(o,w,h);
+  const hit=_maskCache.get(key);
+  if(hit) return hit;
+  let cv;
+  try{ cv=document.createElement('canvas'); cv.width=w; cv.height=h; }catch(e){ return null; }
+  const mc=cv.getContext('2d');
+  if(!mc) return null;
+  /* The path is in page coordinates; move it to the tile's origin and scale
+   * it to the tile's pixels, so the mask covers exactly the box the tile is
+   * drawn into. */
+  mc.setTransform(w/Math.max(1e-6,o.w),0,0,h/Math.max(1e-6,o.h),-o.x*w/Math.max(1e-6,o.w),-o.y*h/Math.max(1e-6,o.h));
+  mc.fillStyle='#000000';
+  mc.beginPath();
+  addPath(mc,o);
+  mc.fill(o.fillRule==='evenodd'?'evenodd':'nonzero');
+  const ent={canvas:cv,key};
+  _maskCache.set(key,ent);
+  if(_maskCache.size>MASK_CACHE_MAX) _maskCache.delete(_maskCache.keys().next().value);
+  return ent;
+}
 /** Axis-aligned visual bounds of an instance's rotated geometry. */
 function instanceBounds(o){
   // Must mirror the layout's aabb(): ellipses get their exact tangent box,
@@ -3838,17 +3873,13 @@ function drawOneInner(c,W,H,obj){
         const sc=clamp(Math.min(want,Math.sqrt(MESH_TILE_BUDGET_PX/area)),1,MESH_TILE_MAX_SCALE);
         const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
         const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        const m=shapeMask(o,tw,th);
+        if(!m) return;
         const img=window.Iridescent.get(tw,th,{
-          layerType:o.type, sides:o.sides, innerRatio:o.innerRatio,
-          radius:o.radius, radii:o.radii, boxW:o.w, boxH:o.h,
+          mask:m.canvas, maskKey:m.key,
           spectrum:iri.spectrum, refraction:iri.refraction, rim:iri.rim,
           depth:iri.depth, softness:iri.softness,
-          scale:iri.scale, stretch:iri.stretch, rotation:iri.rotation,
           hue:iri.hue, saturation:iri.saturation, exposure:iri.exposure,
-          echoes:iri.echoes, spacing:iri.spacing, squash:iri.squash,
-          echoRotation:iri.echoRotation, echoJitter:iri.echoJitter, echoSeed:iri.echoSeed,
-          glow:iri.glow, glowAmount:iri.glowAmount, glowSize:iri.glowSize,
-          glowMix:iri.glowMix, glowTint:iri.glowTint,
           colorCore:iri.colorCore, colorLeft:iri.colorLeft, colorRight:iri.colorRight,
           colorTop:iri.colorTop, colorEdge:iri.colorEdge});
         if(!img) return;
@@ -7124,41 +7155,13 @@ function buildFxSection(obj,page,add,body){
     col('irC3','Top','colorTop');
     col('irC4','Edge','colorEdge');
 
-    add(`<div class="appearanceSubhead">Field</div>`);
-    rng('irScale','Scale','scale',0.15,2,0.01,pc);
-    rng('irStretch','Stretch','stretch',0.2,3,0.01,pc);
-    rng('irRot','Rotation','rotation',-180,180,1,deg);
-
     add(`<div class="appearanceSubhead">Grade</div>`);
     rng('irHue','Hue','hue',0,360,1,deg);
     rng('irSat','Saturation','saturation',0,3,0.01,pc);
     rng('irExp','Exposure','exposure',0.2,3,0.01,pc);
-
-    /* Echoes stack INSIDE the tile and FLATTEN as they recede. That reads as
-     * perspective, and it is a different thing from the repeater, which keeps
-     * every copy whole and puts them outside the box. Both repeat; only this
-     * one recedes. */
-    add(`<div class="appearanceSubhead">Echoes</div>`);
-    add(`<label class="slider uiRow"><span>Count</span><input type="number" id="irEch" min="0" max="6" step="1" value="${I.echoes}"></label>`);
-    $('irEch').addEventListener('change',e=>{ I.echoes=clamp(Math.round(+e.target.value)||0,0,6); commit('Echoes'); });
-    if(I.echoes>0){
-      rng('irSpac','Spacing','spacing',0,1,0.01,pc);
-      rng('irSq','Squash','squash',0.2,0.95,0.01,pc);
-      rng('irERot','Rotation','echoRotation',-180,180,1,deg);
-      rng('irEJit','Randomness','echoJitter',0,1,0.01,pc);
-      add(`<label class="slider uiRow"><span>Seed</span><input type="number" id="irSeed" min="1" max="9999" step="1" value="${I.echoSeed}"></label>`);
-      $('irSeed').addEventListener('change',e=>{ I.echoSeed=clamp(Math.round(+e.target.value)||1,1,9999); commit('Seed'); });
-      add(`<div class="fxHint">Rotation turns each copy a little further than the last. Randomness scatters and resizes them from the seed, so the same seed always gives the same figure.</div>`);
-    }
-    add(`<div class="appearanceSubhead">Extras</div>`);
-    add(`<label class="slider uiSwitchRow"><span>Glow</span><input type="checkbox" id="irGl" ${I.glow?'checked':''}></label>`);
-    $('irGl').addEventListener('change',e=>{ I.glow=e.target.checked; commit('Glow'); });
-    if(I.glow){
-      rng('irGlA','Amount','glowAmount',0,1,0.01,pc);
-      rng('irGlS','Size','glowSize',0,1,0.01,pc);
-      rng('irGlM','Tint mix','glowMix',0,1,0.01,pc);
-      col('irGlT','Tint','glowTint');
-    }
+    add(`<div class="fxHint">The material follows this layer's own outline, whatever it is —
+      corner radii, star points and drawn paths included. Position, size, rotation and
+      repetition belong to the layer, not to this effect.</div>`);
     return;
   }
 
@@ -13100,7 +13103,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
-  symmetryOps, applySymmetryOp, activeGradientHandles, spillPad,
+  symmetryOps, applySymmetryOp, activeGradientHandles, spillPad, shapeMask, shapeMaskKey,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
   duplicateSel, deleteSel,
   limits:{MAX_PATTERN_INSTANCES,MAX_GRID_AXIS,MAX_GAP,MAX_OFFSET,MAX_JITTER,MAX_HOLES,MIN_SIZE_FACTOR,
