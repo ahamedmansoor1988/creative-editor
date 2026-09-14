@@ -5999,6 +5999,12 @@ const FX_PAGES=obj=>{
     .filter(p=>p!=='Effects'||anyEffect)
     .filter(p=>p!=='Shape'||!emptyShape)
     .filter(p=>p!=='Pattern'||SHOW_CONTROL.pattern)
+    /* Symmetry and Echo are things you ADD, not things a shape has. They live
+     * in the Effects list and their section appears once applied, the same way
+     * every other effect's does — a shape panel carrying two permanently empty
+     * heads is two rows of nothing on every layer in the document. */
+    .filter(p=>p!=='Symmetry'||!!obj.symmetry)
+    .filter(p=>p!=='Echo'||!!obj.echo)
     .concat('Export');
 };
 const FX_PAGES_RAW=obj=>{
@@ -7385,13 +7391,10 @@ function buildFxSection(obj,page,add,body){
     /* The receding stack: each copy a step further, narrower, flatter, turned
      * a little more. Width and height deform SEPARATELY, which is what reads
      * as perspective rather than as plain shrinking. */
+    /* The section only exists once the layer carries an echo, so there is no
+     * empty state to build — Effects is the way in. */
     const E=obj.echo;
-    if(!E){
-      add('<div class="fxHint">Stacks copies of this layer, each one a step further away — narrower, flatter and turned a little more than the last. The copies follow the original: change its fill and every copy changes.</div>');
-      add('<div class="rowBtns"><button class="rollBtn" id="ecAdd">+ Add echo</button></div>');
-      $('ecAdd').addEventListener('click',()=>{ obj.echo=normalizeEcho({}); pushHistory('Add echo'); refresh(); });
-      return;
-    }
+    if(!E) return;
     const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
     const live=()=>{ paintCacheClear(); render(); };
     const rng=(id,label,key,min,max,step,fmt)=>chipRow(add,{
@@ -7435,15 +7438,10 @@ function buildFxSection(obj,page,add,body){
      * number is a plain right-aligned field — no spinner, no slider-plus-box
      * pair — and every boolean is a switch row. The page opens with the one
      * button that turns the engine on, because an absent field is OFF. */
+    /* Same as Echo: the section only exists once the layer carries one. */
     const S=obj.symmetry;
+    if(!S) return;
     const opts=(pairs,val)=>pairs.map(([v,l])=>`<option value="${esc(String(v))}"${String(v)===String(val)?' selected':''}>${esc(l)}</option>`).join('');
-    if(!S){
-      add(`<div class="fxHint">Reflects or turns this layer into a figure. The copies
-        follow the original: change its fill or its corners and every copy changes with it.</div>`);
-      add(`<div class="rowBtns"><button class="rollBtn" id="syAdd">+ Add symmetry</button></div>`);
-      $('syAdd').addEventListener('click',()=>{ obj.symmetry=normalizeSymmetry({}); pushHistory('Add symmetry'); refresh(); });
-      return;
-    }
     const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
     add(`<label class="slider uiRow"><span>Mode</span><select id="syMode">${opts([['mirror','Mirror'],['radial','Radial']],S.mode)}</select></label>`);
     if(S.mode==='mirror'){

@@ -85,6 +85,10 @@
     document.removeEventListener("keydown", p.onKey, true);
     document.removeEventListener("scroll", p.onScroll, true);
     window.removeEventListener("resize", p.onScroll);
+    if (p.onShift) {
+      document.removeEventListener("keydown", p.onShift, true);
+      document.removeEventListener("keyup", p.onShift, true);
+    }
   }
 
   /* MAGNETS. A slider is a blunt instrument: landing exactly on 0, on the
@@ -119,6 +123,32 @@
       }
     }
     return best === null ? v : best;
+  }
+
+  /* DETENTS. A native range glides: its step is whatever the model's precision
+   * is, and on a 200px track a 0..1 range at 0.01 gives 2px per value. Landing
+   * on the number you want is then a matter of luck, which is the complaint
+   * this answers — "I'm not able to select the value that I want".
+   *
+   * So the DRAG steps coarsely enough to feel like notches, about 6px apart,
+   * while the value itself keeps its real precision. Shift while dragging
+   * drops back to the fine step, and the arrow keys on the chip are exact, so
+   * nothing becomes unreachable — it just stops being the default.
+   *
+   * The coarse step is a round multiple of the real one (1, 2, 5, 10, …) so
+   * the notches land on numbers a person would choose. */
+  /* 5px, measured: at 6 a 0..360 hue fell to 20-degree notches because 36 of
+   * them needed 5.3px each and did not fit. 5 lets it keep 10-degree steps,
+   * and nothing else in the panels got coarser. */
+  const DETENT_PX = 5;
+  function dragStepFor(span, step, trackPx) {
+    if (!(span > 0) || !(step > 0)) return step || 1;
+    const want = Math.max(1, Math.round((trackPx || 200) / DETENT_PX));
+    const nice = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
+    for (const m of nice) {
+      if (span / (step * m) <= want) return step * m;
+    }
+    return step;
   }
 
   function popchip(btn, o) {
@@ -188,9 +218,22 @@
         pc = pop.querySelector(".ui-chip");
       r.min = o.min;
       r.max = o.max;
-      r.step = o.step || 1;
       r.value = v;
       pc.textContent = fmt(v);
+      /* The track's real width decides how coarse a notch has to be, so it is
+       * measured once the popover is in the document. Shift swaps to the fine
+       * step for as long as it is held. */
+      const setStep = (fine) => {
+        const w = r.getBoundingClientRect().width || 200;
+        r.step = String(fine ? stp : dragStepFor(span, stp, w));
+      };
+      const onShift = (ev) => {
+        if (ev.key === "Shift") setStep(ev.type === "keydown");
+      };
+      document.addEventListener("keydown", onShift, true);
+      document.addEventListener("keyup", onShift, true);
+      r.addEventListener("pointerdown", (ev) => setStep(ev.shiftKey));
+
       /* Dragging is where the magnets act; typing on the range with the arrow
        * keys is the browser's own stepping and must stay exact. */
       let dragging = false;
@@ -217,6 +260,7 @@
       pop.addEventListener("pointerdown", (ev) => ev.stopPropagation());
       document.body.appendChild(pop);
       place(pop, btn);
+      setStep(false); // now the track has a width to measure
       btn.setAttribute("aria-expanded", "true");
       const onDoc = (ev) => {
         if (pop.contains(ev.target) || btn.contains(ev.target)) return;
@@ -236,7 +280,7 @@
           window.addEventListener("resize", onScroll);
         }
       }, 0);
-      open = { btn, pop, onDoc, onKey, onScroll };
+      open = { btn, pop, onDoc, onKey, onScroll, onShift };
       r.focus();
     });
     return {
