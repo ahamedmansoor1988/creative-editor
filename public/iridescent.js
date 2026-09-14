@@ -353,6 +353,27 @@ void main(){
     }
   }
 
+  /* Four partner colours LEANED toward the core.
+   *
+   * The source page shipped five colours far apart in hue, and on a shape that
+   * reads as a rainbow with a middle rather than as one iridescent material —
+   * reported as too much turbulence in the shades. The plugin solved it by
+   * deriving its partners from a single base and leaning them toward it; its
+   * own note says the object should read as "pink, iridescent" rather than
+   * "rainbow with a pink middle".
+   *
+   * Keeping five pickers and leaning them is the same idea with the control
+   * left in the user's hands: at spread 0 the whole body is the core colour,
+   * at 1 the five are exactly what the pickers say. Mixed in LINEAR light,
+   * which is where the shader works, so the midpoint does not go muddy. */
+  function leaned(hex, coreHex, spread) {
+    const t = Math.max(0, Math.min(1, spread === undefined ? 1 : +spread));
+    if (t >= 1) return linearRGB(hex);
+    const c = linearRGB(hex),
+      k = linearRGB(coreHex);
+    return [0, 1, 2].map((i) => k[i] + (c[i] - k[i]) * t);
+  }
+
   /* sRGB hex to the LINEAR triple the shader works in — the page's own
    * conversion, kept so a colour set here matches the reference. */
   function linearRGB(hex) {
@@ -461,6 +482,9 @@ void main(){
     if (!P || !P.mask) return null;
     const w = Math.max(1, Math.min(4096, Math.round(W)));
     const h = Math.max(1, Math.min(4096, Math.round(H)));
+    /* The solve grid never exceeds the mask it is solved from, and is capped
+     * at 512. With the tile capped too, the grid is at worst half the tile's
+     * resolution, which the cubic B-spline resolves without a visible step. */
     const field = domeFor(P.mask, P.maskKey || w + "x" + h);
     canvas.width = w;
     canvas.height = h;
@@ -518,11 +542,14 @@ void main(){
     F("stripThickness", 0.06);
     F("stripIor", 1.52);
     F("stripDisp", 0.03);
+    const V = (k, v) => {
+      if (loc[k]) gl.uniform3fv(loc[k], v);
+    };
     C("colorCenter", P.colorCore);
-    C("colorLeft", P.colorLeft);
-    C("colorRight", P.colorRight);
-    C("colorTop", P.colorTop);
-    C("colorEdge", P.colorEdge);
+    V("colorLeft", leaned(P.colorLeft, P.colorCore, P.spread));
+    V("colorRight", leaned(P.colorRight, P.colorCore, P.spread));
+    V("colorTop", leaned(P.colorTop, P.colorCore, P.spread));
+    V("colorEdge", leaned(P.colorEdge, P.colorCore, P.spread));
 
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -555,6 +582,7 @@ void main(){
       "hue",
       "saturation",
       "exposure",
+      "spread",
       "colorCore",
       "colorLeft",
       "colorRight",
@@ -578,6 +606,7 @@ void main(){
 
   window.Iridescent = {
     get,
+    leaned,
     render,
     solveDome,
     linearRGB,

@@ -214,6 +214,7 @@ const DEFAULT_EFFECTS=()=>({
     spectrum:0.78,refraction:1.40,rim:0.62,depth:0.72,softness:0.42,
     colorCore:'#e8dd19',colorLeft:'#fa2438',colorRight:'#31df43',
     colorTop:'#20cfe7',colorEdge:'#314fea',
+    spread:0.35,
     hue:0,saturation:1.35,exposure:1.04},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
@@ -347,6 +348,9 @@ const MAX_SYMMETRY_COUNT=24, MAX_SYMMETRY_RADIUS=2000, MAX_SYMMETRY_GAP=400;
 /* How many pixels one mesh tile may cost, and the most it may oversample a
  * shape. The budget is what keeps a small shape sharp when zoomed into. */
 const MESH_TILE_BUDGET_PX=2000000, MESH_TILE_MAX_SCALE=16;
+/* The iridescence tile. Long side and the most it may oversample a shape —
+ * see the note at its draw, which explains why this one is small. */
+const IRI_TILE_LONG=1024, IRI_TILE_MAX_SCALE=8;
 /* The most stops one gradient carries. The panel's bar and the canvas line
  * are one editor, so the limit belongs to the gradient, not to either. */
 const MAX_GRADIENT_STOPS=12;
@@ -856,6 +860,7 @@ function normChildren(list,depth){
       iri.on=!!iri.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const n01=(k,def)=>{ iri[k]=Number.isFinite(+iri[k])?clamp(+iri[k],0,1):def; };
       n01('spectrum',0.78); n01('rim',0.62); n01('depth',0.72); n01('softness',0.42);
+      n01('spread',0.35);
       iri.refraction=Number.isFinite(+iri.refraction)?clamp(+iri.refraction,0,3):1.40;
       iri.hue=Number.isFinite(+iri.hue)?clamp(+iri.hue,0,360):0;
       iri.saturation=Number.isFinite(+iri.saturation)?clamp(+iri.saturation,0,3):1.35;
@@ -3867,12 +3872,32 @@ function drawOneInner(c,W,H,obj){
       const draw=o=>{
         const tf=c.getTransform?c.getTransform():null;
         const want=tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1;
-        /* The same pixel budget the mesh tile uses, for the same reason: a
-         * multiple of the shape starves a small shape at high zoom. */
-        const area=Math.max(1,o.w*o.h);
-        const sc=clamp(Math.min(want,Math.sqrt(MESH_TILE_BUDGET_PX/area)),1,MESH_TILE_MAX_SCALE);
-        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
-        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        /* The tile is capped SMALL on purpose, and this is not the same trade
+         * the mesh makes.
+         *
+         * The rim band lives exactly where the solved height field meets zero,
+         * and that field is solved on a grid of at most 512. Let the tile run
+         * to the zoom and the grid is six times coarser than the pixels: the
+         * silhouette then follows the exact mask while the rim follows the
+         * coarse grid, and the sliver between them is the wavering coloured
+         * line reported at high zoom.
+         *
+         * Capping the tile keeps that ratio at two, which the cubic B-spline
+         * reconstruction resolves smoothly. Nothing is lost by it: the colour
+         * field is low-frequency, so magnifying it is invisible, and the
+         * OUTLINE does not come from the tile at all — the draw below clips to
+         * the real path, which stays exact at any zoom. */
+        /* The cap must be able to go BELOW one. When the paint cache renders
+         * this layer it hands the draw a pre-scaled object — o.w is already in
+         * the bitmap's pixels — and the context is then unscaled, so `want` is
+         * 1. A lower bound of 1 therefore pinned the tile to the bitmap and the
+         * cap never bit: at 400% the tile came out 3200 with the dome still
+         * solved on 512, which is the six-fold mismatch the wavering rim came
+         * from. */
+        const longest=Math.max(1,Math.max(o.w,o.h));
+        const sc=Math.min(want,IRI_TILE_LONG/longest,IRI_TILE_MAX_SCALE);
+        const tw=Math.max(16,Math.round(o.w*sc));
+        const th=Math.max(16,Math.round(o.h*sc));
         const m=shapeMask(o,tw,th);
         if(!m) return;
         const img=window.Iridescent.get(tw,th,{
@@ -3880,6 +3905,7 @@ function drawOneInner(c,W,H,obj){
           spectrum:iri.spectrum, refraction:iri.refraction, rim:iri.rim,
           depth:iri.depth, softness:iri.softness,
           hue:iri.hue, saturation:iri.saturation, exposure:iri.exposure,
+          spread:iri.spread,
           colorCore:iri.colorCore, colorLeft:iri.colorLeft, colorRight:iri.colorRight,
           colorTop:iri.colorTop, colorEdge:iri.colorEdge});
         if(!img) return;
@@ -7144,6 +7170,7 @@ function buildFxSection(obj,page,add,body){
     add(`<div class="fxHint">Spectrum is how far the colours split. Refraction bends them through the body; rim lights the edge.</div>`);
 
     add(`<div class="appearanceSubhead">Colours</div>`);
+    rng('irSpread','Spread','spread',0,1,0.01,pc);
     const col=(id,label,key)=>{
       add(`<label class="slider uiRow"><span>${label}</span><input type="color" id="${id}" value="${esc(I[key])}"></label>`);
       $(id).addEventListener('input',e=>{ I[key]=e.target.value; live(); });
@@ -7154,6 +7181,8 @@ function buildFxSection(obj,page,add,body){
     col('irC2','Right','colorRight');
     col('irC3','Top','colorTop');
     col('irC4','Edge','colorEdge');
+    add(`<div class="fxHint">Spread is how far the four partners lean away from the core.
+      Low reads as one material with a sheen; high is the full rainbow.</div>`);
 
     add(`<div class="appearanceSubhead">Grade</div>`);
     rng('irHue','Hue','hue',0,360,1,deg);

@@ -275,3 +275,58 @@ describe("it takes its place in the effect stack", () => {
     expect(item.status).toBe(C.READY);
   });
 });
+
+describe("the edge stays clean at every zoom", () => {
+  /* Three things were reported from zoomed screenshots: a hard blue line at
+   * the boundary, a wavering red artifact along a curve, and too much
+   * turbulence in the shades. The first two are one cause. */
+  it("the tile is capped, so the solve grid is never far coarser than it", () => {
+    /* The rim band lives where the height field meets zero. Let the tile run
+     * to the zoom and the grid is six times coarser than the pixels: the
+     * silhouette follows the exact mask, the rim follows the coarse grid, and
+     * the sliver between them wavers. */
+    const APP = readFileSync(join(process.cwd(), "public/app.js"), "utf8");
+    expect(APP).toContain("IRI_TILE_LONG=1024");
+    expect(APP).toContain("IRI_TILE_LONG/longest");
+  });
+
+  it("the cap can go below one, or the paint cache defeats it", () => {
+    /* The cache hands the draw a PRE-SCALED object, so o.w is already in the
+     * bitmap's pixels and the context scale is 1. A lower bound of 1 pinned
+     * the tile to the bitmap and the cap never bit. */
+    const APP = readFileSync(join(process.cwd(), "public/app.js"), "utf8");
+    expect(APP).not.toContain("clamp(Math.min(want,IRI_TILE_LONG");
+  });
+
+  it("spread leans the partners toward the core", () => {
+    const I = engine();
+    const core = "#ff0000";
+    const far = I.leaned("#00ff00", core, 1);
+    const none = I.leaned("#00ff00", core, 0);
+    const half = I.leaned("#00ff00", core, 0.5);
+    expect(none).toEqual(I.linearRGB(core)); // spread 0 is all core
+    expect(far).toEqual(I.linearRGB("#00ff00")); // spread 1 is the picker
+    for (let i = 0; i < 3; i++) {
+      const lo = Math.min(none[i], far[i]),
+        hi = Math.max(none[i], far[i]);
+      expect(half[i]).toBeGreaterThanOrEqual(lo);
+      expect(half[i]).toBeLessThanOrEqual(hi);
+    }
+  });
+
+  it("spread mixes in LINEAR light, where the shader works", () => {
+    const I = engine();
+    const mid = I.leaned("#ffffff", "#000000", 0.5)[0];
+    // half way between linear 0 and linear 1 is 0.5, not sRGB's 0.22
+    expect(mid).toBeCloseTo(0.5, 5);
+  });
+
+  it("spread arrives part way, so the default is a material and not a rainbow", () => {
+    expect(withIridescence().effects.iridescent.spread).toBeCloseTo(0.35, 5);
+  });
+
+  it("spread is clamped like every other number", () => {
+    expect(withIridescence({}, { spread: 9 }).effects.iridescent.spread).toBe(1);
+    expect(withIridescence({}, { spread: -9 }).effects.iridescent.spread).toBe(0);
+  });
+});
