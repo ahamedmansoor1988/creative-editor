@@ -198,13 +198,26 @@ describe("shadow — the panel reaches the whole model", () => {
     expect(sect.querySelector("#shBlur")).toBe(null);
   });
 
+  /** Open a chip's popover and hand back the range inside it. Every slider in
+   *  the panel is now a chip that opens on demand, so this is the path a
+   *  person takes to the value. */
+  const openChip = (sect, id) => {
+    const btn = /** @type {HTMLElement} */ (sect.querySelector("#" + id));
+    btn.click();
+    return /** @type {HTMLInputElement} */ (
+      document.querySelector(".ui-popover--slider input[type=range]")
+    );
+  };
+
   it("lets the sliders reach the model's full clamped range", () => {
     // the panel used to stop at +/-60 offset and 120 blur against clamps of
     // +/-100 and 150, so part of every document was uneditable
     const { sect } = openShadow({ blur: 10 });
     const range = (id) => {
-      const el = /** @type {HTMLInputElement} */ (sect.querySelector("#" + id));
-      return [Number(el.min), Number(el.max)];
+      const el = openChip(sect, id);
+      const out = [Number(el.min), Number(el.max)];
+      document.body.click();
+      return out;
     };
     expect(range("shX")).toEqual([-100, 100]);
     expect(range("shY")).toEqual([-100, 100]);
@@ -212,13 +225,35 @@ describe("shadow — the panel reaches the whole model", () => {
     expect(range("shSpread")).toEqual([0, 100]);
   });
 
+  it("the chip itself takes the arrow keys, so a value needs no pointer", () => {
+    const { o, sect } = openShadow({ blur: 10 });
+    const btn = /** @type {HTMLElement} */ (sect.querySelector("#shBlur"));
+    const key = (k, shiftKey) =>
+      btn.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: k, shiftKey }));
+    key("ArrowUp");
+    expect(o.effects.shadow.blur).toBe(11);
+    key("ArrowDown");
+    key("ArrowDown");
+    expect(o.effects.shadow.blur).toBe(9);
+    key("ArrowUp", true);
+    expect(o.effects.shadow.blur).toBe(19);
+    key("Home");
+    expect(o.effects.shadow.blur).toBe(0);
+    key("End");
+    expect(o.effects.shadow.blur).toBe(150);
+  });
+
   it("writes each control through to the effect", () => {
     const { o, sect } = openShadow({ blur: 10 });
-    drive(sect.querySelector("#shX"), 42);
-    drive(sect.querySelector("#shY"), -18);
-    drive(sect.querySelector("#shBlur"), 90);
-    drive(sect.querySelector("#shSpread"), 12);
-    drive(sect.querySelector("#shA"), 60);
+    const set = (id, v) => {
+      drive(openChip(sect, id), v);
+      document.body.click();
+    };
+    set("shX", 42);
+    set("shY", -18);
+    set("shBlur", 90);
+    set("shSpread", 12);
+    set("shA", 60);
     expect(o.effects.shadow).toMatchObject({ x: 42, y: -18, blur: 90, spread: 12 });
     expect(o.effects.shadow.alpha).toBeCloseTo(0.6);
   });

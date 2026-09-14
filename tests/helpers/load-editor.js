@@ -217,6 +217,11 @@ export function loadEditor() {
     "components.js",
     "filters.js",
     "icons.js",
+    /* ui.js owns the stepper and the popover chip. Every slider in the panels
+     * is now a chip that opens on demand, so without this file those rows
+     * build but never wire — which is exactly the state that made the shadow
+     * panel's tests read as "the control does nothing". */
+    "ui.js",
     "gradient.js",
     /* meshgradient.js for the same reason as gradient.js, though it IS a WebGL
      * engine: its init() is lazy, so loading the file touches no GPU. What

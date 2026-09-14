@@ -2424,3 +2424,23 @@ body.rails .gMid:focus-visible {
   outline: 2px solid var(--focus, #2563eb);
   outline-offset: 2px;
 }
+
+/* ---- the slider row, as a chip ---------------------------------------------
+ * Every slider in the panels is a chip that opens on demand: label left, value
+ * in the 120 column, 40px pitch instead of a 57px range row.
+ *
+ * The chip's own white-on-ink was being lost. `label.slider span` in the older
+ * stylesheet carries (0,1,2) and beats `.ui-chip` at (0,1,0), so the number
+ * came out ink on ink and was invisible. Restated here for the FAMILY rather
+ * than raising the base rule, which would fight that stylesheet everywhere. */
+body.rails label.slider .ui-chip,
+body.rails label.uiRow .ui-chip {
+  color: var(--on-ink);
+}
+/* The button holds only the chip, so the value sits at the column's right
+   edge — the same edge every other control in the panel lines up on. */
+body.rails label.slider > .ui-pchip,
+body.rails label.uiRow > .ui-pchip {
+  justify-content: flex-end;
+  padding: 0 5px;
+}

@@ -3118,6 +3118,32 @@ function wireRamp(el,getStops,key,onLive,onCommit){
   });
 }
 
+/* ---- a slider row, as the book draws one ----
+ * Label left, the value as a chip in the 120 column, and the slider opens on
+ * the chip. A range taking the row is 57px tall; this is 40, so every control
+ * gives back 17px and the panel keeps one straight edge down its right side.
+ *
+ * The chip carries the keyboard itself — arrows step, shift steps coarsely —
+ * and the slider inside is magnetic: dragging near 0, or back to the value
+ * the control started at, catches. `add` is the page builder's own emitter,
+ * so a page converts a range row by swapping one call for this one. */
+function chipRow(add,opts){
+  const id=opts.id, label=opts.label;
+  const fmt=opts.format||(v=>String(v));
+  add('<label class="slider uiRow"><span>'+esc(label)+'</span>'
+    +'<button type="button" class="ui-pchip" id="'+id+'">'
+    +'<span class="ui-chip">'+esc(fmt(opts.value))+'</span></button></label>');
+  const b=$(id);
+  if(!b) return null;
+  const U=window.UI;
+  if(!U||!U.popchip) return null;
+  return U.popchip(b,{
+    label:label, min:opts.min, max:opts.max, step:opts.step||1, value:opts.value,
+    format:fmt, snap:opts.snap, snapTo:opts.snapTo,
+    onInput:opts.onInput, onChange:opts.onChange,
+  });
+}
+
 /* ---- a layer's silhouette, as pixels ----
  * The shape's OWN outline rasterised into an alpha mask, which is what a
  * material needs when it cannot assume a closed form. addPath is the same
@@ -7158,12 +7184,12 @@ function buildFxSection(obj,page,add,body){
   }
 
   if(page==='Shape'){
-    const sl=(id,label,min,max,step,key,fmt)=>{
-      add(`<label class="slider">${label} <span id="${id}V">${fmt(obj[key])}</span>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${obj[key]}"></label>`);
-      $(id).addEventListener('input',e=>{ obj[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
-      $(id).addEventListener('change',()=>pushHistory());
-    };
+    /* The book's slider row: a chip in the column that opens on demand. */
+    const sl=(id,label,min,max,step,key,fmt)=>chipRow(add,{
+      id, label, min, max, step, value:obj[key], format:fmt,
+      onInput:v=>{ obj[key]=v; render(); },
+      onChange:()=>pushHistory(label),
+    });
     const int=v=>String(Math.round(v)), deg=v=>Math.round(v)+'°', f2=v=>(+v).toFixed(2);
     if(obj.type==='rect'&&SHOW_CONTROL.cornerStyle){
       add(`<label class="slider">Corner style<select id="shSt">
@@ -7303,12 +7329,14 @@ function buildFxSection(obj,page,add,body){
     const live=()=>{ paintCacheClear(); render(); };
     /* A range takes the row, which the book allows; the number beside the
      * word is the readout, and dragging re-renders live. */
-    const rng=(id,label,key,min,max,step,fmt)=>{
-      add(`<label class="slider"><span>${label}</span> <span id="${id}V">${fmt(I[key])}</span>
-        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${I[key]}"></label>`);
-      $(id).addEventListener('input',e=>{ I[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); live(); });
-      $(id).addEventListener('change',()=>commit(label));
-    };
+    /* Every slider is a chip that opens on demand — the book's own call, and
+     * 17px per control back. The magnet catches at the value the control
+     * arrived with, so a change can always be undone by hand. */
+    const rng=(id,label,key,min,max,step,fmt)=>chipRow(add,{
+      id, label, min, max, step, value:I[key], format:fmt,
+      onInput:v=>{ I[key]=v; live(); },
+      onChange:()=>commit(label),
+    });
     const pc=v=>Math.round(v*100)+'%', f2=v=>(+v).toFixed(2), deg=v=>Math.round(v)+'°';
     rng('irSpec','Spectrum','spectrum',0,1,0.01,pc);
     rng('irRefr','Refraction','refraction',0,3,0.01,f2);
@@ -7366,12 +7394,11 @@ function buildFxSection(obj,page,add,body){
     }
     const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
     const live=()=>{ paintCacheClear(); render(); };
-    const rng=(id,label,key,min,max,step,fmt)=>{
-      add('<label class="slider"><span>'+label+'</span> <span id="'+id+'V">'+fmt(E[key])+'</span>'
-        +'<input type="range" id="'+id+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+E[key]+'"></label>');
-      $(id).addEventListener('input',ev=>{ E[key]=+ev.target.value; $(id+'V').textContent=fmt(+ev.target.value); live(); });
-      $(id).addEventListener('change',()=>commit(label));
-    };
+    const rng=(id,label,key,min,max,step,fmt)=>chipRow(add,{
+      id, label, min, max, step, value:E[key], format:fmt,
+      onInput:v=>{ E[key]=v; live(); },
+      onChange:()=>commit(label),
+    });
     const pc=v=>Math.round(v*100)+'%', deg=v=>Math.round(v)+'°', pct=v=>Math.round(v)+'%';
     add('<label class="slider uiRow"><span>Copies</span><input type="number" id="ecN" min="1" max="'+MAX_ECHO_COPIES+'" step="1" value="'+E.copies+'"></label>');
     $('ecN').addEventListener('change',ev=>{ E.copies=clamp(Math.round(+ev.target.value)||1,1,MAX_ECHO_COPIES); commit('Copies'); });
@@ -8333,12 +8360,11 @@ function buildFxSection(obj,page,add,body){
     add(`<label class="slider"><input type="checkbox" id="${pre}On" ${E2.on?'checked':''}> Enable ${page.toLowerCase()}</label>`);
     $(pre+'On').addEventListener('change',e=>{ E2.on=e.target.checked; pushHistory(); refresh(); });
     if(E2.on){
-      const sl=(id,label,min,max,step,k,fmt)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${fmt(E2[k])}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${E2[k]}"></label>`);
-        $(id).addEventListener('input',e=>{ E2[k]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); render(); });
-        $(id).addEventListener('change',()=>pushHistory());
-      };
+      const sl=(id,label,min,max,step,k,fmt)=>chipRow(add,{
+        id, label, min, max, step, value:E2[k], format:fmt,
+        onInput:v=>{ E2[k]=v; render(); },
+        onChange:()=>pushHistory(label),
+      });
       const int=v=>String(Math.round(v)), pct=v=>Math.round(v*100)+'%', f2=v=>(+v).toFixed(2);
       if(isGlow){
         add(`<label class="slider">Type<select id="glType">
@@ -8705,37 +8731,30 @@ function buildFxSection(obj,page,add,body){
       </select></label>`);
       $('shType').value=sh.type||'drop';
       $('shType').addEventListener('change',e=>{ sh.type=e.target.value; pushHistory(); refresh(); });
-      const sl=(id,label,min,max,val)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${val}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></label>`);
-      };
+      /* One call per row: the chip carries the value, opens the slider on
+       * demand and takes the arrow keys. Markup and wiring were separate here
+       * and had to agree on six ids by hand. */
+      const sl=(id,label,min,max,set,val)=>chipRow(add,{
+        id, label, min, max, step:1, value:val,
+        onInput:v=>{ set(v); render(); },
+        onChange:()=>pushHistory(label),
+      });
       /* Ranges match normalizeDoc's clamps exactly. They did not: offset ran
        * to +/-60 against a clamp of +/-100 and blur to 120 against 150, so a
        * third of each documented range was unreachable from the panel and a
        * document carrying a larger value could not be edited back down
        * without the slider silently re-clamping it. */
       if(sh.type==='long'){
-        sl('shAngle','Angle',0,359,Math.round(sh.angle));
-        sl('shLength','Length',0,1000,Math.round(sh.length));
+        sl('shAngle','Angle',0,359,v=>sh.angle=v,Math.round(sh.angle));
+        sl('shLength','Length',0,1000,v=>sh.length=v,Math.round(sh.length));
       }else{
-        sl('shX','Offset X',-100,100,sh.x); sl('shY','Offset Y',-100,100,sh.y);
-        sl('shBlur','Blur',0,150,sh.blur);
+        sl('shX','Offset X',-100,100,v=>sh.x=v,sh.x);
+        sl('shY','Offset Y',-100,100,v=>sh.y=v,sh.y);
+        sl('shBlur','Blur',0,150,v=>sh.blur=v,sh.blur);
       }
       // §4.9 spread thickens the caster so the shadow grows WITHOUT blurring.
-      // It is in the model, it is clamped, the draw path strokes with it — it
-      // simply had no control, so it could only ever be 0.
-      sl('shSpread','Spread',0,100,sh.spread);
-      sl('shA','Opacity %',0,100,Math.round(sh.alpha*100));
-      const wire=(id,f)=>{
-        $(id).addEventListener('input',e=>{ f(+e.target.value); $(id+'V').textContent=e.target.value; render(); });
-        $(id).addEventListener('change',()=>pushHistory());
-      };
-      if(sh.type==='long'){
-        wire('shAngle',v=>sh.angle=v); wire('shLength',v=>sh.length=v);
-      }else{
-        wire('shX',v=>sh.x=v); wire('shY',v=>sh.y=v); wire('shBlur',v=>sh.blur=v);
-      }
-      wire('shSpread',v=>sh.spread=v); wire('shA',v=>sh.alpha=v/100);
+      sl('shSpread','Spread',0,100,v=>sh.spread=v,sh.spread);
+      sl('shA','Opacity %',0,100,v=>sh.alpha=v/100,Math.round(sh.alpha*100));
       add(`<label class="slider">Color <input type="color" id="shC" value="${sh.color}"></label>`);
       $('shC').addEventListener('input',e=>{ sh.color=e.target.value; render(); });
       $('shC').addEventListener('change',()=>pushHistory());
@@ -13342,6 +13361,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   echoInstances, normalizeEcho,
+  chipRow,
   IRI_PALETTES, iriPaletteId,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
   symmetryOps, applySymmetryOp, activeGradientHandles, spillPad, shapeMask, shapeMaskKey,
