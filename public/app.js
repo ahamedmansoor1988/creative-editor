@@ -356,6 +356,27 @@ const IRI_TILE_LONG=1024, IRI_TILE_MAX_SCALE=8;
 const MAX_GRADIENT_STOPS=12;
 const SYMMETRY_MODES=['mirror','radial'];
 const SYMMETRY_AXES=['vertical','horizontal','both'];
+/* ---- echo (§ structure) ----
+ * The third structure engine. The repeater lays a GRID and symmetry REFLECTS;
+ * echo makes a receding STACK — each copy a step further, a little narrower, a
+ * little flatter, turned a little more, with a seeded wobble so it does not
+ * read as a machine.
+ *
+ * Width and height deform SEPARATELY because that is what reads as perspective
+ * rather than as plain shrinking: a disc turning away keeps its width and
+ * loses its height. */
+const MAX_ECHO_COPIES=10;
+const DEFAULT_ECHO=()=>({
+  copies:4,
+  /* 80% of the copy's own height puts each one just clear of the last: the
+   * original's half-height plus the copy's half-height is about 0.81h at the
+   * default shrink, so they sit adjacent rather than piling up. */
+  stepX:0, stepY:80,
+  widthScale:0.88, heightScale:0.62,
+  rotation:0,
+  randomness:0, seed:1,
+  fade:0,
+});
 const DEFAULT_SYMMETRY=()=>({
   mode:'mirror', axis:'vertical', gap:0,
   count:6, radius:0, angle:0, faceOut:true,
@@ -1342,10 +1363,12 @@ function normChildren(list,depth){
        * simply has none. */
       c.symmetry=normalizeSymmetry(c.symmetry);
       if(!c.symmetry) delete c.symmetry;
+      c.echo=normalizeEcho(c.echo);
+      if(!c.echo) delete c.echo;
     } else {
-      delete c.engine; delete c.pattern; delete c.symmetry;
+      delete c.engine; delete c.pattern; delete c.symmetry; delete c.echo;
     }
-    if(CONTAINER(c)){ delete c.pattern; delete c.engine; delete c.symmetry; }
+    if(CONTAINER(c)){ delete c.pattern; delete c.engine; delete c.symmetry; delete c.echo; }
     return c;
   });
 }
@@ -2654,6 +2677,62 @@ function patternInstances(parent){
   }
   return out;
 }
+/* Clamped, complete, or null — an absent field is the OFF state, the same
+ * terms the repeater and symmetry keep. */
+function normalizeEcho(raw){
+  if(!raw||typeof raw!=='object') return null;
+  const d=DEFAULT_ECHO();
+  const out=Object.assign(d,raw);
+  const num=(v,def,lo,hi)=>{ const n=+v; return Number.isFinite(n)?clamp(n,lo,hi):def; };
+  out.copies=clamp(Math.round(num(out.copies,4,1,MAX_ECHO_COPIES)),1,MAX_ECHO_COPIES);
+  out.stepX=num(out.stepX,0,-200,200);
+  out.stepY=num(out.stepY,80,-200,200);
+  out.widthScale=num(out.widthScale,0.88,0.2,1.5);
+  out.heightScale=num(out.heightScale,0.62,0.2,1.5);
+  out.rotation=num(out.rotation,0,-180,180);
+  out.randomness=num(out.randomness,0,0,1);
+  out.fade=num(out.fade,0,0,1);
+  out.seed=clamp(Math.round(num(out.seed,1,1,9999)),1,9999);
+  return out;
+}
+
+/* ---- echo layout ----
+ * Complete derived instances, the shallow-view shape the other two engines
+ * emit, so every appearance property is inherited live. Deterministic: the
+ * wobble is a hash of (seed, copy, channel), never Math.random.
+ *
+ * Sizes COMPOUND, because a constant step reads as a list and a compounding
+ * one reads as distance. The positional step is a share of the CURRENT size
+ * for the same reason: a fixed step in page units pulls the small copies far
+ * apart and the perspective falls over. */
+function echoInstances(parent){
+  const E=parent&&parent.echo;
+  const out=[];
+  if(!E) return out;
+  if(parent.type==='text') return out;
+  if(parent.parentId) return out;
+  const pw=parent.w, ph=parent.h;
+  if(!isFinite(pw)||!isFinite(ph)||pw<=0||ph<=0) return out;
+  if(!isFinite(parent.x)||!isFinite(parent.y)) return out;
+  const R=(i,ch)=>rand01(E.seed,i,ch)*2-1;
+  let cx=parent.x+pw/2, cy=parent.y+ph/2, w=pw, h=ph;
+  for(let i=1;i<=E.copies;i++){
+    cx+=(E.stepX/100)*w+R(i,0)*E.randomness*w*0.5;
+    cy+=(E.stepY/100)*h+R(i,1)*E.randomness*h*0.5;
+    w*=E.widthScale*(1+R(i,2)*E.randomness*0.45);
+    h*=E.heightScale*(1+R(i,3)*E.randomness*0.45);
+    if(!(w>0.5&&h>0.5)) break;
+    if(!isFinite(cx)||!isFinite(cy)) break;
+    const rot=(parent.rot||0)+E.rotation*i+R(i,4)*E.randomness*60;
+    const op=(parent.opacity===undefined?1:parent.opacity)*(1-E.fade*(i/E.copies));
+    out.push(Object.assign({},parent,{
+      id:parent.id+'^'+i, parentId:parent.id, instanceIndex:i,
+      x:cx-w/2, y:cy-h/2, w:w, h:h, rot:rot, opacity:op,
+      pattern:undefined, symmetry:undefined, echo:undefined}));
+  }
+  return out;
+}
+
 /* Clamped, complete, or null. Null means "no symmetry on this layer", the
  * same way a missing `pattern` means no repeater: an absent field is the OFF
  * state, so nothing has to store a disabled engine. */
@@ -2762,7 +2841,21 @@ function symmetryInstances(parent){
  * the repeater made, capped at the repeater's own instance limit. */
 function derivedInstances(parent){
   if(!parent) return [];
-  const grid=parent.pattern?patternInstances(parent):[];
+  let grid=parent.pattern?patternInstances(parent):[];
+  /* Echo stacks the layer. With a repeater as well, every grid copy gets its
+   * own stack, so the whole field recedes together. */
+  if(parent.echo){
+    const stacked=grid.slice();
+    for(const m of [parent].concat(grid)){
+      if(stacked.length>=MAX_PATTERN_INSTANCES) break;
+      const lent=m===parent?parent:Object.assign({},m,{parentId:undefined,echo:parent.echo});
+      for(const e of echoInstances(lent)){
+        if(stacked.length>=MAX_PATTERN_INSTANCES) break;
+        stacked.push(Object.assign({},e,{parentId:parent.id}));
+      }
+    }
+    grid=stacked;
+  }
   if(!parent.symmetry) return grid;
   const ops=symmetryOps(parent);
   if(!ops.length) return grid;
@@ -2797,7 +2890,7 @@ function paintWithInstances(obj,paint){
  *  it OUTSIDE its own box? Every rule that has to know (the paint cache, the
  *  render scaler, the report) asks this rather than naming the engines, so a
  *  third one is added in one place instead of found by a bug. */
-function hasStructure(o){ return !!(o&&(o.pattern||o.symmetry)); }
+function hasStructure(o){ return !!(o&&(o.pattern||o.symmetry||o.echo)); }
 /* ================= gradient ramp =================
  * The stops drawn ON the gradient, the way Figma, Illustrator and Sketch all
  * draw them: one bar that is at once the preview, the ordering and the
@@ -5833,14 +5926,14 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
   if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
-  if(obj.type==='image') return ['Image','Symmetry','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6419,6 +6512,7 @@ function enginesInDoc(d){
   const walk=list=>(list||[]).forEach(o=>{
     if(o.pattern) out.add('pattern ×'+(o.pattern.columns*o.pattern.rows));
     if(o.symmetry) out.add('symmetry '+o.symmetry.mode);
+    if(o.echo) out.add('echo x'+o.echo.copies);
     if(o.fill&&o.fill.kind&&o.fill.kind!=='solid') out.add(o.fill.kind+' fill');
     (o.fx||[]).forEach(e=>{ if(e.added&&e.on!==false) out.add(e.type); });
     if(o.type==='text') out.add('text');
@@ -7191,6 +7285,52 @@ function buildFxSection(obj,page,add,body){
     add(`<div class="fxHint">The material follows this layer's own outline, whatever it is —
       corner radii, star points and drawn paths included. Position, size, rotation and
       repetition belong to the layer, not to this effect.</div>`);
+    return;
+  }
+
+  if(page==='Echo'){
+    /* The receding stack: each copy a step further, narrower, flatter, turned
+     * a little more. Width and height deform SEPARATELY, which is what reads
+     * as perspective rather than as plain shrinking. */
+    const E=obj.echo;
+    if(!E){
+      add('<div class="fxHint">Stacks copies of this layer, each one a step further away — narrower, flatter and turned a little more than the last. The copies follow the original: change its fill and every copy changes.</div>');
+      add('<div class="rowBtns"><button class="rollBtn" id="ecAdd">+ Add echo</button></div>');
+      $('ecAdd').addEventListener('click',()=>{ obj.echo=normalizeEcho({}); pushHistory('Add echo'); refresh(); });
+      return;
+    }
+    const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
+    const live=()=>{ paintCacheClear(); render(); };
+    const rng=(id,label,key,min,max,step,fmt)=>{
+      add('<label class="slider"><span>'+label+'</span> <span id="'+id+'V">'+fmt(E[key])+'</span>'
+        +'<input type="range" id="'+id+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+E[key]+'"></label>');
+      $(id).addEventListener('input',ev=>{ E[key]=+ev.target.value; $(id+'V').textContent=fmt(+ev.target.value); live(); });
+      $(id).addEventListener('change',()=>commit(label));
+    };
+    const pc=v=>Math.round(v*100)+'%', deg=v=>Math.round(v)+'°', pct=v=>Math.round(v)+'%';
+    add('<label class="slider uiRow"><span>Copies</span><input type="number" id="ecN" min="1" max="'+MAX_ECHO_COPIES+'" step="1" value="'+E.copies+'"></label>');
+    $('ecN').addEventListener('change',ev=>{ E.copies=clamp(Math.round(+ev.target.value)||1,1,MAX_ECHO_COPIES); commit('Copies'); });
+
+    add('<div class="appearanceSubhead">Each copy</div>');
+    rng('ecW','Width','widthScale',0.2,1.5,0.01,pc);
+    rng('ecH','Height','heightScale',0.2,1.5,0.01,pc);
+    rng('ecR','Rotation','rotation',-180,180,1,deg);
+    add('<div class="fxHint">Width and height are separate on purpose: keeping the width and losing the height is what reads as a disc turning away from you.</div>');
+
+    add('<div class="appearanceSubhead">Step</div>');
+    rng('ecDX','Across','stepX',-200,200,1,pct);
+    rng('ecDY','Down','stepY',-200,200,1,pct);
+    add('<div class="fxHint">A share of each copy’s own size, so a stack that shrinks also closes up.</div>');
+
+    add('<div class="appearanceSubhead">Variation</div>');
+    rng('ecRnd','Randomness','randomness',0,1,0.01,pc);
+    rng('ecFade','Fade','fade',0,1,0.01,pc);
+    add('<label class="slider uiRow"><span>Seed</span><input type="number" id="ecSeed" min="1" max="9999" step="1" value="'+E.seed+'"></label>');
+    $('ecSeed').addEventListener('change',ev=>{ E.seed=clamp(Math.round(+ev.target.value)||1,1,9999); commit('Seed'); });
+    const made=echoInstances(obj).length;
+    add('<div class="fxHint">'+made+' cop'+(made===1?'y':'ies')+'. The same seed always gives the same stack.</div>');
+    add('<div class="rowBtns"><button class="rollBtn" id="ecDrop">Remove echo</button></div>');
+    $('ecDrop').addEventListener('click',()=>{ delete obj.echo; commit('Remove echo'); });
     return;
   }
 
@@ -11851,7 +11991,8 @@ function selectSame(kind){
       .filter(k=>fx[k]&&fx[k].on).join(',')
       +(fx.grain&&fx.grain.amount>0?'+grain':'')
       +(o.pattern?'+pattern':'')
-      +(o.symmetry?'+symmetry:'+o.symmetry.mode:'');
+      +(o.symmetry?'+symmetry:'+o.symmetry.mode:'')
+      +(o.echo?'+echo'+o.echo.copies:'');
   };
   const rk=key(ref);
   setSelIds(new Set(allObjects().filter(c=>selectable(c)&&key(c)===rk).map(c=>c.id)),ref.id);
@@ -13131,6 +13272,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   render, refresh, renderImmediate,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
+  echoInstances, normalizeEcho,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
   symmetryOps, applySymmetryOp, activeGradientHandles, spillPad, shapeMask, shapeMaskKey,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
@@ -13246,6 +13388,15 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
      * on the layer, like a fill is — pushing it on the effect stack would put
      * a layout in a slot meant for something composited over pixels. */
     if(item.kind==='structure'){
+      if(item.id==='echo'){
+        if(!obj.echo) obj.echo=normalizeEcho({});
+        pushHistory('Apply '+item.label);
+        refresh();
+        engOpenPage('Echo');
+        status(item.label+' applied. Adjust it in Echo.');
+        engClose();
+        return;
+      }
       if(item.id==='symmetry'){
         if(!obj.symmetry) obj.symmetry=normalizeSymmetry({});
         pushHistory('Apply '+item.label);

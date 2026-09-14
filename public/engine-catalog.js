@@ -330,6 +330,20 @@
       description: "Repeats the layer along a transform.",
     },
     {
+      id: "echo",
+      label: "Echo",
+      category: "generator",
+      status: READY,
+      /* Not an effect: nothing is composited over the layer. Like the repeater
+       * and symmetry it changes how MANY of the layer there are, so it is set
+       * on the layer and read by the one instancing seam. */
+      kind: "structure",
+      rendererType: null,
+      supportedInputs: SHAPES.concat("image"),
+      description: "A receding stack of copies, each narrower, flatter and turned a little more.",
+      tagline: "copies going away",
+    },
+    {
       id: "symmetry",
       label: "Symmetry",
       category: "generator",
