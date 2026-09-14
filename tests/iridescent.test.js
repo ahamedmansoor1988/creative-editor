@@ -330,3 +330,61 @@ describe("the edge stays clean at every zoom", () => {
     expect(withIridescence({}, { spread: -9 }).effects.iridescent.spread).toBe(0);
   });
 });
+
+describe("the palettes are a starting point, not a mode", () => {
+  /* Carried across from the plugin's palettes.ts: five sRGB hex per set, in
+   * the shader's own order — centre, left lobe, right lobe, upper wash, edge. */
+  it("there are seven, each with five colours in the shader's order", () => {
+    const P = editor.IRI_PALETTES;
+    expect(P.length).toBe(7);
+    for (const pal of P) {
+      expect(pal.colors.length).toBe(5);
+      for (const c of pal.colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
+      expect(pal.label.length).toBeGreaterThan(2);
+    }
+  });
+
+  it("every set is distinct, so the list is not padded", () => {
+    const keys = editor.IRI_PALETTES.map((p) => p.colors.join(","));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("Chromaform is the source page's own set, and the default", () => {
+    const I = withIridescence().effects.iridescent;
+    expect(editor.iriPaletteId(I)).toBe("chromaform");
+  });
+
+  it("a hand-edited colour stops the row claiming a palette", () => {
+    /* A row naming a palette the colours had drifted from would be lying. */
+    const I = withIridescence().effects.iridescent;
+    I.colorTop = "#123456";
+    expect(editor.iriPaletteId(I)).toBe("");
+  });
+
+  it("identifying a set ignores the case the hex was written in", () => {
+    const I = withIridescence().effects.iridescent;
+    const pearl = editor.IRI_PALETTES.find((p) => p.id === "pearl");
+    ["colorCore", "colorLeft", "colorRight", "colorTop", "colorEdge"].forEach((k, i) => {
+      I[k] = pearl.colors[i].toUpperCase();
+    });
+    expect(editor.iriPaletteId(I)).toBe("pearl");
+  });
+
+  it("every palette colour survives the document's own validation", () => {
+    /* normalizeDoc replaces anything that is not a six-digit hex, so a palette
+     * carrying a bad value would silently become the default. */
+    for (const pal of editor.IRI_PALETTES) {
+      const I = withIridescence(
+        {},
+        {
+          colorCore: pal.colors[0],
+          colorLeft: pal.colors[1],
+          colorRight: pal.colors[2],
+          colorTop: pal.colors[3],
+          colorEdge: pal.colors[4],
+        },
+      ).effects.iridescent;
+      expect(editor.iriPaletteId(I)).toBe(pal.id);
+    }
+  });
+});

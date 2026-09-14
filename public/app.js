@@ -365,6 +365,31 @@ const SYMMETRY_AXES=['vertical','horizontal','both'];
  * Width and height deform SEPARATELY because that is what reads as perspective
  * rather than as plain shrinking: a disc turning away keeps its width and
  * loses its height. */
+/* Iridescence palettes, carried across from the DoLittle plugin's
+ * palettes.ts. Five sRGB hex in the shader's own order: centre, left lobe,
+ * right lobe, upper wash, edge. Chromaform is the source page's own set and
+ * so the default.
+ *
+ * A preset is a STARTING POINT, not a mode: picking one writes the five
+ * colours and the five pickers stay editable afterwards. The row reads
+ * "Custom" once they no longer match any set, because a row that named a
+ * palette the colours had drifted from would be lying. */
+const IRI_PALETTES=[
+  {id:'chromaform', label:'Chromaform',  colors:['#e8dd19','#fa2438','#31df43','#20cfe7','#314fea']},
+  {id:'holographic',label:'Holographic', colors:['#dcd8ff','#ff8fd0','#8dffd0','#8fd2ff','#c39bff']},
+  {id:'candy',      label:'Candy',       colors:['#ff5fb7','#7c4dff','#ffd166','#4dd9ff','#ff7ab3']},
+  {id:'aurora',     label:'Aurora',      colors:['#2ee6a6','#4de1ff','#a6ff4d','#7c5cff','#1b4dff']},
+  {id:'sunset',     label:'Sunset',      colors:['#ff8a3d','#ff3d7a','#ffd23d','#b03dff','#ff5e3d']},
+  {id:'oilslick',   label:'Oil slick',   colors:['#3a2a66','#ff2e88','#2ef2ff','#b6ff2e','#8a2eff']},
+  {id:'pearl',      label:'Pearl',       colors:['#e9e2d8','#f2c9d4','#cdeadb','#cbdcf0','#dfcfec']},
+];
+const IRI_COLOR_KEYS=['colorCore','colorLeft','colorRight','colorTop','colorEdge'];
+/** Which palette these five colours are, or '' when they are the user's own. */
+function iriPaletteId(I){
+  const now=IRI_COLOR_KEYS.map(k=>String(I[k]||'').toLowerCase());
+  const hit=IRI_PALETTES.find(p=>p.colors.every((c,i)=>c.toLowerCase()===now[i]));
+  return hit?hit.id:'';
+}
 const MAX_ECHO_COPIES=10;
 const DEFAULT_ECHO=()=>({
   copies:4,
@@ -7264,6 +7289,17 @@ function buildFxSection(obj,page,add,body){
     add(`<div class="fxHint">Spectrum is how far the colours split. Refraction bends them through the body; rim lights the edge.</div>`);
 
     add(`<div class="appearanceSubhead">Colours</div>`);
+    const nowPal=iriPaletteId(I);
+    add(`<label class="slider uiRow"><span>Palette</span><select id="irPal">`
+      +`<option value=""${nowPal?'':' selected'}>Custom</option>`
+      +IRI_PALETTES.map(pl=>`<option value="${pl.id}"${pl.id===nowPal?' selected':''}>${esc(pl.label)}</option>`).join('')
+      +`</select></label>`);
+    $('irPal').addEventListener('change',e=>{
+      const pl=IRI_PALETTES.find(x=>x.id===e.target.value);
+      if(!pl){ refresh(); return; }          // "Custom" keeps whatever is set
+      IRI_COLOR_KEYS.forEach((k,i)=>{ I[k]=pl.colors[i]; });
+      commit('Palette');
+    });
     rng('irSpread','Spread','spread',0,1,0.01,pc);
     const col=(id,label,key)=>{
       add(`<label class="slider uiRow"><span>${label}</span><input type="color" id="${id}" value="${esc(I[key])}"></label>`);
@@ -13273,6 +13309,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   echoInstances, normalizeEcho,
+  IRI_PALETTES, iriPaletteId,
   hasStructure, paintCacheable, paintWithInstances, paintSig, paintScaleStep,
   symmetryOps, applySymmetryOp, activeGradientHandles, spillPad, shapeMask, shapeMaskKey,
   allInstances, instanceBounds, normalizePattern, normalizeSymmetry,
