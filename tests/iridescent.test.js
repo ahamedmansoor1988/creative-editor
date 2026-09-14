@@ -322,7 +322,11 @@ describe("the edge stays clean at every zoom", () => {
   });
 
   it("spread arrives part way, so the default is a material and not a rainbow", () => {
-    expect(withIridescence().effects.iridescent.spread).toBeCloseTo(0.35, 5);
+    /* Measured against the seven palettes: below about 0.65 each one collapses
+     * to its core colour, and 1 is the raw rainbow. */
+    const spread = withIridescence().effects.iridescent.spread;
+    expect(spread).toBeGreaterThan(0.65);
+    expect(spread).toBeLessThan(1);
   });
 
   it("spread is clamped like every other number", () => {

@@ -214,7 +214,11 @@ const DEFAULT_EFFECTS=()=>({
     spectrum:0.78,refraction:1.40,rim:0.62,depth:0.72,softness:0.42,
     colorCore:'#e8dd19',colorLeft:'#fa2438',colorRight:'#31df43',
     colorTop:'#20cfe7',colorEdge:'#314fea',
-    spread:0.35,
+    /* 75%, measured against the seven palettes: below about 65% every one of
+     * them collapses to its core colour and Candy is indistinguishable from
+     * Sunset, while 100% is the raw rainbow. 75% shows each palette's own
+     * character and is still a clear step down from the source page. */
+    spread:0.75,
     hue:0,saturation:1.35,exposure:1.04},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
@@ -906,7 +910,7 @@ function normChildren(list,depth){
       iri.on=!!iri.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const n01=(k,def)=>{ iri[k]=Number.isFinite(+iri[k])?clamp(+iri[k],0,1):def; };
       n01('spectrum',0.78); n01('rim',0.62); n01('depth',0.72); n01('softness',0.42);
-      n01('spread',0.35);
+      n01('spread',0.75);
       iri.refraction=Number.isFinite(+iri.refraction)?clamp(+iri.refraction,0,3):1.40;
       iri.hue=Number.isFinite(+iri.hue)?clamp(+iri.hue,0,360):0;
       iri.saturation=Number.isFinite(+iri.saturation)?clamp(+iri.saturation,0,3):1.35;
