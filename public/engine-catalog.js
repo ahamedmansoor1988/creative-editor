@@ -108,6 +108,17 @@
       description: "Magnifies the layer's own contents from within.",
     },
     {
+      id: "iridescent",
+      label: "Iridescence",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "iridescent",
+      supportedInputs: SHAPES,
+      description: "Thin-film colour that splits across the form, like oil on water.",
+      tagline: "dispersive film",
+    },
+    {
       id: "chromaticVolume",
       label: "Chromatic volume",
       category: "shader",

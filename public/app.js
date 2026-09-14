@@ -207,6 +207,17 @@ const DEFAULT_EFFECTS=()=>({
    * colour, and carrying that in every object's defaults would put it in the
    * compact-serialisation baseline for shapes that never touch the effect. */
   mesh:{on:false,cols:4,rows:4,points:[],showNet:true},
+  /* Iridescence. These ARE the reference page's defaults, so applying the
+   * effect gives the look it was designed around rather than a flat field
+   * that has to be dialled in. Ranges match the clamps in normalizeDoc. */
+  iridescent:{on:false,
+    spectrum:0.78,refraction:1.40,rim:0.62,depth:0.72,softness:0.42,
+    colorCore:'#e8dd19',colorLeft:'#fa2438',colorRight:'#31df43',
+    colorTop:'#20cfe7',colorEdge:'#314fea',
+    scale:1,stretch:1,rotation:0,
+    hue:0,saturation:1.35,exposure:1.04,
+    echoes:0,spacing:0.54,squash:0.55,echoRotation:0,echoJitter:0,echoSeed:1,
+    glow:false,glowAmount:0.55,glowSize:0.28,glowMix:0.25,glowTint:'#ff5da8'},
   gradient:{on:false,bandHeight:60,split:30,drift:2,g1shift:10,g2shift:-10,
             phase:0.1,bounce:false,angle:0,mirrorX:false,mirrorY:false,
             g1:[{color:'#0000ff',pos:0},{color:'#ffaa00',pos:0.5},{color:'#6666aa',pos:1}],
@@ -840,6 +851,35 @@ function normChildren(list,depth){
       if(!/^#[0-9a-fA-F]{6}$/.test(glw.color||'')) glw.color='#ffffff';
       const gr=Object.assign(de.grain, ce.grain||{});
       gr.amount=clamp(+gr.amount||0,0,1);
+      /* Iridescence. A material for a SHAPE — the same layer types the mesh
+       * accepts, since both replace what the shape shows. Every number is
+       * clamped to the range its row offers, so a document written by hand or
+       * by the bridge cannot put the shader outside what the panel can undo. */
+      const iri=Object.assign(de.iridescent, ce.iridescent||{});
+      iri.on=!!iri.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      const n01=(k,def)=>{ iri[k]=Number.isFinite(+iri[k])?clamp(+iri[k],0,1):def; };
+      n01('spectrum',0.78); n01('rim',0.62); n01('depth',0.72); n01('softness',0.42);
+      n01('spacing',0.54); n01('glowAmount',0.55); n01('glowSize',0.28); n01('glowMix',0.25);
+      iri.squash=Number.isFinite(+iri.squash)?clamp(+iri.squash,0.2,0.95):0.55;
+      iri.refraction=Number.isFinite(+iri.refraction)?clamp(+iri.refraction,0,3):1.40;
+      iri.scale=Number.isFinite(+iri.scale)?clamp(+iri.scale,0.15,2):1;
+      iri.stretch=Number.isFinite(+iri.stretch)?clamp(+iri.stretch,0.2,3):1;
+      iri.rotation=Number.isFinite(+iri.rotation)?clamp(+iri.rotation,-180,180):0;
+      iri.hue=Number.isFinite(+iri.hue)?clamp(+iri.hue,0,360):0;
+      iri.saturation=Number.isFinite(+iri.saturation)?clamp(+iri.saturation,0,3):1.35;
+      iri.exposure=Number.isFinite(+iri.exposure)?clamp(+iri.exposure,0.2,3):1.04;
+      iri.echoes=clamp(Math.round(+iri.echoes)||0,0,6);
+      iri.echoRotation=Number.isFinite(+iri.echoRotation)?clamp(+iri.echoRotation,-180,180):0;
+      iri.echoJitter=Number.isFinite(+iri.echoJitter)?clamp(+iri.echoJitter,0,1):0;
+      iri.echoSeed=clamp(Math.round(+iri.echoSeed)||1,1,9999);
+      iri.glow=!!iri.glow;
+      /* The fallback has to come from a FRESH default: `de.iridescent` is the
+       * object Object.assign just wrote the document's values into, so reading
+       * a default back out of it returns the very value being rejected. */
+      const iriDefaults=DEFAULT_EFFECTS().iridescent;
+      ['colorCore','colorLeft','colorRight','colorTop','colorEdge','glowTint']
+        .forEach(k=>{ if(!/^#[0-9a-f]{6}$/i.test(String(iri[k]||''))) iri[k]=iriDefaults[k]; });
+
       const msh=Object.assign(de.mesh, ce.mesh||{});
       msh.on=!!msh.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const MG=window.MeshGradient;
@@ -1198,7 +1238,7 @@ function normChildren(list,depth){
       ['bg','coreColor','tint'].forEach(k=>{
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
-      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, gradient:grd,
+      const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
         prism:pr, capsule:cap, strip:st,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
@@ -3783,6 +3823,49 @@ function drawOneInner(c,W,H,obj){
        * reaches drawObject, which paints the over-slot passes; drawObject
        * checks for an active mesh itself and skips only the fill. */
     }
+    /* Iridescence — a material, so it REPLACES what the shape shows. Same
+     * standing as the mesh: render a tile at the size the shape occupies on
+     * screen, then clip it to the real path so rotation, corner radius and
+     * mirroring all come for free. */
+    const iri=fx.iridescent;
+    if(iri&&fxOn(obj,'iridescent')&&obj.type!=='text'&&window.Iridescent&&window.Iridescent.available()){
+      const draw=o=>{
+        const tf=c.getTransform?c.getTransform():null;
+        const want=tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1;
+        /* The same pixel budget the mesh tile uses, for the same reason: a
+         * multiple of the shape starves a small shape at high zoom. */
+        const area=Math.max(1,o.w*o.h);
+        const sc=clamp(Math.min(want,Math.sqrt(MESH_TILE_BUDGET_PX/area)),1,MESH_TILE_MAX_SCALE);
+        const tw=Math.min(4096,Math.max(1,Math.round(o.w*sc)));
+        const th=Math.min(4096,Math.max(1,Math.round(o.h*sc)));
+        const img=window.Iridescent.get(tw,th,{
+          layerType:o.type, sides:o.sides, innerRatio:o.innerRatio,
+          radius:o.radius, radii:o.radii, boxW:o.w, boxH:o.h,
+          spectrum:iri.spectrum, refraction:iri.refraction, rim:iri.rim,
+          depth:iri.depth, softness:iri.softness,
+          scale:iri.scale, stretch:iri.stretch, rotation:iri.rotation,
+          hue:iri.hue, saturation:iri.saturation, exposure:iri.exposure,
+          echoes:iri.echoes, spacing:iri.spacing, squash:iri.squash,
+          echoRotation:iri.echoRotation, echoJitter:iri.echoJitter, echoSeed:iri.echoSeed,
+          glow:iri.glow, glowAmount:iri.glowAmount, glowSize:iri.glowSize,
+          glowMix:iri.glowMix, glowTint:iri.glowTint,
+          colorCore:iri.colorCore, colorLeft:iri.colorLeft, colorRight:iri.colorRight,
+          colorTop:iri.colorTop, colorEdge:iri.colorEdge});
+        if(!img) return;
+        c.save();
+        applyObjectTransform(c,o);
+        c.imageSmoothingEnabled=true;
+        if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
+        c.globalAlpha=obj.opacity;
+        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      paintWithInstances(obj,draw);
+      /* Falls THROUGH, like the mesh: the over-slot passes (grain, noise and
+       * the filters) still have to run over the material. */
+    }
     const lq=fx.liquid;
     if(lq&&fxOn(obj,'liquid')&&obj.type!=='text'&&window.LiquidEngine&&window.LiquidEngine.available()){
       const draw=o=>{
@@ -4227,8 +4310,13 @@ function drawObject(c,obj,plain){
      * necessary to write down. */
     const meshPainted=!plain&&obj.effects&&obj.effects.mesh&&fxOn(obj,'mesh')&&
       window.MeshGradient&&window.MeshGradient.available();
-    if(meshPainted){
-      /* nothing: the mesh is the fill */
+    /* Iridescence is a material too, and for the same reason the fill must not
+     * paint under it: the fill would be invisible but would still cast the
+     * shadow and still feed the backdrop. */
+    const iriPainted=!plain&&obj.effects&&obj.effects.iridescent&&fxOn(obj,'iridescent')&&
+      window.Iridescent&&window.Iridescent.available();
+    if(meshPainted||iriPainted){
+      /* nothing: the material is the fill */
     } else if(plain==='flood'){
       // Blob layer: this shape's colour has to exist wherever the blend gives
       // it weight, including the neck outside its own outline.
@@ -5619,7 +5707,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Mesh':'mesh','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
+  'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
   'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
   'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -5691,11 +5779,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6672,6 +6760,7 @@ function fxActive(obj,name){
       return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>x.type===K&&FxStack.entryOn(x)));
     }
     case 'Mesh':     return !!(e.mesh&&e.mesh.on);
+    case 'Iridescence': return !!(e.iridescent&&e.iridescent.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -6979,6 +7068,98 @@ function buildFxSection(obj,page,add,body){
     });
     sl('lnAS','Arrow size',4,60,1,()=>L.arrowSize,v=>L.arrowSize=v,int);
     add(`<div class="fxHint">Drag either endpoint on canvas; shift snaps to 45°. Heads align their tip to the endpoint.</div>`);
+  }
+
+  if(page==='Iridescence'){
+    /* The book's rows: a word left, one control in the 120 column. Five rows
+     * carry the look, five colours carry the identity, and the two blocks
+     * nobody touches daily sit behind their own heads. No preset list: the
+     * app already saves a layer's whole recipe as a style, and a second,
+     * worse version of that is not worth the rows. */
+    const I=obj.effects.iridescent;
+    const ok=window.Iridescent&&window.Iridescent.available();
+    add(`<label class="slider uiSwitchRow"><span>Iridescence</span><input type="checkbox" id="irOn" ${I.on?'checked':''}></label>`);
+    $('irOn').addEventListener('change',e=>{
+      I.on=e.target.checked;
+      if(I.on){ setMaterial(obj,'iridescent'); }
+      else{
+        /* Both flags, because both are read: the stack entry decides whether
+         * the material wins, the effect's own `on` decides whether the panel
+         * shows its rows. */
+        const en=(obj.fx||[]).find(x=>x.type==='iridescent');
+        if(en){ en.on=false; }
+      }
+      paintCacheClear(); pushHistory('Iridescence'); refresh();
+    });
+    if(!ok){ add(`<div class="fxHint">This machine cannot start WebGL 2, so iridescence cannot render here. The setting is kept and a document carrying it renders anywhere that can.</div>`); return; }
+    if(!I.on){ add(`<div class="fxHint">Thin-film colour that splits across the form, like oil on water. It replaces the shape's fill.</div>`); return; }
+
+    const commit=label=>{ paintCacheClear(); pushHistory(label); refresh(); };
+    const live=()=>{ paintCacheClear(); render(); };
+    /* A range takes the row, which the book allows; the number beside the
+     * word is the readout, and dragging re-renders live. */
+    const rng=(id,label,key,min,max,step,fmt)=>{
+      add(`<label class="slider"><span>${label}</span> <span id="${id}V">${fmt(I[key])}</span>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${I[key]}"></label>`);
+      $(id).addEventListener('input',e=>{ I[key]=+e.target.value; $(id+'V').textContent=fmt(+e.target.value); live(); });
+      $(id).addEventListener('change',()=>commit(label));
+    };
+    const pc=v=>Math.round(v*100)+'%', f2=v=>(+v).toFixed(2), deg=v=>Math.round(v)+'°';
+    rng('irSpec','Spectrum','spectrum',0,1,0.01,pc);
+    rng('irRefr','Refraction','refraction',0,3,0.01,f2);
+    rng('irRim','Rim','rim',0,1,0.01,pc);
+    rng('irDepth','Depth','depth',0,1,0.01,pc);
+    rng('irSoft','Softness','softness',0,1,0.01,pc);
+    add(`<div class="fxHint">Spectrum is how far the colours split. Refraction bends them through the body; rim lights the edge.</div>`);
+
+    add(`<div class="appearanceSubhead">Colours</div>`);
+    const col=(id,label,key)=>{
+      add(`<label class="slider uiRow"><span>${label}</span><input type="color" id="${id}" value="${esc(I[key])}"></label>`);
+      $(id).addEventListener('input',e=>{ I[key]=e.target.value; live(); });
+      $(id).addEventListener('change',()=>commit(label));
+    };
+    col('irC0','Core','colorCore');
+    col('irC1','Left','colorLeft');
+    col('irC2','Right','colorRight');
+    col('irC3','Top','colorTop');
+    col('irC4','Edge','colorEdge');
+
+    add(`<div class="appearanceSubhead">Field</div>`);
+    rng('irScale','Scale','scale',0.15,2,0.01,pc);
+    rng('irStretch','Stretch','stretch',0.2,3,0.01,pc);
+    rng('irRot','Rotation','rotation',-180,180,1,deg);
+
+    add(`<div class="appearanceSubhead">Grade</div>`);
+    rng('irHue','Hue','hue',0,360,1,deg);
+    rng('irSat','Saturation','saturation',0,3,0.01,pc);
+    rng('irExp','Exposure','exposure',0.2,3,0.01,pc);
+
+    /* Echoes stack INSIDE the tile and FLATTEN as they recede. That reads as
+     * perspective, and it is a different thing from the repeater, which keeps
+     * every copy whole and puts them outside the box. Both repeat; only this
+     * one recedes. */
+    add(`<div class="appearanceSubhead">Echoes</div>`);
+    add(`<label class="slider uiRow"><span>Count</span><input type="number" id="irEch" min="0" max="6" step="1" value="${I.echoes}"></label>`);
+    $('irEch').addEventListener('change',e=>{ I.echoes=clamp(Math.round(+e.target.value)||0,0,6); commit('Echoes'); });
+    if(I.echoes>0){
+      rng('irSpac','Spacing','spacing',0,1,0.01,pc);
+      rng('irSq','Squash','squash',0.2,0.95,0.01,pc);
+      rng('irERot','Rotation','echoRotation',-180,180,1,deg);
+      rng('irEJit','Randomness','echoJitter',0,1,0.01,pc);
+      add(`<label class="slider uiRow"><span>Seed</span><input type="number" id="irSeed" min="1" max="9999" step="1" value="${I.echoSeed}"></label>`);
+      $('irSeed').addEventListener('change',e=>{ I.echoSeed=clamp(Math.round(+e.target.value)||1,1,9999); commit('Seed'); });
+      add(`<div class="fxHint">Rotation turns each copy a little further than the last. Randomness scatters and resizes them from the seed, so the same seed always gives the same figure.</div>`);
+    }
+    add(`<div class="appearanceSubhead">Extras</div>`);
+    add(`<label class="slider uiSwitchRow"><span>Glow</span><input type="checkbox" id="irGl" ${I.glow?'checked':''}></label>`);
+    $('irGl').addEventListener('change',e=>{ I.glow=e.target.checked; commit('Glow'); });
+    if(I.glow){
+      rng('irGlA','Amount','glowAmount',0,1,0.01,pc);
+      rng('irGlS','Size','glowSize',0,1,0.01,pc);
+      rng('irGlM','Tint mix','glowMix',0,1,0.01,pc);
+      col('irGlT','Tint','glowTint');
+    }
+    return;
   }
 
   if(page==='Symmetry'){
@@ -12967,17 +13148,18 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     blur:    o=>Object.assign(o.effects.blur,{kind:'gaussian',radius:10}),
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
+    iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second

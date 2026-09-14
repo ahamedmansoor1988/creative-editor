@@ -49,6 +49,7 @@
      * standing liquid and flare have. Marking it "over" would paint it on top
      * of a fill that is then invisible but still casting the shadow. */
     mesh: { slot: "material", label: "Mesh gradient", multi: false },
+    iridescent: { slot: "material", label: "Iridescence", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -85,6 +86,7 @@
     "shadow",
     "glow",
     "mesh",
+    "iridescent",
     "blob",
     "glass2",
     "light",
@@ -96,6 +98,7 @@
     "capsule",
     "strip",
     "glass",
+    "iridescent", // ported from Chromaform; see public/iridescent.js
     "gradient",
     "innerShadow",
     "grain",
