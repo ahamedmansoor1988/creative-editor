@@ -786,7 +786,7 @@ body.panel-left-collapsed #leftPanelToggle{
 }
 .pCtl { display: flex; align-items: center; gap: 6px; }
 .pCtl input[type="range"] { flex: 1 1 auto; min-width: 0; }
-.pCtl input[type="number"] {
+.pCtl input:is([type="number"], .numEditing) {
   width: 56px;
   flex: 0 0 auto;
   font: inherit;

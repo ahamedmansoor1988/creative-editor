@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css?v=20260830-1818">
-<link rel="stylesheet" href="rails.css?v=20260914-corner1">
+<link rel="stylesheet" href="style.css?v=20260914-numfix1">
+<link rel="stylesheet" href="rails.css?v=20260914-numfix1">
 </head>
 <body class="rails ui">
 
@@ -324,7 +324,11 @@
          with the geometry, open. Object-only: an artboard hides this block. -->
     <div id="objectOnlyPos">
       <label class="slider uiRow"><span>Rotation</span><input type="number" id="trRot" step="1"></label>
-      <label class="slider uiRow" id="cornerField" style="display:none"><span>Corner radius</span><span class="headBtns"><input type="number" id="pRad" min="0" step="1" value="0"><button type="button" id="cornerExpand" style="display:none" aria-label="Independent corners" title="Independent corners" data-icon="expand"></button></span></label>
+      <label class="slider uiRow" id="cornerField" style="display:none"><span>Corner radius</span><input type="number" id="pRad" min="0" step="1" value="0"></label>
+      <!-- A boolean is a switch row, label left — the book's rule, and it says
+           what the icon button never did: on, one radius runs round the shape;
+           off, each corner is its own. -->
+      <label class="slider uiSwitchRow" id="cornerAllRow" style="display:none"><span>All sides</span><input type="checkbox" id="cornerAll" aria-label="One radius on all sides"></label>
       <!-- The four corners laid out AS corners. Position is the label, so the
            four words go: a field in the top-left of the grid is the top-left
            corner, which no one has to read. Four labelled rows were 180px and
@@ -608,7 +612,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260914-detent2"></script>
-  <script src="app.js?v=20260914-corner3"></script>
+  <script src="app.js?v=20260914-rad2"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>

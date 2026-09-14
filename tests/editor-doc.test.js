@@ -156,9 +156,25 @@ describe("normalizeDoc — shapes", () => {
     expect(kids[2].opacity).toBe(1);
   });
 
-  it("clamps corner radius into 0..300", () => {
-    const c = norm({ children: [{ type: "rect", w: 10, h: 10, radius: 9999 }] }).frame.children[0];
-    expect(c.radius).toBe(300);
+  it("clamps corner radius to half the shape's shorter side", () => {
+    /* At half the shorter side the two corners meet and the shape is fully
+     * round; past it the draw clamps anyway, so a larger stored value is a
+     * number that changes nothing. A flat 300 was both nonsense on a 10px
+     * shape and too small on a large one — reported as corners that would not
+     * go past 200. */
+    const r = (w, h, radius) =>
+      norm({ children: [{ type: "rect", w, h, radius }] }).frame.children[0].radius;
+    expect(r(10, 10, 9999)).toBe(5);
+    expect(r(300, 200, 9999)).toBe(100);
+    expect(r(1600, 1200, 9999)).toBe(600);
+    expect(r(300, 200, -5)).toBe(0);
+  });
+
+  it("clamps each independent corner the same way", () => {
+    const c = norm({
+      children: [{ type: "rect", w: 400, h: 300, radii: [9999, 10, -4, 150] }],
+    }).frame.children[0];
+    expect(c.radii).toEqual([150, 10, 0, 150]);
   });
 
   it("supplies a grey solid fill when fill is missing or malformed", () => {

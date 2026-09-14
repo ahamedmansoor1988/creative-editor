@@ -876,7 +876,7 @@ body.rails .iconField select,
 body.rails label.slider select,
 body.rails #zoomChip input,
 body.rails .modal input[type="text"],
-body.rails .modal input[type="number"] {
+body.rails .modal input:is([type="number"], .numEditing) {
   background: var(--field);
   border: 1px solid var(--border);
   border-radius: var(--r-field);
@@ -1429,7 +1429,7 @@ body.rails input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 1px 3px rgba(10, 12, 20, 0.3);
 }
 body.rails select,
-body.rails #rightPanel input[type="number"],
+body.rails #rightPanel input:is([type="number"], .numEditing),
 body.rails #rightPanel input[type="text"],
 body.rails #leftPanel input[type="text"],
 body.rails #zoomChip input {
@@ -1775,7 +1775,7 @@ body.rails #rightPanel .grid4 > .iconField {
 }
 /* a select or a number is as wide as its content (rules 1, 4) */
 body.rails .iconField:has(> select),
-body.rails .iconField:has(> input[type="number"]) {
+body.rails .iconField:has(> input:is([type="number"], .numEditing)) {
   justify-content: space-between;
 }
 body.rails .iconField > select {
@@ -1783,7 +1783,7 @@ body.rails .iconField > select {
   flex: 0 0 auto;
   max-width: 160px;
 }
-body.rails .iconField > input[type="number"] {
+body.rails .iconField > input:is([type="number"], .numEditing) {
   width: 64px;
   flex: 0 0 auto;
   text-align: right;
@@ -1933,9 +1933,9 @@ body.rails label.uiRow > .headBtns > button:hover {
 body.rails .grid4 label {
   justify-content: space-between;
 }
-body.rails .grid4 label > input[type="number"],
-body.rails label.uiRow > input[type="number"],
-body.rails .modal label.num > input[type="number"] {
+body.rails .grid4 label > input:is([type="number"], .numEditing),
+body.rails label.uiRow > input:is([type="number"], .numEditing),
+body.rails .modal label.num > input:is([type="number"], .numEditing) {
   width: 64px;
   flex: 0 0 auto;
   text-align: right;
@@ -2013,19 +2013,19 @@ body.rails label.uiRow > .headBtns > select {
   max-width: 160px;
 }
 /* a number in a block-style row is still a 64px field on the right (rule 4) */
-body.rails #rightPanel label.slider:has(> input[type="number"]) {
+body.rails #rightPanel label.slider:has(> input:is([type="number"], .numEditing)) {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
-body.rails #rightPanel label.slider > input[type="number"] {
+body.rails #rightPanel label.slider > input:is([type="number"], .numEditing) {
   width: 64px;
   flex: 0 0 auto;
   text-align: right;
   margin: 0;
 }
-body.rails .modal input[type="number"] {
+body.rails .modal input:is([type="number"], .numEditing) {
   height: 30px;
   padding: 0 8px;
 }
@@ -2039,7 +2039,7 @@ body.rails .modal input[type="number"] {
 body.rails label.uiRow,
 body.rails #rightPanel label.slider:has(> select),
 body.rails #rightPanel label.slider:has(> .ui-cswatch),
-body.rails #rightPanel label.slider:has(> input[type="number"]),
+body.rails #rightPanel label.slider:has(> input:is([type="number"], .numEditing)),
 body.rails #leftPanel label.slider:has(> select) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--ctl-w);
@@ -2048,13 +2048,13 @@ body.rails #leftPanel label.slider:has(> select) {
   justify-content: normal;
 }
 body.rails label.uiRow > select,
-body.rails label.uiRow > input[type="number"],
+body.rails label.uiRow > input:is([type="number"], .numEditing),
 body.rails label.uiRow > .ui-cswatch,
 body.rails label.uiRow > .ui-stepper,
 body.rails label.uiRow > .ui-pchip,
 body.rails label.uiRow > .headBtns,
 body.rails #rightPanel label.slider > select,
-body.rails #rightPanel label.slider > input[type="number"],
+body.rails #rightPanel label.slider > input:is([type="number"], .numEditing),
 body.rails #rightPanel label.slider > .ui-cswatch,
 body.rails #leftPanel label.slider > select {
   width: 100%;
@@ -2086,7 +2086,7 @@ body.rails .grid4 {
 body.rails .grid4 label {
   justify-content: space-between;
 }
-body.rails .grid4 label > input[type="number"] {
+body.rails .grid4 label > input:is([type="number"], .numEditing) {
   width: var(--ctl-w);
 }
 body.rails .ui-steppers {
@@ -2150,7 +2150,7 @@ body.rails .modal label.num {
   grid-template-columns: minmax(0, 1fr) var(--ctl-w);
   gap: 0 var(--gap-row);
 }
-body.rails .modal label.num > input[type="number"] {
+body.rails .modal label.num > input:is([type="number"], .numEditing) {
   width: 100%;
 }
 
@@ -2170,16 +2170,16 @@ body.rails #zoomChip input {
   width: var(--ctl-w);
   text-align: right;
 }
-body.rails input[type="number"] {
+body.rails input:is([type="number"], .numEditing) {
   -moz-appearance: textfield;
   appearance: textfield;
 }
-body.rails input[type="number"]::-webkit-inner-spin-button,
-body.rails input[type="number"]::-webkit-outer-spin-button {
+body.rails input:is([type="number"], .numEditing)::-webkit-inner-spin-button,
+body.rails input:is([type="number"], .numEditing)::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-body.rails label.uiRow > .headBtns > input[type="number"] {
+body.rails label.uiRow > .headBtns > input:is([type="number"], .numEditing) {
   width: calc(var(--ctl-w) - 30px - var(--gap-pair));
   min-width: 0;
   flex: 0 0 auto;
@@ -2455,14 +2455,47 @@ body.rails label.uiRow > .ui-pchip {
 body.rails .cornerGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  width: var(--ctl-w);
-  margin: 0 0 0 auto; /* the control column, on the right */
-  padding: 2px 0 6px;
+  gap: var(--gap-pair); /* the book's gap between halves */
+  width: var(--ctl-w); /* the control column */
+  margin: 0 0 0 auto; /* on the row's right edge, like every other control */
+  padding: 5px 0; /* the row's own vertical padding, so the 40 pitch holds */
 }
-body.rails .cornerGrid > input[type="number"] {
+body.rails .cornerGrid > input:is([type="number"], .numEditing) {
   width: 100%;
   min-width: 0;
-  height: 30px;
-  text-align: center; /* centred, because the field's place is its label */
+  height: 30px; /* the panel control family */
+  border-radius: var(--r-field);
+  /* Right-aligned digits, as the book has every number. Centring them was my
+     own idea and it broke the one thing the rule is for: a column of numbers
+     you can read down. */
+  text-align: right;
+}
+
+/* ---- a number field keeps its treatment while it is being edited ----------
+ * Clicking a number field swaps its type to text for the duration of the edit
+ * — the documented way to make select() work in Chrome, see the focusin
+ * handler in app.js. Every rule written against input[type="number"] stops
+ * applying while that lasts, so a field in a grid lost `min-width: 0`, could
+ * no longer shrink below the intrinsic width a text input carries, and grew
+ * when clicked. `:is()` keeps each rule's specificity identical, so nothing
+ * else in the cascade moves. */
+
+/* ---- focus never changes the space a control occupies ----------------------
+ * The base ring is `outline: 2px` at `outline-offset: 2px`, which draws four
+ * pixels OUTSIDE the border box on every side. Around a button with room to
+ * spare that is fine. Around a field packed into the control column — and
+ * especially the two 56px halves of a pair, eight pixels apart — it eats the
+ * gap and reads as the box growing when you click into it, which is what was
+ * reported.
+ *
+ * Drawn inside instead. The ring is just as visible, the field keeps its
+ * size, and nothing next to it moves. */
+body.rails #rightPanel input:focus-visible,
+body.rails #rightPanel select:focus-visible,
+body.rails #rightPanel textarea:focus-visible,
+body.rails #leftPanel input:focus-visible,
+body.rails #leftPanel select:focus-visible,
+body.rails .modal input:focus-visible,
+body.rails .modal select:focus-visible {
+  outline-offset: -2px;
 }

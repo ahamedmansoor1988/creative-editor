@@ -806,7 +806,10 @@ function normChildren(list,depth){
       }
       if(c.type==='frame'){
         c.w=Math.max(4,+c.w||200); c.h=Math.max(4,+c.h||200);
-        c.radius=clamp(+c.radius||0,0,300);
+        /* Half the shorter side: at that the corners meet and the shape is
+         * fully round, and past it the draw clamps anyway. A flat 300 cut a
+         * large frame's range off partway. */
+        c.radius=clamp(+c.radius||0,0,Math.max(1,Math.floor(Math.min(c.w,c.h)/2)));
         c.clip=c.clip!==false;
         // §6.12 stack layout on the frame
         const L=c.layout||{};
@@ -866,9 +869,10 @@ function normChildren(list,depth){
       delete c.pattern;
     }else{
       c.w=Math.max(4,+c.w||100); c.h=Math.max(4,+c.h||100);
-      c.radius=clamp(+c.radius||0,0,300);
+      const rMax=Math.max(1,Math.floor(Math.min(c.w,c.h)/2));   // see maxRadiusFor
+      c.radius=clamp(+c.radius||0,0,rMax);
       if(c.type==='rect'){
-        if(Array.isArray(c.radii)) c.radii=c.radii.slice(0,4).map(v=>clamp(+v||0,0,300));
+        if(Array.isArray(c.radii)) c.radii=c.radii.slice(0,4).map(v=>clamp(+v||0,0,rMax));
         c.cornerStyle=['round','bevel','scoop'].includes(c.cornerStyle)?c.cornerStyle:'round';
       }
       if(c.type==='ellipse'){
@@ -3116,6 +3120,23 @@ function wireRamp(el,getStops,key,onLive,onCommit){
       onCommit('Gradient midpoint');
     }
   });
+}
+
+/** How far a corner radius can usefully go on this layer.
+ *
+ * Half the shorter side. At exactly that the two corners on that side meet and
+ * the shape is fully round; past it the draw clamps and nothing more happens,
+ * so a larger number would be a control that moves and changes nothing.
+ *
+ * The panel used to stop at a flat 200 (120 for a polygon), which was the old
+ * Shape-page slider's range carried over. On anything bigger than 400px that
+ * cut the useful range off partway — reported on a shape whose corners sat at
+ * 200 and would not go further. */
+function maxRadiusFor(o){
+  if(!o) return 300;
+  const b=boxOf(o);
+  const half=Math.floor(Math.min(b.w||0,b.h||0)/2);
+  return Math.max(1,half);
 }
 
 /* ---- a slider row, as the book draws one ----
@@ -6143,11 +6164,13 @@ function syncInspector(){
    * differ it shows empty against a Mixed placeholder, the way every other
    * multi-value field in the panel does. */
   $('pRad').style.display=hasRadius?'':'none';
-  $('cornerExpand').style.display=hasRadius?'':'none';
-  $('cornerExpand').classList.toggle('on',mixedRadius);
-  $('cornerExpand').title=mixedRadius?'Merge into one corner radius':'Independent corners';
+  /* "All sides" ON means one radius runs round the shape; OFF means each
+   * corner is its own. The switch says that; the icon button it replaces did
+   * not, and a boolean is a switch row by the book. */
+  $('cornerAllRow').style.display=hasRadius?'':'none';
+  $('cornerAll').checked=!mixedRadius;
   if(hasRadius){
-    $('pRad').max=obj.type==='polygon'?120:200; // matches each type's old Shape-page slider range
+    $('pRad').max=maxRadiusFor(obj);
     if(mixedRadius){
       const r=obj.radii, same=r.every(v=>Math.round(v)===Math.round(r[0]));
       $('pRad').value=same?String(Math.round(r[0])):'';
@@ -6159,7 +6182,8 @@ function syncInspector(){
   }
   $('cornerIndRow').style.display=(hasRadius&&mixedRadius)?'':'none';
   if(hasRadius&&mixedRadius){
-    ['pRadTL','pRadTR','pRadBR','pRadBL'].forEach((id,i)=>{ $(id).value=Math.round(obj.radii[i]); });
+    const mx=maxRadiusFor(obj);
+    ['pRadTL','pRadTR','pRadBR','pRadBL'].forEach((id,i)=>{ $(id).value=Math.round(obj.radii[i]); $(id).max=mx; });
   }
   // §6.11/§6.12 — only meaningful for a child of a frame
   const par=(findById(obj.id)||{}).parent;
@@ -7078,10 +7102,18 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFxMenu(); });
 document.addEventListener('focusin',e=>{
   const el=e.target;
   if(el.tagName!=='INPUT'||el.type!=='number') return;
+  /* (4) The swap also silently drops every CSS rule written against
+   * input[type="number"] — twenty of them in the adapter — for as long as the
+   * edit lasts. A field packed into a grid then loses its `min-width: 0`,
+   * refuses to shrink below the intrinsic width a text input carries, and
+   * visibly grows when you click it, pushing its neighbour aside. Reported
+   * exactly that way. The class is what those rules match on instead, so the
+   * treatment survives the swap. */
+  el.classList.add('numEditing');
   el.type='text';
   el.select();
   el.addEventListener('mouseup',ev=>ev.preventDefault(),{once:true});
-  el.addEventListener('blur',()=>{ el.type='number'; },{once:true});
+  el.addEventListener('blur',()=>{ el.type='number'; el.classList.remove('numEditing'); },{once:true});
 });
 
 /* Inline icon markup for panel templates; empty if icons.js is unavailable. */
@@ -9851,22 +9883,27 @@ $('pRad').addEventListener('input',e=>{
   const raw=e.target.value;
   if(raw==='') return;                      // an empty Mixed field is not an edit
   os.forEach(o=>{
-    const v=clamp(+raw||0,0,o.type==='polygon'?120:200);
+    const v=clamp(+raw||0,0,maxRadiusFor(o));
     if(Array.isArray(o.radii)) o.radii=[v,v,v,v]; else o.radius=v;
   });
   render();
 });
 $('pRad').addEventListener('change',()=>{ pushHistory(); refresh(); });
-$('cornerExpand').addEventListener('click',()=>{
+$('cornerAll').addEventListener('change',e=>{
   const obj=primary(); if(!obj)return;
-  if(Array.isArray(obj.radii)) delete obj.radii;
-  else{ const u=obj.radius||0; obj.radii=[u,u,u,u]; }
-  pushHistory(); refresh();
+  if(e.target.checked){
+    /* Back to one radius. The corners may differ, so the largest is kept —
+     * collapsing to the first would silently throw the others away. */
+    if(Array.isArray(obj.radii)){ obj.radius=Math.max(...obj.radii.map(v=>+v||0)); delete obj.radii; }
+  }else{
+    const u=obj.radius||0; obj.radii=[u,u,u,u];
+  }
+  pushHistory('Corner radius'); refresh();
 });
 ['pRadTL','pRadTR','pRadBR','pRadBL'].forEach((id,i)=>{
   $(id).addEventListener('input',e=>{
     const obj=primary(); if(!obj||!Array.isArray(obj.radii))return;
-    obj.radii[i]=clamp(+e.target.value||0,0,300); render();
+    obj.radii[i]=clamp(+e.target.value||0,0,maxRadiusFor(obj)); render();
   });
   $(id).addEventListener('change',e=>{
     const obj=primary(); if(!obj||!Array.isArray(obj.radii))return;
