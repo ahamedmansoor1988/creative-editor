@@ -86,6 +86,8 @@
     "shadow",
     "glow",
     "mesh",
+    /* Ported from Chromaform; see public/iridescent.js. Beside the mesh
+       because it is the other material that IS what the shape shows. */
     "iridescent",
     "blob",
     "glass2",
@@ -98,7 +100,6 @@
     "capsule",
     "strip",
     "glass",
-    "iridescent", // ported from Chromaform; see public/iridescent.js
     "gradient",
     "innerShadow",
     "grain",

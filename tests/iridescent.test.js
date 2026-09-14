@@ -392,3 +392,39 @@ describe("the palettes are a starting point, not a mode", () => {
     }
   });
 });
+
+describe("one apply is one step", () => {
+  /* Reported: applying it once showed "2 steps" and a warning that a second
+   * material below could not render. The cause was not the apply path — the
+   * document normalizer was building two entries, because the type had been
+   * added to the stack's legacy order TWICE in two separate edits. */
+  it("no effect type appears twice in the stack order", () => {
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    const order = FS.LEGACY_ORDER;
+    const seen = new Set();
+    const dupes = order.filter((t) => (seen.has(t) ? true : (seen.add(t), false)));
+    expect(dupes).toEqual([]);
+  });
+
+  it("every type in the stack order is one the stack knows", () => {
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    for (const t of FS.LEGACY_ORDER) expect(FS.types()).toContain(t);
+  });
+
+  it("a fresh layer gets exactly one entry per single-instance effect", () => {
+    const o = withIridescence();
+    const counts = {};
+    for (const e of o.fx) counts[e.type] = (counts[e.type] || 0) + 1;
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    for (const [type, n] of Object.entries(counts)) {
+      const meta = FS.meta(type);
+      if (meta && !meta.multi) expect([type, n]).toEqual([type, 1]);
+    }
+  });
+
+  it("iridescence sits beside the mesh, the other material that IS the fill", () => {
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    const order = FS.LEGACY_ORDER;
+    expect(order.indexOf("iridescent")).toBe(order.indexOf("mesh") + 1);
+  });
+});
