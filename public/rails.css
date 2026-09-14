@@ -2444,3 +2444,25 @@ body.rails label.uiRow > .ui-pchip {
   justify-content: flex-end;
   padding: 0 5px;
 }
+
+/* ---- the four corners, laid out as corners ---------------------------------
+ * Position is the label. A field in the grid's top-left IS the top-left
+ * corner, so the four words are unnecessary — and four labelled rows cost
+ * 180px where this costs 68.
+ *
+ * The grid sits under the single radius row and keeps to the control column,
+ * so its right edge lines up with every other control in the panel. */
+body.rails .cornerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  width: var(--ctl-w);
+  margin: 0 0 0 auto; /* the control column, on the right */
+  padding: 2px 0 6px;
+}
+body.rails .cornerGrid > input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  text-align: center; /* centred, because the field's place is its label */
+}

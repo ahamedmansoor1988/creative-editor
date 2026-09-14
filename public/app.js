@@ -6136,13 +6136,26 @@ function syncInspector(){
   const hasRadius=obj.type==='rect'||obj.type==='polygon';
   const mixedRadius=Array.isArray(obj.radii);
   $('cornerField').style.display=hasRadius?'':'none';
-  $('pRad').style.display=mixedRadius?'none':''; // the row stays for its per-corner toggle
+  /* The single value STAYS while the corners are independent, and sets all
+   * four when typed. Hiding it left the row as a label and a button with a
+   * gap between them, and took away the one control that says "make them all
+   * the same again" without discarding what each corner holds. When the four
+   * differ it shows empty against a Mixed placeholder, the way every other
+   * multi-value field in the panel does. */
+  $('pRad').style.display=hasRadius?'':'none';
   $('cornerExpand').style.display=hasRadius?'':'none';
   $('cornerExpand').classList.toggle('on',mixedRadius);
   $('cornerExpand').title=mixedRadius?'Merge into one corner radius':'Independent corners';
-  if(hasRadius&&!mixedRadius){
+  if(hasRadius){
     $('pRad').max=obj.type==='polygon'?120:200; // matches each type's old Shape-page slider range
-    setNumField('pRad',sharedValue(S.filter(o=>!Array.isArray(o.radii)),o=>Math.round(o.radius||0)));
+    if(mixedRadius){
+      const r=obj.radii, same=r.every(v=>Math.round(v)===Math.round(r[0]));
+      $('pRad').value=same?String(Math.round(r[0])):'';
+      $('pRad').placeholder=same?'':'Mixed';
+    }else{
+      $('pRad').placeholder='';
+      setNumField('pRad',sharedValue(S.filter(o=>!Array.isArray(o.radii)),o=>Math.round(o.radius||0)));
+    }
   }
   $('cornerIndRow').style.display=(hasRadius&&mixedRadius)?'':'none';
   if(hasRadius&&mixedRadius){
@@ -7858,12 +7871,12 @@ function buildFxSection(obj,page,add,body){
       each('apDn','click',(f,e,el)=>{ const i2=I(el); [obj[key][i2],obj[key][i2-1]]=[obj[key][i2-1],obj[key][i2]]; },true);
       each('apDel','click',(f,e,el)=>{ obj[key].splice(I(el),1); },true);
 
-      if(isFill&&obj.type==='rect'){
-        add(`<label class="slider">Corner radius <span id="fRadV">${obj.radius}</span>
-          <input type="range" id="fRad" min="0" max="200" value="${obj.radius}"></label>`);
-        $('fRad').addEventListener('input',e=>{ obj.radius=+e.target.value; $('fRadV').textContent=e.target.value; render(); });
-        $('fRad').addEventListener('change',()=>pushHistory());
-      }
+      /* A corner radius used to sit here too. It is geometry, not paint, and
+       * the Position panel has owned it since the Shape page gave it up — so
+       * this was the same value in two places, which the book rules out. It
+       * was also lying: it wrote obj.radius and never looked at obj.radii, so
+       * on a rect with independent corners it moved a number and changed
+       * nothing on the canvas. */
       /* Style comes AFTER the paints. It used to sit above them, which was
        * harmless only while a "Fill 1" divider stood between the two — with a
        * single fill that divider is gone, and the Style header became the
@@ -9831,8 +9844,16 @@ $('pOpacity').addEventListener('input',e=>{
 });
 $('pOpacity').addEventListener('change',()=>{ pushHistory(); refresh(); });
 $('pRad').addEventListener('input',e=>{
-  const os=selObjs().filter(o=>!o.locked&&!Array.isArray(o.radii)); if(!os.length)return;
-  os.forEach(o=>{ o.radius=clamp(+e.target.value||0,0,o.type==='polygon'?120:200); });
+  /* One value for every corner, whether they are currently linked or not —
+   * that is what "affects all the sides" means, and it is the way back from
+   * four different corners without losing the grid below. */
+  const os=selObjs().filter(o=>!o.locked); if(!os.length)return;
+  const raw=e.target.value;
+  if(raw==='') return;                      // an empty Mixed field is not an edit
+  os.forEach(o=>{
+    const v=clamp(+raw||0,0,o.type==='polygon'?120:200);
+    if(Array.isArray(o.radii)) o.radii=[v,v,v,v]; else o.radius=v;
+  });
   render();
 });
 $('pRad').addEventListener('change',()=>{ pushHistory(); refresh(); });

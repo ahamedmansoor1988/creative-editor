@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css?v=20260830-1818">
-<link rel="stylesheet" href="rails.css?v=20260914-chip1">
+<link rel="stylesheet" href="rails.css?v=20260914-corner1">
 </head>
 <body class="rails ui">
 
@@ -325,12 +325,15 @@
     <div id="objectOnlyPos">
       <label class="slider uiRow"><span>Rotation</span><input type="number" id="trRot" step="1"></label>
       <label class="slider uiRow" id="cornerField" style="display:none"><span>Corner radius</span><span class="headBtns"><input type="number" id="pRad" min="0" step="1" value="0"><button type="button" id="cornerExpand" style="display:none" aria-label="Independent corners" title="Independent corners" data-icon="expand"></button></span></label>
-      <!-- four words, four rows: two-letter labels do not fit beside a column field in a half -->
-      <div id="cornerIndRow" style="display:none">
-        <label class="slider uiRow"><span>Top left</span><input type="number" id="pRadTL" min="0" step="1"></label>
-        <label class="slider uiRow"><span>Top right</span><input type="number" id="pRadTR" min="0" step="1"></label>
-        <label class="slider uiRow"><span>Bottom right</span><input type="number" id="pRadBR" min="0" step="1"></label>
-        <label class="slider uiRow"><span>Bottom left</span><input type="number" id="pRadBL" min="0" step="1"></label>
+      <!-- The four corners laid out AS corners. Position is the label, so the
+           four words go: a field in the top-left of the grid is the top-left
+           corner, which no one has to read. Four labelled rows were 180px and
+           this is 68, and it is the more legible of the two. -->
+      <div id="cornerIndRow" class="cornerGrid" style="display:none" role="group" aria-label="Corner radius, each corner">
+        <input type="number" id="pRadTL" min="0" step="1" aria-label="Top left corner radius" title="Top left">
+        <input type="number" id="pRadTR" min="0" step="1" aria-label="Top right corner radius" title="Top right">
+        <input type="number" id="pRadBL" min="0" step="1" aria-label="Bottom left corner radius" title="Bottom left">
+        <input type="number" id="pRadBR" min="0" step="1" aria-label="Bottom right corner radius" title="Bottom right">
       </div>
     </div>
     <!-- Align, layer opacity, scale, skew, blend and constraints are the
@@ -605,7 +608,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260914-detent2"></script>
-  <script src="app.js?v=20260914-sect2"></script>
+  <script src="app.js?v=20260914-corner3"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>
