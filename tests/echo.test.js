@@ -226,3 +226,64 @@ describe("it is a structure engine like the other two", () => {
     expect(e.seed).toBe(42);
   });
 });
+
+describe("even spacing, for when perspective reads as uneven", () => {
+  /* Reported from the canvas: the gaps were not equal. They were not meant to
+   * be — the step is a share of each copy's own size, so it shrinks with them,
+   * which is how perspective behaves. Even mode holds the gap instead. */
+  const edgeGaps = (o) => {
+    const out = [];
+    let prev = o;
+    for (const c of copies(o)) {
+      out.push(Math.round(c.y - (prev.y + prev.h)));
+      prev = c;
+    }
+    return out;
+  };
+
+  it("proportional closes up as the copies shrink", () => {
+    const g = edgeGaps(withEcho({ copies: 4, even: false, stepY: 110 }));
+    expect(g[0]).toBeGreaterThan(g[g.length - 1]);
+  });
+
+  it("even holds the same gap however small they get", () => {
+    const g = edgeGaps(withEcho({ copies: 5, even: true, stepY: 110 }));
+    for (const v of g) expect(v).toBe(g[0]);
+  });
+
+  it("the switch does not move the first copy", () => {
+    /* The gap is measured from where the modes AGREE — the step at which the
+     * first copy just touches the original — so the number means the same
+     * thing either way and flipping the switch is not a jump. */
+    const a = copies(withEcho({ copies: 3, even: false, stepY: 95 }))[0];
+    const b = copies(withEcho({ copies: 3, even: true, stepY: 95 }))[0];
+    expect(Math.round(b.y)).toBe(Math.round(a.y));
+  });
+
+  it("that agreement point follows the shrink, not a fixed number", () => {
+    for (const k of [0.4, 0.62, 0.9]) {
+      const touch = ((1 + k) / 2) * 100;
+      const a = copies(withEcho({ copies: 2, even: false, stepY: touch, heightScale: k }))[0];
+      const b = copies(withEcho({ copies: 2, even: true, stepY: touch, heightScale: k }))[0];
+      expect(Math.round(b.y)).toBe(Math.round(a.y));
+      // and at the touching step the gap really is zero
+      expect(Math.round(a.y - (100 + 160))).toBe(0);
+    }
+  });
+
+  it("above the touching step a space opens, below it they overlap", () => {
+    const open = edgeGaps(withEcho({ copies: 3, even: true, stepY: 120 }));
+    const tight = edgeGaps(withEcho({ copies: 3, even: true, stepY: 40 }));
+    expect(open[0]).toBeGreaterThan(0);
+    expect(tight[0]).toBeLessThan(0);
+  });
+
+  it("arrives off, so nothing existing changes", () => {
+    expect(editor.normalizeEcho({}).even).toBe(false);
+  });
+
+  it("a step of zero stacks them in place in either mode", () => {
+    const g = copies(withEcho({ copies: 3, even: true, stepY: 0, stepX: 0 }));
+    for (const c of g) expect(Math.round(centre(c).y)).toBe(Math.round(centre(withEcho(null)).y));
+  });
+});

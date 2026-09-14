@@ -397,10 +397,19 @@ function iriPaletteId(I){
 const MAX_ECHO_COPIES=10;
 const DEFAULT_ECHO=()=>({
   copies:4,
-  /* 80% of the copy's own height puts each one just clear of the last: the
-   * original's half-height plus the copy's half-height is about 0.81h at the
-   * default shrink, so they sit adjacent rather than piling up. */
-  stepX:0, stepY:80,
+  /* Two ways to space a shrinking stack, and they look different.
+   *
+   * PROPORTIONAL (even off) steps by a share of each copy's OWN size, so the
+   * step shrinks with the copies. That is how perspective behaves — equal
+   * intervals receding do close up — but it reads as uneven.
+   *
+   * EVEN (on) holds the GAP between edges constant instead, so every space
+   * looks the same however small the copies get. Measured against the
+   * original, so it does not drift.
+   *
+   * 80% of the copy's own height puts each one just clear of the last at the
+   * default shrink, which is why proportional starts there. */
+  stepX:0, stepY:80, even:false,
   widthScale:0.88, heightScale:0.62,
   rotation:0,
   randomness:0, seed:1,
@@ -2716,6 +2725,7 @@ function normalizeEcho(raw){
   out.copies=clamp(Math.round(num(out.copies,4,1,MAX_ECHO_COPIES)),1,MAX_ECHO_COPIES);
   out.stepX=num(out.stepX,0,-200,200);
   out.stepY=num(out.stepY,80,-200,200);
+  out.even=!!out.even;
   out.widthScale=num(out.widthScale,0.88,0.2,1.5);
   out.heightScale=num(out.heightScale,0.62,0.2,1.5);
   out.rotation=num(out.rotation,0,-180,180);
@@ -2745,11 +2755,26 @@ function echoInstances(parent){
   if(!isFinite(parent.x)||!isFinite(parent.y)) return out;
   const R=(i,ch)=>rand01(E.seed,i,ch)*2-1;
   let cx=parent.x+pw/2, cy=parent.y+ph/2, w=pw, h=ph;
+  /* Even mode holds the EDGE gap constant, and the gap is measured from where
+   * the two modes AGREE: the step at which the first copy just touches the
+   * original. For a shrink of k that is (1+k)/2 of the size, so the same
+   * number means the same thing whichever mode is on and flipping the switch
+   * does not move the first copy. Above it a space opens, below it they
+   * overlap. */
+  const touchX=(1+E.widthScale)/2, touchY=(1+E.heightScale)/2;
+  const gapX=(E.stepX/100-touchX)*pw, gapY=(E.stepY/100-touchY)*ph;
   for(let i=1;i<=E.copies;i++){
-    cx+=(E.stepX/100)*w+R(i,0)*E.randomness*w*0.5;
-    cy+=(E.stepY/100)*h+R(i,1)*E.randomness*h*0.5;
-    w*=E.widthScale*(1+R(i,2)*E.randomness*0.45);
-    h*=E.heightScale*(1+R(i,3)*E.randomness*0.45);
+    const w0=w, h0=h;
+    const nw=w*E.widthScale*(1+R(i,2)*E.randomness*0.45);
+    const nh=h*E.heightScale*(1+R(i,3)*E.randomness*0.45);
+    if(E.even){
+      cx+=(E.stepX===0?0:(w0/2+nw/2+gapX))+R(i,0)*E.randomness*pw*0.5;
+      cy+=(E.stepY===0?0:(h0/2+nh/2+gapY))+R(i,1)*E.randomness*ph*0.5;
+    }else{
+      cx+=(E.stepX/100)*w0+R(i,0)*E.randomness*w0*0.5;
+      cy+=(E.stepY/100)*h0+R(i,1)*E.randomness*h0*0.5;
+    }
+    w=nw; h=nh;
     if(!(w>0.5&&h>0.5)) break;
     if(!isFinite(cx)||!isFinite(cy)) break;
     const rot=(parent.rot||0)+E.rotation*i+R(i,4)*E.randomness*60;
@@ -7360,7 +7385,11 @@ function buildFxSection(obj,page,add,body){
     add('<div class="appearanceSubhead">Step</div>');
     rng('ecDX','Across','stepX',-200,200,1,pct);
     rng('ecDY','Down','stepY',-200,200,1,pct);
-    add('<div class="fxHint">A share of each copy’s own size, so a stack that shrinks also closes up.</div>');
+    add('<label class="slider uiSwitchRow"><span>Even spacing</span><input type="checkbox" id="ecEven"'+(E.even?' checked':'')+'></label>');
+    $('ecEven').addEventListener('change',ev=>{ E.even=ev.target.checked; commit('Even spacing'); });
+    add('<div class="fxHint">'+(E.even
+      ? 'The gap between edges stays the same however small the copies get.'
+      : 'A share of each copy’s own size, so the step shrinks with them — how perspective behaves, and it reads as uneven. Turn on Even spacing for equal gaps.')+'</div>');
 
     add('<div class="appearanceSubhead">Variation</div>');
     rng('ecRnd','Randomness','randomness',0,1,0.01,pc);
