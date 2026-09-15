@@ -83,11 +83,25 @@ describe("it can actually be reached", () => {
 });
 
 describe("the document keeps every parameter inside what the panel can undo", () => {
-  it("arrives with the standalone's own defaults", () => {
+  it("arrives on a rack of strips over a field that repeats", () => {
+    /* These were the standalone's defaults - 11 strips, a 0.075 gap, and a
+     * field with no repeat in it. Rendered, that read as one smooth gradient
+     * with the colours running between the strips rather than as glass: the
+     * per-strip offset was applied faithfully, but a field that barely
+     * changes over the span a strip samples gives the offset nothing to
+     * displace. Rings is what the field repeats by, and it is pinned here
+     * because a default of 0 silently turns the effect back into a gradient. */
     const G = withFractal().effects.fractal;
-    expect(G.count).toBe(11);
+    expect(G.count).toBe(22);
     expect(G.direction).toBe("v");
-    expect(G.gap).toBeCloseTo(0.075, 5);
+    expect(G.gap).toBeCloseTo(0.03, 5);
+    expect(G.rings).toBeCloseTo(1, 5);
+  });
+
+  it("keeps rings in range, and lets it be turned off deliberately", () => {
+    expect(withFractal({ rings: 99 }).effects.fractal.rings).toBe(4);
+    expect(withFractal({ rings: -1 }).effects.fractal.rings).toBe(0);
+    expect(withFractal({ rings: "many" }).effects.fractal.rings).toBeCloseTo(1, 5);
   });
 
   it("the strip count is a whole number in range", () => {
@@ -113,7 +127,7 @@ describe("the document keeps every parameter inside what the panel can undo", ()
 
   it("a value that is not a number falls back rather than reaching the shader", () => {
     const G = withFractal({ count: "lots", sat: undefined }).effects.fractal;
-    expect(G.count).toBe(11);
+    expect(G.count).toBe(22);
     expect(G.sat).toBeCloseTo(1.25, 5);
   });
 

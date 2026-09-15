@@ -19,7 +19,10 @@
  * neighbouring strips sample — that discontinuity is what keeps the strips
  * reading as separate glass panels instead of one smooth gradient, and it is
  * the entire "fractal glass" illusion. uMag is how much field one strip
- * spans. Per-strip vignette and sheen give each panel volume.
+ * spans. The offset only shows if the field has something to displace, so
+ * uRings sets how many times the gradient is traversed across the field; a
+ * field with no repeat in it gives back a smooth gradient no matter how far
+ * the strips are offset. Per-strip vignette and sheen give each panel volume.
  *
  * The standalone's own analysis (measured off its reference frame): widths
  * near-uniform, heights NOT — the lens silhouette is strips of differing
@@ -53,7 +56,7 @@ uniform float uCount, uSpread, uGap, uCenterY, uSkewX;
 uniform float uHMax, uHMin, uHShape, uHSkew, uHJit, uFade;
 uniform vec3  uC0,uC1,uC2,uC3,uC4,uC5;
 uniform float uRampOff, uRampSpan, uTopLift, uBotDrop, uBotHue, uSat;
-uniform float uWarp, uWarpScale, uBlend, uFieldTilt;
+uniform float uWarp, uWarpScale, uRings, uFieldSquash;
 uniform float uMag, uStep, uVign, uVignPow, uVignY, uSheen;
 uniform vec3  uBg;
 uniform float uGlow, uGlowR, uExposure, uGamma, uGrain;
@@ -66,11 +69,22 @@ vec3 pal(int i){
   if(i==3) return uC3;  if(i==4) return uC4;  return uC5;
 }
 
-/* ---- organic colour field --------------------------------------- *
- * Each strip contains a 2D gradient, not a flat hue: the strips are
- * windows onto a shared colour field, each magnifying a different part
- * of it. Domain warping by fbm is what stops the blend reading as six
- * tidy blobs — it is where the organic quality comes from.
+/* ---- the colour field the strips are windows onto ---------------- *
+ * It was six colour points blended by inverse-square weight: a soft,
+ * low-frequency blob field. That is what made this read as "a fractal
+ * gradient with colours in between" rather than as glass. Over the span
+ * one strip samples, such a field barely changes, so a strip and its
+ * neighbour came out nearly the same colour — the per-strip offset was
+ * being applied faithfully, there was simply nothing in the field for it
+ * to displace, and the seams vanished into a continuous blend.
+ *
+ * Fractal glass reads as glass because the field REPEATS. You recognise a
+ * band; when the strip beside it shows that same band shifted, the eye
+ * reads a break in the material. So the field is now the fill's gradient
+ * traversed again and again along an elliptical radius — uRings is how
+ * many traverses, and it is the one control that decides glass or
+ * gradient. At 0 the field is flat and you get the old smooth behaviour
+ * back.
  * ------------------------------------------------------------------ */
 float vnoise(vec2 p){
   vec2 i = floor(p), f = fract(p);
@@ -87,24 +101,26 @@ float fbm(vec2 p){
   return v;
 }
 
+/* One traverse of the six field colours, smoothstepped between stops. */
+vec3 ramp(float t){
+  float x = clamp(t, 0.0, 1.0) * 5.0;
+  float i = floor(x);
+  float f = x - i;
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(pal(int(i)), pal(int(min(i + 1.0, 5.0))), f);
+}
+
 vec3 field(vec2 p){
   if (uWarp > 0.0){
     float w = uWarp;
     p += vec2(fbm(p * uWarpScale + 11.3), fbm(p * uWarpScale - 7.1)) * w - w * 0.5;
   }
-  vec3 acc = vec3(0.0);
-  float wsum = 0.0;
-  for (int i = 0; i < 6; i++){
-    float fi = float(i);
-    vec2 c = vec2((fi / 5.0 - 0.5) * 2.0,
-                  sin(fi * 2.3999 + uPhase) * uFieldTilt);
-    vec2 d = (p - c) / max(uBlend, 1e-3);
-    float w = 1.0 / (dot(d, d) + 0.05);
-    w *= w;
-    acc += pal(i) * w;
-    wsum += w;
-  }
-  return acc / max(wsum, 1e-5);
+  float r = length(vec2(p.x, p.y * max(uFieldSquash, 0.05)));
+  /* Ping-pong, not fract: the ramp meets itself at the turn, so the only
+   * hard edges in the picture are the strip seams — which is the whole
+   * point of the effect and the only place an edge belongs. */
+  float t = fract(r * max(uRings, 0.0) + uPhase * 0.1);
+  return ramp(1.0 - abs(1.0 - 2.0 * t));
 }
 
 /* Rodrigues rotation about the grey axis — a hue shift without an
@@ -156,11 +172,27 @@ vec4 strips(vec2 uv, vec2 px){
   float sy = 1.0 - smoothstep(hh - fade, hh, dy);
   if (sy <= 0.0) return vec4(0.0);
 
-  // Window onto the field. uStep is how far apart in field space two
-  // neighbouring strips sample — that discontinuity is what keeps the
-  // strips reading as separate panels instead of one smooth gradient.
-  // uMag is how much field one strip spans.
-  float fx = cell * uStep + (local / max(pitch, 1e-4)) * uMag + uRampOff;
+  /* Window onto the field.
+   *
+   * The rack spans the field once, edge to edge — t is already the strip's
+   * own place in it, -1..1. That matters: it used to be cell times uStep, so
+   * the window MARCHED, and with 22 strips at a step of 0.7 the outer strips
+   * were sampling seven field-widths out. Raising the count then swept the
+   * field faster and the picture turned to barcode, which is not what a
+   * count control should do.
+   *
+   * uMag is how much field one strip magnifies — keep it small and each
+   * panel holds one smooth band, the way a real pane does.
+   *
+   * uStep is the break: a fixed, per-strip displacement that makes the field
+   * land somewhere else in every panel. It is what the seams are FOR. Doing
+   * it this way rather than by marching means the jump no longer has to be
+   * bought by sampling further out, so "offset per strip" finally means what
+   * it says at any count. hash11 keeps it irregular — facets in real fractal
+   * glass are not evenly stepped — and stable, since it is a function of the
+   * strip index and nothing else. */
+  float fx = t + (local / max(pitch, 1e-4)) * uMag
+           + (hash11(cell + 3.0) - 0.5) * uStep + uRampOff;
   float fy = (uv.y - uCenterY) / max(hh, 1e-4) * uRampSpan;
   vec3 base = saturate3(field(vec2(fx, fy)), uSat);
 
@@ -318,9 +350,9 @@ void main(){
     gl.uniform2f(loc("uRes"), w, h);
     gl.uniform1f(loc("uPhase"), +P.phase || 0);
     gl.uniform1f(loc("uDir"), P.direction === "h" ? 1 : 0);
-    gl.uniform1f(loc("uCount"), Math.max(3, Math.min(64, Math.round(P.count || 11))));
+    gl.uniform1f(loc("uCount"), Math.max(3, Math.min(64, Math.round(P.count || 22))));
     gl.uniform1f(loc("uSpread"), P.spread === undefined ? 2 : +P.spread);
-    gl.uniform1f(loc("uGap"), P.gap === undefined ? 0.075 : +P.gap);
+    gl.uniform1f(loc("uGap"), P.gap === undefined ? 0.03 : +P.gap);
     gl.uniform1f(loc("uCenterY"), +P.centerY || 0);
     gl.uniform1f(loc("uSkewX"), rad(+P.slant || 0));
     gl.uniform1f(loc("uHMax"), P.hMax === undefined ? 2 : +P.hMax);
@@ -332,17 +364,17 @@ void main(){
     cols.forEach((c, i) => gl.uniform3fv(loc("uC" + i), linHex(c)));
     gl.uniform1f(loc("uRampOff"), +P.shift || 0);
     gl.uniform1f(loc("uRampSpan"), P.rampSpan === undefined ? 0.95 : +P.rampSpan);
-    gl.uniform1f(loc("uTopLift"), P.topLift === undefined ? 1.16 : +P.topLift);
-    gl.uniform1f(loc("uBotDrop"), P.botDrop === undefined ? 0.3 : +P.botDrop);
+    gl.uniform1f(loc("uTopLift"), P.topLift === undefined ? 1.06 : +P.topLift);
+    gl.uniform1f(loc("uBotDrop"), P.botDrop === undefined ? 0.72 : +P.botDrop);
     gl.uniform1f(loc("uBotHue"), P.botHue === undefined ? 12 : +P.botHue);
     gl.uniform1f(loc("uSat"), P.sat === undefined ? 1.25 : +P.sat);
-    gl.uniform1f(loc("uWarp"), P.warp === undefined ? 0.75 : +P.warp);
+    gl.uniform1f(loc("uWarp"), P.warp === undefined ? 0.35 : +P.warp);
     gl.uniform1f(loc("uWarpScale"), P.warpScale === undefined ? 1.6 : +P.warpScale);
-    gl.uniform1f(loc("uBlend"), P.blend === undefined ? 0.3 : +P.blend);
-    gl.uniform1f(loc("uFieldTilt"), P.fieldTilt === undefined ? 0.75 : +P.fieldTilt);
-    gl.uniform1f(loc("uMag"), P.span === undefined ? 0.95 : +P.span);
-    gl.uniform1f(loc("uStep"), P.offset === undefined ? 0.19 : +P.offset);
-    gl.uniform1f(loc("uVign"), P.vign === undefined ? 0.5 : +P.vign);
+    gl.uniform1f(loc("uRings"), P.rings === undefined ? 1 : +P.rings);
+    gl.uniform1f(loc("uFieldSquash"), P.fieldSquash === undefined ? 0.75 : +P.fieldSquash);
+    gl.uniform1f(loc("uMag"), P.span === undefined ? 0.28 : +P.span);
+    gl.uniform1f(loc("uStep"), P.offset === undefined ? 0.9 : +P.offset);
+    gl.uniform1f(loc("uVign"), P.vign === undefined ? 0.38 : +P.vign);
     gl.uniform1f(loc("uVignPow"), P.vignPow === undefined ? 2.6 : +P.vignPow);
     gl.uniform1f(loc("uVignY"), P.vignY === undefined ? 0.3 : +P.vignY);
     gl.uniform1f(loc("uSheen"), P.sheen === undefined ? 0.28 : +P.sheen);
@@ -360,9 +392,9 @@ void main(){
   /* Presets from the standalone, plus Repeat — the full-height rack that
    * matches "the shape got repeated" most literally. */
   const PRESETS = {
-    repeat: { hMin: 2, hMax: 2, fade: 0.02, vignY: 0.15 },
-    lens: { hMax: 0.86, hMin: 0.15, hShape: 1.45, fade: 0.035 },
-    even: { hMin: 0.62, hMax: 0.62, hShape: 4.0, count: 11, gap: 0.07, glow: 0.2 },
+    repeat: { hMin: 2, hMax: 2, fade: 0.02, vignY: 0.15, rings: 1, count: 22, gap: 0.03 },
+    lens: { hMax: 0.86, hMin: 0.15, hShape: 1.45, fade: 0.035, rings: 1.2 },
+    even: { hMin: 0.62, hMax: 0.62, hShape: 4.0, count: 11, gap: 0.07, glow: 0.2, rings: 0.8 },
     spiky: {
       hShape: 0.5,
       hMin: 0.06,
@@ -373,6 +405,7 @@ void main(){
       fade: 0.02,
       glow: 0.42,
       topLift: 1.5,
+      rings: 1.6,
     },
   };
 

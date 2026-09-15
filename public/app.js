@@ -239,12 +239,12 @@ const DEFAULT_EFFECTS=()=>({
    * discontinuity between neighbouring strips IS the illusion. Colours come
    * from the shape's own gradient fill; these params carry only geometry
    * and shading. */
-  fractal:{on:false,direction:'v',count:11,gap:0.075,spread:2,centerY:0,slant:0,
+  fractal:{on:false,direction:'v',count:22,gap:0.03,spread:2,centerY:0,slant:0,
     hMax:2,hMin:2,hShape:1.45,hSkew:0,hJit:0,fade:0.02,
-    offset:0.19,span:0.95,shift:0,rampSpan:0.95,
-    warp:0.75,warpScale:1.6,blend:0.3,fieldTilt:0.75,phase:0,
-    topLift:1.16,botDrop:0.3,botHue:12,sat:1.25,
-    vign:0.5,vignPow:2.6,vignY:0.15,sheen:0.28,
+    offset:0.9,span:0.28,shift:0,rampSpan:0.95,rings:1,
+    warp:0.35,warpScale:1.6,fieldSquash:0.75,phase:0,
+    topLift:1.06,botDrop:0.72,botHue:12,sat:1.25,
+    vign:0.38,vignPow:2.6,vignY:0.15,sheen:0.28,
     glow:0.16,glowR:0.032,exposure:1.08,gamma:2.2,grain:0.006,
     transparent:true,bg:'#000000'},
   /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
@@ -1233,18 +1233,18 @@ function normChildren(list,depth){
       fg.on=!!fg.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const fgn=(k,lo,hi,dv)=>{ const v=+fg[k]; fg[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
       fg.direction=fg.direction==='h'?'h':'v';
-      fgn('count',3,64,11); fg.count=Math.round(fg.count);
-      fgn('gap',0,0.8,0.075); fgn('spread',0.1,3,2); fgn('centerY',-1,1,0);
+      fgn('count',3,64,22); fg.count=Math.round(fg.count);
+      fgn('gap',0,0.8,0.03); fgn('spread',0.1,3,2); fgn('centerY',-1,1,0);
       fgn('slant',-45,45,0);
       fgn('hMax',0.02,2,2); fgn('hMin',0,2,2); fgn('hShape',0.2,6,1.45);
       fgn('hSkew',-1,1,0); fgn('hJit',0,1,0); fgn('fade',0,0.6,0.02);
-      fgn('offset',0,2,0.19); fgn('span',0,3,0.95); fgn('shift',-2,2,0);
-      fgn('rampSpan',0.1,3,0.95);
-      fgn('warp',0,2,0.75); fgn('warpScale',0.1,6,1.6); fgn('blend',0.05,2,0.3);
-      fgn('fieldTilt',0,2,0.75); fgn('phase',0,20,0);
-      fgn('topLift',0,3,1.16); fgn('botDrop',0,2,0.3); fgn('botHue',-90,90,12);
+      fgn('offset',0,2,0.9); fgn('span',0,3,0.28); fgn('shift',-2,2,0);
+      fgn('rampSpan',0.1,3,0.95); fgn('rings',0,4,1);
+      fgn('warp',0,2,0.35); fgn('warpScale',0.1,6,1.6);
+      fgn('fieldSquash',0.05,2,0.75); fgn('phase',0,20,0);
+      fgn('topLift',0,3,1.06); fgn('botDrop',0,2,0.72); fgn('botHue',-90,90,12);
       fgn('sat',0,2,1.25);
-      fgn('vign',0,1,0.5); fgn('vignPow',0.5,8,2.6); fgn('vignY',0,1,0.15);
+      fgn('vign',0,1,0.38); fgn('vignPow',0.5,8,2.6); fgn('vignY',0,1,0.15);
       fgn('sheen',0,1.5,0.28);
       fgn('glow',0,2,0.16); fgn('glowR',0.005,0.4,0.032);
       fgn('exposure',0.05,4,1.08); fgn('gamma',1,3,2.2); fgn('grain',0,0.1,0.006);
@@ -4141,11 +4141,33 @@ function drawOneInner(c,W,H,obj){
     if(fgx&&fxOn(obj,'fractal')&&obj.type!=='text'&&window.FractalGlassEngine&&window.FractalGlassEngine.available()){
       const f0=obj.fills&&obj.fills[0];
       const stops=(f0&&f0.kind!=='solid'&&Array.isArray(f0.stops))?f0.stops:null;
-      const img=window.FractalGlassEngine.render(obj.w,obj.h,fgx,stops);
+      /* Render at the size this will be SEEN at, not at the shape's size in
+       * document units.
+       *
+       * It asked the engine for obj.w by obj.h and then drew that into a box
+       * of the same measurements on screen — which on a 2x display is already
+       * a twofold magnification at 100% zoom, and worse as you zoom in. This
+       * effect cannot survive that: its own note says the strip edges must
+       * stay genuinely hard, because the discontinuity between neighbouring
+       * strips IS the effect. Magnified, those edges blur and the rack of
+       * glass panels reads as one gradient with colours running between them.
+       *
+       * The same budget the mesh tile uses, for the same reason. */
+      const tf=c.getTransform?c.getTransform():null;
+      const want=tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1;
+      const area=Math.max(1,obj.w*obj.h);
+      const sc=clamp(Math.min(want,Math.sqrt(MESH_TILE_BUDGET_PX/area)),1,MESH_TILE_MAX_SCALE);
+      const tw=Math.min(4096,Math.max(1,Math.round(obj.w*sc)));
+      const th=Math.min(4096,Math.max(1,Math.round(obj.h*sc)));
+      const img=window.FractalGlassEngine.render(tw,th,fgx,stops);
       if(img){
         const place=o=>{
           c.save();
           c.globalAlpha=obj.opacity;
+          /* The tile is bigger than the box now, so it is scaled down into it
+           * rather than blown up out of it. */
+          c.imageSmoothingEnabled=true;
+          if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
           c.beginPath(); pathFor(c,o); c.clip();
           c.drawImage(img,o.x,o.y,o.w,o.h);
           c.restore();
@@ -8889,6 +8911,10 @@ function buildFxSection(obj,page,add,body){
       sl('fgGap','Gap',0,0.8,0.005,G.gap,3,v=>G.gap=v);
       sl('fgSlant','Slant',-45,45,0.5,G.slant,1,v=>G.slant=v);
       add('<div class="secTitle" style="margin-top:8px">Offset</div>');
+      /* Rings first, because it is the one that decides whether this is glass
+       * at all: the offset below has nothing to displace until the field
+       * repeats, and at 0 rings the whole page renders a smooth gradient. */
+      sl('fgRings','Rings',0,4,0.05,G.rings,2,v=>G.rings=v);
       sl('fgOff','Offset per strip',0,2,0.01,G.offset,2,v=>G.offset=v);
       sl('fgSpan','Strip span',0,3,0.01,G.span,2,v=>G.span=v);
       sl('fgShift','Shift',-2,2,0.005,G.shift,2,v=>G.shift=v);
@@ -8926,7 +8952,7 @@ function buildFxSection(obj,page,add,body){
         $('fgBg').addEventListener('input',e=>{ G.bg=e.target.value; render(); });
         $('fgBg').addEventListener('change',()=>pushHistory());
       }
-      add('<div class="hint" style="text-align:left">Each strip is a window onto the gradient, and Offset per strip is how far apart neighbouring windows sample — that jump is the fractal-glass illusion.</div>');
+      add('<div class="hint" style="text-align:left">Rings sets how many times the gradient repeats across the field; Offset per strip is how far apart two neighbouring strips sample it. The jump between them is the fractal-glass illusion — with Rings at 0 there is nothing to jump and you get a plain gradient.</div>');
     }
   }
 
