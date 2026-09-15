@@ -133,6 +133,7 @@ describe("the proven capabilities are discoverable", () => {
       "linearGradient",
       "mesh",
       "glass",
+      "iridescent",
       "shadow",
       "innerShadow",
       "glow",
@@ -476,5 +477,32 @@ describe("every menu row carries its glyph", () => {
     const rows = [...menu.querySelectorAll("[data-capability]")];
     expect(rows.length).toBeGreaterThan(15);
     for (const b of rows) expect(b.querySelector("i[data-icon], svg")).toBeTruthy();
+  });
+});
+
+describe("what is offered is what was finished", () => {
+  /* Iridescence was built across several passes and was never in the QA set
+   * or the page's offer list, so it did not appear in the Effects menu at all.
+   * Every test of it used ?fx=iridescent, which is exactly the blind spot a
+   * debug override creates: the thing under test is reachable only by the
+   * route no user takes. */
+  it("every effect with a panel page is offered, or deliberately withheld", () => {
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    const C = EC();
+    for (const id of ["mesh", "shadow", "iridescent"]) {
+      expect([id, C.status(id)]).toEqual([id, C.READY]);
+      expect([id, FS.isReady(C.get(id).rendererType)]).toEqual([id, true]);
+    }
+  });
+
+  it("a type in the stack order is also in the set that passed the gate", () => {
+    /* The two lists sit next to each other in fxstack.js and an edit meant for
+     * one landed in the other, which is how iridescence ended up ordered but
+     * never ready. */
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    const unready = FS.LEGACY_ORDER.filter(
+      (t) => FS.slotOf(t) === "material" && !FS.types().includes(t),
+    );
+    expect(unready).toEqual([]);
   });
 });

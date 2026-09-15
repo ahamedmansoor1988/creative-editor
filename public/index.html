@@ -590,12 +590,15 @@
      fxstack.js. Everything in the READY set has passed the gate and has a
      panel, but passing the gate is not the same as having been LOOKED at in
      this UI; they are being opened one at a time, each with its own pass.
-     Add an id here to offer it. Opened so far: mesh; shadow (13 Sep 2026 —
+     Add an id here to offer it. Opened so far: mesh; iridescent (14 Sep 2026,
+     built and driven control by control over several passes, and missing from
+     this line the whole time — every test of it used ?fx=iridescent, which is
+     exactly the blind spot a debug override creates); shadow (13 Sep 2026 —
      see the Drop shadow pass, which found it invisible at every zoom where
      the paint cache ran above 1x, and its long-shadow opacity dead above
      about 0.3). Documents carrying other effects render
      either way. -->
-<script>window.FX_ONLY = ["mesh", "shadow"];</script>
+<script>window.FX_ONLY = ["mesh", "shadow", "iridescent"];</script>
 <script src="fxstack.js?v=20260914-dup1"></script>
 <script src="engine-catalog.js?v=20260901-lens1"></script>
 <script src="reference.js?v=20260906-ref1"></script>
@@ -612,7 +615,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260914-detent2"></script>
-  <script src="app.js?v=20260914-rad2"></script>
+  <script src="app.js?v=20260915-iri-on"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>

@@ -134,6 +134,11 @@
     "innerShadow", // same reusable shadow family, clipped inside the target path
     "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
     "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
+    /* Ported from Chromaform by way of the DoLittle plugin. Coverage and the
+     * curved normal come from the layer's own mask, so it follows any outline
+     * including a ring. Driven control by control on the canvas; see
+     * tests/iridescent.test.js and public/iridescent.js. */
+    "iridescent",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran
