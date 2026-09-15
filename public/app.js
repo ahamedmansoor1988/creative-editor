@@ -299,8 +299,13 @@ const DEFAULT_EFFECTS=()=>({
            lensIor:1.58,lensAbsorb:3.2,lensTint:'#6f9dcd',
            reflection:60,depth:12,quality:32,scale:0.6},
   // fluted/reeded glass panel: ribs smear the page behind into bands
-  strip:{on:false,bulge:0.34,ribWidth:0.12,angle:0,thickness:0.08,
-         ior:1.55,dispersion:0.048,slopeLimit:6,smear:1.6},
+  /* Measured against the reference on the real engine, one control at a time:
+   * ribWidth 0.12 gave eight fat panels rather than a reeded sheet; bulge 0.34
+   * and smear 1.6 left the shapes behind it nearly intact, so it read as a
+   * shape that had been cut up rather than one seen THROUGH glass; dispersion
+   * 0.048 put more colour fringing on the rib edges than reeded glass has. */
+  strip:{on:false,bulge:0.5,ribWidth:0.035,angle:0,thickness:0.08,
+         ior:1.55,dispersion:0.025,slopeLimit:6,smear:2.4},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
   // Bloom isolates bright rendered pixels, softens them, then adds the light back.
@@ -1089,10 +1094,16 @@ function normChildren(list,depth){
           if(!/^#[0-9a-fA-F]{6}$/.test(cap[k]||'')) cap[k]=de.capsule[k];
         });
       }
+      /* Snapshot the defaults BEFORE the assign. Object.assign mutates its
+       * target, so de.strip and st are the same object from the next line on —
+       * which made the fallback below read back the very value it was meant to
+       * replace, and a non-numeric one out of a saved document went straight
+       * to the shader. Found by driving the model, not by reading it. */
+      const stDef=Object.assign({},de.strip);
       const st=Object.assign(de.strip, ce.strip||{});
       st.on=!!st.on && (c.type==='rect'||c.type==='ellipse');
       {
-        const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):de.strip[k]; };
+        const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):stDef[k]; };
         n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.01,0.4);
         n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
       }
@@ -8591,7 +8602,7 @@ function buildFxSection(obj,page,add,body){
     if(!(window.CapsuleEngine&&window.CapsuleEngine.available())){
       add(`<div class="fxHint">Needs WebGL2 with float render targets, which this browser doesn't provide.</div>`);
     } else {
-      add(`<label class="slider"><input type="checkbox" id="cpOn" ${E.on?'checked':''}> Enable ${isCap?'capsule glass':'fluted glass'}</label>`);
+      add(`<label class="slider"><input type="checkbox" id="cpOn" ${E.on?'checked':''}> Enable ${isCap?'capsule glass':'reed glass'}</label>`);
       $('cpOn').addEventListener('change',e=>{ E.on=e.target.checked; pushHistory(); refresh(); });
       if(E.on){
         const sl=(id,label,min,max,step,key,fmt)=>{
@@ -8609,7 +8620,7 @@ function buildFxSection(obj,page,add,body){
           $(id).addEventListener('change',()=>{ pushHistory(); render(); });
         };
         const f2=v=>(+v).toFixed(2), f3=v=>(+v).toFixed(3);
-        const deg=v=>Math.round(v)+'°', int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%';
+        const int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%';
         if(isCap){
           add(`<div class="pSect">Inner lens</div>`);
           sl('cpLens','Lens size',0.1,1.2,0.005,'lensSize',f2);
@@ -8632,15 +8643,27 @@ function buildFxSection(obj,page,add,body){
           sl('cpScale','Render scale',0.15,1,0.05,'scale',v=>Math.round(v*100)+'%');
           add(`<div class="fxHint">A path-traced glass pill with a lens floating inside it, refracting the page behind — the lens inverts and magnifies what it sees. Page depth sets how far behind the page reads as, which drives the inversion. Works best over colourful content, ignores Pattern copies, and (like Prism) dragging a slider shows a draft.</div>`);
         } else {
-          sl('stBulge','Rib bulge',0,1,0.005,'bulge',f2);
-          sl('stW','Rib width',0.02,0.5,0.005,'ribWidth',f2);
-          sl('stAng','Rib angle',-90,90,1,'angle',deg);
-          sl('stThick','Panel thickness',0.01,0.4,0.005,'thickness',f2);
-          sl('stIor','IOR',1,2.2,0.005,'ior',f3);
-          sl('stDisp','Dispersion',0,0.15,0.001,'dispersion',f3);
-          sl('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',f2);
-          sl('stSmear','Smear distance',0.1,6,0.05,'smear',f2);
-          add(`<div class="fxHint">Fluted/reeded glass: half-cylinder ribs smear whatever is behind the shape into vertical bands and split edges into colour. Smear distance is how far behind the page reads as — more distance, stronger banding. Put it over colourful layers.</div>`);
+          /* The book's chip row, not eight ranges. This page had never been
+           * reachable, so it had never been held to the book; it is reachable
+           * now. Same helper the other promoted pages use, so the arrow keys,
+           * magnets and detents come with it. */
+          const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+            id, label, min, max, step, value:E[key],
+            format:v=>(+v).toFixed(dp),
+            onInput:v=>{ E[key]=v; fxDraft=true; render(); fxDraft=false; },
+            onChange:()=>pushHistory(label),
+          });
+          add('<div class="secTitle">Ribs</div>');
+          ch('stW','Rib width',0.02,0.5,0.005,'ribWidth',3);
+          ch('stBulge','Rib bulge',0,1,0.005,'bulge',2);
+          ch('stAng','Rib angle',-90,90,1,'angle',0);
+          add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
+          ch('stSmear','Smear distance',0.1,6,0.05,'smear',2);
+          ch('stIor','IOR',1,2.2,0.005,'ior',3);
+          ch('stDisp','Dispersion',0,0.15,0.001,'dispersion',3);
+          ch('stThick','Panel thickness',0.01,0.4,0.005,'thickness',2);
+          ch('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',1);
+          add(`<div class="fxHint">Reeded glass: half-cylinder ribs refracting whatever is <b>behind</b> this layer into vertical bands. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past this panel stay whole. Smear distance is how far behind the page reads as; more distance, stronger banding.</div>`);
         }
       }
     }
@@ -13507,17 +13530,18 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
     fractal:o=>Object.assign(o.effects.fractal,{on:true}),
+    strip:   o=>Object.assign(o.effects.strip,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',fractal:'Fractal',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',fractal:'Fractal',strip:'Strip',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',fractal:'layers',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',fractal:'layers',strip:'line',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second

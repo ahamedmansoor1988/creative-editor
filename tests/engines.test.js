@@ -71,6 +71,7 @@ describe("the panel renders", () => {
       "mesh",
       "iridescent",
       "fractal",
+      "strip",
       "shadow",
       "innerShadow",
       "glow",
