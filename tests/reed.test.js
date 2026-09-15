@@ -150,3 +150,61 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(withReed({}, { type: "text", text: "hi", fontSize: 20 }).effects.strip.on).toBe(false);
   });
 });
+
+describe("the page's own FX_ONLY gate lets it through", () => {
+  /* This is the test that was missing, and its absence is why "reed glass is
+   * offered" could be green while the row was hidden in the browser. Every
+   * other suite loads the editor with no FX_ONLY at all, so the narrowing that
+   * the real page always applies was never exercised. Load it the way
+   * index.html does. */
+  let gated;
+  beforeAll(() => {
+    ({ editor: gated } = loadEditor({
+      fxOnly: ["mesh", "shadow", "iridescent", "fractal", "strip"],
+    }));
+  });
+
+  it("narrows the ready set to the listed effects, reed glass among them", () => {
+    const FS = /** @type {any} */ (globalThis.window).FxStack;
+    expect(FS.isReady("strip")).toBe(true);
+    expect(FS.isReady("mesh")).toBe(true);
+    expect(FS.isReady("bloom")).toBe(false);
+  });
+
+  it("leaves the reed glass row visible in the Effects menu", () => {
+    const row = document.querySelector('[data-capability="strip"]');
+    expect(row).toBeTruthy();
+    expect(/** @type {any} */ (row).hidden).toBe(false);
+  });
+
+  it("hides the rows FX_ONLY leaves out, so the gate is doing something", () => {
+    const hidden = (id) =>
+      /** @type {any} */ (document.querySelector(`[data-capability="${id}"]`)).hidden;
+    expect(hidden("bloom")).toBe(true);
+    expect(hidden("blur")).toBe(true);
+  });
+
+  it("offers the panel page once the effect is on", () => {
+    gated.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        children: [
+          {
+            type: "rect",
+            name: "L",
+            x: 10,
+            y: 10,
+            w: 300,
+            h: 200,
+            fill: { kind: "solid", color: "#888888" },
+            effects: { strip: { on: true } },
+          },
+        ],
+      },
+    };
+    expect(gated.FX_PAGES(gated.doc.frame.children[0])).toContain("Strip");
+  });
+});

@@ -12904,8 +12904,20 @@ document.querySelectorAll('.dropdown button').forEach(b=>{
   const menu=document.querySelector('[data-menu="effects"] .dropdown');
   if(!menu) return;
   menu.querySelectorAll('[data-capability]').forEach(b=>{
-    const cap=window.EngineCatalog.get(b.dataset.capability);
-    const type=cap&&cap.rendererType;
+    const id=b.dataset.capability;
+    /* Ask the stack about the capability it names, and only fall back to the
+     * catalog's renderer for ids the stack does not carry.
+     *
+     * It resolved through the catalog first. The catalog lists ONE glass
+     * engine and aliases the reeded panel onto it, so get('strip') answered
+     * about glass, and the row was hidden for glass not being ready — while
+     * FX_ONLY named "strip" explicitly and FxStack.isReady('strip') was true.
+     * Allowed by one registry, hidden by another. The same shape of bug as
+     * naming an engine inside a cache rule: a lookup that leaves the registry
+     * the entry actually lives in. */
+    const known=window.FxStack.types().includes(id);
+    const cap=window.EngineCatalog.get(id);
+    const type=known?id:(cap&&cap.rendererType);
     if(type&&!window.FxStack.isReady(type)) b.hidden=true;
   });
   menu.querySelectorAll('.menuLabel').forEach(label=>{

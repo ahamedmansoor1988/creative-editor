@@ -146,12 +146,23 @@ export function makeCtxStub() {
  * Load index.html's body + app.js into the current jsdom global.
  * Returns { editor, ctx } where `editor` is app.js's window.__editor hook.
  */
-export function loadEditor() {
+/**
+ * @param {{fxOnly?: string[]}} [opts] fxOnly reproduces the page's own
+ * window.FX_ONLY gate. It has to be set BEFORE fxstack.js is evaluated,
+ * because that file narrows the READY set once, at load. Tests ran without it
+ * for so long that the narrowing was effectively untested — and an effect that
+ * FX_ONLY explicitly allowed could still be hidden on the real page while
+ * every test passed.
+ */
+export function loadEditor(opts) {
   const html = fs.readFileSync(path.join(ROOT, "public", "index.html"), "utf8");
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
   if (!bodyMatch) throw new Error("could not find <body> in public/index.html");
   // Drop the <script src="app.js"> tag; we evaluate the file ourselves.
   document.body.innerHTML = bodyMatch[1].replace(/<script[\s\S]*?<\/script>/gi, "");
+
+  if (opts && Array.isArray(opts.fxOnly))
+    /** @type {any} */ (window).FX_ONLY = opts.fxOnly.slice();
 
   const ctx = makeCtxStub();
 
