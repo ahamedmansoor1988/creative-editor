@@ -130,6 +130,18 @@
       description: "Splits light through a solid body, by depth.",
     },
     {
+      id: "fractal",
+      label: "Fractal glass",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "fractal",
+      supportedInputs: SHAPES,
+      description:
+        "The shape becomes a rack of glass strips, each one a window onto the same colour field.",
+      tagline: "strips of one field",
+    },
+    {
       id: "liquidGradient",
       label: "Liquid gradient",
       category: "generator",

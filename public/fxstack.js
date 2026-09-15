@@ -139,6 +139,11 @@
      * including a ring. Driven control by control on the canvas; see
      * tests/iridescent.test.js and public/iridescent.js. */
     "iridescent",
+    /* Ported from the author's own glass-ribbons.html. Each strip is a
+     * window onto one shared colour field, sampled a step apart from its
+     * neighbour — that discontinuity between neighbours IS the effect.
+     * See public/fractalglass.js and tests/fractal.test.js. */
+    "fractal",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran

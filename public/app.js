@@ -8864,15 +8864,17 @@ function buildFxSection(obj,page,add,body){
     add(`<label class="slider"><input type="checkbox" id="fgOn" ${G.on?'checked':''}> Enable fractal glass</label>`);
     $('fgOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
     if(G.on){
-      const sl=(id,label,min,max,step,val,dp)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
-      };
-      const wire=(id,f,dp)=>{
-        $(id).addEventListener('input',e=>{ f(+e.target.value);
-          $(id+'V').textContent=(+e.target.value).toFixed(dp); render(); });
-        $(id).addEventListener('change',()=>pushHistory());
-      };
+      /* The book's slider row: a chip in the column that opens on demand.
+       * Fourteen ranges at 57px become fourteen rows at 40, so this page gives
+       * back 238px — on a page this long that is the difference between
+       * scrolling to a control and seeing it. Markup and wiring were two calls
+       * that had to agree on an id by hand; they are one call now. */
+      const sl=(id,label,min,max,step,val,dp,set)=>chipRow(add,{
+        id, label, min, max, step, value:val,
+        format:v=>(+v).toFixed(dp),
+        onInput:v=>{ set(v); render(); },
+        onChange:()=>pushHistory(label),
+      });
       const f0=obj.fills&&obj.fills[0];
       if(!f0||f0.kind==='solid')
         add('<div class="hint" style="text-align:left">Colours follow this shape\'s gradient fill — give it one under Fill and the strips re-light. Using the default palette until then.</div>');
@@ -8883,31 +8885,40 @@ function buildFxSection(obj,page,add,body){
           <option value="h"${G.direction==='h'?' selected':''}>Horizontal strips</option>
         </select></label>`);
       $('fgDir').addEventListener('change',e=>{ G.direction=e.target.value; pushHistory(); render(); });
-      sl('fgCount','Count',3,64,1,G.count,0);        wire('fgCount',v=>G.count=v,0);
-      sl('fgGap','Gap',0,0.8,0.005,G.gap,3);         wire('fgGap',v=>G.gap=v,3);
-      sl('fgSlant','Slant',-45,45,0.5,G.slant,1);    wire('fgSlant',v=>G.slant=v,1);
+      sl('fgCount','Count',3,64,1,G.count,0,v=>G.count=v);
+      sl('fgGap','Gap',0,0.8,0.005,G.gap,3,v=>G.gap=v);
+      sl('fgSlant','Slant',-45,45,0.5,G.slant,1,v=>G.slant=v);
       add('<div class="secTitle" style="margin-top:8px">Offset</div>');
-      sl('fgOff','Offset per strip',0,2,0.01,G.offset,2); wire('fgOff',v=>G.offset=v,2);
-      sl('fgSpan','Strip span',0,3,0.01,G.span,2);   wire('fgSpan',v=>G.span=v,2);
-      sl('fgShift','Shift',-2,2,0.005,G.shift,2);    wire('fgShift',v=>G.shift=v,2);
-      sl('fgWarp','Organic warp',0,2,0.01,G.warp,2); wire('fgWarp',v=>G.warp=v,2);
+      sl('fgOff','Offset per strip',0,2,0.01,G.offset,2,v=>G.offset=v);
+      sl('fgSpan','Strip span',0,3,0.01,G.span,2,v=>G.span=v);
+      sl('fgShift','Shift',-2,2,0.005,G.shift,2,v=>G.shift=v);
+      sl('fgWarp','Organic warp',0,2,0.01,G.warp,2,v=>G.warp=v);
       add('<div class="secTitle" style="margin-top:8px">Height</div>');
-      add(`<label class="slider">Profile
-        <select id="fgPre">${window.FractalGlassEngine.PRESETS.map(p=>
-          `<option value="${p}">${p[0].toUpperCase()+p.slice(1)}</option>`).join('')}
-        </select></label>`);
-      $('fgPre').addEventListener('change',e=>{
-        Object.assign(G,window.FractalGlassEngine.presetValues(e.target.value)||{});
-        pushHistory('Strip profile'); refresh();
-      });
-      sl('fgHMax','Max height',0.02,2,0.005,G.hMax,2); wire('fgHMax',v=>G.hMax=v,2);
-      sl('fgHMin','Min height',0,2,0.005,G.hMin,2);    wire('fgHMin',v=>G.hMin=v,2);
-      sl('fgHJit','Height random',0,1,0.005,G.hJit,2); wire('fgHJit',v=>G.hJit=v,2);
+      /* Guarded, like every other engine read in this file. This one was not:
+       * it reached straight into window.FractalGlassEngine.PRESETS, so if that
+       * file failed to load, building this page threw and took the WHOLE right
+       * panel down with it — not just this section. Found by opening the
+       * effect, which had never been reachable. */
+      const FGE=window.FractalGlassEngine;
+      const fgPresets=(FGE&&Array.isArray(FGE.PRESETS))?FGE.PRESETS:[];
+      if(fgPresets.length){
+        add(`<label class="slider uiRow"><span>Profile</span>
+          <select id="fgPre">${fgPresets.map(p=>
+            `<option value="${esc(p)}">${esc(p[0].toUpperCase()+p.slice(1))}</option>`).join('')}
+          </select></label>`);
+        $('fgPre').addEventListener('change',e=>{
+          Object.assign(G,(FGE.presetValues&&FGE.presetValues(e.target.value))||{});
+          pushHistory('Strip profile'); refresh();
+        });
+      }
+      sl('fgHMax','Max height',0.02,2,0.005,G.hMax,2,v=>G.hMax=v);
+      sl('fgHMin','Min height',0,2,0.005,G.hMin,2,v=>G.hMin=v);
+      sl('fgHJit','Height random',0,1,0.005,G.hJit,2,v=>G.hJit=v);
       add('<div class="secTitle" style="margin-top:8px">Panel</div>');
-      sl('fgVign','Edge vignette',0,1,0.005,G.vign,2); wire('fgVign',v=>G.vign=v,2);
-      sl('fgSheen','Sheen',0,1.5,0.005,G.sheen,2);     wire('fgSheen',v=>G.sheen=v,2);
-      sl('fgGlow','Glow',0,2,0.01,G.glow,2);           wire('fgGlow',v=>G.glow=v,2);
-      sl('fgExpo','Exposure',0.05,4,0.01,G.exposure,2);wire('fgExpo',v=>G.exposure=v,2);
+      sl('fgVign','Edge vignette',0,1,0.005,G.vign,2,v=>G.vign=v);
+      sl('fgSheen','Sheen',0,1.5,0.005,G.sheen,2,v=>G.sheen=v);
+      sl('fgGlow','Glow',0,2,0.01,G.glow,2,v=>G.glow=v);
+      sl('fgExpo','Exposure',0.05,4,0.01,G.exposure,2,v=>G.exposure=v);
       add(`<label class="chk"><input type="checkbox" id="fgTrs" ${G.transparent?'checked':''}> See-through gaps</label>`);
       $('fgTrs').addEventListener('change',e=>{ G.transparent=e.target.checked; pushHistory(); refresh(); });
       if(!G.transparent){
@@ -13469,17 +13480,18 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
+    fractal:o=>Object.assign(o.effects.fractal,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',fractal:'Fractal',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',fractal:'layers',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second

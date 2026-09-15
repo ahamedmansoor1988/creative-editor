@@ -63,11 +63,19 @@ describe("shared Glass capability", () => {
     expect(window.EngineCatalog.status("glass")).toBe("ready");
     expect(window.EngineCatalog.resolve("strip")).toBe("glass");
     expect(window.EngineCatalog.resolve("glass3d")).toBe("glass");
+    /* The point is that Glass's several MODES share one entry rather than
+     * each getting their own. Matching on the word "glass" in a label was a
+     * loose way to say that, and it broke the moment Fractal glass — a
+     * genuinely separate effect with its own engine — was registered. Ask the
+     * real question instead: nothing else renders through the glass renderer. */
     expect(
       window.EngineCatalog.all()
-        .filter((x) => /glass/i.test(x.label))
+        .filter((x) => x.rendererType === "glass")
         .map((x) => x.id),
     ).toEqual(["glass"]);
+    for (const mode of ["strip", "glass3d", "capsule", "backdropGlass"]) {
+      expect([mode, window.EngineCatalog.all().some((x) => x.id === mode)]).toEqual([mode, false]);
+    }
   });
 
   it("normalises its four modes and intrinsic parameters", () => {
