@@ -96,6 +96,30 @@
       description:
         "Refract a layer as backdrop, frosted, reeded, or 3D glass from one editable material.",
     },
+    /* Its own capability, not a mode of Glass.
+     *
+     * The catalog used to alias "strip" onto glass, on the reading that one
+     * Glass engine covers backdrop, frosted, reeded and 3D. Rendered side by
+     * side against the reference, Glass's reeded mode lays faint vertical
+     * lines over the layers behind it and leaves them whole — no ribbed
+     * refraction, no slicing, no smear. The reeded panel in capsule.js does
+     * the real thing. Aliasing the working engine onto the one that does not
+     * work also cost it its row in the picker, which is catalog-driven: the
+     * effect was promoted, allowed by FX_ONLY, wired to a menu row, and still
+     * could not be reached the way people actually add effects.
+     *
+     * If Glass's reeded mode is ever made to work, this is the entry to fold
+     * back in — not before. */
+    {
+      id: "strip",
+      label: "Reed glass",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "strip",
+      supportedInputs: ["rect", "ellipse"],
+      description: "Ribs that refract the layers behind this one into vertical bands.",
+    },
     {
       id: "innerLens",
       label: "Inner lens",
@@ -398,9 +422,8 @@
     capsule: "glass",
     glassobject: "glass",
     glassObject: "glass",
-    strip: "glass",
     backdropGlass: "glass",
-    reededGlass: "glass",
+    reededGlass: "strip",
     glass3d: "glass",
     glass2: "innerLens",
     pattern: "repeater",

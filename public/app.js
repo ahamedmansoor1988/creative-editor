@@ -304,8 +304,8 @@ const DEFAULT_EFFECTS=()=>({
    * and smear 1.6 left the shapes behind it nearly intact, so it read as a
    * shape that had been cut up rather than one seen THROUGH glass; dispersion
    * 0.048 put more colour fringing on the rib edges than reeded glass has. */
-  strip:{on:false,bulge:0.5,ribWidth:0.035,angle:0,thickness:0.08,
-         ior:1.55,dispersion:0.025,slopeLimit:6,smear:2.4},
+  strip:{on:false,bulge:0.4,ribWidth:0.035,angle:0,thickness:0.8,
+         ior:1.55,dispersion:0.02,slopeLimit:6,smear:1.2},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
   // Bloom isolates bright rendered pixels, softens them, then adds the light back.
@@ -1104,7 +1104,7 @@ function normChildren(list,depth){
       st.on=!!st.on && (c.type==='rect'||c.type==='ellipse');
       {
         const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):stDef[k]; };
-        n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.01,0.4);
+        n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.05,4);
         n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
       }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
@@ -4251,9 +4251,23 @@ function drawOneInner(c,W,H,obj){
     }
     const st=fx.strip;
     if(st&&fxOn(obj,'strip')&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
-      // Reeded panel: reads the page behind the box, smears it into ribs,
-      // clipped to the shape's outline. Replaces the fill.
-      const img=window.CapsuleEngine.strip(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},st);
+      /* Reeded panel: reads the page behind the box, smears it into ribs,
+       * clipped to the shape's outline. Replaces the fill.
+       *
+       * The box goes in CANVAS PIXELS, like the glass path's geoms, because
+       * W and H are the canvas size and uBoxPos is measured against uPage. It
+       * passed document units against a page in device pixels, so on any
+       * display or zoom but 1:1 the panel sampled the wrong part of the page.
+       *
+       * Scaling it also fixes the edges. The tile was sized from the box in
+       * document units and then drawn into a box that many device pixels
+       * across, i.e. magnified — and this effect is nothing but edges, so
+       * magnifying them is what made it read as jittery and stair-stepped.
+       * Rendered at the size it is seen at, the ribs come out clean. */
+      const ss=targetScale(c);
+      const sbox={x:obj.x*ss,y:obj.y*ss,w:obj.w*ss,h:obj.h*ss};
+      const img=window.CapsuleEngine.strip(c.canvas,W,H,sbox,
+        Object.assign({},st,{pageBg:(doc&&doc.frame&&doc.frame.bg)||'#ffffff'}));
       if(img){
         c.save();
         c.globalAlpha=obj.opacity;
@@ -8661,7 +8675,7 @@ function buildFxSection(obj,page,add,body){
           ch('stSmear','Smear distance',0.1,6,0.05,'smear',2);
           ch('stIor','IOR',1,2.2,0.005,'ior',3);
           ch('stDisp','Dispersion',0,0.15,0.001,'dispersion',3);
-          ch('stThick','Panel thickness',0.01,0.4,0.005,'thickness',2);
+          ch('stThick','Panel thickness',0.05,4,0.05,'thickness',2);
           ch('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',1);
           add(`<div class="fxHint">Reeded glass: half-cylinder ribs refracting whatever is <b>behind</b> this layer into vertical bands. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past this panel stay whole. Smear distance is how far behind the page reads as; more distance, stronger banding.</div>`);
         }

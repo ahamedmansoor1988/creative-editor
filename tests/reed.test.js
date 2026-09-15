@@ -53,15 +53,21 @@ beforeAll(() => {
 });
 
 describe("it can actually be reached", () => {
-  it("the catalog routes it to the glass renderer rather than listing it twice", () => {
-    /* It is not its own catalog entry: the catalog lists one glass engine and
-     * resolves the reeded panel onto it. Worth pinning, because C.get("strip")
-     * follows that alias and answers about GLASS — so a test that reads
-     * C.get("strip").status is not evidence that reed glass is reachable. What
-     * makes it reachable is FxStack plus the menu row, below. */
+  it("is its own catalog row, which is what the picker is built from", () => {
+    /* It aliased onto glass, and that alias was why "Add fill or effect"
+     * had no row for it: the picker is built from the catalog, so an effect
+     * that resolves to another id has no row of its own however ready it is.
+     * Promoted, allowed by FX_ONLY, wired to a menu row — and still not
+     * reachable the way people actually add effects. */
     const C = /** @type {any} */ (globalThis.window).EngineCatalog;
-    expect(C.resolve("strip")).toBe("glass");
-    expect(C.ready().map((e) => e.id)).not.toContain("strip");
+    expect(C.resolve("strip")).toBe("strip");
+    const item = C.get("strip");
+    expect(item.id).toBe("strip");
+    expect(item.rendererType).toBe("strip");
+    expect(item.status).toBe(C.READY);
+    expect(item.supportedInputs).toContain("rect");
+    expect(item.supportedInputs).not.toContain("text");
+    expect(C.ready().map((e) => e.id)).toContain("strip");
   });
 
   it("it is in the quality-passed set and in the stack order", () => {
@@ -110,9 +116,9 @@ describe("the document keeps every parameter inside what the panel can undo", ()
      * glass. Measured one control at a time on the real engine. */
     const S = withReed().effects.strip;
     expect(S.ribWidth).toBeCloseTo(0.035, 5);
-    expect(S.bulge).toBeCloseTo(0.5, 5);
-    expect(S.smear).toBeCloseTo(2.4, 5);
-    expect(S.dispersion).toBeCloseTo(0.025, 5);
+    expect(S.bulge).toBeCloseTo(0.4, 5);
+    expect(S.smear).toBeCloseTo(1.2, 5);
+    expect(S.dispersion).toBeCloseTo(0.02, 5);
     expect(S.ior).toBeCloseTo(1.55, 5);
     expect(S.angle).toBe(0);
   });
@@ -131,7 +137,7 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(S.bulge).toBe(1);
     expect(S.ribWidth).toBe(0.02);
     expect(S.angle).toBe(90);
-    expect(S.thickness).toBe(0.4);
+    expect(S.thickness).toBe(4);
     expect(S.ior).toBe(2.2);
     expect(S.dispersion).toBe(0.15);
     expect(S.slopeLimit).toBe(0.2);
@@ -141,7 +147,7 @@ describe("the document keeps every parameter inside what the panel can undo", ()
   it("a value that is not a number falls back rather than reaching the shader", () => {
     const S = withReed({ ribWidth: "fine", smear: undefined }).effects.strip;
     expect(S.ribWidth).toBeCloseTo(0.035, 5);
-    expect(S.smear).toBeCloseTo(2.4, 5);
+    expect(S.smear).toBeCloseTo(1.2, 5);
   });
 
   it("it only turns on for the shapes the engine can box", () => {
@@ -182,6 +188,39 @@ describe("the page's own FX_ONLY gate lets it through", () => {
       /** @type {any} */ (document.querySelector(`[data-capability="${id}"]`)).hidden;
     expect(hidden("bloom")).toBe(true);
     expect(hidden("blur")).toBe(true);
+  });
+
+  it("has a row in the Add fill or effect picker, which is how effects get added", () => {
+    /* The surface that actually matters, and the one nothing was covering.
+     * The menu row can be present and visible while this list has no row at
+     * all, because the picker is built from the catalog and the menu is not —
+     * which is exactly the state reed glass shipped in. */
+    gated.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        children: [
+          {
+            type: "rect",
+            name: "L",
+            x: 10,
+            y: 10,
+            w: 300,
+            h: 200,
+            fill: { kind: "solid", color: "#888888" },
+          },
+        ],
+      },
+    };
+    gated.setSel && gated.setSel([gated.doc.frame.children[0].id]);
+    const open = document.getElementById("enginesOpen");
+    expect(open).toBeTruthy();
+    /** @type {any} */ (open).click();
+    const row = document.querySelector('#engList .engRow[data-engine="strip"]');
+    expect(row).toBeTruthy();
+    expect(/** @type {any} */ (row).querySelector(".engName").textContent).toBe("Reed glass");
   });
 
   it("offers the panel page once the effect is on", () => {

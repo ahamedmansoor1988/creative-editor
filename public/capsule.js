@@ -270,9 +270,20 @@ uniform vec2  uRes;         // output = the object's box, in canvas px
 uniform vec2  uPage;        // full canvas size
 uniform vec2  uBoxPos;      // box top-left in canvas px
 uniform float uRibW, uSag, uAng, uThick, uIor, uDisp, uSlopeMax, uSmear;
+uniform vec3  uPageBg;
 
+/* Composite the page texel over the artboard's own background.
+ *
+ * It returned .rgb straight off the texture. The editor canvas is
+ * TRANSPARENT wherever nothing has been painted, and a transparent texel is
+ * (0,0,0,0) — so every ray that landed on empty page came back black, and
+ * with fragColor's alpha forced to 1 those blacks were opaque. At a rib edge
+ * the profile is at its steepest and the refracted ray travels furthest, so
+ * the edges are exactly where it happened: black bands down every seam.
+ * Clear glass over an empty page has to read as the page, not as ink. */
 vec3 sampleBD(vec2 px){
-  return texture(uBD, clamp(px / uPage, 0.0, 1.0)).rgb;
+  vec4 t = texture(uBD, clamp(px / uPage, 0.0, 1.0));
+  return mix(uPageBg, t.rgb, t.a);
 }
 void main(){
   // box-local, top-down to match canvas coordinates
@@ -477,14 +488,27 @@ function strip(srcCanvas, W, H, box, P){
   gl.uniform2f(u('uRes'), w, h);
   gl.uniform2f(u('uPage'), W, H);
   gl.uniform2f(u('uBoxPos'), box.x, box.y);
-  gl.uniform1f(u('uRibW'), Math.max(2, P.ribWidth * ref));
+  const ribPx = Math.max(2, P.ribWidth * ref);
+  gl.uniform1f(u('uRibW'), ribPx);
   gl.uniform1f(u('uSag'), P.bulge * P.ribWidth * ref * 0.5);
   gl.uniform1f(u('uAng'), P.angle * Math.PI / 180);
-  gl.uniform1f(u('uThick'), P.thickness * ref);
+  /* Panel thickness and smear distance are measured in RIB WIDTHS, not in
+   * panel widths.
+   *
+   * They multiplied `ref`, the shorter side of the box — so on a 340px panel
+   * the smallest smear the slider offers was already 34px of displacement and
+   * the largest was twice the panel. Everything behind the glass was shredded
+   * to the same vertical extent at every setting, and thickness read as inert
+   * because it had saturated long before its range began. A half-cylinder rib
+   * displaces by something on the order of its own width, and the page sits a
+   * rib or three behind: in those units the controls have somewhere to go and
+   * the numbers mean something a person can picture. */
+  gl.uniform1f(u('uThick'), P.thickness * ribPx);
   gl.uniform1f(u('uIor'), P.ior);
   gl.uniform1f(u('uDisp'), P.dispersion);
   gl.uniform1f(u('uSlopeMax'), P.slopeLimit);
-  gl.uniform1f(u('uSmear'), P.smear * ref);
+  gl.uniform1f(u('uSmear'), P.smear * ribPx);
+  gl.uniform3fv(u('uPageBg'), hex3(P.pageBg || '#ffffff'));
   gl.uniform1i(u('uBD'), 2);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   return cv;
