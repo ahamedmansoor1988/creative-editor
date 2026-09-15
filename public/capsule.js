@@ -271,6 +271,7 @@ uniform vec2  uPage;        // full canvas size
 uniform vec2  uBoxPos;      // box top-left in canvas px
 uniform float uRibW, uSag, uAng, uThick, uIor, uDisp, uSlopeMax, uSmear;
 uniform vec3  uPageBg;
+uniform float uSoft, uSpec, uSeam;
 
 /* Composite the page texel over the artboard's own background.
  *
@@ -285,6 +286,21 @@ vec3 sampleBD(vec2 px){
   vec4 t = texture(uBD, clamp(px / uPage, 0.0, 1.0));
   return mix(uPageBg, t.rgb, t.a);
 }
+/* One ray through the rib at across-rib position xs, for one channel. */
+float ray(float xs, float R, float ca, float sa, vec2 l, int ch){
+  float slope = -xs / sqrt(max(R * R - xs * xs, 1e-6));
+  slope = clamp(slope, -uSlopeMax, uSlopeMax);
+  vec3 n = normalize(vec3(-slope * ca, -slope * sa, 1.0));
+  float ior = uIor * (1.0 + (float(ch) - 1.0) * uDisp);
+  vec3 d1 = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / ior);
+  if (dot(d1, d1) < 0.5) d1 = reflect(vec3(0.0, 0.0, -1.0), n);
+  vec2 off = d1.xy * (uThick / max(abs(d1.z), 0.05));
+  vec3 d2 = refract(d1, vec3(0.0, 0.0, 1.0), ior);
+  if (dot(d2, d2) < 0.5) d2 = reflect(d1, vec3(0.0, 0.0, 1.0));
+  off += d2.xy * (uSmear / max(abs(d2.z), 0.05));
+  return sampleBD(uBoxPos + l + off)[ch];
+}
+
 void main(){
   // box-local, top-down to match canvas coordinates
   vec2 l = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
@@ -298,26 +314,43 @@ void main(){
   float sag = max(uSag, 1e-4);
   float R = (hw * hw + sag * sag) / (2.0 * sag);
   float xr = (fract(x / uRibW + 0.5) - 0.5) * uRibW;
-  float slope = -xr / sqrt(max(R * R - xr * xr, 1e-6));
-  slope = clamp(slope, -uSlopeMax, uSlopeMax);
 
-  vec3 n = normalize(vec3(-slope * ca, -slope * sa, 1.0));
-
-  // Two analytic refractions — ribbed front, flat back — per channel, then a
-  // run to the page behind. The rib edges are where the look lives: as the
-  // profile turns vertical, adjacent ribs sample wildly different spots and
-  // the subject smears into bands with coloured edges.
-  vec3 col;
+  /* INTEGRATE ACROSS THE RIB, do not point-sample it.
+   *
+   * This took one ray per channel and put whatever single texel it landed on
+   * straight on screen. A half-cylinder rib is a lens: every point on it
+   * gathers a CONE of directions, so what you see at one pixel is an average
+   * over a range of the page, not one spot. Point-sampling it is why the
+   * output came out hard-edged, jittery and bunched — neighbouring pixels
+   * landed on unrelated texels with nothing tying them together, and the
+   * aliasing was the effect rather than a flaw in it.
+   *
+   * Averaging a sweep of rays across a fraction of the rib is the cheap,
+   * honest version of that integral, and it is what produces the soft
+   * vertical smears the reference shows: near the rib centre the slope is
+   * almost zero and the samples agree, so the subject reads nearly clean;
+   * toward a seam the slope steepens, the samples diverge, and it blurs and
+   * darkens. That gradient across each rib IS the look. */
+  const int NS = 9;
+  vec3 col = vec3(0.0);
   for (int ch = 0; ch < 3; ch++){
-    float ior = uIor * (1.0 + (float(ch) - 1.0) * uDisp);
-    vec3 d1 = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / ior);
-    if (dot(d1, d1) < 0.5) d1 = reflect(vec3(0.0, 0.0, -1.0), n);
-    vec2 off = d1.xy * (uThick / max(abs(d1.z), 0.05));
-    vec3 d2 = refract(d1, vec3(0.0, 0.0, 1.0), ior);
-    if (dot(d2, d2) < 0.5) d2 = reflect(d1, vec3(0.0, 0.0, 1.0));
-    off += d2.xy * (uSmear / max(abs(d2.z), 0.05));
-    col[ch] = sampleBD(uBoxPos + l + off)[ch];
+    float acc = 0.0;
+    for (int k = 0; k < NS; k++){
+      float t = (float(k) + 0.5) / float(NS) - 0.5;    // -0.5 .. 0.5
+      float xs = clamp(xr + t * uRibW * uSoft, -hw, hw);
+      acc += ray(xs, R, ca, sa, l, ch);
+    }
+    col[ch] = acc / float(NS);
   }
+
+  /* Rib shading. Without it the panel is invisible over flat colour —
+   * displacing a sample inside one flat region changes nothing — and real
+   * reeded glass is never invisible: it carries a bright line down the crown
+   * of every rib and goes dark into the seams. */
+  float e = clamp(abs(xr) / max(hw, 1e-4), 0.0, 1.0);
+  col *= 1.0 - uSeam * smoothstep(0.55, 1.0, e);
+  col += uSpec * pow(max(0.0, 1.0 - e * 1.9), 6.0);
+
   fragColor = vec4(col, 1.0);
 }`;
 
@@ -509,6 +542,9 @@ function strip(srcCanvas, W, H, box, P){
   gl.uniform1f(u('uSlopeMax'), P.slopeLimit);
   gl.uniform1f(u('uSmear'), P.smear * ribPx);
   gl.uniform3fv(u('uPageBg'), hex3(P.pageBg || '#ffffff'));
+  gl.uniform1f(u('uSoft'), P.soften === undefined ? 0.5 : P.soften);
+  gl.uniform1f(u('uSpec'), P.sheen === undefined ? 0.16 : P.sheen);
+  gl.uniform1f(u('uSeam'), P.seam === undefined ? 0.22 : P.seam);
   gl.uniform1i(u('uBD'), 2);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   return cv;

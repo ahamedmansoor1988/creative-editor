@@ -304,8 +304,9 @@ const DEFAULT_EFFECTS=()=>({
    * and smear 1.6 left the shapes behind it nearly intact, so it read as a
    * shape that had been cut up rather than one seen THROUGH glass; dispersion
    * 0.048 put more colour fringing on the rib edges than reeded glass has. */
-  strip:{on:false,bulge:0.4,ribWidth:0.035,angle:0,thickness:0.8,
-         ior:1.55,dispersion:0.02,slopeLimit:6,smear:1.2},
+  strip:{on:false,bulge:0.7,ribWidth:0.06,angle:0,thickness:0.8,
+         ior:1.55,dispersion:0.02,slopeLimit:6,smear:3.5,
+         soften:0.8,sheen:0.34,seam:0.34},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
   // Bloom isolates bright rendered pixels, softens them, then adds the light back.
@@ -1105,7 +1106,8 @@ function normChildren(list,depth){
       {
         const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):stDef[k]; };
         n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.05,4);
-        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,6);
+        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,12);
+        n('soften',0,1); n('sheen',0,1); n('seam',0,1);
       }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
       const blur=Object.assign(de.blur, ce.blur||{});
@@ -8672,12 +8674,16 @@ function buildFxSection(obj,page,add,body){
           ch('stBulge','Rib bulge',0,1,0.005,'bulge',2);
           ch('stAng','Rib angle',-90,90,1,'angle',0);
           add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
-          ch('stSmear','Smear distance',0.1,6,0.05,'smear',2);
+          ch('stSmear','Smear distance',0.1,12,0.05,'smear',2);
+          ch('stSoft','Softness',0,1,0.01,'soften',2);
           ch('stIor','IOR',1,2.2,0.005,'ior',3);
           ch('stDisp','Dispersion',0,0.15,0.001,'dispersion',3);
           ch('stThick','Panel thickness',0.05,4,0.05,'thickness',2);
           ch('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',1);
-          add(`<div class="fxHint">Reeded glass: half-cylinder ribs refracting whatever is <b>behind</b> this layer into vertical bands. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past this panel stay whole. Smear distance is how far behind the page reads as; more distance, stronger banding.</div>`);
+          add('<div class="secTitle" style="margin-top:8px">Glass</div>');
+          ch('stSheen','Rib sheen',0,1,0.01,'sheen',2);
+          ch('stSeam','Seam depth',0,1,0.01,'seam',2);
+          add(`<div class="fxHint">Reeded glass: half-cylinder ribs refracting whatever is <b>behind</b> this layer into vertical bands. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past this panel stay whole. Smear distance is how far behind the page reads as, Softness is how much of each rib one pixel gathers — that is what keeps it smooth instead of jagged — and Sheen and Seam are what make the panel visible over flat colour.</div>`);
         }
       }
     }
