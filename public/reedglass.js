@@ -134,11 +134,23 @@ void main(){
     vec2 tb = trace(u, uIor + uDisp, R);
     vec3 col = vec3(srcAt(cx + tr.x * hw).r, srcAt(cx + tg.x * hw).g, srcAt(cx + tb.x * hw).b);
     vec3 trans = vec3(tr.y, tg.y, tb.y);
+    /* Where the facet totally internally reflects, show the PAGE, not nothing.
+     *
+     * At TIR the transmitted term is zero and all that was left was the
+     * ambient — 0.12 of a "studio" that, in the standalone, was a near-black
+     * scene. Over a document page that is ink: at bulge 1 with a high IOR the
+     * TIR band is a third of every flute, so the panel grew wide black bars.
+     *
+     * A facet at TIR is a mirror, and the dominant thing for a panel lying on
+     * a page to mirror is the page. Sampling it undisplaced keeps the band
+     * continuous with its neighbours instead of punching a hole, and it costs
+     * nothing where trans is 1, which is everywhere below bulge 1. */
+    vec3 mir = srcAt(x);
     float sa = clamp(abs(u) / R, 0.0, 1.0);
     float ca = sqrt(1.0 - sa * sa);
     float F  = F0 + (1.0 - F0) * pow(1.0 - ca, 5.0);
     float Ft = clamp(F * uFresnel, 0.0, 1.0);
-    vec3 cT = col * trans * (1.0 - Ft);
+    vec3 cT = mix(mir, col, trans) * (1.0 - Ft);
     float refl = 2.0 * asin(clamp(u / R, -1.0, 1.0));
     float lobe = exp(-pow((refl - uLightAng) / uLightW, 2.0));
     float refW = mix(F, 1.0, 1.0 - tg.y);
