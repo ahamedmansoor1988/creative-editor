@@ -130,6 +130,17 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(S.seam).toBeCloseTo(0.34, 5);
   });
 
+  it("seam depth can never paint ink over what is behind the glass", () => {
+    /* It multiplied straight to zero, so at depth 1 the seams came out as
+     * black bars across the subject — ink no glass can produce, and with
+     * sheen turned down there was nothing left but the bars. The shader now
+     * floors the seam at 40% brightness and confines it to the outer fifth of
+     * the rib. The floor lives in the GLSL, so what is pinned here is that
+     * the control reaches the value the shader has to survive. */
+    expect(withReed({ seam: 5 }).effects.strip.seam).toBe(1);
+    expect(withReed({ seam: -1 }).effects.strip.seam).toBe(0);
+  });
+
   it("clamps every control to the range its slider offers", () => {
     const S = withReed({
       bulge: 9,

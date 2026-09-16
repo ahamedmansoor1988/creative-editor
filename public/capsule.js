@@ -348,7 +348,22 @@ void main(){
    * reeded glass is never invisible: it carries a bright line down the crown
    * of every rib and goes dark into the seams. */
   float e = clamp(abs(xr) / max(hw, 1e-4), 0.0, 1.0);
-  col *= 1.0 - uSeam * smoothstep(0.55, 1.0, e);
+
+  /* The seam is a THIN line, and it darkens toward the page, not toward ink.
+   *
+   * This multiplied straight down: col *= 1 - uSeam * smoothstep(0.55,1,e).
+   * Two things wrong with that. It ran from 55% of the rib outward, so on a
+   * wide rib nearly half the panel was seam; and at uSeam 1 it multiplied to
+   * zero, so the seams came out as black bars across whatever was behind —
+   * ink that no glass can produce. Turning sheen down then left nothing but
+   * the bars.
+   *
+   * A real seam is darker because the edge of the rib bends steeply and
+   * compresses what it gathers into a sliver, so it reads as a narrow, dimmer
+   * band OF THE PAGE. Hence: the outer fifth of the rib only, and a floor —
+   * at full depth a seam is 40% brightness, never nothing. */
+  float seam = uSeam * smoothstep(0.82, 1.0, e);
+  col *= mix(1.0, 0.4, clamp(seam, 0.0, 1.0));
   col += uSpec * pow(max(0.0, 1.0 - e * 1.9), 6.0);
 
   fragColor = vec4(col, 1.0);
