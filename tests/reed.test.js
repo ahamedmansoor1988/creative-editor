@@ -117,7 +117,7 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     const S = withReed().effects.strip;
     expect(S.ribWidth).toBeCloseTo(0.08, 5);
     expect(S.bulge).toBeCloseTo(0.7, 5);
-    expect(S.smear).toBeCloseTo(2, 5);
+    expect(S.smear).toBeCloseTo(0.2, 5);
     expect(S.dispersion).toBeCloseTo(0.02, 5);
     expect(S.ior).toBeCloseTo(1.55, 5);
     expect(S.angle).toBe(0);
@@ -125,6 +125,17 @@ describe("the document keeps every parameter inside what the panel can undo", ()
      * point-sample one texel. Softness is that gather, and at 0 the output
      * goes back to being hard-edged and jittery — so it is pinned. Sheen and
      * seam are what make the panel visible at all over a flat colour. */
+    /* Smear is the one that decides whether this is glass or mud, and it is
+     * pinned low on a measurement, not a preference. Mean saturation inside
+     * the panel, backdrop vs rendered, on a saturated subject:
+     *     smear 2.0 -> keeps 41%      smear 0.25 -> keeps 87%
+     *     smear 1.0 -> keeps 57%      smear 0.12 -> keeps 93%
+     *     smear 0.5 -> keeps 73%
+     * uSmear is smear x the panel's short side, so at 2 a ray travels further
+     * than the panel is wide and every pixel averages colour from all over the
+     * scene. Averaging many hues gives grey — which is why a cyan-to-magenta
+     * subject came out olive. Dispersion accounted for 1% of that loss and the
+     * rib shading for 3%; the rest was smear alone. */
     expect(S.soften).toBeCloseTo(0.8, 5);
     expect(S.sheen).toBeCloseTo(0.45, 5);
     expect(S.seam).toBeCloseTo(0.45, 5);
@@ -159,13 +170,13 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(S.ior).toBe(2.2);
     expect(S.dispersion).toBe(0.15);
     expect(S.slopeLimit).toBe(0.2);
-    expect(S.smear).toBe(12);
+    expect(S.smear).toBe(1.5);
   });
 
   it("a value that is not a number falls back rather than reaching the shader", () => {
     const S = withReed({ ribWidth: "fine", smear: undefined }).effects.strip;
     expect(S.ribWidth).toBeCloseTo(0.08, 5);
-    expect(S.smear).toBeCloseTo(2, 5);
+    expect(S.smear).toBeCloseTo(0.2, 5);
   });
 
   it("it only turns on for the shapes the engine can box", () => {

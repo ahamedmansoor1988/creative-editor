@@ -305,7 +305,7 @@ const DEFAULT_EFFECTS=()=>({
    * shape that had been cut up rather than one seen THROUGH glass; dispersion
    * 0.048 put more colour fringing on the rib edges than reeded glass has. */
   strip:{on:false,bulge:0.7,ribWidth:0.08,angle:0,thickness:0.8,
-         ior:1.55,dispersion:0.02,slopeLimit:6,smear:2,
+         ior:1.55,dispersion:0.02,slopeLimit:6,smear:0.2,
          soften:0.8,sheen:0.45,seam:0.45},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
@@ -1106,7 +1106,7 @@ function normChildren(list,depth){
       {
         const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):stDef[k]; };
         n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.05,4);
-        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.1,12);
+        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.02,1.5);
         n('soften',0,1); n('sheen',0,1); n('seam',0,1);
       }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
@@ -8713,7 +8713,7 @@ function buildFxSection(obj,page,add,body){
           ch('stBulge','Rib bulge',0,1,0.005,'bulge',2);
           ch('stAng','Rib angle',-90,90,1,'angle',0);
           add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
-          ch('stSmear','Smear distance',0.1,12,0.05,'smear',2);
+          ch('stSmear','Smear distance',0.02,1.5,0.01,'smear',2);
           ch('stSoft','Softness',0,1,0.01,'soften',2);
           ch('stIor','IOR',1,2.2,0.005,'ior',3);
           ch('stDisp','Dispersion',0,0.15,0.001,'dispersion',3);
