@@ -234,19 +234,6 @@ const DEFAULT_EFFECTS=()=>({
     warps:[{type:'liquid',amt:0.50,scale:0.50},
            {type:'none',amt:0.40,scale:1.5},
            {type:'none',amt:0.30,scale:3.0}]},
-  /* §5.x Fractal Glass — the shape's gradient repeated as discrete strips,
-   * each sampling the gradient at a per-strip offset. The offset
-   * discontinuity between neighbouring strips IS the illusion. Colours come
-   * from the shape's own gradient fill; these params carry only geometry
-   * and shading. */
-  fractal:{on:false,direction:'v',count:22,gap:0.03,spread:2,centerY:0,slant:0,
-    hMax:2,hMin:2,hShape:1.45,hSkew:0,hJit:0,fade:0.02,
-    offset:0.9,span:0.28,shift:0,rampSpan:0.95,rings:1,
-    warp:0.35,warpScale:1.6,fieldSquash:0.75,phase:0,
-    topLift:1.06,botDrop:0.72,botHue:12,sat:1.25,
-    vign:0.38,vignPow:2.6,vignY:0.15,sheen:0.28,
-    glow:0.16,glowR:0.032,exposure:1.08,gamma:2.2,grain:0.006,
-    transparent:true,bg:'#000000'},
   /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
    * SDF (circle + extrude + round) is the whole shape library: extrude 0 +
    * round 1 is a sphere, extrude >0 + round 1 a capsule. Transparent by
@@ -298,15 +285,6 @@ const DEFAULT_EFFECTS=()=>({
            ior:1.47,dispersion:0.013,absorb:0.45,tint:'#dce8f5',
            lensIor:1.58,lensAbsorb:3.2,lensTint:'#6f9dcd',
            reflection:60,depth:12,quality:32,scale:0.6},
-  // fluted/reeded glass panel: ribs smear the page behind into bands
-  /* Measured against the reference on the real engine, one control at a time:
-   * ribWidth 0.12 gave eight fat panels rather than a reeded sheet; bulge 0.34
-   * and smear 1.6 left the shapes behind it nearly intact, so it read as a
-   * shape that had been cut up rather than one seen THROUGH glass; dispersion
-   * 0.048 put more colour fringing on the rib edges than reeded glass has. */
-  strip:{on:false,bulge:0.7,ribWidth:0.08,angle:0,thickness:0.8,
-         ior:1.55,dispersion:0.02,slopeLimit:6,smear:0.2,
-         soften:0.8,sheen:0.45,seam:0.45},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
   // Bloom isolates bright rendered pixels, softens them, then adds the light back.
@@ -335,7 +313,6 @@ const DEFAULT_EFFECTS=()=>({
   slice:{count:8,axis:'horizontal',offset:0,gap:0,mode:'ramp',seed:1,edge:'clamp'},
   // §4.12 noise
   noise:{amount:0,mono:true,scale:1,seed:1},
-  // SDF metaball merge of the shape with its own pattern copies
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
   glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -1095,20 +1072,6 @@ function normChildren(list,depth){
           if(!/^#[0-9a-fA-F]{6}$/.test(cap[k]||'')) cap[k]=de.capsule[k];
         });
       }
-      /* Snapshot the defaults BEFORE the assign. Object.assign mutates its
-       * target, so de.strip and st are the same object from the next line on —
-       * which made the fallback below read back the very value it was meant to
-       * replace, and a non-numeric one out of a saved document went straight
-       * to the shader. Found by driving the model, not by reading it. */
-      const stDef=Object.assign({},de.strip);
-      const st=Object.assign(de.strip, ce.strip||{});
-      st.on=!!st.on && (c.type==='rect'||c.type==='ellipse');
-      {
-        const n=(k,lo,hi)=>{ const v=+st[k]; st[k]=Number.isFinite(v)?clamp(v,lo,hi):stDef[k]; };
-        n('bulge',0,1); n('ribWidth',0.02,0.5); n('angle',-90,90); n('thickness',0.05,4);
-        n('ior',1,2.2); n('dispersion',0,0.15); n('slopeLimit',0.2,20); n('smear',0.02,1.5);
-        n('soften',0,1); n('sheen',0,1); n('seam',0,1);
-      }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
       const blur=Object.assign(de.blur, ce.blur||{});
       blur.kind=['gaussian','directional','zoom'].includes(blur.kind)?blur.kind:'gaussian';
@@ -1241,28 +1204,6 @@ function normChildren(list,depth){
         return {type:WT.includes(w.type)?w.type:'none',
                 amt:clamp(+w.amt||0,0,1.5), scale:clamp(+w.scale||1,0.2,6)};
       });
-      /* §5.x Fractal Glass. */
-      const fg=Object.assign(de.fractal, ce.fractal||{});
-      fg.on=!!fg.on && ['rect','ellipse','polygon','path'].includes(c.type);
-      const fgn=(k,lo,hi,dv)=>{ const v=+fg[k]; fg[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
-      fg.direction=fg.direction==='h'?'h':'v';
-      fgn('count',3,64,22); fg.count=Math.round(fg.count);
-      fgn('gap',0,0.8,0.03); fgn('spread',0.1,3,2); fgn('centerY',-1,1,0);
-      fgn('slant',-45,45,0);
-      fgn('hMax',0.02,2,2); fgn('hMin',0,2,2); fgn('hShape',0.2,6,1.45);
-      fgn('hSkew',-1,1,0); fgn('hJit',0,1,0); fgn('fade',0,0.6,0.02);
-      fgn('offset',0,2,0.9); fgn('span',0,3,0.28); fgn('shift',-2,2,0);
-      fgn('rampSpan',0.1,3,0.95); fgn('rings',0,4,1);
-      fgn('warp',0,2,0.35); fgn('warpScale',0.1,6,1.6);
-      fgn('fieldSquash',0.05,2,0.75); fgn('phase',0,20,0);
-      fgn('topLift',0,3,1.06); fgn('botDrop',0,2,0.72); fgn('botHue',-90,90,12);
-      fgn('sat',0,2,1.25);
-      fgn('vign',0,1,0.38); fgn('vignPow',0.5,8,2.6); fgn('vignY',0,1,0.15);
-      fgn('sheen',0,1.5,0.28);
-      fgn('glow',0,2,0.16); fgn('glowR',0.005,0.4,0.032);
-      fgn('exposure',0.05,4,1.08); fgn('gamma',1,3,2.2); fgn('grain',0,0.1,0.006);
-      fg.transparent=fg.transparent!==false;
-      if(!/^#[0-9a-fA-F]{6}$/.test(fg.bg||'')) fg.bg='#000000';
       /* §5.x Glass 3D. */
       const g3=Object.assign(de.glass3d, ce.glass3d||{});
       g3.on=!!g3.on && ['rect','ellipse'].includes(c.type);
@@ -1307,8 +1248,8 @@ function normChildren(list,depth){
         if(!/^#[0-9a-fA-F]{6}$/.test(flr[k]||'')) flr[k]=k==='bg'?'#000000':'#ffffff';
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3, fractal:fg,
-        prism:pr, capsule:cap, strip:st,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
+        prism:pr, capsule:cap,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -3578,7 +3519,7 @@ function targetScale(c){
  * The transform the editor sets is
  *     setTransform(z*dpr, 0, 0, z*dpr, view.x*dpr, view.y*dpr)
  * — a scale AND a pan. Every backdrop material has to place itself in canvas
- * pixels to sample the page, and the strip path did that with targetScale()
+ * pixels to sample the page, and one of them did that with targetScale()
  * alone, which returns only t.a. Dropping the translation put its box, and so
  * every ray it casts, off by the pan: the panel sampled a region of the canvas
  * unrelated to what sits behind it. At zero pan the offset is zero and it
@@ -3674,7 +3615,7 @@ function pixelPad(entries){
  *     instead of against the page. Opacity is safe because baking it into the
  *     bitmap and blitting at alpha 1 is the same result; it is in the
  *     signature, so changing it invalidates.
- *   - backdrop materials (glass, prism, capsule, strip) — their input IS the
+ *   - backdrop materials (glass, prism, capsule) — their input IS the
  *     page beneath them, which changes when anything else moves.
  *   - containers and instances — they composite children, and a child can be
  *     any of the above.
@@ -4166,84 +4107,6 @@ function drawOneInner(c,W,H,obj){
       paintWithInstances(obj,draw);
       return;
     }
-    /* §5.x Fractal Glass. The colours are sampled from the SHAPE'S OWN
-     * gradient fill, honouring the user's flow: draw, apply gradient, apply
-     * repeater. Clipped to the shape's path — it is a flat 2D material, so
-     * the outline is the silhouette (unlike glass3d, which carries its own). */
-    const fgx=fx.fractal;
-    if(fgx&&fxOn(obj,'fractal')&&obj.type!=='text'&&window.FractalGlassEngine&&window.FractalGlassEngine.available()){
-      const f0=obj.fills&&obj.fills[0];
-      const stops=(f0&&f0.kind!=='solid'&&Array.isArray(f0.stops))?f0.stops:null;
-      /* Render at the size this will be SEEN at, not at the shape's size in
-       * document units.
-       *
-       * It asked the engine for obj.w by obj.h and then drew that into a box
-       * of the same measurements on screen — which on a 2x display is already
-       * a twofold magnification at 100% zoom, and worse as you zoom in. This
-       * effect cannot survive that: its own note says the strip edges must
-       * stay genuinely hard, because the discontinuity between neighbouring
-       * strips IS the effect. Magnified, those edges blur and the rack of
-       * glass panels reads as one gradient with colours running between them.
-       *
-       * The same budget the mesh tile uses, for the same reason. */
-      const tf=c.getTransform?c.getTransform():null;
-      const want=tf?Math.max(Math.abs(tf.a),Math.abs(tf.d)):1;
-      const area=Math.max(1,obj.w*obj.h);
-      const sc=clamp(Math.min(want,Math.sqrt(MESH_TILE_BUDGET_PX/area)),1,MESH_TILE_MAX_SCALE);
-      const tw=Math.min(4096,Math.max(1,Math.round(obj.w*sc)));
-      const th=Math.min(4096,Math.max(1,Math.round(obj.h*sc)));
-      const img=window.FractalGlassEngine.render(tw,th,fgx,stops);
-      if(img){
-        const place=o=>{
-          c.save();
-          c.globalAlpha=obj.opacity;
-          /* The tile is bigger than the box now, so it is scaled down into it
-           * rather than blown up out of it. */
-          c.imageSmoothingEnabled=true;
-          if('imageSmoothingQuality' in c) c.imageSmoothingQuality='high';
-          c.beginPath(); pathFor(c,o); c.clip();
-          c.drawImage(img,o.x,o.y,o.w,o.h);
-          c.restore();
-        };
-        paintWithInstances(obj,place);
-        return;
-      }
-    }
-    /* §5.x Glass 3D. Self-generating like liquid/flare, but a path trace is
-     * the most expensive render in the app — so the object is rendered ONCE
-     * and the same canvas is reused for every pattern copy, whose params are
-     * identical by construction. NOT clipped to the shape's path: with the
-     * default transparent background the render carries the solid's own
-     * silhouette, and cutting a tilted 3D object with the 2D outline would
-     * crop it (same reasoning as prism's full-canvas draw). */
-    const g3=fx.glass3d;
-    if(g3&&fxOn(obj,'glass3d')&&obj.type!=='text'&&window.GlassObjectEngine&&window.GlassObjectEngine.available()){
-      const img=window.GlassObjectEngine.render(obj.w,obj.h,g3);
-      if(img){
-        const place=o=>{
-          c.save();
-          c.globalAlpha=obj.opacity;
-          c.drawImage(img,o.x,o.y,o.w,o.h);
-          c.restore();
-        };
-        paintWithInstances(obj,place);
-        return;
-      }
-    }
-    const fl=fx.flare;
-    if(fl&&fxOn(obj,'flare')&&obj.type!=='text'&&window.FlareEngine&&window.FlareEngine.available()){
-      const draw=o=>{
-        const img=window.FlareEngine.render(o.w,o.h,fl);
-        if(!img) return;
-        c.save();
-        c.globalAlpha=obj.opacity;
-        c.beginPath(); pathFor(c,o); c.clip();
-        c.drawImage(img,o.x,o.y,o.w,o.h);
-        c.restore();
-      };
-      paintWithInstances(obj,draw);
-      return;
-    }
     const pr=fx.prism;
     if(pr&&fxOn(obj,'prism')&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
       // FULL CANVAS, deliberately not clipped to the shape: a prism's whole
@@ -4270,53 +4133,6 @@ function drawOneInner(c,W,H,obj){
       // Pattern copies are skipped — each would need its own trace.
       window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
       return;
-    }
-    const st=fx.strip;
-    if(st&&fxOn(obj,'strip')&&obj.type!=='text'&&window.CapsuleEngine&&window.CapsuleEngine.available()){
-      /* Reeded panel: reads the page behind the box, smears it into ribs,
-       * clipped to the shape's outline. Replaces the fill.
-       *
-       * The box goes in CANVAS PIXELS, like the glass path's geoms, because
-       * W and H are the canvas size and uBoxPos is measured against uPage. It
-       * passed document units against a page in device pixels, so on any
-       * display or zoom but 1:1 the panel sampled the wrong part of the page.
-       *
-       * Scaling it also fixes the edges. The tile was sized from the box in
-       * document units and then drawn into a box that many device pixels
-       * across, i.e. magnified — and this effect is nothing but edges, so
-       * magnifying them is what made it read as jittery and stair-stepped.
-       * Rendered at the size it is seen at, the ribs come out clean. */
-      /* The FULL transform, offset included.
-       *
-       * This used targetScale(), which returns only t.a — the scale. But the
-       * canvas transform is set as
-       *     setTransform(z*dpr, 0, 0, z*dpr, view.x*dpr, view.y*dpr)
-       * and that translation is the pan. Dropping it put the box, and with it
-       * every ray the shader casts, off by the pan: the panel sampled a region
-       * of the canvas that had nothing to do with what is behind it, which is
-       * where the vertical streaking of unrelated content came from. The
-       * artboard rect was pinned at the canvas origin for the same reason, so
-       * the clamp that is supposed to keep the editor's surround out was
-       * testing the wrong rectangle and let it back in.
-       *
-       * At zero pan the offset is zero and all of this looks correct, which is
-       * why it survived every check that did not scroll the canvas. */
-      const tm=(c.getTransform&&c.getTransform())||null;
-      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
-      /* The artboard in those same canvas pixels, so the engine knows where
-       * the document ends and answers with the page colour beyond it. */
-      const fr=(doc&&doc.frame)||{w:W,h:H};
-      const img=window.CapsuleEngine.strip(c.canvas,W,H,sbox,
-        Object.assign({},st,{pageBg:fr.bg||'#ffffff',
-          artboard:canvasRect(tm,0,0,fr.w,fr.h)}));
-      if(img){
-        c.save();
-        c.globalAlpha=obj.opacity;
-        pathFor(c,obj); c.clip();
-        c.drawImage(img,obj.x,obj.y,obj.w,obj.h);
-        c.restore();
-        return;
-      }
     }
     const gla=fx.glass;
     /* The active backdrop material, asked ONCE and used for both the
@@ -5104,7 +4920,7 @@ function renderDoc(){
  * the wrong place and samples the wrong pixels, which shows up as smeared or
  * displaced content near the silhouette. */
 const RASTER_PREVIEW_FX=new Set([
-  'light','liquid','flare','prism','capsule','strip','blob','glass','glass2',
+  'light','liquid','flare','prism','capsule','blob','glass','glass2',
   'blur','bloom','distortion','warp','displacement','haze','slice','noise',
 ]);
 function rasterPreviewNeeded(){
@@ -6047,8 +5863,8 @@ try{
 }catch(_){}
 const PAGE_TYPE={
   'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
-  'Glass 3D':'glass3d','Fractal':'fractal','Prism':'prism','Capsule':'capsule',
-  'Strip':'strip','Blob':'blob','Glass':'glass','Glass 2':'glass2',
+  'Glass 3D':'glass3d','Prism':'prism','Capsule':'capsule',
+  'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
   'Displacement':'displacement','Haze':'haze','Slice':'slice','Noise':'noise',
@@ -6124,11 +5940,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Fractal','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Fractal','Prism','Capsule','Strip','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7127,7 +6943,6 @@ function fxActive(obj,name){
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
     case 'Capsule':  return !!(e.capsule&&e.capsule.on);
-    case 'Strip':    return !!(e.strip&&e.strip.on);
     case 'Blob':     return !!(e.blob&&e.blob.on);
     case 'Glass':    return !!(e.glass&&e.glass.on);
     case 'Glass 2':  return !!(e.glass2&&e.glass2.on);
@@ -8651,13 +8466,12 @@ function buildFxSection(obj,page,add,body){
     }
   }
 
-  if(page==='Capsule'||page==='Strip'){
-    const isCap=page==='Capsule';
-    const E=isCap?obj.effects.capsule:obj.effects.strip;
+  if(page==='Capsule'){
+    const E=obj.effects.capsule;
     if(!(window.CapsuleEngine&&window.CapsuleEngine.available())){
       add(`<div class="fxHint">Needs WebGL2 with float render targets, which this browser doesn't provide.</div>`);
     } else {
-      add(`<label class="slider"><input type="checkbox" id="cpOn" ${E.on?'checked':''}> Enable ${isCap?'capsule glass':'reed glass'}</label>`);
+      add(`<label class="slider"><input type="checkbox" id="cpOn" ${E.on?'checked':''}> Enable capsule glass</label>`);
       $('cpOn').addEventListener('change',e=>{ E.on=e.target.checked; pushHistory(); refresh(); });
       if(E.on){
         const sl=(id,label,min,max,step,key,fmt)=>{
@@ -8676,7 +8490,7 @@ function buildFxSection(obj,page,add,body){
         };
         const f2=v=>(+v).toFixed(2), f3=v=>(+v).toFixed(3);
         const int=v=>String(Math.round(v)), pct=v=>Math.round(v)+'%';
-        if(isCap){
+
           add(`<div class="pSect">Inner lens</div>`);
           sl('cpLens','Lens size',0.1,1.2,0.005,'lensSize',f2);
           sl('cpSquash','Lens squash',0.5,1.6,0.005,'lensSquash',f2);
@@ -8697,33 +8511,6 @@ function buildFxSection(obj,page,add,body){
           sl('cpQual','Quality (samples)',1,128,1,'quality',int);
           sl('cpScale','Render scale',0.15,1,0.05,'scale',v=>Math.round(v*100)+'%');
           add(`<div class="fxHint">A path-traced glass pill with a lens floating inside it, refracting the page behind — the lens inverts and magnifies what it sees. Page depth sets how far behind the page reads as, which drives the inversion. Works best over colourful content, ignores Pattern copies, and (like Prism) dragging a slider shows a draft.</div>`);
-        } else {
-          /* The book's chip row, not eight ranges. This page had never been
-           * reachable, so it had never been held to the book; it is reachable
-           * now. Same helper the other promoted pages use, so the arrow keys,
-           * magnets and detents come with it. */
-          const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
-            id, label, min, max, step, value:E[key],
-            format:v=>(+v).toFixed(dp),
-            onInput:v=>{ E[key]=v; fxDraft=true; render(); fxDraft=false; },
-            onChange:()=>pushHistory(label),
-          });
-          add('<div class="secTitle">Ribs</div>');
-          ch('stW','Rib width',0.02,0.5,0.005,'ribWidth',3);
-          ch('stBulge','Rib bulge',0,1,0.005,'bulge',2);
-          ch('stAng','Rib angle',-90,90,1,'angle',0);
-          add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
-          ch('stSmear','Smear distance',0.02,1.5,0.01,'smear',2);
-          ch('stSoft','Softness',0,1,0.01,'soften',2);
-          ch('stIor','IOR',1,2.2,0.005,'ior',3);
-          ch('stDisp','Dispersion',0,0.15,0.001,'dispersion',3);
-          ch('stThick','Panel thickness',0.05,4,0.05,'thickness',2);
-          ch('stSlope','Slope limit',0.2,20,0.1,'slopeLimit',1);
-          add('<div class="secTitle" style="margin-top:8px">Glass</div>');
-          ch('stSheen','Rib sheen',0,1,0.01,'sheen',2);
-          ch('stSeam','Seam depth',0,1,0.01,'seam',2);
-          add(`<div class="fxHint">Reeded glass: half-cylinder ribs refracting whatever is <b>behind</b> this layer into vertical bands. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past this panel stay whole. Smear distance is how far behind the page reads as, Softness is how much of each rib one pixel gathers — that is what keeps it smooth instead of jagged — and Sheen and Seam are what make the panel visible over flat colour.</div>`);
-        }
       }
     }
   }
@@ -8960,81 +8747,6 @@ function buildFxSection(obj,page,add,body){
         }
       });
       add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
-    }
-  }
-
-  if(page==='Fractal'){
-    const G=obj.effects.fractal;
-    add(`<label class="slider"><input type="checkbox" id="fgOn" ${G.on?'checked':''}> Enable fractal glass</label>`);
-    $('fgOn').addEventListener('change',e=>{ G.on=e.target.checked; pushHistory(); refresh(); });
-    if(G.on){
-      /* The book's slider row: a chip in the column that opens on demand.
-       * Fourteen ranges at 57px become fourteen rows at 40, so this page gives
-       * back 238px — on a page this long that is the difference between
-       * scrolling to a control and seeing it. Markup and wiring were two calls
-       * that had to agree on an id by hand; they are one call now. */
-      const sl=(id,label,min,max,step,val,dp,set)=>chipRow(add,{
-        id, label, min, max, step, value:val,
-        format:v=>(+v).toFixed(dp),
-        onInput:v=>{ set(v); render(); },
-        onChange:()=>pushHistory(label),
-      });
-      const f0=obj.fills&&obj.fills[0];
-      if(!f0||f0.kind==='solid')
-        add('<div class="hint" style="text-align:left">Colours follow this shape\'s gradient fill — give it one under Fill and the strips re-light. Using the default palette until then.</div>');
-      add('<div class="secTitle">Repeat</div>');
-      add(`<label class="slider">Direction
-        <select id="fgDir">
-          <option value="v"${G.direction!=='h'?' selected':''}>Vertical strips</option>
-          <option value="h"${G.direction==='h'?' selected':''}>Horizontal strips</option>
-        </select></label>`);
-      $('fgDir').addEventListener('change',e=>{ G.direction=e.target.value; pushHistory(); render(); });
-      sl('fgCount','Count',3,64,1,G.count,0,v=>G.count=v);
-      sl('fgGap','Gap',0,0.8,0.005,G.gap,3,v=>G.gap=v);
-      sl('fgSlant','Slant',-45,45,0.5,G.slant,1,v=>G.slant=v);
-      add('<div class="secTitle" style="margin-top:8px">Offset</div>');
-      /* Rings first, because it is the one that decides whether this is glass
-       * at all: the offset below has nothing to displace until the field
-       * repeats, and at 0 rings the whole page renders a smooth gradient. */
-      sl('fgRings','Rings',0,4,0.05,G.rings,2,v=>G.rings=v);
-      sl('fgOff','Offset per strip',0,2,0.01,G.offset,2,v=>G.offset=v);
-      sl('fgSpan','Strip span',0,3,0.01,G.span,2,v=>G.span=v);
-      sl('fgShift','Shift',-2,2,0.005,G.shift,2,v=>G.shift=v);
-      sl('fgWarp','Organic warp',0,2,0.01,G.warp,2,v=>G.warp=v);
-      add('<div class="secTitle" style="margin-top:8px">Height</div>');
-      /* Guarded, like every other engine read in this file. This one was not:
-       * it reached straight into window.FractalGlassEngine.PRESETS, so if that
-       * file failed to load, building this page threw and took the WHOLE right
-       * panel down with it — not just this section. Found by opening the
-       * effect, which had never been reachable. */
-      const FGE=window.FractalGlassEngine;
-      const fgPresets=(FGE&&Array.isArray(FGE.PRESETS))?FGE.PRESETS:[];
-      if(fgPresets.length){
-        add(`<label class="slider uiRow"><span>Profile</span>
-          <select id="fgPre">${fgPresets.map(p=>
-            `<option value="${esc(p)}">${esc(p[0].toUpperCase()+p.slice(1))}</option>`).join('')}
-          </select></label>`);
-        $('fgPre').addEventListener('change',e=>{
-          Object.assign(G,(FGE.presetValues&&FGE.presetValues(e.target.value))||{});
-          pushHistory('Strip profile'); refresh();
-        });
-      }
-      sl('fgHMax','Max height',0.02,2,0.005,G.hMax,2,v=>G.hMax=v);
-      sl('fgHMin','Min height',0,2,0.005,G.hMin,2,v=>G.hMin=v);
-      sl('fgHJit','Height random',0,1,0.005,G.hJit,2,v=>G.hJit=v);
-      add('<div class="secTitle" style="margin-top:8px">Panel</div>');
-      sl('fgVign','Edge vignette',0,1,0.005,G.vign,2,v=>G.vign=v);
-      sl('fgSheen','Sheen',0,1.5,0.005,G.sheen,2,v=>G.sheen=v);
-      sl('fgGlow','Glow',0,2,0.01,G.glow,2,v=>G.glow=v);
-      sl('fgExpo','Exposure',0.05,4,0.01,G.exposure,2,v=>G.exposure=v);
-      add(`<label class="chk"><input type="checkbox" id="fgTrs" ${G.transparent?'checked':''}> See-through gaps</label>`);
-      $('fgTrs').addEventListener('change',e=>{ G.transparent=e.target.checked; pushHistory(); refresh(); });
-      if(!G.transparent){
-        add(`<label class="slider">Background <input type="color" id="fgBg" value="${G.bg}"></label>`);
-        $('fgBg').addEventListener('input',e=>{ G.bg=e.target.value; render(); });
-        $('fgBg').addEventListener('change',()=>pushHistory());
-      }
-      add('<div class="hint" style="text-align:left">Rings sets how many times the gradient repeats across the field; Offset per strip is how far apart two neighbouring strips sample it. The jump between them is the fractal-glass illusion — with Rings at 0 there is nothing to jump and you get a plain gradient.</div>');
     }
   }
 
@@ -12250,7 +11962,7 @@ function selectSame(kind){
     if(kind==='fill') return o.type==='text' ? 'text:'+o.color : JSON.stringify(o.fills||o.strokes);
     if(kind==='size'){ const b=boxOf(o); return Math.round(b.w)+'x'+Math.round(b.h); }
     const fx=o.effects||{};
-    return ['gradient','light','prism','capsule','strip','blob','glass','glass2','shadow']
+    return ['gradient','light','prism','capsule','blob','glass','glass2','shadow']
       .filter(k=>fx[k]&&fx[k].on).join(',')
       +(fx.grain&&fx.grain.amount>0?'+grain':'')
       +(o.pattern?'+pattern':'')
@@ -12965,15 +12677,10 @@ document.querySelectorAll('.dropdown button').forEach(b=>{
   menu.querySelectorAll('[data-capability]').forEach(b=>{
     const id=b.dataset.capability;
     /* Ask the stack about the capability it names, and only fall back to the
-     * catalog's renderer for ids the stack does not carry.
-     *
-     * It resolved through the catalog first. The catalog lists ONE glass
-     * engine and aliases the reeded panel onto it, so get('strip') answered
-     * about glass, and the row was hidden for glass not being ready — while
-     * FX_ONLY named "strip" explicitly and FxStack.isReady('strip') was true.
-     * Allowed by one registry, hidden by another. The same shape of bug as
-     * naming an engine inside a cache rule: a lookup that leaves the registry
-     * the entry actually lives in. */
+     * catalog's renderer for ids the stack does not carry. Resolving through
+     * the catalog first asks about whatever engine an id is aliased onto,
+     * which can be a different engine with a different readiness — allowed by
+     * one registry and hidden by another. */
     const known=window.FxStack.types().includes(id);
     const cap=window.EngineCatalog.get(id);
     const type=known?id:(cap&&cap.rendererType);
@@ -13600,19 +13307,17 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
-    fractal:o=>Object.assign(o.effects.fractal,{on:true}),
-    strip:   o=>Object.assign(o.effects.strip,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',fractal:'Fractal',strip:'Strip',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',fractal:'layers',strip:'line',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second

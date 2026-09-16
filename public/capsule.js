@@ -1,4 +1,4 @@
-/* Capsule + Strip engines — path-traced pill glass and fluted/reeded glass.
+/* Capsule engine — path-traced pill glass.
  *
  * Both ported from the standalone Glass Capsule app
  * (~/Documents/execution agent/glass-capsule.html). What changed, and why:
@@ -261,134 +261,7 @@ void main(){
   fragColor = vec4(clamp(c + d / 255.0, 0.0, 1.0), a.a);
 }`;
 
-/* ---------------- strip (fluted / reeded panel) ---------------- */
-const STRIP_FRAG = `#version 300 es
-precision highp float;
-out vec4 fragColor;
-uniform sampler2D uBD;
-uniform vec2  uRes;         // output = the object's box, in canvas px
-uniform vec2  uPage;        // full canvas size
-uniform vec2  uBoxPos;      // box top-left in canvas px
-uniform float uRibW, uSag, uAng, uThick, uIor, uDisp, uSlopeMax, uSmear;
-uniform vec3  uPageBg;
-uniform vec4  uArt;         // artboard rect in canvas px (x, y, w, h)
-uniform float uSoft, uSpec, uSeam;
-
-/* Composite the page texel over the artboard's own background.
- *
- * It returned .rgb straight off the texture. The editor canvas is
- * TRANSPARENT wherever nothing has been painted, and a transparent texel is
- * (0,0,0,0) — so every ray that landed on empty page came back black, and
- * with fragColor's alpha forced to 1 those blacks were opaque. At a rib edge
- * the profile is at its steepest and the refracted ray travels furthest, so
- * the edges are exactly where it happened: black bands down every seam.
- * Clear glass over an empty page has to read as the page, not as ink. */
-vec3 sampleBD(vec2 px){
-  /* Off the ARTBOARD is page background — not whatever the editor happens to
-   * have painted around it.
-   *
-   * This clamped to the canvas, and the canvas is the whole stage: the app's
-   * own dark surround lives out there. Any ray that ran off the artboard came
-   * back carrying that surround, and with a long smear most of them did. That
-   * is where the dark blocks across the panels came from — a colour the
-   * document does not contain anywhere. */
-  vec2 lo = uArt.xy, hi = uArt.xy + uArt.zw;
-  if (px.x < lo.x || px.y < lo.y || px.x > hi.x || px.y > hi.y) return uPageBg;
-  vec4 t = texture(uBD, clamp(px / uPage, 0.0, 1.0));
-  return mix(uPageBg, t.rgb, t.a);
-}
-/* One ray through the rib at across-rib position xs, for one channel. */
-float ray(float xs, float R, float ca, float sa, vec2 l, int ch){
-  float slope = -xs / sqrt(max(R * R - xs * xs, 1e-6));
-  slope = clamp(slope, -uSlopeMax, uSlopeMax);
-  vec3 n = normalize(vec3(-slope * ca, -slope * sa, 1.0));
-  float ior = uIor * (1.0 + (float(ch) - 1.0) * uDisp);
-  vec3 d1 = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / ior);
-  if (dot(d1, d1) < 0.5) d1 = reflect(vec3(0.0, 0.0, -1.0), n);
-  vec2 off = d1.xy * (uThick / max(abs(d1.z), 0.05));
-  vec3 d2 = refract(d1, vec3(0.0, 0.0, 1.0), ior);
-  if (dot(d2, d2) < 0.5) d2 = reflect(d1, vec3(0.0, 0.0, 1.0));
-  off += d2.xy * (uSmear / max(abs(d2.z), 0.05));
-  return sampleBD(uBoxPos + l + off)[ch];
-}
-
-void main(){
-  // box-local, top-down to match canvas coordinates
-  vec2 l = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  float ca = cos(uAng), sa = sin(uAng);
-  float x = l.x * ca + l.y * sa;                 // across-rib coordinate
-
-  // Real reeded profile: a circular arc of sagitta uSag over the rib pitch.
-  // With the radius derived from the sagitta, bulge 1 is exactly a
-  // semicircle and everything below stays finite on its own.
-  float hw = uRibW * 0.5;
-  float sag = max(uSag, 1e-4);
-  float R = (hw * hw + sag * sag) / (2.0 * sag);
-  float xr = (fract(x / uRibW + 0.5) - 0.5) * uRibW;
-
-  /* INTEGRATE ACROSS THE RIB, do not point-sample it.
-   *
-   * This took one ray per channel and put whatever single texel it landed on
-   * straight on screen. A half-cylinder rib is a lens: every point on it
-   * gathers a CONE of directions, so what you see at one pixel is an average
-   * over a range of the page, not one spot. Point-sampling it is why the
-   * output came out hard-edged, jittery and bunched — neighbouring pixels
-   * landed on unrelated texels with nothing tying them together, and the
-   * aliasing was the effect rather than a flaw in it.
-   *
-   * Averaging a sweep of rays across a fraction of the rib is the cheap,
-   * honest version of that integral, and it is what produces the soft
-   * vertical smears the reference shows: near the rib centre the slope is
-   * almost zero and the samples agree, so the subject reads nearly clean;
-   * toward a seam the slope steepens, the samples diverge, and it blurs and
-   * darkens. That gradient across each rib IS the look. */
-  const int NS = 9;
-  vec3 col = vec3(0.0);
-  for (int ch = 0; ch < 3; ch++){
-    float acc = 0.0;
-    for (int k = 0; k < NS; k++){
-      float t = (float(k) + 0.5) / float(NS) - 0.5;    // -0.5 .. 0.5
-      float xs = clamp(xr + t * uRibW * uSoft, -hw, hw);
-      acc += ray(xs, R, ca, sa, l, ch);
-    }
-    col[ch] = acc / float(NS);
-  }
-
-  /* Rib shading. Without it the panel is invisible over flat colour —
-   * displacing a sample inside one flat region changes nothing — and real
-   * reeded glass is never invisible: it carries a bright line down the crown
-   * of every rib and goes dark into the seams. */
-  float e = clamp(abs(xr) / max(hw, 1e-4), 0.0, 1.0);
-
-  /* The seam is a THIN line, and it darkens toward the page, not toward ink.
-   *
-   * This multiplied straight down: col *= 1 - uSeam * smoothstep(0.55,1,e).
-   * Two things wrong with that. It ran from 55% of the rib outward, so on a
-   * wide rib nearly half the panel was seam; and at uSeam 1 it multiplied to
-   * zero, so the seams came out as black bars across whatever was behind —
-   * ink that no glass can produce. Turning sheen down then left nothing but
-   * the bars.
-   *
-   * A real seam is darker because the edge of the rib bends steeply and
-   * compresses what it gathers into a sliver, so it reads as a narrow, dimmer
-   * band OF THE PAGE. Hence: the outer fifth of the rib only, and a floor —
-   * at full depth a seam is 40% brightness, never nothing. */
-  float seam = uSeam * smoothstep(0.82, 1.0, e);
-  col *= mix(1.0, 0.4, clamp(seam, 0.0, 1.0));
-  /* The crown highlight lifts into the HEADROOM that is left, rather than
-   * being added on top. A flat add blew every rib out to white wherever the
-   * subject behind was already bright — which over a light artboard is most
-   * of the time — and washed the colour out of exactly the part of the panel
-   * the effect is meant to show. Lifting by (1 - col) cannot exceed white,
-   * and it brightens a dark subject more than a light one, which is also how
-   * a real highlight behaves. */
-  float spec = uSpec * pow(max(0.0, 1.0 - e * 1.9), 6.0);
-  col += spec * (1.0 - col);
-
-  fragColor = vec4(col, 1.0);
-}`;
-
-let gl=null, cv=null, progCap=null, progShow=null, progStrip=null, vao=null;
+let gl=null, cv=null, progCap=null, progShow=null, vao=null;
 let bdTex=null, tex=[null,null], fbo=[null,null], AW=0, AH=0;
 let failed=false;
 const U={};
@@ -408,7 +281,7 @@ function program(fs){
   return p;
 }
 function loc(prog, name){
-  const k = (prog===progCap?'c:':prog===progStrip?'r:':'s:') + name;
+  const k = (prog===progCap?'c:':'s:') + name;
   if (!(k in U)) U[k] = gl.getUniformLocation(prog, name);
   return U[k];
 }
@@ -419,7 +292,7 @@ function init(){
     gl = cv.getContext('webgl2', {premultipliedAlpha:false, antialias:false, alpha:true});
     if (!gl) throw new Error('WebGL2 unavailable');
     if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float unavailable');
-    progCap = program(CAP_FRAG); progShow = program(CAP_PRESENT); progStrip = program(STRIP_FRAG);
+    progCap = program(CAP_FRAG); progShow = program(CAP_PRESENT);
     vao = gl.createVertexArray();
     bdTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, bdTex);
@@ -537,64 +410,5 @@ function capsule(srcCanvas, W, H, box, P, draft){
   return true;
 }
 
-/* Render the reeded panel for the object's box. Returns a box-sized canvas
- * (the caller clips it to the shape's outline and draws it in place). */
-function strip(srcCanvas, W, H, box, P){
-  if (!init()) return null;
-  const w = Math.max(2, Math.min(2048, Math.round(box.w)));
-  const h = Math.max(2, Math.min(2048, Math.round(box.h)));
-  cv.width = w; cv.height = h;
-  uploadBackdrop(srcCanvas);
-
-  const ref = Math.min(box.w, box.h);
-  gl.bindVertexArray(vao);
-  gl.disable(gl.BLEND);
-  gl.useProgram(progStrip);
-  gl.viewport(0, 0, w, h);
-  const u = n => loc(progStrip, n);
-  gl.uniform2f(u('uRes'), w, h);
-  gl.uniform2f(u('uPage'), W, H);
-  gl.uniform2f(u('uBoxPos'), box.x, box.y);
-  const ribPx = Math.max(2, P.ribWidth * ref);
-  gl.uniform1f(u('uRibW'), ribPx);
-  gl.uniform1f(u('uSag'), P.bulge * P.ribWidth * ref * 0.5);
-  gl.uniform1f(u('uAng'), P.angle * Math.PI / 180);
-  /* Panel thickness and smear distance are measured in RIB WIDTHS, not in
-   * panel widths.
-   *
-   * They multiplied `ref`, the shorter side of the box — so on a 340px panel
-   * the smallest smear the slider offers was already 34px of displacement and
-   * the largest was twice the panel. Everything behind the glass was shredded
-   * to the same vertical extent at every setting, and thickness read as inert
-   * because it had saturated long before its range began. A half-cylinder rib
-   * displaces by something on the order of its own width, and the page sits a
-   * rib or three behind: in those units the controls have somewhere to go and
-   * the numbers mean something a person can picture. */
-  gl.uniform1f(u('uThick'), P.thickness * ribPx);
-  gl.uniform1f(u('uIor'), P.ior);
-  gl.uniform1f(u('uDisp'), P.dispersion);
-  gl.uniform1f(u('uSlopeMax'), P.slopeLimit);
-  /* Smear is a SCENE distance, not a rib one: how far a rib throws a ray
-   * sideways is the angle it bends times how far behind it the subject sits,
-   * and that distance belongs to the scene. Measuring it in rib widths made
-   * the displacement collapse to a few pixels and the panel read as scratches
-   * laid over the subject rather than the subject seen through glass.
-   *
-   * What made scene-scale distances dangerous before was not the unit: it was
-   * that a long ray ran off the artboard and came back carrying the editor's
-   * surround. sampleBD answers with the page colour out there now, so the
-   * distance can be as long as the look needs. */
-  gl.uniform1f(u('uSmear'), P.smear * ref);
-  gl.uniform3fv(u('uPageBg'), hex3(P.pageBg || '#ffffff'));
-  const A = P.artboard || { x: 0, y: 0, w: W, h: H };
-  gl.uniform4f(u('uArt'), A.x, A.y, A.w, A.h);
-  gl.uniform1f(u('uSoft'), P.soften === undefined ? 0.5 : P.soften);
-  gl.uniform1f(u('uSpec'), P.sheen === undefined ? 0.16 : P.sheen);
-  gl.uniform1f(u('uSeam'), P.seam === undefined ? 0.22 : P.seam);
-  gl.uniform1i(u('uBD'), 2);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  return cv;
-}
-
-window.CapsuleEngine = { capsule, strip, available:()=>init(), DRAFT_SAMPLES };
+window.CapsuleEngine = { capsule, available:()=>init(), DRAFT_SAMPLES };
 })();

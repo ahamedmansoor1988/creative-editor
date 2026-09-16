@@ -61,14 +61,8 @@ describe("shared Glass capability", () => {
   it("is one ready catalog entry for all glass modes", () => {
     expect(window.EngineCatalog.get("glass").rendererType).toBe("glass");
     expect(window.EngineCatalog.status("glass")).toBe("ready");
+    expect(window.EngineCatalog.resolve("strip")).toBe("glass");
     expect(window.EngineCatalog.resolve("glass3d")).toBe("glass");
-    /* Reed glass is deliberately NOT one of them any more. It aliased here on
-     * the reading that Glass covers reeded too; rendered side by side against
-     * the reference, Glass's reeded mode lays faint lines over the layers
-     * behind it and leaves them whole, while capsule.js's reeded panel
-     * actually refracts them. The alias also cost the working engine its row
-     * in the picker, which is catalog-driven. */
-    expect(window.EngineCatalog.resolve("strip")).toBe("strip");
     /* The point is that Glass's several MODES share one entry rather than
      * each getting their own. Matching on the word "glass" in a label was a
      * loose way to say that, and it broke the moment Fractal glass — a
@@ -79,7 +73,7 @@ describe("shared Glass capability", () => {
         .filter((x) => x.rendererType === "glass")
         .map((x) => x.id),
     ).toEqual(["glass"]);
-    for (const mode of ["glass3d", "capsule", "backdropGlass"]) {
+    for (const mode of ["strip", "glass3d", "capsule", "backdropGlass"]) {
       expect([mode, window.EngineCatalog.all().some((x) => x.id === mode)]).toEqual([mode, false]);
     }
   });

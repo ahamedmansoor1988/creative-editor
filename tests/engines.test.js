@@ -70,8 +70,6 @@ describe("the panel renders", () => {
       "linearGradient",
       "mesh",
       "iridescent",
-      "fractal",
-      "strip",
       "shadow",
       "innerShadow",
       "glow",
@@ -136,9 +134,7 @@ describe("the proven capabilities are discoverable", () => {
       "linearGradient",
       "mesh",
       "glass",
-      "strip",
       "iridescent",
-      "fractal",
       "shadow",
       "innerShadow",
       "glow",
@@ -403,11 +399,7 @@ describe("legacy names keep resolving", () => {
     const R = EC().resolve;
     expect(R("capsule")).toBe("glass");
     expect(R("glassobject")).toBe("glass");
-    /* "strip" used to alias onto glass, on the reading that one Glass engine
-     * covers every glass mode. Measured against the reference, Glass's reeded
-     * mode leaves the layers behind it whole; the reeded panel is its own
-     * engine and now its own row. The old spelling still resolves. */
-    expect(R("reededGlass")).toBe("strip");
+    expect(R("strip")).toBe("glass");
     expect(R("backdropGlass")).toBe("glass");
     expect(R("pattern")).toBe("repeater");
     expect(R("echoes")).toBe("repeater");

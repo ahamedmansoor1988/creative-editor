@@ -120,8 +120,6 @@
       <button type="button" data-capability="linearGradient"><i data-icon="palette"></i>Gradient</button>
       <button type="button" data-capability="mesh"><i data-icon="grid"></i>Mesh gradient</button>
       <button type="button" data-capability="iridescent"><i data-icon="sparkles"></i>Iridescence</button>
-      <button type="button" data-capability="fractal"><i data-icon="layers"></i>Fractal glass</button>
-      <button type="button" data-capability="strip"><i data-icon="line"></i>Reed glass</button>
       <div class="menuDivider" aria-hidden="true"></div>
       <div class="menuLabel">Effects</div>
       <button type="button" data-capability="shadow"><i data-icon="layers"></i>Drop shadow</button>
@@ -582,9 +580,8 @@
 <script src="liquidgradient.js"></script>
 <script src="prismflare.js"></script>
 <script src="glassobject.js?v=20260831-glass10"></script>
-<script src="fractalglass.js?v=20260915-rings1"></script>
 <script src="prism.js"></script>
-<script src="capsule.js?v=20260916-art1"></script>
+<script src="capsule.js?v=20260916-clean1"></script>
 <script src="boolean.js"></script>
 <script src="snap.js"></script>
 <script src="components.js"></script>
@@ -601,7 +598,7 @@
      the paint cache ran above 1x, and its long-shadow opacity dead above
      about 0.3). Documents carrying other effects render
      either way. -->
-<script>window.FX_ONLY = ["mesh", "shadow", "iridescent", "fractal", "strip"];</script>
+<script>window.FX_ONLY = ["mesh", "shadow", "iridescent"];</script>
 <script src="fxstack.js?v=20260915-reed3"></script>
 <script src="engine-catalog.js?v=20260915-reed3"></script>
 <script src="reference.js?v=20260906-ref1"></script>
@@ -618,7 +615,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260914-detent2"></script>
-  <script src="app.js?v=20260916-smear1"></script>
+  <script src="app.js?v=20260916-clean1"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>

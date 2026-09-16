@@ -53,10 +53,8 @@
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
-    fractal: { slot: "material", label: "Fractal glass", multi: false },
     prism: { slot: "material", label: "Prism", multi: false, backdrop: true },
     capsule: { slot: "material", label: "Capsule", multi: false, backdrop: true },
-    strip: { slot: "material", label: "Reed glass", multi: false, backdrop: true },
     blob: { slot: "material", label: "Blob", multi: false },
     glass2: { slot: "material", label: "Glass 2", multi: false },
     glass: { slot: "material", label: "Glass", multi: false, backdrop: true },
@@ -95,10 +93,8 @@
     "liquid",
     "flare",
     "glass3d",
-    "fractal",
     "prism",
     "capsule",
-    "strip",
     "glass",
     "gradient",
     "innerShadow",
@@ -139,18 +135,6 @@
      * including a ring. Driven control by control on the canvas; see
      * tests/iridescent.test.js and public/iridescent.js. */
     "iridescent",
-    /* Ported from the author's own glass-ribbons.html. Each strip is a
-     * window onto one shared colour field, sampled a step apart from its
-     * neighbour — that discontinuity between neighbours IS the effect.
-     * See public/fractalglass.js and tests/fractal.test.js. */
-    "fractal",
-    /* Reeded glass: half-cylinder ribs refracting the page BENEATH the layer,
-     * which is the one thing a glass effect has to do and the one thing the
-     * fill-replacing kind cannot. Every control driven and measured against
-     * the reference; see the note on the defaults in app.js. Two are weak and
-     * known: panel thickness barely reads across its whole range, and slope
-     * limit saturates above about 1. */
-    "strip",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran
