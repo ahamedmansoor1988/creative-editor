@@ -208,18 +208,29 @@
       pop.className = "ui-popover ui-popover--slider";
       pop.style.position = "absolute";
       pop.style.zIndex = "1000";
+      /* The value in the popover is a FIELD, not a read-out.
+       *
+       * A slider is the wrong instrument for a value you already know, and
+       * every one of these rows was slider-only: to get 1.55 you dragged until
+       * it said 1.55. The number was right there and could not be typed into.
+       * It is an input now, focused and selected when the popover opens, so a
+       * click on the chip is one gesture to "type the value" — and the range
+       * below it is unchanged for the times you want to feel for it. */
       pop.innerHTML =
         '<span class="ui-label">' +
         esc(o.label || "") +
-        ' <span class="ui-chip"></span></span><input class="ui-range" type="range" aria-label="' +
+        ' <input class="ui-chip ui-chipedit" type="text" inputmode="decimal" autocomplete="off"' +
+        ' spellcheck="false" aria-label="' +
+        esc(o.label || "") +
+        '"></span><input class="ui-range" type="range" aria-label="' +
         esc(o.label || "") +
         '">';
-      const r = pop.querySelector("input"),
-        pc = pop.querySelector(".ui-chip");
+      const r = pop.querySelector("input.ui-range"),
+        pc = pop.querySelector(".ui-chipedit");
       r.min = o.min;
       r.max = o.max;
       r.value = v;
-      pc.textContent = fmt(v);
+      pc.value = fmt(v);
       /* The track's real width decides how coarse a notch has to be, so it is
        * measured once the popover is in the document. Shift swaps to the fine
        * step for as long as it is held. */
@@ -249,13 +260,67 @@
         const raw = +r.value;
         v = dragging ? applyMagnet(raw, mags, span) : raw;
         if (v !== raw) r.value = String(v);
-        pc.textContent = fmt(v);
+        pc.value = fmt(v);
         if (chip) chip.textContent = fmt(v);
         if (o.onInput) o.onInput(v);
       });
       r.addEventListener("change", () => {
         dragging = false;
         if (o.onChange) o.onChange(v);
+      });
+      /* Typing. The field is free text while it has focus — a half-typed
+       * "1." or "-" must not be clamped out from under the caret — and is
+       * parsed on every keystroke so the canvas follows along. What cannot be
+       * read as a number is simply not applied; the field keeps what was
+       * typed until it commits. */
+      const v0 = v; // what Escape puts back
+      let closing = false; // a close must not be read as a commit
+      const readField = (commit) => {
+        const raw = pc.value.trim();
+        if (raw === "" || raw === "-" || raw === "." || raw === "-.") return false;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return false;
+        const nv = clampV(onGrid(n));
+        v = nv;
+        r.value = String(nv);
+        if (chip) chip.textContent = fmt(nv);
+        if (o.onInput) o.onInput(nv);
+        if (commit && o.onChange) o.onChange(nv);
+        return true;
+      };
+      pc.addEventListener("input", () => readField(false));
+      pc.addEventListener("keydown", (ev) => {
+        ev.stopPropagation(); // the chip's own arrow stepping must not also fire
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          readField(true);
+          closing = true;
+          close();
+          btn.focus();
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          /* A real revert. Typing applies as it goes, so by the time Escape is
+           * pressed the document already moved; putting the text back is not
+           * enough. The opening value goes back through onInput — and NOT
+           * through onChange, because an abandoned edit is not a history
+           * entry. */
+          closing = true;
+          if (v !== v0) {
+            v = v0;
+            r.value = String(v0);
+            if (chip) chip.textContent = fmt(v0);
+            if (o.onInput) o.onInput(v0);
+          }
+          close();
+          btn.focus();
+        }
+      });
+      /* Leaving the field commits what is in it and puts the canonical
+       * formatting back, so "1.5000" and "1.5" settle to the same text. */
+      pc.addEventListener("blur", () => {
+        if (closing) return; // Enter and Escape have already decided
+        readField(true);
+        pc.value = fmt(v);
       });
       pop.addEventListener("pointerdown", (ev) => ev.stopPropagation());
       document.body.appendChild(pop);
@@ -281,7 +346,12 @@
         }
       }, 0);
       open = { btn, pop, onDoc, onKey, onScroll, onShift };
-      r.focus();
+      /* The FIELD takes focus, not the range. The range held it so arrow keys
+       * worked without a second click; typing is the primary action now and the
+       * range is one Tab away. Two focus calls would also have meant the field
+       * blurring the instant it opened — and blur commits. */
+      pc.focus();
+      pc.select();
     });
     return {
       get: () => v,

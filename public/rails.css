@@ -535,6 +535,30 @@
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
+/* The popover's value is a field you can type in, and it has to keep looking
+   like the chip it replaced: same ink pill, same tabular figures, same height.
+   An input inherits none of that, so the chip's box is restated here rather
+   than loosened on `.ui-chip` itself — which would start sizing every read-out
+   chip in the app by a width instead of its content. */
+.ui-chip.ui-chipedit {
+  width: 62px;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  text-align: center;
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  caret-color: var(--on-ink);
+}
+.ui-chip.ui-chipedit:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus, #4c8dff);
+}
+.ui-chip.ui-chipedit::selection {
+  background: var(--on-ink);
+  color: var(--ink);
+}
+
 .ui-pchip {
   display: inline-flex;
   align-items: center;
