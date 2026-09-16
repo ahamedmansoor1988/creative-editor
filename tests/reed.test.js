@@ -115,9 +115,9 @@ describe("the document keeps every parameter inside what the panel can undo", ()
      * intact, so it read as a shape cut up rather than one seen THROUGH
      * glass. Measured one control at a time on the real engine. */
     const S = withReed().effects.strip;
-    expect(S.ribWidth).toBeCloseTo(0.06, 5);
+    expect(S.ribWidth).toBeCloseTo(0.08, 5);
     expect(S.bulge).toBeCloseTo(0.7, 5);
-    expect(S.smear).toBeCloseTo(3.5, 5);
+    expect(S.smear).toBeCloseTo(2, 5);
     expect(S.dispersion).toBeCloseTo(0.02, 5);
     expect(S.ior).toBeCloseTo(1.55, 5);
     expect(S.angle).toBe(0);
@@ -126,8 +126,8 @@ describe("the document keeps every parameter inside what the panel can undo", ()
      * goes back to being hard-edged and jittery — so it is pinned. Sheen and
      * seam are what make the panel visible at all over a flat colour. */
     expect(S.soften).toBeCloseTo(0.8, 5);
-    expect(S.sheen).toBeCloseTo(0.34, 5);
-    expect(S.seam).toBeCloseTo(0.34, 5);
+    expect(S.sheen).toBeCloseTo(0.45, 5);
+    expect(S.seam).toBeCloseTo(0.45, 5);
   });
 
   it("seam depth can never paint ink over what is behind the glass", () => {
@@ -164,8 +164,8 @@ describe("the document keeps every parameter inside what the panel can undo", ()
 
   it("a value that is not a number falls back rather than reaching the shader", () => {
     const S = withReed({ ribWidth: "fine", smear: undefined }).effects.strip;
-    expect(S.ribWidth).toBeCloseTo(0.06, 5);
-    expect(S.smear).toBeCloseTo(3.5, 5);
+    expect(S.ribWidth).toBeCloseTo(0.08, 5);
+    expect(S.smear).toBeCloseTo(2, 5);
   });
 
   it("it only turns on for the shapes the engine can box", () => {

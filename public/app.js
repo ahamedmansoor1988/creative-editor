@@ -304,9 +304,9 @@ const DEFAULT_EFFECTS=()=>({
    * and smear 1.6 left the shapes behind it nearly intact, so it read as a
    * shape that had been cut up rather than one seen THROUGH glass; dispersion
    * 0.048 put more colour fringing on the rib edges than reeded glass has. */
-  strip:{on:false,bulge:0.7,ribWidth:0.06,angle:0,thickness:0.8,
-         ior:1.55,dispersion:0.02,slopeLimit:6,smear:3.5,
-         soften:0.8,sheen:0.34,seam:0.34},
+  strip:{on:false,bulge:0.7,ribWidth:0.08,angle:0,thickness:0.8,
+         ior:1.55,dispersion:0.02,slopeLimit:6,smear:2,
+         soften:0.8,sheen:0.45,seam:0.45},
   // §4.8 blur — gaussian / directional / zoom
   blur:{kind:'gaussian',radius:0,angle:0,distance:20,amount:0.2,cx:0,cy:0},
   // Bloom isolates bright rendered pixels, softens them, then adds the light back.
@@ -4268,8 +4268,13 @@ function drawOneInner(c,W,H,obj){
        * Rendered at the size it is seen at, the ribs come out clean. */
       const ss=targetScale(c);
       const sbox={x:obj.x*ss,y:obj.y*ss,w:obj.w*ss,h:obj.h*ss};
+      /* The artboard, in the same canvas pixels, so the engine knows where the
+       * document ends. Without it a ray that ran off the page sampled the
+       * editor's own surround and brought it back into the panel. */
+      const fr=(doc&&doc.frame)||{w:W/Math.max(ss,1e-6),h:H/Math.max(ss,1e-6)};
       const img=window.CapsuleEngine.strip(c.canvas,W,H,sbox,
-        Object.assign({},st,{pageBg:(doc&&doc.frame&&doc.frame.bg)||'#ffffff'}));
+        Object.assign({},st,{pageBg:fr.bg||'#ffffff',
+          artboard:{x:0,y:0,w:fr.w*ss,h:fr.h*ss}}));
       if(img){
         c.save();
         c.globalAlpha=obj.opacity;

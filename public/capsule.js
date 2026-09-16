@@ -271,6 +271,7 @@ uniform vec2  uPage;        // full canvas size
 uniform vec2  uBoxPos;      // box top-left in canvas px
 uniform float uRibW, uSag, uAng, uThick, uIor, uDisp, uSlopeMax, uSmear;
 uniform vec3  uPageBg;
+uniform vec4  uArt;         // artboard rect in canvas px (x, y, w, h)
 uniform float uSoft, uSpec, uSeam;
 
 /* Composite the page texel over the artboard's own background.
@@ -283,6 +284,16 @@ uniform float uSoft, uSpec, uSeam;
  * the edges are exactly where it happened: black bands down every seam.
  * Clear glass over an empty page has to read as the page, not as ink. */
 vec3 sampleBD(vec2 px){
+  /* Off the ARTBOARD is page background — not whatever the editor happens to
+   * have painted around it.
+   *
+   * This clamped to the canvas, and the canvas is the whole stage: the app's
+   * own dark surround lives out there. Any ray that ran off the artboard came
+   * back carrying that surround, and with a long smear most of them did. That
+   * is where the dark blocks across the panels came from — a colour the
+   * document does not contain anywhere. */
+  vec2 lo = uArt.xy, hi = uArt.xy + uArt.zw;
+  if (px.x < lo.x || px.y < lo.y || px.x > hi.x || px.y > hi.y) return uPageBg;
   vec4 t = texture(uBD, clamp(px / uPage, 0.0, 1.0));
   return mix(uPageBg, t.rgb, t.a);
 }
@@ -364,7 +375,15 @@ void main(){
    * at full depth a seam is 40% brightness, never nothing. */
   float seam = uSeam * smoothstep(0.82, 1.0, e);
   col *= mix(1.0, 0.4, clamp(seam, 0.0, 1.0));
-  col += uSpec * pow(max(0.0, 1.0 - e * 1.9), 6.0);
+  /* The crown highlight lifts into the HEADROOM that is left, rather than
+   * being added on top. A flat add blew every rib out to white wherever the
+   * subject behind was already bright — which over a light artboard is most
+   * of the time — and washed the colour out of exactly the part of the panel
+   * the effect is meant to show. Lifting by (1 - col) cannot exceed white,
+   * and it brightens a dark subject more than a light one, which is also how
+   * a real highlight behaves. */
+  float spec = uSpec * pow(max(0.0, 1.0 - e * 1.9), 6.0);
+  col += spec * (1.0 - col);
 
   fragColor = vec4(col, 1.0);
 }`;
@@ -555,8 +574,20 @@ function strip(srcCanvas, W, H, box, P){
   gl.uniform1f(u('uIor'), P.ior);
   gl.uniform1f(u('uDisp'), P.dispersion);
   gl.uniform1f(u('uSlopeMax'), P.slopeLimit);
-  gl.uniform1f(u('uSmear'), P.smear * ribPx);
+  /* Smear is a SCENE distance, not a rib one: how far a rib throws a ray
+   * sideways is the angle it bends times how far behind it the subject sits,
+   * and that distance belongs to the scene. Measuring it in rib widths made
+   * the displacement collapse to a few pixels and the panel read as scratches
+   * laid over the subject rather than the subject seen through glass.
+   *
+   * What made scene-scale distances dangerous before was not the unit: it was
+   * that a long ray ran off the artboard and came back carrying the editor's
+   * surround. sampleBD answers with the page colour out there now, so the
+   * distance can be as long as the look needs. */
+  gl.uniform1f(u('uSmear'), P.smear * ref);
   gl.uniform3fv(u('uPageBg'), hex3(P.pageBg || '#ffffff'));
+  const A = P.artboard || { x: 0, y: 0, w: W, h: H };
+  gl.uniform4f(u('uArt'), A.x, A.y, A.w, A.h);
   gl.uniform1f(u('uSoft'), P.soften === undefined ? 0.5 : P.soften);
   gl.uniform1f(u('uSpec'), P.sheen === undefined ? 0.16 : P.sheen);
   gl.uniform1f(u('uSeam'), P.seam === undefined ? 0.22 : P.seam);
