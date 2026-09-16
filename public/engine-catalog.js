@@ -96,6 +96,21 @@
       description:
         "Refract a layer as backdrop, frosted, reeded, or 3D glass from one editable material.",
     },
+    /* Its own row. The picker ("Add fill or effect") is built from the
+     * catalog, so an effect that resolves onto another id has no row of its
+     * own however ready it is — which is how the last fluted-glass engine came
+     * to be promoted, allowed by FX_ONLY, wired to a menu row, and still
+     * unreachable the way people actually add effects. */
+    {
+      id: "reed",
+      label: "Reed glass",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "reed",
+      supportedInputs: ["rect", "ellipse"],
+      description: "Fluted glass: each flute refracts the layers behind this one.",
+    },
     {
       id: "innerLens",
       label: "Inner lens",

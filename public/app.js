@@ -313,6 +313,14 @@ const DEFAULT_EFFECTS=()=>({
   slice:{count:8,axis:'horizontal',offset:0,gap:0,mode:'ramp',seed:1,edge:'clamp'},
   // §4.12 noise
   noise:{amount:0,mono:true,scale:1,seed:1},
+  /* §5.x Reed glass — a sheet of fluted glass over the layers beneath it.
+   * The panel has NO colour of its own: every value here is geometry or
+   * optics, and the subject is whatever the document already has under it.
+   * Defaults are the reference preset from the standalone shader maker,
+   * measured off a reference video (53px flute pitch, each flute an inverted
+   * ~3.3x compressed copy of the backdrop). */
+  reed:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
+        seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
   glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -1072,6 +1080,20 @@ function normChildren(list,depth){
           if(!/^#[0-9a-fA-F]{6}$/.test(cap[k]||'')) cap[k]=de.capsule[k];
         });
       }
+      /* §5.x Reed glass. Snapshot the defaults BEFORE the assign: Object.assign
+       * mutates its target, so de.reed and rd are the same object from the next
+       * line on, and a fallback that reads de.reed[k] hands back the very value
+       * it was meant to replace. */
+      const rdDef=Object.assign({},de.reed);
+      const rd=Object.assign(de.reed, ce.reed||{});
+      rd.on=!!rd.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      {
+        const n=(k,lo,hi)=>{ const v=+rd[k]; rd[k]=Number.isFinite(v)?clamp(v,lo,hi):rdDef[k]; };
+        n('fluteW',4,400); n('phase',0,1); n('bulge',0.05,1);
+        n('ior',1,2.4); n('disp',0,0.08); n('thick',0,4); n('gap',0,20);
+        n('seamW',0,6); n('seamDark',0,1); n('fresnel',0,2);
+        n('spec',0,4); n('lightAng',-80,80); n('lightW',0.05,1); n('ambient',0,0.3);
+      }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
       const blur=Object.assign(de.blur, ce.blur||{});
       blur.kind=['gaussian','directional','zoom'].includes(blur.kind)?blur.kind:'gaussian';
@@ -1249,7 +1271,7 @@ function normChildren(list,depth){
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
-        prism:pr, capsule:cap,
+        prism:pr, capsule:cap, reed:rd,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -4134,6 +4156,43 @@ function drawOneInner(c,W,H,obj){
       window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
       return;
     }
+    const rdx=fx.reed;
+    if(rdx&&fxOn(obj,'reed')&&obj.type!=='text'&&window.ReedGlassEngine&&window.ReedGlassEngine.available()){
+      /* A sheet of fluted glass: it reads the page BENEATH it and refracts it,
+       * clipped to the shape's outline. It replaces the fill because it has no
+       * colour of its own — the subject is whatever is already under it.
+       *
+       * Everything handed to the engine is in CANVAS PIXELS, through the full
+       * transform. canvasRect carries the pan as well as the scale; using the
+       * scale alone puts the box, and every ray cast from it, off by whatever
+       * the canvas is scrolled by. The artboard goes in the same units so a ray
+       * that runs off the page answers with the page colour instead of pulling
+       * in the editor's own surround. */
+      const tm=(c.getTransform&&c.getTransform())||null;
+      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
+      const fr=(doc&&doc.frame)||{w:W,h:H};
+      const sx=sbox.w/Math.max(1e-6,obj.w);
+      /* The SOURCE canvas's own size, not W/H — those are the frame's, and the
+       * two are different numbers. uScene normalises every sample into the
+       * texture, so handing it the document size instead of the canvas size
+       * sends every ray to the wrong place: the panel came out blank because
+       * its samples landed off the page. */
+      const img=window.ReedGlassEngine.render(c.canvas,c.canvas.width,c.canvas.height,sbox,
+        canvasRect(tm,0,0,fr.w,fr.h),
+        /* Flute pitch and seam are DOCUMENT lengths in the panel and device
+         * lengths in the shader, so they scale with the canvas; everything else
+         * is in flute half-widths and is already scale-free. */
+        Object.assign({},rdx,{fluteW:rdx.fluteW*sx,seamW:rdx.seamW*sx,
+          pageBg:fr.bg||'#ffffff'}));
+      if(img){
+        c.save();
+        c.globalAlpha=obj.opacity;
+        pathFor(c,obj); c.clip();
+        c.drawImage(img,obj.x,obj.y,obj.w,obj.h);
+        c.restore();
+        return;
+      }
+    }
     const gla=fx.glass;
     /* The active backdrop material, asked ONCE and used for both the
      * behind-slot pre-pass and the pixel capture below. Text is excluded
@@ -5863,7 +5922,7 @@ try{
 }catch(_){}
 const PAGE_TYPE={
   'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
-  'Glass 3D':'glass3d','Prism':'prism','Capsule':'capsule',
+  'Glass 3D':'glass3d','Reed glass':'reed','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
@@ -5940,11 +5999,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -6939,6 +6998,7 @@ function fxActive(obj,name){
     }
     case 'Mesh':     return !!(e.mesh&&e.mesh.on);
     case 'Iridescence': return !!(e.iridescent&&e.iridescent.on);
+    case 'Reed glass': return !!(e.reed&&e.reed.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -8462,6 +8522,54 @@ function buildFxSection(obj,page,add,body){
         sl('prSteps','March steps',8,192,4,'steps',int);
         sl('prScale','Render scale',0.15,1,0.05,'scale',pct);
         add(`<div class="fxHint">A collimated beam traced forward through the solid — entry refraction, the walk inside, exit refraction — with the exit fan dispersed per wavelength. Ported from the Glass Prism app.<br><br>Unlike the other engines this one accumulates samples, so Quality costs real time; dragging a slider shows a draft. It renders across the whole page rather than clipped to the shape, because the fan has to leave the solid, and it ignores Pattern copies. Designed for a dark background.</div>`);
+      }
+    }
+  }
+
+  if(page==='Reed glass'){
+    const R=obj.effects.reed;
+    if(!(window.ReedGlassEngine&&window.ReedGlassEngine.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="rdOn" ${R.on?'checked':''}> Enable reed glass</label>`);
+      $('rdOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      if(R.on){
+        const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+          id, label, min, max, step, value:R[key],
+          format:v=>(+v).toFixed(dp),
+          onInput:v=>{ R[key]=v; render(); },
+          onChange:()=>pushHistory(label),
+        });
+        const RGE=window.ReedGlassEngine;
+        const pre=(RGE&&Array.isArray(RGE.PRESETS))?RGE.PRESETS:[];
+        if(pre.length){
+          add(`<label class="slider uiRow"><span>Preset</span>
+            <select id="rdPre">${pre.map(k=>
+              `<option value="${esc(k)}">${esc(k[0].toUpperCase()+k.slice(1))}</option>`).join('')}
+            </select></label>`);
+          $('rdPre').addEventListener('change',e=>{
+            Object.assign(R,(RGE.presetValues&&RGE.presetValues(e.target.value))||{});
+            pushHistory('Reed preset'); refresh();
+          });
+        }
+        add('<div class="secTitle">Flutes</div>');
+        ch('rdW','Flute width',4,400,1,'fluteW',0);
+        ch('rdPh','Seam offset',0,1,0.01,'phase',2);
+        ch('rdBu','Bulge',0.05,1,0.01,'bulge',2);
+        ch('rdSw','Seam width',0,6,0.1,'seamW',1);
+        ch('rdSd','Seam depth',0,1,0.01,'seamDark',2);
+        add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
+        ch('rdIor','IOR',1,2.4,0.01,'ior',2);
+        ch('rdDs','Dispersion',0,0.08,0.001,'disp',3);
+        ch('rdTh','Thickness',0,4,0.05,'thick',2);
+        ch('rdGp','Distance',0,20,0.1,'gap',1);
+        add('<div class="secTitle" style="margin-top:8px">Light</div>');
+        ch('rdFr','Edge fresnel',0,2,0.01,'fresnel',2);
+        ch('rdSp','Highlight',0,4,0.01,'spec',2);
+        ch('rdLa','Light angle',-80,80,1,'lightAng',0);
+        ch('rdLw','Light width',0.05,1,0.01,'lightW',2);
+        ch('rdAm','Reflection',0,0.3,0.005,'ambient',3);
+        add(`<div class="fxHint">Fluted glass: each flute refracts the layers <b>behind</b> this one into an inverted, compressed copy. It has no colour of its own — put it over the shapes you want broken up, and the parts of them that stick out past the panel stay whole. Distance is how far behind the page reads as; Highlight and Reflection are what make the panel visible over flat colour.</div>`);
       }
     }
   }
@@ -13307,17 +13415,18 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
+    reed:    o=>Object.assign(o.effects.reed,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',reed:'line',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second

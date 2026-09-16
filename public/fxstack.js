@@ -50,6 +50,7 @@
      * of a fill that is then invisible but still casting the shadow. */
     mesh: { slot: "material", label: "Mesh gradient", multi: false },
     iridescent: { slot: "material", label: "Iridescence", multi: false },
+    reed: { slot: "material", label: "Reed glass", multi: false, backdrop: true },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -87,6 +88,7 @@
     /* Ported from Chromaform; see public/iridescent.js. Beside the mesh
        because it is the other material that IS what the shape shows. */
     "iridescent",
+    "reed",
     "blob",
     "glass2",
     "light",
@@ -135,6 +137,15 @@
      * including a ring. Driven control by control on the canvas; see
      * tests/iridescent.test.js and public/iridescent.js. */
     "iridescent",
+    /* Fluted glass refracting the layers BENEATH the panel — the one thing a
+     * glass effect has to do, and the thing a material built from its own fill
+     * cannot do at all. The shader is ported from the author's own reed-glass
+     * shader maker, whose defaults were measured off a reference video; the
+     * optics are carried across untouched and only the source of a sample
+     * changed. Driven in a mockup over four backdrops before it came near the
+     * editor: mean saturation through the panel holds at 93-98% of the
+     * backdrop's. See public/reedglass.js and tests/reed-glass.test.js. */
+    "reed",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran
