@@ -67,7 +67,13 @@ float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453
    transmitted term and hands the whole weight to the reflection below. */
 vec2 trace(float u, float ior, float R){
   float su = (u < 0.0) ? -1.0 : 1.0;
-  float sa = clamp(abs(u) / R, 0.0, 1.0);            // sin(alpha): surface tilt
+  /* Just short of 1. At bulge 1 the flute is a full semicircle and the surface
+   * is vertical at the seam: sin(alpha) reaches 1, alpha reaches 90 degrees,
+   * and tan(beta) runs away — the last pixel of every flute samples somewhere
+   * arbitrary and comes back as a stray line down the panel. A hair off the
+   * singularity keeps the whole range usable; it is a numerical guard, not a
+   * change of look, and below bulge 1 nothing reaches it. */
+  float sa = clamp(abs(u) / R, 0.0, 0.9975);         // sin(alpha): surface tilt
   float ca = sqrt(1.0 - sa * sa);
   float alpha = asin(sa);
   float sg = sa / ior;                               // Snell, air -> glass
@@ -84,8 +90,17 @@ vec2 trace(float u, float ior, float R){
 /* The page under the panel. Off the ARTBOARD is page background — the canvas
    carries the editor's surround out there and it is not part of the document. */
 vec3 page(vec2 sp){
-  vec2 lo = uArt.xy, hi = uArt.xy + uArt.zw;
-  if (sp.x < lo.x || sp.y < lo.y || sp.x > hi.x || sp.y > hi.y) return uPageBg;
+  /* Off the page, CONTINUE the page — do not flood a colour.
+   *
+   * This answered with the document's background outside the artboard, and a
+   * boolean like that paints a hard-edged bar wherever a flute's ray runs off
+   * the page: on a document whose frame background is dark, a black bar the
+   * full height of the panel. Clamping the sample to the artboard instead
+   * extends the edge, which is both continuous and what glass at the edge of a
+   * scene actually shows. It also makes the panel independent of the frame
+   * colour, which it has no business depending on. */
+  vec2 lo = uArt.xy, hi = uArt.xy + uArt.zw - 1.0;
+  sp = clamp(sp, lo, max(lo, hi));
   /* Composite over the page colour instead of reading .rgb straight.
    *
    * The editor canvas is TRANSPARENT wherever nothing has been painted, and a
