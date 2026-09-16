@@ -3573,6 +3573,26 @@ function targetScale(c){
   }catch(_){ /* older contexts: fall through to the canvas ratio */ }
   return 1;
 }
+/** A document rect in CANVAS PIXELS, under the context's current transform.
+ *
+ * The transform the editor sets is
+ *     setTransform(z*dpr, 0, 0, z*dpr, view.x*dpr, view.y*dpr)
+ * — a scale AND a pan. Every backdrop material has to place itself in canvas
+ * pixels to sample the page, and the strip path did that with targetScale()
+ * alone, which returns only t.a. Dropping the translation put its box, and so
+ * every ray it casts, off by the pan: the panel sampled a region of the canvas
+ * unrelated to what sits behind it. At zero pan the offset is zero and it
+ * looks perfect, which is why it survived so long.
+ *
+ * Pulled out as a function so the arithmetic can be tested on its own: the
+ * jsdom canvas never applies this transform, so nothing driven through
+ * render() can observe the bug. */
+function canvasRect(tm,x,y,w,h){
+  const fin=(v,d)=>Number.isFinite(v)?v:d;
+  let sx=fin(tm&&tm.a,1); if(!(sx>0)) sx=1;
+  let sy=fin(tm&&tm.d,sx); if(!(sy>0)) sy=sx;
+  return {x:fin(tm&&tm.e,0)+x*sx, y:fin(tm&&tm.f,0)+y*sy, w:w*sx, h:h*sy};
+}
 function fxEntries(obj,slot){
   const FS=window.FxStack;
   if(!FS||!obj.fx) return [];
@@ -4266,15 +4286,29 @@ function drawOneInner(c,W,H,obj){
        * across, i.e. magnified — and this effect is nothing but edges, so
        * magnifying them is what made it read as jittery and stair-stepped.
        * Rendered at the size it is seen at, the ribs come out clean. */
-      const ss=targetScale(c);
-      const sbox={x:obj.x*ss,y:obj.y*ss,w:obj.w*ss,h:obj.h*ss};
-      /* The artboard, in the same canvas pixels, so the engine knows where the
-       * document ends. Without it a ray that ran off the page sampled the
-       * editor's own surround and brought it back into the panel. */
-      const fr=(doc&&doc.frame)||{w:W/Math.max(ss,1e-6),h:H/Math.max(ss,1e-6)};
+      /* The FULL transform, offset included.
+       *
+       * This used targetScale(), which returns only t.a — the scale. But the
+       * canvas transform is set as
+       *     setTransform(z*dpr, 0, 0, z*dpr, view.x*dpr, view.y*dpr)
+       * and that translation is the pan. Dropping it put the box, and with it
+       * every ray the shader casts, off by the pan: the panel sampled a region
+       * of the canvas that had nothing to do with what is behind it, which is
+       * where the vertical streaking of unrelated content came from. The
+       * artboard rect was pinned at the canvas origin for the same reason, so
+       * the clamp that is supposed to keep the editor's surround out was
+       * testing the wrong rectangle and let it back in.
+       *
+       * At zero pan the offset is zero and all of this looks correct, which is
+       * why it survived every check that did not scroll the canvas. */
+      const tm=(c.getTransform&&c.getTransform())||null;
+      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
+      /* The artboard in those same canvas pixels, so the engine knows where
+       * the document ends and answers with the page colour beyond it. */
+      const fr=(doc&&doc.frame)||{w:W,h:H};
       const img=window.CapsuleEngine.strip(c.canvas,W,H,sbox,
         Object.assign({},st,{pageBg:fr.bg||'#ffffff',
-          artboard:{x:0,y:0,w:fr.w*ss,h:fr.h*ss}}));
+          artboard:canvasRect(tm,0,0,fr.w,fr.h)}));
       if(img){
         c.save();
         c.globalAlpha=obj.opacity;
@@ -13510,7 +13544,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
-  render, refresh, renderImmediate,
+  render, refresh, renderImmediate, canvasRect,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   echoInstances, normalizeEcho,

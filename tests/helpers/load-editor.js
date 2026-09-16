@@ -111,9 +111,46 @@ export function makeCtxStub() {
     clearRect: noop("clearRect"),
     fillText: noop("fillText"),
     strokeText: noop("strokeText"),
-    setTransform: noop("setTransform"),
-    translate: noop("translate"),
-    scale: noop("scale"),
+    /* The transform is TRACKED, not swallowed.
+     *
+     * setTransform was a no-op and there was no getTransform at all, so every
+     * stubbed context reported the identity. Anything in app.js that reads the
+     * CTM back — and the material draw paths do, to place themselves in canvas
+     * pixels — was therefore tested against a transform the real canvas never
+     * has. That is how a draw path that ignored the pan could pass: at the
+     * identity there is no pan to ignore. Only the parts app.js uses (scale
+     * and translation; nothing rotates the artboard) are modelled. */
+    setTransform(a, b, c2, d, e, f) {
+      calls.push({ name: "setTransform", args: [...arguments] });
+      if (a && typeof a === "object") ({ a, b, c: c2, d, e, f } = a);
+      this._m = {
+        a: a ?? 1,
+        b: b ?? 0,
+        c: c2 ?? 0,
+        d: d ?? 1,
+        e: e ?? 0,
+        f: f ?? 0,
+      };
+    },
+    getTransform() {
+      return { ...(this._m || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) };
+    },
+    resetTransform() {
+      calls.push({ name: "resetTransform", args: [] });
+      this._m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    },
+    translate(x, y) {
+      calls.push({ name: "translate", args: [x, y] });
+      const m = this._m || (this._m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+      m.e += m.a * x;
+      m.f += m.d * y;
+    },
+    scale(x, y) {
+      calls.push({ name: "scale", args: [x, y] });
+      const m = this._m || (this._m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+      m.a *= x;
+      m.d *= y;
+    },
     rotate: noop("rotate"),
     drawImage: noop("drawImage"),
     putImageData: noop("putImageData"),

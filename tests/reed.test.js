@@ -265,3 +265,54 @@ describe("the page's own FX_ONLY gate lets it through", () => {
     expect(gated.FX_PAGES(gated.doc.frame.children[0])).toContain("Strip");
   });
 });
+
+describe("it samples the page where the page actually is", () => {
+  /* The defect this suite did not have and should have had.
+   *
+   * The editor sets its canvas transform as
+   *     setTransform(z*dpr, 0, 0, z*dpr, view.x*dpr, view.y*dpr)
+   * — a scale AND a pan. The strip draw path placed its box with
+   * targetScale(), which returns only the scale, so once the canvas was
+   * scrolled the panel sampled a region of the canvas unrelated to what sits
+   * behind it, and the artboard rect that keeps the editor's own surround out
+   * of the picture was tested against the wrong rectangle. At zero pan the
+   * offset is zero and every number is right, which is exactly why it lasted.
+   *
+   * It is tested here on the arithmetic directly, because it cannot be tested
+   * any other way: the jsdom canvas never applies that transform, so anything
+   * driven through render() sees the identity and the bug disappears. */
+  const ed = () => /** @type {any} */ (globalThis.window).__editor;
+
+  it("carries the pan into the rect, not just the scale", () => {
+    const tm = { a: 2, b: 0, c: 0, d: 2, e: 140, f: 90 };
+    expect(ed().canvasRect(tm, 100, 50, 200, 400)).toEqual({
+      x: 140 + 200,
+      y: 90 + 100,
+      w: 400,
+      h: 800,
+    });
+  });
+
+  it("places the artboard with the same transform, or the clamp guards nothing", () => {
+    const tm = { a: 2, b: 0, c: 0, d: 2, e: 140, f: 90 };
+    const art = ed().canvasRect(tm, 0, 0, 800, 600);
+    const box = ed().canvasRect(tm, 100, 50, 200, 400);
+    expect(art).toEqual({ x: 140, y: 90, w: 1600, h: 1200 });
+    /* The invariant that keeps the surround out: a panel on the page samples
+     * the page. It only holds if both rects move together. */
+    expect(box.x).toBeGreaterThanOrEqual(art.x);
+    expect(box.y).toBeGreaterThanOrEqual(art.y);
+    expect(box.x + box.w).toBeLessThanOrEqual(art.x + art.w);
+    expect(box.y + box.h).toBeLessThanOrEqual(art.y + art.h);
+  });
+
+  it("survives a context that reports no usable transform", () => {
+    expect(ed().canvasRect(null, 10, 20, 30, 40)).toEqual({ x: 10, y: 20, w: 30, h: 40 });
+    expect(ed().canvasRect({ a: 0, d: NaN }, 10, 20, 30, 40)).toEqual({
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 40,
+    });
+  });
+});
