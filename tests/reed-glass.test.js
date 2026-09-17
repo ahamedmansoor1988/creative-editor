@@ -309,6 +309,17 @@ describe("Fractal glass — the flutes over a field of its own", () => {
     expect(C.ready().map((e) => e.id)).toContain("fractal");
   });
 
+  it("ships without a seam, because the field it refracts is continuous", () => {
+    /* Reed grooves its flutes: a real reeded pane has a physical join and you
+     * are looking THROUGH it at something else. Here the subject is one
+     * continuous field of the effect's own making, and a dark line every flute
+     * width cuts it into slats. The controls remain, so a seam is a drag away. */
+    const R = withFractal().effects.fractal;
+    expect(R.seamDark).toBe(0);
+    expect(R.seamW).toBe(0);
+    expect(withFractal({ seamDark: 0.6 }).effects.fractal.seamDark).toBeCloseTo(0.6, 5);
+  });
+
   it("takes its palette from the Iridescence sets", () => {
     /* Shared deliberately: two effects inventing their own colour worlds is
      * how a product ends up with eight palettes that nearly match. */

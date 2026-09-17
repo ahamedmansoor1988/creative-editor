@@ -326,8 +326,14 @@ const DEFAULT_EFFECTS=()=>({
    * is shared with Iridescence so the two sit in the same colour world, and
    * the standalone's animation is deliberately absent — drift moves the field
    * by hand instead, because a document must export as what you see. */
+  /* No seam by default. Reed glass grooves its flutes because a real reeded
+   * pane has a physical join between them and you are looking THROUGH it at
+   * something else. Here the subject is one continuous field of the effect's
+   * own making, and a dark line every flute width cuts it into slats rather
+   * than refracting it. The controls stay — a seam is one drag away when the
+   * look wants it. */
   fractal:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
-    seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
+    seamW:0,seamDark:0,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
     blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,
     colors:IRI_PALETTES[0].colors.slice()},
   blob:{on:false,smoothness:40,mode:'union'},
