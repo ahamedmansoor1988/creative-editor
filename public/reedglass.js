@@ -87,43 +87,37 @@ vec2 trace(float u, float ior, float R){
   return vec2(u - su * dx, trans);
 }
 
-/* The page under the panel. Off the ARTBOARD is page background — the canvas
-   carries the editor's surround out there and it is not part of the document. */
+/* The page under the panel — whatever the document has painted there.
+ *
+ * Three bugs lived in these four lines, each one a bar down the panel, and
+ * each found only after the one before it was fixed:
+ *
+ *   1. off the artboard it answered with the page colour. A boolean like that
+ *      paints a hard-edged bar wherever a ray runs off the page — black, on a
+ *      document whose frame background is dark. Clamping instead continues the
+ *      page, which is what glass at the edge of a scene shows, and it makes the
+ *      panel independent of the frame colour it had no business depending on.
+ *   2. clamping to the ARTBOARD is not enough. The canvas holds only what is on
+ *      screen; zoom in and the artboard runs well past it — measured at x -300
+ *      to 2660 against a 1500px canvas. A sample pinned to the artboard is then
+ *      still outside the TEXTURE, where CLAMP_TO_EDGE hands back whatever the
+ *      canvas's outermost column holds. Hence the intersection of the two.
+ *   3. the artboard's own outermost column is not page either: it is the
+ *      artboard's border and the antialiasing under it. Measured off the live
+ *      canvas, the edge column reads 219,221,223 where one pixel in reads
+ *      255,255,255 — and since every off-page ray lands on that same column,
+ *      it came back as a solid BAR of border grey, darker the smaller the
+ *      artboard is drawn. Two device pixels in clears it.
+ *
+ * Only the third needs the editor's real artboard chrome to appear at all. A
+ * synthetic scene paints the artboard as a plain rect, so its edge column IS
+ * the page, and seven harness reproductions came back clean while the bug was
+ * sitting in front of the user. What found it was reading the canvas itself at
+ * those two columns instead of rendering another approximation.
+ *
+ * Where artboard and texture do not overlap there is nothing to sample and the
+ * page colour is the honest answer. */
 vec3 page(vec2 sp){
-  /* Off the page, CONTINUE the page — do not flood a colour.
-   *
-   * This answered with the document's background outside the artboard, and a
-   * boolean like that paints a hard-edged bar wherever a flute's ray runs off
-   * the page: on a document whose frame background is dark, a black bar the
-   * full height of the panel. Clamping the sample to the artboard instead
-   * extends the edge, which is both continuous and what glass at the edge of a
-   * scene actually shows. It also makes the panel independent of the frame
-   * colour, which it has no business depending on. */
-  /* Inside the artboard AND inside the texture.
-   *
-   * Clamping to the artboard alone is not enough, and this is the case the
-   * artboard clamp missed. The canvas holds only what is on screen: zoom in
-   * and the artboard runs well past it — measured at x -300 to 2660 against a
-   * 1500px canvas. A sample pinned to the artboard is then still outside the
-   * TEXTURE, where CLAMP_TO_EDGE hands back whatever the canvas's outermost
-   * column happens to hold. That is why this showed up when the page was
-   * scaled past the edge of the canvas and not before.
-   *
-   * Where the two do not overlap at all there is nothing to sample and the
-   * page colour is the honest answer. */
-  /* INSET past the artboard's own edge chrome.
-   *
-   * Clamping to the artboard's exact bounds pins every off-page ray onto its
-   * OUTERMOST column — and that column is not page, it is the artboard's
-   * border and the antialiasing under it. Measured off the real canvas: the
-   * edge column reads 219,221,223 while one pixel in reads 255,255,255. A ray
-   * that runs off the page therefore came back carrying border grey, and
-   * since every ray in that region lands on the same column, it came back as
-   * a solid BAR of it — darker the smaller the artboard is drawn.
-   *
-   * Two device pixels in is past the border and its antialiasing. This is the
-   * one a synthetic harness cannot show: paint the artboard as a plain rect,
-   * as every test here did, and its edge column is simply the page. */
   vec2 lo = max(uArt.xy + 2.0, vec2(0.0));
   vec2 hi = min(uArt.xy + uArt.zw - 2.0, uScene - 1.0);
   if (hi.x < lo.x || hi.y < lo.y) return uPageBg;
