@@ -168,7 +168,17 @@ void main(){
     float refl = 2.0 * asin(clamp(u / R, -1.0, 1.0));
     float lobe = exp(-pow((refl - uLightAng) / uLightW, 2.0));
     float refW = mix(F, 1.0, 1.0 - tg.y);
-    vec3 cR = vec3(uAmbient + uSpec * lobe) * refW;
+    /* Fresnel MOVES light from transmission into reflection; it does not
+     * destroy it. cT is already scaled by (1 - Ft), and what a facet reflects
+     * at a grazing angle is its surroundings — for a panel lying on a page,
+     * the page. Without the Ft * mir term the only light left at a seam was
+     * the 0.12 ambient, which the seam darkening then took to about 0.03: a
+     * black line down every flute, over a white page, the full height of the
+     * panel whether or not anything was behind it. Same root cause as the TIR
+     * case — a fixed dark "studio" standing in for an environment that is
+     * actually the document — reached through the other door. At the crown
+     * Ft is ~0 and this term vanishes, so the reference look is untouched. */
+    vec3 cR = vec3(uAmbient + uSpec * lobe) * refW + Ft * mir;
     vec3 c = cT + cR;
     float seam = smoothstep(1.0 - sw, 1.0, abs(u));
     c *= 1.0 - uSeamDark * seam;
@@ -298,7 +308,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-clamp2",
+    VERSION: "20260917-fresnel3",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
