@@ -4193,7 +4193,18 @@ function drawOneInner(c,W,H,obj){
        * and magnifying them is what turns glass into stair-steps. */
       const tm=(c.getTransform&&c.getTransform())||null;
       const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
-      const sx=sbox.w/Math.max(1e-6,obj.w);
+      /* The scale the flute pitch has to follow, from BOTH places it can come
+       * from — exactly one of which is ever 1.
+       *
+       * sbox/obj.w alone was wrong and made the flute count change as you
+       * zoomed: by the time a layer reaches here it has usually been through
+       * scaleObjectForRender, which bakes the scale into the geometry and
+       * leaves the transform at identity. obj.w is then already in device
+       * pixels, sbox.w equals it, and the ratio is 1 — so a 53pt flute stayed
+       * 53 DEVICE px at every zoom and a shape twice as large on screen grew
+       * twice as many flutes. The scaler stamps what it applied on
+       * __exportScale; multiply the two and whichever path ran is covered. */
+      const sx=(+obj.__exportScale||1)*(sbox.w/Math.max(1e-6,obj.w));
       const img=window.FractalFieldEngine.render(sbox.w,sbox.h,
         Object.assign({},frx,{fluteW:frx.fluteW*sx,seamW:frx.seamW*sx}));
       if(img){
@@ -4223,7 +4234,18 @@ function drawOneInner(c,W,H,obj){
       const tm=(c.getTransform&&c.getTransform())||null;
       const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
       const fr=(doc&&doc.frame)||{w:W,h:H};
-      const sx=sbox.w/Math.max(1e-6,obj.w);
+      /* The scale the flute pitch has to follow, from BOTH places it can come
+       * from — exactly one of which is ever 1.
+       *
+       * sbox/obj.w alone was wrong and made the flute count change as you
+       * zoomed: by the time a layer reaches here it has usually been through
+       * scaleObjectForRender, which bakes the scale into the geometry and
+       * leaves the transform at identity. obj.w is then already in device
+       * pixels, sbox.w equals it, and the ratio is 1 — so a 53pt flute stayed
+       * 53 DEVICE px at every zoom and a shape twice as large on screen grew
+       * twice as many flutes. The scaler stamps what it applied on
+       * __exportScale; multiply the two and whichever path ran is covered. */
+      const sx=(+obj.__exportScale||1)*(sbox.w/Math.max(1e-6,obj.w));
       /* The SOURCE canvas's own size, not W/H — those are the frame's, and the
        * two are different numbers. uScene normalises every sample into the
        * texture, so handing it the document size instead of the canvas size

@@ -320,6 +320,27 @@ describe("Fractal glass — the flutes over a field of its own", () => {
     expect(withFractal({ seamDark: 0 }).effects.fractal.seamDark).toBe(0);
   });
 
+  it("the flute is a DOCUMENT length, so zooming does not change the count", () => {
+    /* It did. By the time a layer reaches the draw path it has usually been
+     * through scaleObjectForRender, which bakes the scale into the geometry
+     * and leaves the transform at identity — so sbox.w equals obj.w, the
+     * ratio is 1, and a 53pt flute stayed 53 DEVICE px at every zoom. A shape
+     * drawn twice as large grew twice as many flutes, which is a different
+     * picture rather than the same one larger.
+     *
+     * The scaler stamps what it applied on __exportScale. Measured after, on
+     * a 560pt shape at 53pt: 10.57 flutes across at 0.25x, 1x, 2x and 4x,
+     * where before it was 10, 21, 42, 77. */
+    const o = withFractal();
+    const scaled = editor.scaleObjectForRender(o, 3);
+    expect(scaled.__exportScale).toBe(3);
+    expect(scaled.w).toBe(o.w * 3);
+    /* The flute is NOT baked in by the scaler — the draw path reads
+     * __exportScale and applies it, so the stored value stays a document
+     * length that the panel can keep showing. */
+    expect(scaled.effects.fractal.fluteW).toBe(o.effects.fractal.fluteW);
+  });
+
   it("takes its palette from the Iridescence sets", () => {
     /* Shared deliberately: two effects inventing their own colour worlds is
      * how a product ends up with eight palettes that nearly match. */
