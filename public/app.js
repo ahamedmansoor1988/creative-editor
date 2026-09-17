@@ -1876,6 +1876,7 @@ function paintGrainOverlay(c,obj){
  * over slot from FxStack is used by the ordinary path too, so "what renders
  * over a layer" has exactly one definition. */
 let _cleanBackdrop=null;
+let _reedSrc=null;   // reed glass samples a snapshot, never the live canvas
 function snapshotClean(c){
   const W=c.canvas.width,H=c.canvas.height;
   if(!_cleanBackdrop) _cleanBackdrop=document.createElement('canvas');
@@ -4177,7 +4178,26 @@ function drawOneInner(c,W,H,obj){
        * texture, so handing it the document size instead of the canvas size
        * sends every ray to the wrong place: the panel came out blank because
        * its samples landed off the page. */
-      const img=window.ReedGlassEngine.render(c.canvas,c.canvas.width,c.canvas.height,sbox,
+      /* Sample a SNAPSHOT of the page, not the canvas being drawn into.
+       *
+       * This passed c.canvas — the very canvas the tile is then composited
+       * back onto. Uploading a canvas as a texture while it is also the live
+       * 2D render target is not a defined thing to do, and what comes back is
+       * the driver's business. The mockup renders from a separate scene canvas
+       * into a different output canvas and has never shown the bars this path
+       * does, with the same shader and the same uniforms — which is the whole
+       * difference between the two hosts.
+       *
+       * One scratch canvas, reused, sized to the page. */
+      if(!_reedSrc) _reedSrc=document.createElement('canvas');
+      if(_reedSrc.width!==c.canvas.width) _reedSrc.width=c.canvas.width;
+      if(_reedSrc.height!==c.canvas.height) _reedSrc.height=c.canvas.height;
+      const _rc=_reedSrc.getContext('2d');
+      _rc.setTransform(1,0,0,1,0,0);
+      _rc.globalCompositeOperation='copy';   // replaces alpha too, so empty page stays empty
+      _rc.drawImage(c.canvas,0,0);
+      _rc.globalCompositeOperation='source-over';
+      const img=window.ReedGlassEngine.render(_reedSrc,c.canvas.width,c.canvas.height,sbox,
         canvasRect(tm,0,0,fr.w,fr.h),
         /* Flute pitch and seam are DOCUMENT lengths in the panel and device
          * lengths in the shader, so they scale with the canvas; everything else
