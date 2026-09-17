@@ -111,8 +111,21 @@ vec3 page(vec2 sp){
    *
    * Where the two do not overlap at all there is nothing to sample and the
    * page colour is the honest answer. */
-  vec2 lo = max(uArt.xy, vec2(0.0));
-  vec2 hi = min(uArt.xy + uArt.zw, uScene) - 1.0;
+  /* INSET past the artboard's own edge chrome.
+   *
+   * Clamping to the artboard's exact bounds pins every off-page ray onto its
+   * OUTERMOST column — and that column is not page, it is the artboard's
+   * border and the antialiasing under it. Measured off the real canvas: the
+   * edge column reads 219,221,223 while one pixel in reads 255,255,255. A ray
+   * that runs off the page therefore came back carrying border grey, and
+   * since every ray in that region lands on the same column, it came back as
+   * a solid BAR of it — darker the smaller the artboard is drawn.
+   *
+   * Two device pixels in is past the border and its antialiasing. This is the
+   * one a synthetic harness cannot show: paint the artboard as a plain rect,
+   * as every test here did, and its edge column is simply the page. */
+  vec2 lo = max(uArt.xy + 2.0, vec2(0.0));
+  vec2 hi = min(uArt.xy + uArt.zw - 2.0, uScene - 1.0);
   if (hi.x < lo.x || hi.y < lo.y) return uPageBg;
   sp = clamp(sp, lo, hi);
   /* Composite over the page colour instead of reading .rgb straight.
@@ -308,7 +321,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-fresnel3",
+    VERSION: "20260917-inset4",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
