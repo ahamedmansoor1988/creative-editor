@@ -9574,6 +9574,25 @@ function buildFxSection(obj,page,add,body){
     }
   }
 
+  if(page==='Noise'){
+    /* A PIXEL-slot effect: it reads through fxParams and is applied by
+     * filters.js over the rendered pixels, so there is no enable checkbox —
+     * the stack entry is the switch, and amount 0 is off. */
+    const N=fxParams(obj,'noise');
+    const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+      id, label, min, max, step, value:N[key],
+      format:v=>(+v).toFixed(dp),
+      onInput:v=>{ N[key]=v; render(); },
+      onChange:()=>pushHistory(label),
+    });
+    ch('nzAmt','Amount',0,1,0.01,'amount',2);
+    ch('nzScale','Grain size',1,8,1,'scale',0);
+    ch('nzSeed','Seed',1,999,1,'seed',0);
+    add(`<label class="chk"><input type="checkbox" id="nzMono" ${N.mono!==false?'checked':''}> Monochrome</label>`);
+    $('nzMono').addEventListener('change',e=>{ N.mono=e.target.checked; pushHistory('Monochrome'); render(); });
+    add(`<div class="fxHint">Signed grain over the rendered pixels — it dithers rather than darkens, so it lifts as often as it dims. <b>Monochrome</b> puts one value on all three channels, which grains without tinting; off, each channel gets its own and the speckle takes on colour. <b>Grain size</b> blocks it up for a coarser, filmier look.</div>`);
+  }
+
   if(page==='Grain'){
     const gr=fxParams(obj,'grain');
     add(`<label class="slider">Amount <span id="grAV">${Math.round(gr.amount*100)}%</span>
@@ -13573,11 +13592,11 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     displacement:o=>Object.assign(o.effects.displacement,{scaleX:28,scaleY:18,mapScale:1,seed:1}),
     grain:   o=>Object.assign(o.effects.grain,{amount:0.35}),
     blur:    o=>Object.assign(o.effects.blur,{kind:'gaussian',radius:10}),
-    noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
     reed:    o=>Object.assign(o.effects.reed,{on:true}),
     fractal: o=>Object.assign(o.effects.fractal,{on:true}),
+    noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
