@@ -99,8 +99,22 @@ vec3 page(vec2 sp){
    * extends the edge, which is both continuous and what glass at the edge of a
    * scene actually shows. It also makes the panel independent of the frame
    * colour, which it has no business depending on. */
-  vec2 lo = uArt.xy, hi = uArt.xy + uArt.zw - 1.0;
-  sp = clamp(sp, lo, max(lo, hi));
+  /* Inside the artboard AND inside the texture.
+   *
+   * Clamping to the artboard alone is not enough, and this is the case the
+   * artboard clamp missed. The canvas holds only what is on screen: zoom in
+   * and the artboard runs well past it — measured at x -300 to 2660 against a
+   * 1500px canvas. A sample pinned to the artboard is then still outside the
+   * TEXTURE, where CLAMP_TO_EDGE hands back whatever the canvas's outermost
+   * column happens to hold. That is why this showed up when the page was
+   * scaled past the edge of the canvas and not before.
+   *
+   * Where the two do not overlap at all there is nothing to sample and the
+   * page colour is the honest answer. */
+  vec2 lo = max(uArt.xy, vec2(0.0));
+  vec2 hi = min(uArt.xy + uArt.zw, uScene) - 1.0;
+  if (hi.x < lo.x || hi.y < lo.y) return uPageBg;
+  sp = clamp(sp, lo, hi);
   /* Composite over the page colour instead of reading .rgb straight.
    *
    * The editor canvas is TRANSPARENT wherever nothing has been painted, and a
@@ -284,7 +298,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-tir1",
+    VERSION: "20260917-clamp2",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
