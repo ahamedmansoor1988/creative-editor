@@ -60,7 +60,6 @@ uniform int   uBlobN;
 uniform float uGain, uGamma, uFieldScale;
 uniform vec2  uDrift;      // moves the whole field
 uniform float uBgAlpha;    // 0 = empty field is fully transparent, 1 = opaque
-uniform float uNoise, uNoiseScale, uGrain;
 const int AA = 4;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -79,38 +78,11 @@ vec3 ramp(float t){
 
 /* The field, evaluated rather than sampled. p is in field units: the panel's
    shorter side is 1, so the look does not change with the shape's aspect. */
-/* Value noise and a four-octave fbm over it. Cheap, and it is all the field
-   needs: what this is for is breaking the gaussians' perfect symmetry, not
-   making a texture in its own right. */
-float vnoise(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  float a = hash(i);
-  float b = hash(i + vec2(1.0, 0.0));
-  float c = hash(i + vec2(0.0, 1.0));
-  float d = hash(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-float fbm(vec2 p){
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++){ v += a * vnoise(p); p *= 2.03; a *= 0.5; }
-  return v;
-}
-
 /* The field's scalar: 0 on empty field, 1 at the centre of a blob. The
    colour is this read through the ramp, and the COVERAGE is this directly —
    which is what lets the background be transparent. */
 float fieldV(vec2 p){
   p = (p - uDrift) / max(uFieldScale, 1e-3);
-  /* DOMAIN WARP, not an overlay. Adding noise on top of the field would grey
-   * it toward the middle of the ramp and leave the shapes where they were;
-   * displacing the coordinate instead bends the blobs themselves, so what the
-   * flutes magnify is an organic edge rather than a perfect gaussian. Two
-   * fbm lookups on offset lattices give x and y independently. */
-  if (uNoise > 0.0){
-    float sc = max(uNoiseScale, 0.01);
-    p += (vec2(fbm(p * sc + 11.3), fbm(p * sc - 7.1)) - 0.5) * uNoise;
-  }
   float f = 0.0;
   for (int i = 0; i < 8; i++){
     if (i >= uBlobN) break;
@@ -198,9 +170,6 @@ void main(){
    * highlight and the edge reflection go with it and there is no glass left
    * to see: the specular lifts the alpha back up on its own. */
   float cov = fieldV(toField(gl_FragCoord.x, sy));
-  /* Grain last, on the composited colour, so it reads as film over the whole
-   * pane rather than as texture inside the field. */
-  if (uGrain > 0.0) c += (hash(gl_FragCoord.xy * 1.7) - 0.5) * uGrain;
   float spec = max(max(c.r, c.g), c.b) * uSpec * 0.25;
   float a = clamp(mix(cov + spec, 1.0, uBgAlpha), 0.0, 1.0);
   o = vec4(clamp(c, 0.0, 1.0) * a, a);   // premultiplied, so the 2d canvas composites it
@@ -333,9 +302,6 @@ void main(){
     gl.uniform1f(loc("uFieldScale"), Math.max(0.05, num("fieldScale", 1)));
     gl.uniform2f(loc("uDrift"), num("driftX", 0), num("driftY", 0));
     gl.uniform1f(loc("uBgAlpha"), P.transparent === false ? 1 : num("bgAlpha", 0));
-    gl.uniform1f(loc("uNoise"), num("noise", 0));
-    gl.uniform1f(loc("uNoiseScale"), num("noiseScale", 2));
-    gl.uniform1f(loc("uGrain"), num("grain", 0));
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return cv;
@@ -350,7 +316,7 @@ void main(){
   };
 
   window.FractalFieldEngine = {
-    VERSION: "20260917-noise3",
+    VERSION: "20260917-alpha2",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),

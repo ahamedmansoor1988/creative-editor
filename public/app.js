@@ -329,7 +329,6 @@ const DEFAULT_EFFECTS=()=>({
   fractal:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
     seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
     blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,transparent:true,bgAlpha:0,
-    noise:0,noiseScale:2,grain:0,
     colors:IRI_PALETTES[0].colors.slice()},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -1104,7 +1103,6 @@ function normChildren(list,depth){
         n('size',0.05,0.8); n('gain',0.5,5); n('gamma',0.4,2.5);
         n('fieldScale',0.2,4); n('driftX',-1.5,1.5); n('driftY',-1.5,1.5);
         n('bgAlpha',0,1); fr.transparent=fr.transparent!==false;
-        n('noise',0,2); n('noiseScale',0.2,12); n('grain',0,0.3);
         /* The palette is five hexes; anything else falls back to the set the
          * default carries rather than reaching the shader half-formed. */
         const cols=Array.isArray(fr.colors)?fr.colors.filter(x=>/^#[0-9a-fA-F]{6}$/.test(x)):[];
@@ -8667,10 +8665,6 @@ function buildFxSection(obj,page,add,body){
         ch('frDY','Move Y',-1.5,1.5,0.01,'driftY',2);
         ch('frGain','Intensity',0.5,5,0.05,'gain',2);
         ch('frGamma','Contrast',0.4,2.5,0.01,'gamma',2);
-        add('<div class="secTitle" style="margin-top:8px">Noise</div>');
-        ch('frNz','Distortion',0,2,0.01,'noise',2);
-        ch('frNs','Distortion scale',0.2,12,0.1,'noiseScale',1);
-        ch('frGr','Grain',0,0.3,0.005,'grain',3);
         add('<div class="secTitle" style="margin-top:8px">Flutes</div>');
         ch('frW','Flute width',10,400,1,'fluteW',0);
         ch('frPh','Seam offset',0,1,0.01,'phase',2);
@@ -8688,7 +8682,7 @@ function buildFxSection(obj,page,add,body){
         ch('frLa','Light angle',-80,80,1,'lightAng',0);
         ch('frLw','Light width',0.05,1,0.01,'lightW',2);
         ch('frAm','Reflection',0,0.3,0.005,'ambient',3);
-        add(`<div class="fxHint">Distortion bends the field itself rather than laying grain over it, so the flutes magnify an organic edge instead of a perfect blob; Grain is film over the finished pane. The same fluted glass as Reed glass, but over a colour field of its <b>own</b> — nothing needs to sit underneath. Move X and Y slide the field behind the flutes; the palette is shared with Iridescence. Nothing animates: what you see is what exports.</div>`);
+        add(`<div class="fxHint">The same fluted glass as Reed glass, but over a colour field of its <b>own</b> — nothing needs to sit underneath. Move X and Y slide the field behind the flutes; the palette is shared with Iridescence. Nothing animates: what you see is what exports.</div>`);
       }
     }
   }
