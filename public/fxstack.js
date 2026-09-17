@@ -51,6 +51,7 @@
     mesh: { slot: "material", label: "Mesh gradient", multi: false },
     iridescent: { slot: "material", label: "Iridescence", multi: false },
     reed: { slot: "material", label: "Reed glass", multi: false, backdrop: true },
+    fractal: { slot: "material", label: "Fractal glass", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -89,6 +90,7 @@
        because it is the other material that IS what the shape shows. */
     "iridescent",
     "reed",
+    "fractal",
     "blob",
     "glass2",
     "light",
@@ -146,6 +148,12 @@
      * editor: mean saturation through the panel holds at 93-98% of the
      * backdrop's. See public/reedglass.js and tests/reed-glass.test.js. */
     "reed",
+    /* The sibling of reed: the same flute optics over a colour field of its
+     * own rather than the layers beneath, so it is a fill and needs nothing
+     * under it. Palette comes from the Iridescence sets; the standalone's
+     * animation is deliberately not ported — a document is static and must
+     * export as what you see. See public/fractal-glass.js. */
+    "fractal",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran

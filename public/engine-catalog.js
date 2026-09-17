@@ -112,6 +112,16 @@
       description: "Fluted glass: each flute refracts the layers behind this one.",
     },
     {
+      id: "fractal",
+      label: "Fractal glass",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "fractal",
+      supportedInputs: ["rect", "ellipse"],
+      description: "Fluted glass over a colour field of its own — no layers needed beneath it.",
+    },
+    {
       id: "innerLens",
       label: "Inner lens",
       category: "shader",

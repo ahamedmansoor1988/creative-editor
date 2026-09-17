@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { loadEditor } from "./helpers/load-editor.js";
 
 /** The page's own gate. index.html sets this before fxstack.js narrows READY. */
-const FX_ONLY = ["mesh", "shadow", "iridescent", "reed"];
+const FX_ONLY = ["mesh", "shadow", "iridescent", "reed", "fractal"];
 
 let editor;
 
@@ -257,5 +257,103 @@ describe("the engine's own contract", () => {
     expect(E.PRESETS).toContain("reference");
     expect(E.presetValues("reference")).toEqual({});
     expect(E.presetValues("nope")).toBeNull();
+  });
+});
+
+describe("Fractal glass — the flutes over a field of its own", () => {
+  /* The sibling of Reed glass, and the distinction is the whole point: reed
+   * refracts the LAYERS BENEATH and has no colour, this refracts a field it
+   * generates and needs nothing under it. One is a backdrop material, the
+   * other a fill, and getting that backwards is what made the last two
+   * attempts at a glass effect fail. */
+  const W = () => /** @type {any} */ (globalThis.window);
+
+  function withFractal(params = {}, over = {}) {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        children: [
+          {
+            type: "rect",
+            name: "L",
+            x: 100,
+            y: 100,
+            w: 300,
+            h: 200,
+            fill: { kind: "solid", color: "#8b5cf6" },
+            effects: { fractal: { on: true, ...params } },
+            ...over,
+          },
+        ],
+      },
+    };
+    return editor.doc.frame.children[0];
+  }
+
+  it("is a material that does NOT read the backdrop", () => {
+    const FS = W().FxStack;
+    expect(FS.slotOf("fractal")).toBe("material");
+    expect(FS.isBackdrop("fractal")).toBe(false);
+    expect(FS.isBackdrop("reed")).toBe(true);
+  });
+
+  it("appears once in each list, and has its own catalog row", () => {
+    const FS = W().FxStack,
+      C = W().EngineCatalog;
+    expect(FS.types().filter((t) => t === "fractal")).toHaveLength(1);
+    expect(FS.LEGACY_ORDER.filter((t) => t === "fractal")).toHaveLength(1);
+    expect(C.resolve("fractal")).toBe("fractal");
+    expect(C.ready().map((e) => e.id)).toContain("fractal");
+  });
+
+  it("takes its palette from the Iridescence sets", () => {
+    /* Shared deliberately: two effects inventing their own colour worlds is
+     * how a product ends up with eight palettes that nearly match. */
+    const R = withFractal().effects.fractal;
+    expect(R.colors).toEqual(["#e8dd19", "#fa2438", "#31df43", "#20cfe7", "#314fea"]);
+  });
+
+  it("does not carry a time or speed parameter", () => {
+    /* The standalone animates on a 24-second loop. A document is static and
+     * must export as what you see, so drift moves the field by hand and there
+     * is nothing in the model that advances on its own. */
+    const R = withFractal().effects.fractal;
+    expect(R.speed).toBeUndefined();
+    expect(R.time).toBeUndefined();
+    expect(R).toHaveProperty("driftX");
+    expect(R).toHaveProperty("driftY");
+  });
+
+  it("clamps the field controls, and keeps the palette well formed", () => {
+    const R = withFractal({
+      blobs: 99,
+      size: 9,
+      gain: 0,
+      gamma: 9,
+      fieldScale: 0,
+      driftX: 9,
+      driftY: -9,
+    }).effects.fractal;
+    expect(R.blobs).toBe(8);
+    expect(R.size).toBe(0.8);
+    expect(R.gain).toBe(0.5);
+    expect(R.gamma).toBe(2.5);
+    expect(R.fieldScale).toBe(0.2);
+    expect(R.driftX).toBe(1.5);
+    expect(R.driftY).toBe(-1.5);
+    /* Junk in the palette falls back rather than reaching the shader. */
+    expect(withFractal({ colors: ["nope", 7] }).effects.fractal.colors).toHaveLength(5);
+    expect(withFractal({ colors: ["#ff0000", "#00ff00"] }).effects.fractal.colors).toEqual([
+      "#ff0000",
+      "#00ff00",
+    ]);
+  });
+
+  it("offers its panel page once it is on", () => {
+    const o = withFractal();
+    expect(editor.FX_PAGES(o)).toContain("Fractal glass");
   });
 });

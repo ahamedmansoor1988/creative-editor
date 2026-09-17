@@ -321,6 +321,15 @@ const DEFAULT_EFFECTS=()=>({
    * ~3.3x compressed copy of the backdrop). */
   reed:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
         seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12},
+  /* §5.x Fractal glass — the reed flutes over a colour field of its own.
+   * A FILL, not a backdrop material: nothing is needed under it. The palette
+   * is shared with Iridescence so the two sit in the same colour world, and
+   * the standalone's animation is deliberately absent — drift moves the field
+   * by hand instead, because a document must export as what you see. */
+  fractal:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
+    seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
+    blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,
+    colors:IRI_PALETTES[0].colors.slice()},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
   glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -1080,6 +1089,24 @@ function normChildren(list,depth){
           if(!/^#[0-9a-fA-F]{6}$/.test(cap[k]||'')) cap[k]=de.capsule[k];
         });
       }
+      /* §5.x Fractal glass. Same snapshot-before-assign rule as reed. */
+      const frDef=Object.assign({},de.fractal);
+      const fr=Object.assign(de.fractal, ce.fractal||{});
+      fr.on=!!fr.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      {
+        const n=(k,lo,hi)=>{ const v=+fr[k]; fr[k]=Number.isFinite(v)?clamp(v,lo,hi):frDef[k]; };
+        n('fluteW',10,400); n('phase',0,1); n('bulge',0.05,1);
+        n('ior',1,2.4); n('disp',0,0.08); n('thick',0,4); n('gap',0,20);
+        n('seamW',0,6); n('seamDark',0,1); n('fresnel',0,2);
+        n('spec',0,4); n('lightAng',-80,80); n('lightW',0.05,1); n('ambient',0,0.3);
+        n('blobs',1,8); fr.blobs=Math.round(fr.blobs);
+        n('size',0.05,0.8); n('gain',0.5,5); n('gamma',0.4,2.5);
+        n('fieldScale',0.2,4); n('driftX',-1.5,1.5); n('driftY',-1.5,1.5);
+        /* The palette is five hexes; anything else falls back to the set the
+         * default carries rather than reaching the shader half-formed. */
+        const cols=Array.isArray(fr.colors)?fr.colors.filter(x=>/^#[0-9a-fA-F]{6}$/.test(x)):[];
+        fr.colors=cols.length>=2?cols.slice(0,8):frDef.colors.slice();
+      }
       /* §5.x Reed glass. Snapshot the defaults BEFORE the assign: Object.assign
        * mutates its target, so de.reed and rd are the same object from the next
        * line on, and a fallback that reads de.reed[k] hands back the very value
@@ -1271,7 +1298,7 @@ function normChildren(list,depth){
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
-        prism:pr, capsule:cap, reed:rd,
+        prism:pr, capsule:cap, reed:rd, fractal:fr,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -4157,6 +4184,29 @@ function drawOneInner(c,W,H,obj){
       window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
       return;
     }
+    const frx=fx.fractal;
+    if(frx&&fxOn(obj,'fractal')&&obj.type!=='text'&&window.FractalFieldEngine&&window.FractalFieldEngine.available()){
+      /* A FILL, not a backdrop material: the field is its own, so nothing is
+       * captured and nothing beneath it is read. The tile is rendered at the
+       * size it will be SEEN at — this effect is nothing but hard flute edges,
+       * and magnifying them is what turns glass into stair-steps. */
+      const tm=(c.getTransform&&c.getTransform())||null;
+      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
+      const sx=sbox.w/Math.max(1e-6,obj.w);
+      const img=window.FractalFieldEngine.render(sbox.w,sbox.h,
+        Object.assign({},frx,{fluteW:frx.fluteW*sx,seamW:frx.seamW*sx}));
+      if(img){
+        const place=o=>{
+          c.save();
+          c.globalAlpha=obj.opacity;
+          c.beginPath(); pathFor(c,o); c.clip();
+          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.restore();
+        };
+        paintWithInstances(obj,place);
+        return;
+      }
+    }
     const rdx=fx.reed;
     if(rdx&&fxOn(obj,'reed')&&obj.type!=='text'&&window.ReedGlassEngine&&window.ReedGlassEngine.available()){
       /* A sheet of fluted glass: it reads the page BENEATH it and refracts it,
@@ -5942,7 +5992,7 @@ try{
 }catch(_){}
 const PAGE_TYPE={
   'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
-  'Glass 3D':'glass3d','Reed glass':'reed','Prism':'prism','Capsule':'capsule',
+  'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
@@ -6019,11 +6069,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7019,6 +7069,7 @@ function fxActive(obj,name){
     case 'Mesh':     return !!(e.mesh&&e.mesh.on);
     case 'Iridescence': return !!(e.iridescent&&e.iridescent.on);
     case 'Reed glass': return !!(e.reed&&e.reed.on);
+    case 'Fractal glass': return !!(e.fractal&&e.fractal.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -8542,6 +8593,92 @@ function buildFxSection(obj,page,add,body){
         sl('prSteps','March steps',8,192,4,'steps',int);
         sl('prScale','Render scale',0.15,1,0.05,'scale',pct);
         add(`<div class="fxHint">A collimated beam traced forward through the solid — entry refraction, the walk inside, exit refraction — with the exit fan dispersed per wavelength. Ported from the Glass Prism app.<br><br>Unlike the other engines this one accumulates samples, so Quality costs real time; dragging a slider shows a draft. It renders across the whole page rather than clipped to the shape, because the fan has to leave the solid, and it ignores Pattern copies. Designed for a dark background.</div>`);
+      }
+    }
+  }
+
+  if(page==='Fractal glass'){
+    const R=obj.effects.fractal;
+    if(!(window.FractalFieldEngine&&window.FractalFieldEngine.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="frOn" ${R.on?'checked':''}> Enable fractal glass</label>`);
+      $('frOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      if(R.on){
+        const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+          id, label, min, max, step, value:R[key],
+          format:v=>(+v).toFixed(dp),
+          onInput:v=>{ R[key]=v; render(); },
+          onChange:()=>pushHistory(label),
+        });
+        const FFE=window.FractalFieldEngine;
+        const pre=(FFE&&Array.isArray(FFE.PRESETS))?FFE.PRESETS:[];
+        if(pre.length){
+          add(`<label class="slider uiRow"><span>Preset</span>
+            <select id="frPre">${pre.map(k=>
+              `<option value="${esc(k)}">${esc(k[0].toUpperCase()+k.slice(1))}</option>`).join('')}
+            </select></label>`);
+          $('frPre').addEventListener('change',e=>{
+            Object.assign(R,(FFE.presetValues&&FFE.presetValues(e.target.value))||{});
+            pushHistory('Fractal preset'); refresh();
+          });
+        }
+        /* The palette is the Iridescence sets, so the two effects sit in one
+         * colour world rather than each inventing its own. */
+        add('<div class="secTitle">Colour</div>');
+        const nowPal=IRI_PALETTES.find(pl=>pl.colors.length===R.colors.length
+          && pl.colors.every((c2,i)=>c2.toLowerCase()===String(R.colors[i]||'').toLowerCase()));
+        add(`<label class="slider uiRow"><span>Palette</span>
+          <select id="frPal"><option value=""${nowPal?'':' selected'}>Custom</option>`
+          +IRI_PALETTES.map(pl=>`<option value="${esc(pl.id)}"${nowPal&&pl.id===nowPal.id?' selected':''}>${esc(pl.label)}</option>`).join('')
+          +`</select></label>`);
+        $('frPal').addEventListener('change',e=>{
+          const pl=IRI_PALETTES.find(x=>x.id===e.target.value);
+          if(pl){ R.colors=pl.colors.slice(); pushHistory('Palette'); refresh(); }
+        });
+        /* The palette is a RAMP, not a set of roles: the field runs from empty
+         * page at one end to the centre of a blob at the other, and each
+         * colour is a stop along that. "Colour 3" tells you nothing about
+         * which end you are editing; these say where the stop sits. */
+        const STOP_NAME=(i,n)=>{
+          if(i===0) return 'Background';
+          if(i===n-1) return 'Core';
+          if(n===3) return 'Middle';
+          if(n===4) return ['Outer','Inner'][i-1];
+          if(n===5) return ['Outer','Middle','Inner'][i-1];
+          return 'Stop '+(i+1);
+        };
+        R.colors.forEach((hex,i)=>{
+          add(`<label class="slider">${esc(STOP_NAME(i,R.colors.length))} <input type="color" id="frC${i}" value="${esc(hex)}"></label>`);
+          $('frC'+i).addEventListener('input',e=>{ R.colors[i]=e.target.value; render(); });
+          $('frC'+i).addEventListener('change',()=>{ pushHistory('Colour'); refresh(); });
+        });
+        add('<div class="secTitle" style="margin-top:8px">Field</div>');
+        ch('frBlobs','Shapes',1,8,1,'blobs',0);
+        ch('frSize','Shape size',0.05,0.8,0.01,'size',2);
+        ch('frScale','Field scale',0.2,4,0.01,'fieldScale',2);
+        ch('frDX','Move X',-1.5,1.5,0.01,'driftX',2);
+        ch('frDY','Move Y',-1.5,1.5,0.01,'driftY',2);
+        ch('frGain','Intensity',0.5,5,0.05,'gain',2);
+        ch('frGamma','Contrast',0.4,2.5,0.01,'gamma',2);
+        add('<div class="secTitle" style="margin-top:8px">Flutes</div>');
+        ch('frW','Flute width',10,400,1,'fluteW',0);
+        ch('frPh','Seam offset',0,1,0.01,'phase',2);
+        ch('frBu','Bulge',0.05,1,0.01,'bulge',2);
+        ch('frSw','Seam width',0,6,0.1,'seamW',1);
+        ch('frSd','Seam depth',0,1,0.01,'seamDark',2);
+        add('<div class="secTitle" style="margin-top:8px">Refraction</div>');
+        ch('frIor','IOR',1,2.4,0.01,'ior',2);
+        ch('frDs','Dispersion',0,0.08,0.001,'disp',3);
+        ch('frTh','Thickness',0,4,0.05,'thick',2);
+        ch('frGp','Distance',0,20,0.1,'gap',1);
+        add('<div class="secTitle" style="margin-top:8px">Light</div>');
+        ch('frFr','Edge fresnel',0,2,0.01,'fresnel',2);
+        ch('frSp','Highlight',0,4,0.01,'spec',2);
+        ch('frLa','Light angle',-80,80,1,'lightAng',0);
+        ch('frLw','Light width',0.05,1,0.01,'lightW',2);
+        ch('frAm','Reflection',0,0.3,0.005,'ambient',3);
+        add(`<div class="fxHint">The same fluted glass as Reed glass, but over a colour field of its <b>own</b> — nothing needs to sit underneath. Move X and Y slide the field behind the flutes; the palette is shared with Iridescence. Nothing animates: what you see is what exports.</div>`);
       }
     }
   }
@@ -13436,17 +13573,18 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
     reed:    o=>Object.assign(o.effects.reed,{on:true}),
+    fractal: o=>Object.assign(o.effects.fractal,{on:true}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',fractal:'Fractal glass',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
 
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',reed:'line',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
+  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',reed:'line',fractal:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
                   blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second
