@@ -118,8 +118,8 @@ vec2 trace(float u, float ior, float R){
  * Where artboard and texture do not overlap there is nothing to sample and the
  * page colour is the honest answer. */
 vec3 page(vec2 sp){
-  vec2 lo = max(uArt.xy + 2.0, vec2(0.0));
-  vec2 hi = min(uArt.xy + uArt.zw - 2.0, uScene - 1.0);
+  vec2 lo = max(uArt.xy + 4.0, vec2(0.0));
+  vec2 hi = min(uArt.xy + uArt.zw - 4.0, uScene - 1.0);
   if (hi.x < lo.x || hi.y < lo.y) return uPageBg;
   sp = clamp(sp, lo, hi);
   /* Composite over the page colour instead of reading .rgb straight.
@@ -315,7 +315,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-inset4",
+    VERSION: "20260917-inset5",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
