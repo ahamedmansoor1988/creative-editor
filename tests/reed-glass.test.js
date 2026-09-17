@@ -320,6 +320,22 @@ describe("Fractal glass — the flutes over a field of its own", () => {
     expect(withFractal({ seamDark: 0 }).effects.fractal.seamDark).toBe(0);
   });
 
+  it("has noise that warps the field, and grain that does not", () => {
+    /* Two different things under one heading, deliberately. Distortion
+     * displaces the field's coordinate, so the blobs themselves bend and the
+     * flutes magnify an organic edge. Grain is added to the composited colour,
+     * so it reads as film over the pane. Adding noise to the field's VALUE
+     * instead would have greyed it toward the middle of the ramp and left the
+     * shapes exactly where they were. */
+    const R = withFractal().effects.fractal;
+    expect(R.noise).toBe(0);
+    expect(R.grain).toBe(0);
+    expect(R.noiseScale).toBe(2);
+    expect(withFractal({ noise: 9 }).effects.fractal.noise).toBe(2);
+    expect(withFractal({ noiseScale: 0 }).effects.fractal.noiseScale).toBe(0.2);
+    expect(withFractal({ grain: 9 }).effects.fractal.grain).toBe(0.3);
+  });
+
   it("takes its palette from the Iridescence sets", () => {
     /* Shared deliberately: two effects inventing their own colour worlds is
      * how a product ends up with eight palettes that nearly match. */
