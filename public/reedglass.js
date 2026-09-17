@@ -166,7 +166,22 @@ void main(){
      * a page to mirror is the page. Sampling it undisplaced keeps the band
      * continuous with its neighbours instead of punching a hole, and it costs
      * nothing where trans is 1, which is everywhere below bulge 1. */
-    vec3 mir = srcAt(x);
+    /* The reflected environment, BLURRED — not a sharp copy of the page.
+     *
+     * This was srcAt(x): the page sampled straight through, undisplaced. A
+     * mirror does not show what is straight behind it, and using that as the
+     * environment painted a faint, correctly-positioned ghost of whatever sat
+     * under the panel wherever Fresnel was strong — a pale circle floating
+     * over the flutes, recognisably the shape at its true location.
+     *
+     * The reference shader reflects a smooth cyclorama, which is why it can
+     * never produce a ghost: the environment has no high frequencies to show.
+     * Averaging a wide spread across the flute gives the same property — it
+     * keeps the brightness and colour of the surroundings, which is what the
+     * reflection is for, and throws away the image. */
+    vec3 mir = vec3(0.0);
+    for (int k = -2; k <= 2; k++) mir += srcAt(x + float(k) * fw * 0.6);
+    mir /= 5.0;
     float sa = clamp(abs(u) / R, 0.0, 1.0);
     float ca = sqrt(1.0 - sa * sa);
     float F  = F0 + (1.0 - F0) * pow(1.0 - ca, 5.0);
@@ -315,7 +330,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-inset5",
+    VERSION: "20260917-mirblur6",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
