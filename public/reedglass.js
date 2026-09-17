@@ -282,6 +282,9 @@ void main(){
   };
 
   window.ReedGlassEngine = {
+    /* Stamped so "is this the build with the fix in it" is one line in the
+       console rather than a round of screenshots: ReedGlassEngine.VERSION. */
+    VERSION: "20260917-tir1",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
