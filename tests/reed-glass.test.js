@@ -149,6 +149,16 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(R.fresnel).toBeGreaterThan(0);
   });
 
+  it("the flute never goes narrower than the pixels can carry", () => {
+    /* The floor was 4. A four-pixel flute is sub-pixel at any real zoom — the
+     * four AA samples land inside one pixel, the seam is wider than the flute
+     * it divides, and what comes out is aliasing rather than glass. Ten is the
+     * narrowest that still renders as a flute. */
+    expect(withReed({ fluteW: 1 }).effects.reed.fluteW).toBe(10);
+    expect(withReed({ fluteW: 4 }).effects.reed.fluteW).toBe(10);
+    expect(withReed({ fluteW: 10 }).effects.reed.fluteW).toBe(10);
+  });
+
   it("clamps every control to the range its chip offers", () => {
     const R = withReed({
       fluteW: 9999,

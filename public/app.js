@@ -1089,7 +1089,7 @@ function normChildren(list,depth){
       rd.on=!!rd.on && ['rect','ellipse','polygon','path'].includes(c.type);
       {
         const n=(k,lo,hi)=>{ const v=+rd[k]; rd[k]=Number.isFinite(v)?clamp(v,lo,hi):rdDef[k]; };
-        n('fluteW',4,400); n('phase',0,1); n('bulge',0.05,1);
+        n('fluteW',10,400); n('phase',0,1); n('bulge',0.05,1);
         n('ior',1,2.4); n('disp',0,0.08); n('thick',0,4); n('gap',0,20);
         n('seamW',0,6); n('seamDark',0,1); n('fresnel',0,2);
         n('spec',0,4); n('lightAng',-80,80); n('lightW',0.05,1); n('ambient',0,0.3);
@@ -8573,7 +8573,7 @@ function buildFxSection(obj,page,add,body){
           });
         }
         add('<div class="secTitle">Flutes</div>');
-        ch('rdW','Flute width',4,400,1,'fluteW',0);
+        ch('rdW','Flute width',10,400,1,'fluteW',0);
         ch('rdPh','Seam offset',0,1,0.01,'phase',2);
         ch('rdBu','Bulge',0.05,1,0.01,'bulge',2);
         ch('rdSw','Seam width',0,6,0.1,'seamW',1);
