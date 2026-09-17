@@ -59,6 +59,7 @@ uniform vec4  uBlobs[8];   // xy centre (field units), z size, w weight
 uniform int   uBlobN;
 uniform float uGain, uGamma, uFieldScale;
 uniform vec2  uDrift;      // moves the whole field
+uniform float uBgAlpha;    // 0 = empty field is fully transparent, 1 = opaque
 const int AA = 4;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -77,7 +78,10 @@ vec3 ramp(float t){
 
 /* The field, evaluated rather than sampled. p is in field units: the panel's
    shorter side is 1, so the look does not change with the shape's aspect. */
-vec3 field(vec2 p){
+/* The field's scalar: 0 on empty field, 1 at the centre of a blob. The
+   colour is this read through the ramp, and the COVERAGE is this directly —
+   which is what lets the background be transparent. */
+float fieldV(vec2 p){
   p = (p - uDrift) / max(uFieldScale, 1e-3);
   float f = 0.0;
   for (int i = 0; i < 8; i++){
@@ -87,9 +91,9 @@ vec3 field(vec2 p){
     f += b.w * exp(-dot(d, d) / (2.0 * b.z * b.z));
   }
   float v = 1.0 - exp(-f * uGain);      // soft saturation, no clamp knee
-  v = pow(v, uGamma);
-  return ramp(v);
+  return pow(v, uGamma);
 }
+vec3 field(vec2 p){ return ramp(fieldV(p)); }
 
 vec2 trace(float u, float ior, float R){
   float su = (u < 0.0) ? -1.0 : 1.0;
@@ -157,7 +161,18 @@ void main(){
   }
   vec3 c = acc / float(AA);
   c += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
-  o = vec4(clamp(c, 0.0, 1.0), 1.0);
+  /* TRANSPARENT BACKGROUND. Coverage is the field's own scalar, so the glass
+   * fades out exactly where the field does and whatever is under the layer
+   * shows through — the flutes stop being a slab and become a pane with
+   * something in it. uBgAlpha 1 keeps the old fully-opaque behaviour.
+   *
+   * The pane must not vanish entirely where the field is empty, or the
+   * highlight and the edge reflection go with it and there is no glass left
+   * to see: the specular lifts the alpha back up on its own. */
+  float cov = fieldV(toField(gl_FragCoord.x, sy));
+  float spec = max(max(c.r, c.g), c.b) * uSpec * 0.25;
+  float a = clamp(mix(cov + spec, 1.0, uBgAlpha), 0.0, 1.0);
+  o = vec4(clamp(c, 0.0, 1.0) * a, a);   // premultiplied, so the 2d canvas composites it
 }`;
 
   const MAX_TILE = 4096;
@@ -191,8 +206,8 @@ void main(){
       cv = document.createElement("canvas");
       gl = cv.getContext("webgl2", {
         antialias: false,
-        alpha: false,
-        premultipliedAlpha: false,
+        alpha: true,
+        premultipliedAlpha: true,
         preserveDrawingBuffer: true,
       });
       if (!gl) throw new Error("WebGL2 unavailable");
@@ -239,6 +254,8 @@ void main(){
       cv.height = h;
     }
     gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(prog);
     gl.bindVertexArray(vao);
     gl.uniform2f(loc("uRes"), w, h);
@@ -284,6 +301,7 @@ void main(){
     gl.uniform1f(loc("uGamma"), num("gamma", 1));
     gl.uniform1f(loc("uFieldScale"), Math.max(0.05, num("fieldScale", 1)));
     gl.uniform2f(loc("uDrift"), num("driftX", 0), num("driftY", 0));
+    gl.uniform1f(loc("uBgAlpha"), P.transparent === false ? 1 : num("bgAlpha", 0));
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return cv;
@@ -298,7 +316,7 @@ void main(){
   };
 
   window.FractalFieldEngine = {
-    VERSION: "20260917-field1",
+    VERSION: "20260917-alpha2",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),

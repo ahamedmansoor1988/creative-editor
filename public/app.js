@@ -326,15 +326,9 @@ const DEFAULT_EFFECTS=()=>({
    * is shared with Iridescence so the two sit in the same colour world, and
    * the standalone's animation is deliberately absent — drift moves the field
    * by hand instead, because a document must export as what you see. */
-  /* No seam by default. Reed glass grooves its flutes because a real reeded
-   * pane has a physical join between them and you are looking THROUGH it at
-   * something else. Here the subject is one continuous field of the effect's
-   * own making, and a dark line every flute width cuts it into slats rather
-   * than refracting it. The controls stay — a seam is one drag away when the
-   * look wants it. */
   fractal:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
-    seamW:0,seamDark:0,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
-    blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,
+    seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
+    blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,transparent:true,bgAlpha:0,
     colors:IRI_PALETTES[0].colors.slice()},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
@@ -1108,6 +1102,7 @@ function normChildren(list,depth){
         n('blobs',1,8); fr.blobs=Math.round(fr.blobs);
         n('size',0.05,0.8); n('gain',0.5,5); n('gamma',0.4,2.5);
         n('fieldScale',0.2,4); n('driftX',-1.5,1.5); n('driftY',-1.5,1.5);
+        n('bgAlpha',0,1); fr.transparent=fr.transparent!==false;
         /* The palette is five hexes; anything else falls back to the set the
          * default carries rather than reaching the shader half-formed. */
         const cols=Array.isArray(fr.colors)?fr.colors.filter(x=>/^#[0-9a-fA-F]{6}$/.test(x)):[];
@@ -8659,6 +8654,9 @@ function buildFxSection(obj,page,add,body){
           $('frC'+i).addEventListener('input',e=>{ R.colors[i]=e.target.value; render(); });
           $('frC'+i).addEventListener('change',()=>{ pushHistory('Colour'); refresh(); });
         });
+        add(`<label class="chk"><input type="checkbox" id="frTr" ${R.transparent?'checked':''}> Transparent background</label>`);
+        $('frTr').addEventListener('change',e=>{ R.transparent=e.target.checked; pushHistory('Transparent background'); refresh(); });
+        if(R.transparent) ch('frBg','Background opacity',0,1,0.01,'bgAlpha',2);
         add('<div class="secTitle" style="margin-top:8px">Field</div>');
         ch('frBlobs','Shapes',1,8,1,'blobs',0);
         ch('frSize','Shape size',0.05,0.8,0.01,'size',2);
