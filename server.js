@@ -898,15 +898,26 @@ async function generate(body) {
   const data = await r.json();
   if (!r.ok) {
     const raw = (data.error && data.error.message) || `Groq HTTP ${r.status}`;
-    /** @type {Error & { status?: number, retryAfter?: number }} */
+    /** @type {Error & { status?: number, retryAfter?: number, daily?: boolean }} */
     const err = new Error(raw);
     err.status = r.status;
     if (r.status === 429) {
-      // Groq's message embeds the reset time ("Please try again in 12.3s")
-      const m = raw.match(/try again in ([\d.]+)\s*s/i);
-      err.retryAfter = m ? Math.ceil(parseFloat(m[1]))
-        : (parseInt(r.headers.get("retry-after"), 10) || 20);
-      err.message = `Rate limit (free tier)`;
+      /* Groq embeds the reset time, and NOT always in seconds: a per-minute
+       * limit says "try again in 12.3s" but the DAILY one says "try again in
+       * 21m55.872s". Matching seconds alone read that as 56 seconds, so the
+       * client retried every minute against a twenty-two minute wall, burned
+       * the rest of the day's tokens doing it, and told the user to give it a
+       * minute. Parse the whole duration. */
+      const m = raw.match(/try again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d.]+)\s*s)?/i);
+      const secs = m
+        ? (parseInt(m[1], 10) || 0) * 3600 + (parseInt(m[2], 10) || 0) * 60 + (parseFloat(m[3]) || 0)
+        : 0;
+      err.retryAfter = secs > 0 ? Math.ceil(secs) : parseInt(r.headers.get("retry-after"), 10) || 20;
+      /* Say WHICH ceiling was hit. A per-minute limit clears itself while you
+       * wait; a daily one does not, and telling someone to try again shortly
+       * is simply wrong. */
+      err.daily = /per day|TPD|RPD/i.test(raw);
+      err.message = err.daily ? `Daily limit (free tier) reached` : `Rate limit (free tier)`;
     }
     throw err;
   }
@@ -923,7 +934,8 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/jav
  * embed upstream infrastructure detail, so it is never forwarded verbatim; the
  * full error stays in the server log. */
 function safeError(e) {
-  if (e && e.status === 429) return { status: 429, message: "Rate limit reached — try again shortly.", retryAfter: e.retryAfter };
+  if (e && e.status === 429)
+    return { status: 429, message: e.message || "Rate limit reached.", retryAfter: e.retryAfter, daily: !!e.daily };
   if (e && e.code === "NO_KEY") return { status: 503, message: "AI is not configured on this server.", code: "NO_KEY" };
   /* 401/403 is a CREDENTIAL problem, and the person seeing it is the one who
    * can fix it. Folded in with every other 4xx it read as "the request was
@@ -1058,7 +1070,7 @@ const server = http.createServer((req, res) => {
         console.error("[generate]", e && e.stack ? e.stack : e);
         const safe = safeError(e);
         res.writeHead(safe.status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: safe.message, code: safe.code, retryAfter: safe.retryAfter }));
+        res.end(JSON.stringify({ error: safe.message, code: safe.code, retryAfter: safe.retryAfter, daily: safe.daily }));
       }
     });
     return;

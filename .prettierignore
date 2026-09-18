@@ -32,3 +32,8 @@ Test Plugin/
 public/webgl-gradient.js
 public/webgl-gradient.html
 public/webgl-gradient.css
+
+# A separate project that ended up inside this folder by accident (18 Sep
+# 2026, moved in from the Desktop). Not app source; ignored so the gate stays
+# meaningful. Remove this line once it is moved back out.
+~stillspeaking

@@ -611,3 +611,46 @@ describe("a palette picks colour, not near-black that scores as saturated", () =
     expect(iri(flat).colorCore).toBeUndefined();
   });
 });
+
+/* 18 Sep 2026. Groq embeds the reset time in the 429 message, and not always
+ * in seconds: a per-minute limit says "try again in 12.3s", the DAILY one
+ * says "try again in 21m55.872s". Matching seconds alone read that as 56
+ * seconds, so the client retried every minute against a twenty-two minute
+ * wall, spent the rest of the day's tokens doing it, and told the user to
+ * give it a minute. */
+describe("a 429 says how long, and which ceiling", () => {
+  const parse = (raw) => {
+    const m = raw.match(/try again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d.]+)\s*s)?/i);
+    const secs = m
+      ? (parseInt(m[1], 10) || 0) * 3600 + (parseInt(m[2], 10) || 0) * 60 + (parseFloat(m[3]) || 0)
+      : 0;
+    return { retryAfter: secs > 0 ? Math.ceil(secs) : 20, daily: /per day|TPD|RPD/i.test(raw) };
+  };
+
+  it("reads a plain seconds wait", () => {
+    expect(parse("Please try again in 12.3s").retryAfter).toBe(13);
+  });
+
+  it("reads minutes AND seconds, which is how the daily limit reports", () => {
+    // This is the exact string that cost a day's quota.
+    const r = parse(
+      "on tokens per day (TPD): Limit 200000, Used 199574. Please try again in 21m55.872s",
+    );
+    expect(r.retryAfter).toBe(1316);
+    expect(r.daily).toBe(true);
+  });
+
+  it("reads hours", () => {
+    expect(parse("Please try again in 1h2m3s").retryAfter).toBe(3723);
+  });
+
+  it("does not call a per-minute limit a daily one", () => {
+    const r = parse("on input tokens per minute (ITPM): Limit 7000. Please try again in 26.4s");
+    expect(r.daily).toBe(false);
+    expect(r.retryAfter).toBe(27);
+  });
+
+  it("falls back rather than returning zero when the wording changes", () => {
+    expect(parse("Rate limit reached.").retryAfter).toBe(20);
+  });
+});

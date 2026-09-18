@@ -6725,7 +6725,7 @@ function loadImageFrom(dataUrl){
 async function callAnalyze(body){
   const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));
-  if(!r.ok){ const e=new Error(j.error||('HTTP '+r.status)); e.status=r.status; e.retryAfter=j.retryAfter; throw e; }
+  if(!r.ok){ const e=new Error(j.error||('HTTP '+r.status)); e.status=r.status; e.retryAfter=j.retryAfter; e.daily=!!j.daily; throw e; }
   return j;
 }
 /* Free-tier rate limit: the provider says when the window resets, so wait it
@@ -6733,7 +6733,9 @@ async function callAnalyze(body){
 async function withRateLimitRetry(fn,say,tries){
   try{ return await fn(); }
   catch(e){
-    if(e.status!==429||!e.retryAfter||e.retryAfter>120) throw e;
+    /* A DAILY ceiling does not clear while you wait, and neither does a wait
+     * longer than two minutes. Retrying either one just spends what is left. */
+    if(e.status!==429||e.daily||!e.retryAfter||e.retryAfter>120) throw e;
     /* Up to three waits. The strong route's per-minute input ceiling is close
      * to ONE plan request, so the call after a plan (its retry, or the next
      * image) is routinely told to wait, and once is not always enough for the
@@ -13454,7 +13456,11 @@ async function generate(){
     const u=data.usage;
     status(u?`done · ${u.total_tokens} tokens (${data.model.split('/').pop()})`:'done');
   }catch(e){
-    status(e.status===429?'Rate limit (free tier) — give it a minute, then Generate again':e.message,true);
+    status(e.status===429
+      ?(e.daily
+        ?`Daily limit (free tier) reached — the vision model's quota is spent. ${e.retryAfter?'Some frees up in about '+Math.ceil(e.retryAfter/60)+' min; a':'A'} full reset is 24h.`
+        :`Rate limit (free tier) — about ${e.retryAfter||30}s, then Generate again`)
+      :e.message,true);
   }finally{
     $('generateBtn').disabled=false;
   }

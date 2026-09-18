@@ -19,6 +19,10 @@ module.exports = [
       // globals this config does not model. Linted on its own terms.
       "Test Plugin/**",
       "coverage/**",
+      // A separate project that ended up inside this folder by accident (18
+      // Sep 2026, moved in from the Desktop). Not app source. Remove this
+      // once it is moved back out.
+      "~stillspeaking/**",
       // Standalone prototypes, kept verbatim as reference material. They are
       // not part of the app and are deliberately not held to its lint rules.
       "dither-effects.html",
