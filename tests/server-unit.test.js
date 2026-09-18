@@ -462,3 +462,94 @@ describe("an element can be made by an engine", () => {
     expect(o.fill.color).toBe("#ff8800");
   });
 });
+
+describe("an echo stack holds together", () => {
+  const { briefToDoc } = require("../server.js");
+  const stack = (h) =>
+    briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#000"] },
+        elements: [
+          {
+            what: "discs",
+            shape: "ellipse",
+            x: 50,
+            y: 40,
+            w: 60,
+            h,
+            material: "iridescent",
+            repeat: "echo",
+            count: 5,
+          },
+        ],
+      },
+      800,
+      1000,
+      [],
+    ).doc.frame.children.find((c) => c.name === "discs");
+
+  it("steps by a PERCENTAGE of the copy, not by pixels", () => {
+    /* The engine does cy += (stepY/100) * h. Handing it the element's height
+     * in pixels made the step ~195% and the stack flew apart. The step must
+     * not change when the element does. */
+    expect(stack(10).echo.stepY).toBe(stack(60).echo.stepY);
+    expect(stack(60).echo.stepY).toBeLessThan(150);
+  });
+
+  it("puts the copies just clear of one another", () => {
+    // The engine's touching point is 100*(1+heightScale)/2.
+    const e = stack(25).echo;
+    const touching = 100 * ((1 + e.heightScale) / 2);
+    expect(e.stepY).toBeGreaterThanOrEqual(touching);
+    expect(e.stepY - touching).toBeLessThan(20);
+  });
+
+  it("keeps the stack centred under the original", () => {
+    expect(stack(25).echo.stepX).toBe(0);
+  });
+});
+
+describe("iridescence wears the reference's colours", () => {
+  const { briefToDoc } = require("../server.js");
+  const GRID = [
+    ["#ff00aa", "#000000", "#00e5ff", "#000000"],
+    ["#000000", "#7b2cff", "#000000", "#ffe100"],
+    ["#22ff88", "#000000", "#ff5500", "#000000"],
+    ["#000000", "#0044ff", "#000000", "#ff00ee"],
+  ];
+  const build = (rows) =>
+    briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#000"] },
+        elements: [
+          { what: "orb", shape: "ellipse", x: 50, y: 50, w: 50, h: 50, material: "iridescent" },
+        ],
+      },
+      800,
+      1000,
+      rows,
+    ).doc.frame.children.find((c) => c.name === "orb").effects.iridescent;
+
+  it("takes five colours measured off the picture", () => {
+    const i = build(GRID);
+    const picked = [i.colorCore, i.colorLeft, i.colorRight, i.colorTop, i.colorEdge];
+    expect(picked.every((c) => /^#[0-9a-f]{6}$/i.test(c))).toBe(true);
+    // every one came from the reference, not from the shipped palette
+    expect(picked.every((c) => GRID.flat().includes(c))).toBe(true);
+    expect(new Set(picked).size).toBeGreaterThan(2);
+  });
+
+  it("ignores the ground: a dark field must not yield five blacks", () => {
+    // Most of that grid is black. Picking by frequency would return black.
+    const i = build(GRID);
+    expect([i.colorCore, i.colorLeft, i.colorRight, i.colorTop, i.colorEdge]).not.toContain(
+      "#000000",
+    );
+  });
+
+  it("falls back to the engine's own palette when there is no grid", () => {
+    const i = build([]);
+    expect(i.on).toBe(true);
+    expect(i.colorCore).toBeUndefined();
+  });
+});

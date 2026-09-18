@@ -346,7 +346,7 @@ const BRIEF_SYSTEM = `You describe a reference image as a STRUCTURAL brief for a
  "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid"|"echo","cut":"none"|"left"|"right"|"top"|"bottom","sides":3-12,"material":"none"|"reed"|"iridescent"|"mesh","flutes":2-80,"fluteAngle":-90-90}],
  "text":[{"content":"the words, verbatim","x":0-100,"y":0-100,"size":1-60,"weight":"regular"|"bold","color":"#hex","align":"left"|"center"|"right"}],
  "unsupported":["what flat shapes and text cannot express here"]}
-x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. ONE ELEMENT PER THING YOU CAN POINT AT. Shapes that sit in different places are different elements however alike they look — four slabs in four corners are four elements, each with its own x,y,w,h, not one box around them all. Use count and repeat ONLY for copies at even spacing along a line or grid, and then x,y,w,h describe the box of the WHOLE group and colorEnd the last copy's colour. Name each element by what and where it is ("slab, upper right"), never by a category ("orange shapes"). A shape may run off the frame: give it the box it would have if the frame did not stop it, using values below 0 or above 100. sides is how many corners a polygon has — 4 for a slab or a quadrilateral, 3 for a triangle. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. material says an element is made by an ENGINE rather than filled with a flat colour. "iridescent" is soap-film or oil-slick colour — a surface whose hue slides through the spectrum across itself, not a gradient between two picked colours; use it for anything pearlescent, holographic or rainbow-sheened. "mesh" is a smooth many-colour field with no visible stops or centre, which is what a soft wash of several colours across a whole area is. Both take the element's box and need no colour of their own — the colours are measured from the picture.
+x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. WHEN THERE ARE NO SEPARATE THINGS, SAY SO WITH ONE ELEMENT. A picture that is a single continuous surface — one wash of colour across the frame, a sheen with no edge you could trace round, a sweep of light on a dark ground — is ONE element covering the whole frame (x 50, y 50, w 100, h 100) with the material that makes it, and nothing else. Do not break a continuous surface into the parts it seems to have; a bright fold in a sheen is not an object. ONE ELEMENT PER THING YOU CAN POINT AT. Shapes that sit in different places are different elements however alike they look — four slabs in four corners are four elements, each with its own x,y,w,h, not one box around them all. Use count and repeat ONLY for copies at even spacing along a line or grid, and then x,y,w,h describe the box of the WHOLE group and colorEnd the last copy's colour. Name each element by what and where it is ("slab, upper right"), never by a category ("orange shapes"). A shape may run off the frame: give it the box it would have if the frame did not stop it, using values below 0 or above 100. sides is how many corners a polygon has — 4 for a slab or a quadrilateral, 3 for a triangle. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. material says an element is made by an ENGINE rather than filled with a flat colour. "iridescent" is soap-film or oil-slick colour — a surface whose hue slides through the spectrum across itself, not a gradient between two picked colours; use it for anything pearlescent, holographic or rainbow-sheened. "mesh" is a smooth many-colour field with no visible stops or centre, which is what a soft wash of several colours across a whole area is. Both take the element's box and need no colour of their own — the colours are measured from the picture.
 repeat "echo" is a RECEDING STACK: one thing with copies behind or below it, each a little narrower and a good deal flatter, the way a disc turning away keeps its width and loses its height. A sphere above a row of ever-flatter discs is ONE element with repeat "echo" and its count, not five elements.
 A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
 
@@ -429,6 +429,41 @@ function halfEllipsePath(cx, cy, rx, ry, cut) {
  *  an element the model calls a mesh gets the picture's own colours rather
  *  than a default palette. Points are normalised 0..1, the format the mesh
  *  engine stores. */
+/** The five most distinct colours in the measured grid, in the order the
+ *  iridescence shader wants them (centre, left lobe, right lobe, upper wash,
+ *  edge). The engine ships a default palette, and using it meant a reference
+ *  of magenta, cyan and violet came back in the shader's stock green and
+ *  orange — the engine was right and the colours were somebody else's. Spread
+ *  by hue so five neighbouring shades of one colour do not all arrive. */
+function iriPaletteFromRows(rows) {
+  const flat = (Array.isArray(rows) ? rows : []).flat().map((h) => HEX(h, null)).filter(Boolean);
+  if (!flat.length) return null;
+  const hueOf = (hex) => {
+    const v = parseInt(hex.slice(1), 16);
+    const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (!d) return -1; // grey: no hue to place it by
+    let hh = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return ((hh * 60) % 360 + 360) % 360;
+  };
+  const sat = (hex) => {
+    const v = parseInt(hex.slice(1), 16);
+    const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    return mx ? (mx - mn) / mx : 0;
+  };
+  /* Colour, not ground: a dark field is mostly near-black, and picking by
+   * frequency would return five blacks. Take the most saturated, then walk
+   * the hue circle so the five are actually different colours. */
+  const lively = flat.filter((h) => sat(h) > 0.25 && hueOf(h) >= 0);
+  const pool = lively.length >= 5 ? lively : flat;
+  const byHue = [...new Set(pool)].sort((a, b) => hueOf(a) - hueOf(b));
+  if (byHue.length < 5) return null;
+  const pick = [];
+  for (let i = 0; i < 5; i++) pick.push(byHue[Math.round((i * (byHue.length - 1)) / 4)]);
+  return { colorCore: pick[2], colorLeft: pick[0], colorRight: pick[4], colorTop: pick[3], colorEdge: pick[1] };
+}
+
 function meshFromRows(rows, cols, rws) {
   const g = Array.isArray(rows) && rows.length ? rows : null;
   const pts = [];
@@ -482,7 +517,18 @@ function briefToDoc(brief, fw, fh, rows) {
        * the copies sit directly under it, and height shrinks far faster than
        * width — that difference is what reads as perspective rather than as
        * plain scaling. */
-      echo = { copies: count, stepX: 0, stepY: Math.round(gh * 0.78), widthScale: 0.93, heightScale: 0.6, fade: 0 };
+      /* stepY is a PERCENTAGE of the copy's own height, not pixels — the
+       * engine does cy += (stepY/100) * h. Passing the element's height in px
+       * made it ~195% per step and the stack flew apart. The engine's own
+       * touching point is (1 + heightScale) / 2, so 100 * that plus a hair
+       * leaves the copies just clear of each other, which is how a receding
+       * stack reads. stepX 0 keeps them centred under the original. */
+      const heightScale = 0.6, widthScale = 0.96;
+      echo = {
+        copies: count, stepX: 0,
+        stepY: Math.round(100 * ((1 + heightScale) / 2) + 6),
+        widthScale, heightScale, fade: 0,
+      };
     } else if (count > 1 && repeat !== "none") {
       const FILL = 0.65;
       if (repeat === "vertical") { h = Math.max(1, (gh / count) * FILL); pattern = { columns: 1, rows: count, vGap: Math.max(0, gh / count - h) }; }
@@ -511,7 +557,7 @@ function briefToDoc(brief, fw, fh, rows) {
         fill: { kind: "solid", color },
         effects:
           e.material === "iridescent"
-            ? { iridescent: { on: true } }
+            ? { iridescent: Object.assign({ on: true }, iriPaletteFromRows(rows) || {}) }
             : { mesh: { on: true, cols: 4, rows: 4, points: meshFromRows(rows, 4, 4) } },
         echo: echo || undefined,
         pattern: echo ? undefined : pattern || undefined,

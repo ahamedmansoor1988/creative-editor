@@ -57,7 +57,12 @@
     fieldHard: 0.01, // ...and hard edges below this (gradients 0.002, object-01 0.015)
     materialHard: 0.05, // material: hard edges below this (glass 0.034, object-03 0.065)
     periodicStrength: 0.2, // ...and a periodic profile at least this strong (glass 0.28)
-    periodicAmp: 4, // ...with at least this amplitude in luminance (glass 8.3, object-01 1.7)
+    /* Above the most a smooth field musters (gradients 0.91 and 0.65,
+     * object-01 1.62) and below the least a real rib pattern does at the
+     * resolution limit (002.jpg's 36 vertical flutes measure 3.89 — fine ribs
+     * sit at lag 2, where aliasing costs most of the amplitude). Both bounds
+     * are measured; 3 sits in the gap with margin either way. */
+    periodicAmp: 3,
     close: 12, // verdict bands, shared with the mesh fitter's own report
     approximate: 30,
   });
@@ -166,7 +171,16 @@
   function periodicity(L, w, h) {
     const r = periodicityAlong(L, w, h, "rows");
     const c = periodicityAlong(L, w, h, "cols");
-    const p = r.strength >= c.strength ? r : c;
+    /* Pick the axis carrying real structure, not the best normalised score.
+     * `strength` is a correlation coefficient: scale-free, so a ripple of no
+     * consequence scores as high as a rib. Measured on two references whose
+     * flutes are plainly vertical, the ROW axis won on strength every time
+     * while carrying almost no amplitude — 0.70 at amp 1.74 against 0.56 at
+     * amp 3.89, and 0.46 at amp 1.04 against 0.34 at amp 2.44 — so the
+     * measurement reported the wrong direction and the ribs were lost. The
+     * product asks both questions at once: how regular is it, and is there
+     * anything there. */
+    const p = r.strength * r.amp >= c.strength * c.amp ? r : c;
     const len = p.axis === "rows" ? h : w;
     return {
       axis: p.axis,

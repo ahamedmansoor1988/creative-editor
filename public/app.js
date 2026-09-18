@@ -6896,21 +6896,7 @@ async function recreateFromReference(dataUrl,opts){
      * panes of fluted glass came back as a blurred gradient with the ribs
      * scratched on, and no threshold could have saved it. The pixels guessed
      * the class; the model judges the structure, and it wins. */
-    if(recipe&&recipe.parts===true){
-      report.escalated=`the analyser read this as ${recipe.structure||'a picture with parts'}, which a single field cannot express`;
-      say('The analyser says this picture has parts — planning it as a composition…');
-      const fieldDoc=JSON.parse(JSON.stringify(doc));
-      const fieldCmp=alone;
-      try{
-        await runComposition();
-        report.classification='composition (escalated)';
-      }catch(e){
-        load(fieldDoc);
-        report.escalationError=e.message;
-        report.engines=base.applied.slice();
-        report.error=fieldCmp.error; report.verdict=fieldCmp.verdict; report.cells=fieldCmp.cells;
-      }
-    }else if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
+    if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
       /* The base stays the FITTED mesh: it is measured against every pixel,
        * while a linear or radial base named by the analyser is read off an
        * 8x8 grid and was, measured, always worse (the glass poster: 15.7 with
@@ -6969,6 +6955,40 @@ async function recreateFromReference(dataUrl,opts){
       }
       report.engines=applied; report.ignored=ignored;
       report.error=last.error; report.verdict=last.verdict; report.cells=last.cells;
+    }
+    /* THE PICTURE HAS PARTS — but only escalate if this route has actually
+     * failed. A recipe describes one field and what was done on top of it and
+     * has no word for a shape, so a photograph of slabs behind fluted panes
+     * cannot be expressed here however well the mesh is fitted. That is the
+     * case this exists for. It is NOT the case for every picture the analyser
+     * can name two things in: asked about a blue field with an orange glow
+     * behind ribs it answered "parts", and a fitted mesh with reed glass that
+     * had just measured CLOSE was thrown away for a composition that scored
+     * 75. So the cheap route runs first and in full, and its own measurement
+     * decides — the model says a composition is possible, the pixels say
+     * whether one is needed. */
+    if(recipe&&recipe.parts===true&&report.verdict!=='close'){
+      report.escalated=`the analyser read this as ${recipe.structure||'a picture with parts'}, and this route only reached ${report.verdict} (${report.error})`;
+      say('This route only reached '+report.verdict+' and the analyser says the picture has parts — planning it as a composition…');
+      const fieldDoc=JSON.parse(JSON.stringify(doc));
+      const fieldRep={engines:report.engines.slice(),error:report.error,verdict:report.verdict,cells:report.cells};
+      try{
+        await runComposition();
+        /* And keep whichever actually measured better. Escalating is a guess
+         * that the other route can do more with the picture; it is not
+         * automatically right. */
+        if(fieldRep.error!=null&&report.error>fieldRep.error){
+          load(fieldDoc);
+          report.engines=fieldRep.engines; report.error=fieldRep.error;
+          report.verdict=fieldRep.verdict; report.cells=fieldRep.cells;
+          report.escalationRejected=`the composition scored worse; kept the field route at ${fieldRep.error}`;
+        }else report.classification='composition (escalated)';
+      }catch(e){
+        load(fieldDoc);
+        report.escalationError=e.message;
+        report.engines=fieldRep.engines; report.error=fieldRep.error;
+        report.verdict=fieldRep.verdict; report.cells=fieldRep.cells;
+      }
     }
   }
   timing.total=Math.round(performance.now()-T0);
