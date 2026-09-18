@@ -1006,23 +1006,31 @@ const server = http.createServer((req, res) => {
       } catch (err) {
         console.error("[analyze]", err);
         const status = err && err.status === 429 ? 429 : err && err.status === 413 ? 413 : 502;
-        /* "Try again shortly" is not actionable. The provider says how long in
-         * its message, so pass the number through — a wait you can time is a
-         * different experience from one you cannot. */
-        const secs = status === 429 ? Number((String(err.message).match(/try again in ([\d.]+)s/) || [])[1]) : NaN;
+        /* "Try again shortly" is not actionable, so the wait is passed through
+         * — but it is READ ONCE, in providerCall, and taken from there. This
+         * used to re-parse it off the message with its own seconds-only regex:
+         * a second copy of the same rule, which went on reading a daily
+         * ceiling of "21m55.872s" as 56 seconds after the first copy had been
+         * fixed, and then stopped matching at all once the message was
+         * rewritten. One rule, one place. */
+        const secs = status === 429 && Number.isFinite(err.retryAfter) ? err.retryAfter : NaN;
+        const daily = status === 429 && !!err.daily;
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           error:
             status === 429
-              ? Number.isFinite(secs)
-                ? `The provider's rate limit — about ${Math.ceil(secs)}s to wait.`
-                : "The provider's rate limit — about a minute to wait."
+              ? daily
+                ? "The provider's DAILY limit is spent — it does not clear by waiting."
+                : Number.isFinite(secs)
+                  ? `The provider's rate limit — about ${secs}s to wait.`
+                  : "The provider's rate limit — about a minute to wait."
               : status === 413
                 ? "The request was too large for the model's input limit — a smaller picture is needed."
                 : err && err.status === 400
                   ? "The planner's reply was not usable JSON."
                   : "The reference could not be analysed.",
-          retryAfter: Number.isFinite(secs) ? Math.ceil(secs) : undefined,
+          retryAfter: Number.isFinite(secs) ? secs : undefined,
+          daily: daily || undefined,
         }));
       }
     });
