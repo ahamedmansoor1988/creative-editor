@@ -408,3 +408,105 @@ describe("Fractal glass — the flutes over a field of its own", () => {
     expect(editor.FX_PAGES(o)).toContain("Fractal glass");
   });
 });
+
+describe("a reference recipe can switch these engines on", () => {
+  /* The analyser's vocabulary was a generation out of date: it knew blur,
+   * grain, noise, glass and light, and had never heard of the three engines
+   * this page actually offers. So a reference of ribbed glass turned on the
+   * OLD glass engine — the one whose reeded mode was measured as not
+   * refracting anything — rather than Reed glass.
+   *
+   * The division of labour is the point and is preserved: the model judges
+   * structure ("ribs, something behind them"), and the colours come from the
+   * grid the client measured. */
+  function doc() {
+    editor.doc = {
+      frame: {
+        name: "F",
+        w: 1200,
+        h: 800,
+        bg: "#ffffff",
+        children: [
+          {
+            type: "rect",
+            name: "subject",
+            x: 100,
+            y: 120,
+            w: 1000,
+            h: 560,
+            fill: { kind: "solid", color: "#8b5cf6" },
+          },
+        ],
+      },
+    };
+    return editor.doc.frame;
+  }
+  const GRID = [
+    ["#111c4a", "#1b3f8f", "#2f7fd0", "#5fd2e8"],
+    ["#1b3f8f", "#2f7fd0", "#5fd2e8", "#a8f0d0"],
+    ["#2f7fd0", "#5fd2e8", "#a8f0d0", "#f2e88a"],
+    ["#5fd2e8", "#a8f0d0", "#f2e88a", "#ff9a3d"],
+  ];
+
+  it("reed becomes its own layer above, because it needs something beneath", () => {
+    /* Put a backdrop material ON the subject and there is nothing left for it
+     * to refract — it would replace the very thing it is meant to show. */
+    const f = doc(),
+      subject = f.children[0];
+    const rep = editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "reed", fluteW: 64, angle: 30, bulge: 0.5, ior: 1.6, gap: 6 }] },
+      { list: f.children, grid: GRID },
+    );
+    expect(rep.applied).toContain("reed glass (64px flutes)");
+    expect(f.children).toHaveLength(2);
+    const glass = f.children[1];
+    expect(glass.effects.reed.on).toBe(true);
+    expect(glass.effects.reed.fluteW).toBe(64);
+    expect(glass.effects.reed.angle).toBe(30);
+    expect(glass.x).toBe(subject.x);
+    expect(glass.w).toBe(subject.w);
+    expect(subject.effects.reed.on).toBe(false);
+  });
+
+  it("fractal goes ON the layer, and takes its palette from the MEASURED grid", () => {
+    const f = doc(),
+      subject = f.children[0];
+    const rep = editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "fractal", fluteW: 48, blobs: 5, gain: 3 }] },
+      { list: f.children, grid: GRID },
+    );
+    expect(rep.applied).toContain("fractal glass (measured palette)");
+    expect(f.children).toHaveLength(1); // a fill, not a new layer
+    expect(subject.effects.fractal.on).toBe(true);
+    expect(subject.effects.fractal.fluteW).toBe(48);
+    /* Every colour came from the grid, none from the model. */
+    expect(subject.effects.fractal.colors.length).toBeGreaterThanOrEqual(2);
+    expect(subject.effects.fractal.colors.every((c) => /^#[0-9a-f]{6}$/i.test(c))).toBe(true);
+  });
+
+  it("clamps what the model returns rather than trusting it", () => {
+    const f = doc(),
+      subject = f.children[0];
+    editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "fractal", fluteW: 9999, blobs: 99, gain: -5 }] },
+      { list: f.children, grid: GRID },
+    );
+    expect(subject.effects.fractal.fluteW).toBe(400);
+    expect(subject.effects.fractal.blobs).toBe(8);
+    expect(subject.effects.fractal.gain).toBe(0.5);
+  });
+
+  it("reports an engine it does not have instead of dropping it", () => {
+    const f = doc(),
+      subject = f.children[0];
+    const rep = editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "sparkle", amount: 1 }] },
+      { list: f.children, grid: GRID },
+    );
+    expect(rep.ignored).toContain("sparkle: no engine of that name");
+  });
+});

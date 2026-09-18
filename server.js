@@ -258,8 +258,12 @@ Each effect is one of (applied in the order given, bottom to top):
 {"type":"noise","amount":0..1,"mono":true|false,"scale":1-32}
 {"type":"glass","mode":"backdrop"|"frosted"|"reeded","depth":-200..200,"refraction":-200..200,"frost":0-100,"count":2-64,"angle":-90..90} (reeded = fluted ribs; count = ribs across the image, angle 0 = vertical ribs, 90 = horizontal)
 {"type":"light","intensity":0..2.8,"angle":-180..180} (a volumetric light cone or beam over the field)
+{"type":"reed","fluteW":10-400,"angle":-90..90,"bulge":0.05..1,"ior":1..2.4,"gap":0..20} (FLUTED GLASS over the layers beneath: vertical ribs, each an inverted compressed copy of what is behind, with hard seams between. fluteW = rib pitch in px, angle 0 = vertical. Use this, not "glass", whenever the picture is something SEEN THROUGH ribbed glass)
+{"type":"fractal","fluteW":10-400,"blobs":1-8,"size":0.05..0.8,"gain":0.5..5,"fieldScale":0.2..4} (the same fluted glass over a colour field of ITS OWN — no layers needed beneath. Use when the ribs are the whole picture and there is nothing recognisable behind them)
+{"type":"iridescent","spread":0..1} (a thin dispersive film over the shape: soft rainbow bands that follow its outline, like oil on water or a soap bubble)
 Include ONLY effects you can see direct evidence of. An effect you are unsure about is worse than a missing one, because it will be applied.
 Judge specifically: is the colour field smooth everywhere or does it have creases and hard edges? Is there directional smearing, and at roughly what angle? Is there visible grain or noise? Is there refraction or glassiness?
+If you see ribs or flutes, say which: "reed" when something recognisable sits behind them, "fractal" when the ribs and their colour are the whole image. "glass" is the older, blunter engine — prefer reed or fractal when the ribs are the point.
 Say nothing about the colours themselves — those are measured separately and far more precisely than you can judge them.`;
 
 /* ---- classification-aware routing ----------------------------------------

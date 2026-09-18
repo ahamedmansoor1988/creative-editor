@@ -6612,6 +6612,51 @@ function applyRecipeReport(obj,recipe,ctx){
       setMaterial(o,'glass');
       report.created.push(o);
       applied.push(G.mode==='reeded'?'reeded glass ('+G.reedCount+' ribs)':G.mode+' glass');
+    }else if(fx.type==='reed'){
+      /* A BACKDROP material: it refracts what is under it and has no colour of
+       * its own, so like glass it becomes its own layer above rather than
+       * replacing the thing it is supposed to be showing. Put it on the object
+       * itself and there would be nothing left beneath for it to refract. */
+      if(!list){ report.ignored.push('reed: no layer list to add a glass layer to'); return; }
+      const o=layerOver(obj,list,'Reed glass');
+      const R=o.effects.reed;
+      R.on=true;
+      if(Number.isFinite(+fx.fluteW)) R.fluteW=clamp(+fx.fluteW,10,400);
+      if(Number.isFinite(+fx.angle))  R.angle=clamp(+fx.angle,-90,90);
+      if(Number.isFinite(+fx.bulge))  R.bulge=clamp(+fx.bulge,0.05,1);
+      if(Number.isFinite(+fx.ior))    R.ior=clamp(+fx.ior,1,2.4);
+      if(Number.isFinite(+fx.gap))    R.gap=clamp(+fx.gap,0,20);
+      setMaterial(o,'reed');
+      report.created.push(o);
+      applied.push('reed glass ('+Math.round(R.fluteW)+'px flutes)');
+    }else if(fx.type==='fractal'){
+      /* A FILL: the field is its own, so it goes ON the object. And the
+       * palette comes from the grid we MEASURED, never from the model — the
+       * whole division of labour here is that it judges structure and the
+       * pixels decide colour. */
+      const F=E.fractal;
+      if(!F){ report.ignored.push('fractal: this layer has no fractal glass'); return; }
+      F.on=true;
+      if(Number.isFinite(+fx.fluteW))     F.fluteW=clamp(+fx.fluteW,10,400);
+      if(Number.isFinite(+fx.angle))      F.angle=clamp(+fx.angle,-90,90);
+      if(Number.isFinite(+fx.blobs))      F.blobs=clamp(Math.round(+fx.blobs),1,8);
+      if(Number.isFinite(+fx.size))       F.size=clamp(+fx.size,0.05,0.8);
+      if(Number.isFinite(+fx.gain))       F.gain=clamp(+fx.gain,0.5,5);
+      if(Number.isFinite(+fx.fieldScale)) F.fieldScale=clamp(+fx.fieldScale,0.2,4);
+      /* dominantHexes is the same helper the liquid base uses: the grid's
+       * most-covered colours, far enough apart to be different colours. */
+      const grid=ctx&&ctx.grid;
+      const pal=grid?dominantHexes(grid.flat(),5):null;
+      if(pal&&pal.length>=2){ F.colors=pal; applied.push('fractal glass (measured palette)'); }
+      else applied.push('fractal glass');
+      setMaterial(obj,'fractal');
+    }else if(fx.type==='iridescent'){
+      const I=E.iridescent;
+      if(!I){ report.ignored.push('iridescent: this layer has no iridescence'); return; }
+      I.on=true;
+      if(Number.isFinite(+fx.spread)) I.spread=clamp(+fx.spread,0,1);
+      setMaterial(obj,'iridescent');
+      applied.push('iridescence');
     }else if(fx.type==='light'){
       if(!list){ report.ignored.push('light: no layer list to add a light layer to'); return; }
       const o=layerOver(obj,list,'Light');
