@@ -49,7 +49,10 @@ const GROQ_URL =
 // Text-only prompts get the stronger text model; prompts with a reference
 // image need the one vision model Groq exposes on the free tier.
 const TEXT_MODEL = process.env.TEXT_MODEL || ENV.TEXT_MODEL || "openai/gpt-oss-120b";
-const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.6-27b";
+/* qwen3.6-27b was retired: a key that works fine against /models 200s there
+ * and then 404s on the first analyse call, which reads as "the AI is broken"
+ * rather than "that model is gone". 3.8 is what Groq actually serves. */
+const VISION_MODEL = process.env.VISION_MODEL || ENV.VISION_MODEL || "qwen/qwen3.8-27b";
 /* A STRONGER vision route for compositions — structured designs the everyday
  * model flattens. Model, endpoint and key are all configuration: the default
  * is the strongest vision model this provider lists (qwen3.8 over qwen3.6),

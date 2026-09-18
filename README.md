@@ -77,7 +77,7 @@ containers and CI can inject configuration without writing a file.
 | `GROQ_API_KEY` | yes\*    | —                                                 | Server-side Groq credential. Never sent to the client. |
 | `PORT`         | no       | `8470`                                            | HTTP listen port.                                      |
 | `TEXT_MODEL`   | no       | `llama-3.3-70b-versatile`                         | Model for text-only prompts.                           |
-| `VISION_MODEL` | no       | `qwen/qwen3.6-27b`                                | Model used when a reference image is attached.         |
+| `VISION_MODEL` | no       | `qwen/qwen3.8-27b`                                | Model used when a reference image is attached.         |
 | `GROQ_URL`     | no       | `https://api.groq.com/openai/v1/chat/completions` | Provider endpoint. Overridden by tests and the mock.   |
 
 \* The server starts and serves the editor without it; only `/api/generate`
