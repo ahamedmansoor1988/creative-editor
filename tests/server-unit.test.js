@@ -346,3 +346,119 @@ describe("a four-cornered polygon is a slab, not a diamond", () => {
     expect(doc.frame.children.find((c) => c.name === "star").type).toBe("polygon");
   });
 });
+
+/* 18 Sep 2026. Mansoor, on the batch: "0024 cant be radial. its mesh gradient"
+ * and "994 is iridiscent with echo". Both right, and both the same cause —
+ * briefToDoc could only give an element a solid, linear or radial paint, so a
+ * soap-film sphere and a soft many-colour wash each came out a radial fill
+ * that picked ONE colour out of a spectrum. The engines were already shipped;
+ * the brief had no word for them. */
+describe("an element can be made by an engine", () => {
+  const { briefToDoc } = require("../server.js");
+  const GRID = [
+    ["#ff0000", "#ff8800", "#ffff00", "#00ff00"],
+    ["#00ffff", "#0000ff", "#8800ff", "#ff00ff"],
+    ["#ffffff", "#cccccc", "#888888", "#444444"],
+    ["#000000", "#220000", "#004400", "#000044"],
+  ];
+  const build = (el, rows) =>
+    briefToDoc(
+      { background: { kind: "solid", colors: ["#000000"] }, elements: [el] },
+      800,
+      1000,
+      rows || [],
+    );
+
+  it("turns an iridescent element into the iridescence engine", () => {
+    const { doc } = build({
+      what: "sphere",
+      shape: "ellipse",
+      x: 50,
+      y: 30,
+      w: 60,
+      h: 40,
+      material: "iridescent",
+    });
+    const o = doc.frame.children.find((c) => c.name === "sphere");
+    expect(o.type).toBe("ellipse");
+    expect(o.effects.iridescent.on).toBe(true);
+  });
+
+  it("gives a mesh element colours measured off the reference, not a default palette", () => {
+    const { doc } = build(
+      { what: "wash", shape: "rect", x: 50, y: 50, w: 100, h: 100, material: "mesh" },
+      GRID,
+    );
+    const m = doc.frame.children.find((c) => c.name === "wash").effects.mesh;
+    expect(m.on).toBe(true);
+    expect(m.points).toHaveLength(m.cols * m.rows);
+    // corners of the net come from the corners of the measured grid
+    expect(m.points[0].color).toBe("#ff0000");
+    expect(m.points[m.points.length - 1].color).toBe("#000044");
+    // normalised coordinates, which is what the mesh engine stores
+    expect(m.points.every((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)).toBe(true);
+  });
+
+  it("survives a reference with no colour grid", () => {
+    const { doc } = build(
+      { what: "wash", shape: "rect", x: 50, y: 50, w: 50, h: 50, material: "mesh" },
+      [],
+    );
+    const m = doc.frame.children.find((c) => c.name === "wash").effects.mesh;
+    expect(m.points).toHaveLength(16);
+    expect(m.points.every((p) => /^#[0-9a-f]{6}$/i.test(p.color))).toBe(true);
+  });
+
+  it("builds a receding stack for repeat echo, not a grid", () => {
+    // A sphere above ever-flatter discs is ONE thing echoed.
+    const { doc } = build({
+      what: "sphere",
+      shape: "ellipse",
+      x: 50,
+      y: 25,
+      w: 60,
+      h: 25,
+      material: "iridescent",
+      repeat: "echo",
+      count: 5,
+    });
+    const o = doc.frame.children.find((c) => c.name === "sphere");
+    expect(o.echo).toBeTruthy();
+    expect(o.echo.copies).toBe(5);
+    expect(o.pattern).toBeUndefined();
+    // height collapses faster than width: that is what reads as perspective
+    expect(o.echo.heightScale).toBeLessThan(o.echo.widthScale);
+    expect(o.echo.stepY).toBeGreaterThan(0);
+  });
+
+  it("still lays an even row for repeat horizontal", () => {
+    const { doc } = build({
+      what: "dots",
+      shape: "ellipse",
+      x: 50,
+      y: 50,
+      w: 80,
+      h: 10,
+      repeat: "horizontal",
+      count: 4,
+    });
+    const o = doc.frame.children.find((c) => c.name === "dots");
+    expect(o.pattern.columns).toBe(4);
+    expect(o.echo).toBeUndefined();
+  });
+
+  it("leaves an ordinary painted element untouched", () => {
+    const { doc } = build({
+      what: "slab",
+      shape: "rect",
+      x: 50,
+      y: 50,
+      w: 40,
+      h: 20,
+      color: "#ff8800",
+    });
+    const o = doc.frame.children.find((c) => c.name === "slab");
+    expect(o.effects).toBeUndefined();
+    expect(o.fill.color).toBe("#ff8800");
+  });
+});

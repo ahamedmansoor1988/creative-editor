@@ -343,10 +343,12 @@ async function providerCall(payload, url, key) {
  * against the same wall. */
 const BRIEF_SYSTEM = `You describe a reference image as a STRUCTURAL brief for a layout tool. Reply with ONLY JSON, no prose:
 {"background":{"kind":"solid"|"gradient","colors":["#hex","#hex"],"angle":0-360},
- "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom","sides":3-12,"material":"none"|"reed","flutes":2-80,"fluteAngle":-90-90}],
+ "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid"|"echo","cut":"none"|"left"|"right"|"top"|"bottom","sides":3-12,"material":"none"|"reed"|"iridescent"|"mesh","flutes":2-80,"fluteAngle":-90-90}],
  "text":[{"content":"the words, verbatim","x":0-100,"y":0-100,"size":1-60,"weight":"regular"|"bold","color":"#hex","align":"left"|"center"|"right"}],
  "unsupported":["what flat shapes and text cannot express here"]}
-x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. ONE ELEMENT PER THING YOU CAN POINT AT. Shapes that sit in different places are different elements however alike they look — four slabs in four corners are four elements, each with its own x,y,w,h, not one box around them all. Use count and repeat ONLY for copies at even spacing along a line or grid, and then x,y,w,h describe the box of the WHOLE group and colorEnd the last copy's colour. Name each element by what and where it is ("slab, upper right"), never by a category ("orange shapes"). A shape may run off the frame: give it the box it would have if the frame did not stop it, using values below 0 or above 100. sides is how many corners a polygon has — 4 for a slab or a quadrilateral, 3 for a triangle. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
+x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. ONE ELEMENT PER THING YOU CAN POINT AT. Shapes that sit in different places are different elements however alike they look — four slabs in four corners are four elements, each with its own x,y,w,h, not one box around them all. Use count and repeat ONLY for copies at even spacing along a line or grid, and then x,y,w,h describe the box of the WHOLE group and colorEnd the last copy's colour. Name each element by what and where it is ("slab, upper right"), never by a category ("orange shapes"). A shape may run off the frame: give it the box it would have if the frame did not stop it, using values below 0 or above 100. sides is how many corners a polygon has — 4 for a slab or a quadrilateral, 3 for a triangle. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. material says an element is made by an ENGINE rather than filled with a flat colour. "iridescent" is soap-film or oil-slick colour — a surface whose hue slides through the spectrum across itself, not a gradient between two picked colours; use it for anything pearlescent, holographic or rainbow-sheened. "mesh" is a smooth many-colour field with no visible stops or centre, which is what a soft wash of several colours across a whole area is. Both take the element's box and need no colour of their own — the colours are measured from the picture.
+repeat "echo" is a RECEDING STACK: one thing with copies behind or below it, each a little narrower and a good deal flatter, the way a disc turning away keeps its width and loses its height. A sphere above a row of ever-flatter discs is ONE element with repeat "echo" and its count, not five elements.
+A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
 
 async function readComposition(imageDataUrl, features, prompt, hint) {
   const payload = {
@@ -423,6 +425,28 @@ function halfEllipsePath(cx, cy, rx, ry, cut) {
     { x: cx + rx, y: cy, ix: 0, iy: sy * k * ry, ox: 0, oy: 0 },
   ];
 }
+/** A mesh net whose colours are MEASURED off the reference's colour grid, so
+ *  an element the model calls a mesh gets the picture's own colours rather
+ *  than a default palette. Points are normalised 0..1, the format the mesh
+ *  engine stores. */
+function meshFromRows(rows, cols, rws) {
+  const g = Array.isArray(rows) && rows.length ? rows : null;
+  const pts = [];
+  for (let j = 0; j < rws; j++) {
+    for (let i = 0; i < cols; i++) {
+      const x = cols === 1 ? 0.5 : i / (cols - 1);
+      const y = rws === 1 ? 0.5 : j / (rws - 1);
+      let color = "#808080";
+      if (g) {
+        const r = g[Math.round(y * (g.length - 1))] || [];
+        color = HEX(r[Math.round(x * (r.length - 1))], "#808080");
+      }
+      pts.push({ x: +x.toFixed(4), y: +y.toFixed(4), color });
+    }
+  }
+  return pts;
+}
+
 function briefToDoc(brief, fw, fh, rows) {
   const pct = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(-50, Math.min(150, n)) : d; };
   const unsupported = [];
@@ -443,7 +467,7 @@ function briefToDoc(brief, fw, fh, rows) {
     const cx = (pct(e.x, 50) / 100) * fw, cy = (pct(e.y, 50) / 100) * fh;
     const gw = Math.max(2, (pct(e.w, 20) / 100) * fw), gh = Math.max(2, (pct(e.h, 20) / 100) * fh);
     const count = Math.max(1, Math.min(64, Math.round(Number(e.count) || 1)));
-    const repeat = ["horizontal", "vertical", "fan", "grid"].includes(e.repeat) ? e.repeat : count > 1 ? "horizontal" : "none";
+    const repeat = ["horizontal", "vertical", "fan", "grid", "echo"].includes(e.repeat) ? e.repeat : count > 1 ? "horizontal" : "none";
     const soft = Math.max(0, Math.min(1, Number(e.soft) || 0));
     const color = HEX(e.color, "#ffffff");
     const colorEnd = HEX(e.colorEnd, null);
@@ -452,8 +476,14 @@ function briefToDoc(brief, fw, fh, rows) {
     let shape = ["rect", "ellipse", "polygon", "line", "path"].includes(e.shape) ? e.shape : "rect";
     const rot = Math.max(-180, Math.min(180, Number(e.rotation) || 0));
     // one copy's size: the group box divided by the count along the repeat axis, with a 35% gap
-    let w = gw, h = gh, pattern = null;
-    if (count > 1 && repeat !== "none") {
+    let w = gw, h = gh, pattern = null, echo = null;
+    if (count > 1 && repeat === "echo") {
+      /* A receding stack, not a grid. The step is the element's own height so
+       * the copies sit directly under it, and height shrinks far faster than
+       * width — that difference is what reads as perspective rather than as
+       * plain scaling. */
+      echo = { copies: count, stepX: 0, stepY: Math.round(gh * 0.78), widthScale: 0.93, heightScale: 0.6, fade: 0 };
+    } else if (count > 1 && repeat !== "none") {
       const FILL = 0.65;
       if (repeat === "vertical") { h = Math.max(1, (gh / count) * FILL); pattern = { columns: 1, rows: count, vGap: Math.max(0, gh / count - h) }; }
       else if (repeat === "horizontal") { w = Math.max(1, (gw / count) * FILL); pattern = { columns: count, rows: 1, hGap: Math.max(0, gw / count - w) }; }
@@ -468,6 +498,26 @@ function briefToDoc(brief, fw, fh, rows) {
     }
     const x = cx - w / 2, y = cy - h / 2;
     const base = { name, x: +x.toFixed(1), y: +y.toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), opacity: alpha, rot };
+    /* AN ELEMENT MADE BY AN ENGINE. The builder could only ever give a shape a
+     * solid, linear or radial paint, so a soap-film sphere and a soft
+     * many-colour wash both came out as a radial fill picking ONE colour from
+     * a spectrum. Iridescence and a mesh are engines the editor already
+     * ships; the brief simply had no word for them. */
+    if (e.material === "iridescent" || e.material === "mesh") {
+      const type = ["rect", "ellipse", "polygon"].includes(e.shape) ? e.shape : "rect";
+      children.push({
+        ...base,
+        type,
+        fill: { kind: "solid", color },
+        effects:
+          e.material === "iridescent"
+            ? { iridescent: { on: true } }
+            : { mesh: { on: true, cols: 4, rows: 4, points: meshFromRows(rows, 4, 4) } },
+        echo: echo || undefined,
+        pattern: echo ? undefined : pattern || undefined,
+      });
+      return;
+    }
     /* A MATERIAL PANEL. Reed glass has no colour of its own — it refracts the
      * layers already beneath it — so it is a placed rectangle carrying the
      * effect, with its fill switched off, and it must come after the things it
@@ -490,14 +540,14 @@ function briefToDoc(brief, fw, fh, rows) {
     const darkGround = (() => { const v = parseInt(bgColor.slice(1), 16); return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255 < 0.35; })();
     if (soft >= 0.5 && thin) {
       // a soft STREAK keeps its shape and glows: a rect with the glow effect
-      children.push({ ...base, type: "rect", fill: { kind: "solid", color }, effects: { glow: { on: true, type: "outer", radius: Math.round(Math.max(6, Math.min(w, h) * 1.5)), color, alpha: 0.8 } }, pattern: pattern || undefined });
+      children.push({ ...base, type: "rect", fill: { kind: "solid", color }, effects: { glow: { on: true, type: "outer", radius: Math.round(Math.max(6, Math.min(w, h) * 1.5)), color, alpha: 0.8 } }, pattern: pattern || undefined, echo: echo || undefined });
       return;
     }
     if (soft >= 0.5) {
       // a LIGHT: a radial fill with a plateau (light reads as a field, not a
       // point), composited as light when the ground is dark
       const stops = [{ pos: 0, color, opacity: 1 }, { pos: 0.55, color, opacity: 0.85 }, { pos: 1, color, opacity: 0 }];
-      children.push({ ...base, type: "ellipse", w: +(w * 1.15).toFixed(1), h: +(h * 1.15).toFixed(1), x: +(cx - (w * 1.15) / 2).toFixed(1), y: +(cy - (h * 1.15) / 2).toFixed(1), fill: { kind: "radial", stops }, blend: darkGround ? "screen" : "normal", pattern: pattern || undefined });
+      children.push({ ...base, type: "ellipse", w: +(w * 1.15).toFixed(1), h: +(h * 1.15).toFixed(1), x: +(cx - (w * 1.15) / 2).toFixed(1), y: +(cy - (h * 1.15) / 2).toFixed(1), fill: { kind: "radial", stops }, blend: darkGround ? "screen" : "normal", pattern: pattern || undefined, echo: echo || undefined });
       return;
     }
     const fill = colorEnd && count === 1 ? { kind: "linear", angle: gw >= gh ? 0 : 90, stops: [{ pos: 0, color }, { pos: 1, color: colorEnd }] } : { kind: "solid", color };
@@ -507,7 +557,7 @@ function briefToDoc(brief, fw, fh, rows) {
      * named came out a diamond. A rect with the rotation it was given is what
      * a slab actually is; polygons keep their meaning from five sides up. */
     if (shape === "polygon" && Math.round(Number(e.sides) || 4) === 4) {
-      children.push({ ...base, type: "rect", fill, pattern: pattern || undefined });
+      children.push({ ...base, type: "rect", fill, pattern: pattern || undefined, echo: echo || undefined });
       return;
     }
     if (shape === "polygon") {
@@ -515,7 +565,7 @@ function briefToDoc(brief, fw, fh, rows) {
        * named came out a hexagon — four angular orange slabs arrived as one
        * centred hexagon, and the brief had no word to correct it with. */
       const sides = Math.max(3, Math.min(24, Math.round(Number(e.sides) || 4)));
-      children.push({ ...base, type: "polygon", sides, innerRatio: 1, fill, pattern: pattern || undefined });
+      children.push({ ...base, type: "polygon", sides, innerRatio: 1, fill, pattern: pattern || undefined, echo: echo || undefined });
       return;
     }
     if ((shape === "ellipse" || shape === "path") && cut) {
@@ -524,7 +574,7 @@ function briefToDoc(brief, fw, fh, rows) {
       return;
     }
     if (shape === "path") shape = "rect";
-    children.push({ ...base, type: shape, fill, pattern: pattern || undefined });
+    children.push({ ...base, type: shape, fill, pattern: pattern || undefined, echo: echo || undefined });
   });
   const texts = (Array.isArray(brief && brief.text) ? brief.text : []).slice(0, 8);
   texts.forEach((t) => {
