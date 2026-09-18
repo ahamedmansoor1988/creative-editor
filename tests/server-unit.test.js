@@ -553,3 +553,61 @@ describe("iridescence wears the reference's colours", () => {
     expect(i.colorCore).toBeUndefined();
   });
 });
+
+/* 18 Sep 2026. Two references of vivid colour on black came back grey.
+ * Saturation is (max-min)/max — a RATIO — so #010100 scores a perfect 1.0
+ * while being, to any eye, black. The palette picker filtered on it and
+ * chose near-blacks as "lively colours". Chroma is the absolute measure. */
+describe("a palette picks colour, not near-black that scores as saturated", () => {
+  const { briefToDoc } = require("../server.js");
+  const iri = (rows) =>
+    briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#000"] },
+        elements: [
+          { what: "orb", shape: "ellipse", x: 50, y: 50, w: 50, h: 50, material: "iridescent" },
+        ],
+      },
+      800,
+      1000,
+      rows,
+    ).doc.frame.children.find((c) => c.name === "orb").effects.iridescent;
+
+  /* Measured off 994.jpg: mostly black, with real colour in a few cells. The
+   * near-blacks here all score above 0.3 on ratio saturation. */
+  const DARK_GROUND = [
+    ["#000000", "#010100", "#020605", "#0f0c12"],
+    ["#000000", "#e58fcc", "#e0679a", "#020201"],
+    ["#000000", "#e96758", "#83275e", "#0a0e1e"],
+    ["#000000", "#39c9a1", "#6b4bd6", "#000000"],
+  ];
+
+  it("takes the colours a person would point at, not the ground", () => {
+    const picked = Object.values(iri(DARK_GROUND)).filter((v) => typeof v === "string");
+    const chroma = (h) => {
+      const v = parseInt(h.slice(1), 16),
+        r = (v >> 16) & 255,
+        g = (v >> 8) & 255,
+        b = v & 255;
+      return Math.max(r, g, b) - Math.min(r, g, b);
+    };
+    expect(picked.length).toBe(5);
+    // every one carries real colour; the near-blacks sit at chroma 1-6
+    expect(Math.min(...picked.map(chroma))).toBeGreaterThanOrEqual(40);
+  });
+
+  it("does not mistake #010100 for a saturated colour", () => {
+    const picked = Object.values(iri(DARK_GROUND)).filter((v) => typeof v === "string");
+    for (const nearBlack of ["#010100", "#020201", "#020605", "#0f0c12", "#000000"]) {
+      expect(picked).not.toContain(nearBlack);
+    }
+  });
+
+  it("falls back to the engine's palette rather than inventing one from mud", () => {
+    const flat = [
+      ["#000000", "#010100"],
+      ["#020201", "#000000"],
+    ];
+    expect(iri(flat).colorCore).toBeUndefined();
+  });
+});

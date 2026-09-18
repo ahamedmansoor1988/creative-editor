@@ -446,17 +446,23 @@ function iriPaletteFromRows(rows) {
     let hh = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
     return ((hh * 60) % 360 + 360) % 360;
   };
-  const sat = (hex) => {
+  /* CHROMA, not saturation. Saturation is (max-min)/max — a ratio, so #010100
+   * scores a perfect 1.0 while being, to any eye, black. Filtering on it let
+   * near-blacks through as "lively colours" and a reference of rainbow
+   * spheres on black came back grey. Chroma is max-min in absolute terms:
+   * how much colour is actually there. Measured on those references the real
+   * colours sit at 86-145 and the near-blacks at 1-6, so 40 is a wide gap. */
+  const chroma = (hex) => {
     const v = parseInt(hex.slice(1), 16);
     const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-    return mx ? (mx - mn) / mx : 0;
+    return Math.max(r, g, b) - Math.min(r, g, b);
   };
   /* Colour, not ground: a dark field is mostly near-black, and picking by
-   * frequency would return five blacks. Take the most saturated, then walk
-   * the hue circle so the five are actually different colours. */
-  const lively = flat.filter((h) => sat(h) > 0.25 && hueOf(h) >= 0);
-  const pool = lively.length >= 5 ? lively : flat;
+   * frequency would return five blacks. Take what carries real colour, then
+   * walk the hue circle so the five are actually different from each other. */
+  const lively = flat.filter((h) => chroma(h) >= 40 && hueOf(h) >= 0);
+  const pool = lively.length >= 5 ? lively : flat.filter((h) => chroma(h) >= 12);
+  if (pool.length < 5) return null;
   const byHue = [...new Set(pool)].sort((a, b) => hueOf(a) - hueOf(b));
   if (byHue.length < 5) return null;
   const pick = [];
