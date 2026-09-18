@@ -16,3 +16,7 @@ tmp/
 research/
 !docs/research/
 .claude/
+
+# A separate project (with its own git repo) that ended up inside this folder
+# by accident on 18 Sep 2026. Never ours to track.
+~stillspeaking/
