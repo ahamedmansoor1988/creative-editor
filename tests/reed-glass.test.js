@@ -603,6 +603,22 @@ describe("reed glass can be a panel over part of the frame", () => {
     expect(rep.applied.join()).toMatch(/panel/);
   });
 
+  it("ignores the box where a panel cannot mean anything", () => {
+    /* Over a single fitted field there is nothing for a panel to half cover,
+     * and honouring the box there deleted most of the effect while IMPROVING
+     * the mean error — a smooth mesh scores better than a ribbed one. */
+    const f = docWithSubject(),
+      subject = f.children[0];
+    editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "reed", fluteW: 40, x: 20, y: 20, w: 25, h: 25 }] },
+      { list: f.children, grid: GRID2, allowPanel: false },
+    );
+    const pane = f.children.find((o) => o.name === "Reed glass");
+    expect(pane.w).toBe(subject.w);
+    expect(pane.h).toBe(subject.h);
+  });
+
   it("covers the whole object when no box is given — the old behaviour", () => {
     const f = docWithSubject(),
       subject = f.children[0];

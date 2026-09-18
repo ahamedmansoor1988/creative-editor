@@ -6625,7 +6625,16 @@ function applyRecipeReport(obj,recipe,ctx){
        * layer covers the whole object, which is the old behaviour and still
        * the default. x,y,w,h arrive as percentages of the object. */
       const pct=(v,d)=>Number.isFinite(+v)?clamp(+v,-50,150):d;
-      if(['x','y','w','h'].some(k=>Number.isFinite(+fx[k]))){
+      /* A PANEL ONLY MEANS SOMETHING OVER A COMPOSITION. There the glass
+       * covers some of the shapes and not others, and that contrast is the
+       * picture. Over a single fitted field there is nothing for it to half
+       * cover, and letting the analyser shrink it there was actively harmful:
+       * a reference fluted edge to edge came back with the ribs confined to a
+       * corner, and the mean error IMPROVED, because a smooth mesh scores
+       * better than a ribbed one. The measurement rewarded deleting the
+       * effect. So the box is honoured only where it can mean something. */
+      const panelAllowed=ctx.allowPanel!==false;
+      if(panelAllowed&&['x','y','w','h'].some(k=>Number.isFinite(+fx[k]))){
         const pw=pct(fx.w,100)/100*obj.w, ph=pct(fx.h,100)/100*obj.h;
         o.w=Math.max(2,pw); o.h=Math.max(2,ph);
         o.x=obj.x+pct(fx.x,50)/100*obj.w-o.w/2;
@@ -6904,7 +6913,7 @@ async function recreateFromReference(dataUrl,opts){
        * effects also made the effects take the blame for it, and the whole
        * recipe was reverted together. So only the EFFECTS are tried on top,
        * and the analyser's base is reported rather than obeyed. */
-      const ctx={img,grid:m.grid,features:m.features,list:doc.frame.children};
+      const ctx={img,grid:m.grid,features:m.features,list:doc.frame.children,allowPanel:false};
       /* THE MODEL NAMES THE GROUND, THE PIXELS COLOUR IT. This used to keep
        * the fitted mesh always, on the grounds that a mesh is measured against
        * every pixel while the analyser's base is read off an 8x8 grid. That is
