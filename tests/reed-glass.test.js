@@ -510,3 +510,50 @@ describe("a reference recipe can switch these engines on", () => {
     expect(rep.ignored).toContain("sparkle: no engine of that name");
   });
 });
+
+/* 18 Sep 2026. The reference pipeline had three separate ways of losing the
+ * reed glass a photograph plainly showed. The classifier was one (pinned in
+ * reference.test.js); these are the other two, both in app.js. */
+describe("measured ribs reach the engine that exists", () => {
+  it("turns a rib count into a flute width across the axis they repeat along", () => {
+    // 20 ribs across a 900px width is a 45px flute.
+    const r = editor.reedFromRibs({ axis: "cols", count: 20 }, 900, 600);
+    expect(r.type).toBe("reed");
+    expect(r.fluteW).toBeCloseTo(45, 5);
+    expect(r.angle).toBe(0);
+  });
+
+  it("measures down the HEIGHT when the ribs run horizontally", () => {
+    // Repetition down the rows means horizontal ribs: the period spans 600,
+    // not 900. Reading the wrong span gave flutes half again too wide.
+    const r = editor.reedFromRibs({ axis: "rows", count: 20 }, 900, 600);
+    expect(r.fluteW).toBeCloseTo(30, 5);
+    expect(r.angle).toBe(90);
+  });
+
+  it("clamps to the engine's own range rather than handing it a bad number", () => {
+    expect(editor.reedFromRibs({ axis: "cols", count: 200 }, 900, 600).fluteW).toBe(10);
+    expect(editor.reedFromRibs({ axis: "cols", count: 2 }, 900, 600).fluteW).toBe(400);
+  });
+
+  it("names an effect the stack actually has", () => {
+    // It used to emit {type:'glass'}, which silently stopped rendering the day
+    // glass left FX_ONLY: the layer was built and nothing drew it.
+    const type = editor.reedFromRibs({ axis: "cols", count: 20 }, 900, 600).type;
+    expect(FX_ONLY).toContain(type);
+  });
+});
+
+describe("structure is kept on structure, not on pixel distance", () => {
+  it("counts the rib engines as surfaces and the colour engines as colour", () => {
+    /* RMS always prefers smooth, so a gate that reverts whatever raises the
+     * error can never accept a texture. The partition is the whole mechanism:
+     * these are exempt from it, everything else still faces it. */
+    expect([...editor.SURFACE_FX].sort()).toEqual(
+      ["fractal", "glass", "grain", "noise", "reed"].sort(),
+    );
+    expect(editor.SURFACE_FX.has("reed")).toBe(true);
+    expect(editor.SURFACE_FX.has("iridescent")).toBe(false);
+    expect(editor.SURFACE_FX.has("blur")).toBe(false);
+  });
+});

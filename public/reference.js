@@ -229,17 +229,24 @@
     const p = f.periodic || { strength: 0, amp: 0, lag: 0 };
     const periodic =
       p.strength >= T.periodicStrength && p.amp >= T.periodicAmp && p.lag >= T.periodicLag;
-    if (f.edge24 < T.fieldEdge && f.edge64 < T.fieldHard) {
-      reasons.push(
-        `almost no edges (${(f.edge24 * 100).toFixed(1)}% soft, ${(f.edge64 * 100).toFixed(1)}% hard)`,
-      );
-      return { kind: "color_field", reasons, periodic };
-    }
+    /* Asked BEFORE the colour-field test, which reads edges only. A photograph
+     * of reeded glass is soft everywhere — the ribs have no hard edge — so it
+     * matched "almost no edges" and returned a colour field while carrying
+     * periodic:true in its own result: the ribs were measured and then thrown
+     * away. A field that repeats is not flat. Reordering changes nothing for
+     * the nine references in the table above (both gradients fail on
+     * amplitude, every composition on hard edges), only for the soft rib. */
     if (f.edge64 < T.materialHard && periodic) {
       reasons.push(
         `soft edges only (${(f.edge64 * 100).toFixed(1)}% hard) over a periodic ${p.axis === "rows" ? "horizontal" : "vertical"} structure of about ${p.count} (strength ${p.strength}, amplitude ${p.amp})`,
       );
       return { kind: "material", reasons, periodic };
+    }
+    if (f.edge24 < T.fieldEdge && f.edge64 < T.fieldHard) {
+      reasons.push(
+        `almost no edges (${(f.edge24 * 100).toFixed(1)}% soft, ${(f.edge64 * 100).toFixed(1)}% hard)`,
+      );
+      return { kind: "color_field", reasons, periodic };
     }
     reasons.push(
       `hard edges (${(f.edge64 * 100).toFixed(1)}% of pixels), ${f.colours} distinct colours`,

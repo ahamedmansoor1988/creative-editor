@@ -6747,6 +6747,20 @@ function enginesInDoc(d){
   walk(d&&d.frame&&d.frame.children);
   return [...out];
 }
+/* Effects that put STRUCTURE on the page rather than colour. They are kept on
+ * what the analyser and the pixels say is there, not on whether they lower the
+ * mean per-pixel error — see the note in the recipe block below. */
+const SURFACE_FX=new Set(['reed','fractal','glass','noise','grain']);
+/** Measured ribs -> a reed effect. Ribs run ACROSS the axis they repeat along,
+ *  so the period spans the height when the repetition is down the rows, and
+ *  the width when it is across the columns. Extracted from the analyser
+ *  fallback so the arithmetic can be checked without a browser. */
+function reedFromRibs(per,fw,fh){
+  const rows=per&&per.axis==='rows';
+  const span=rows?fh:fw;
+  const count=Math.max(2,+per.count||2);
+  return {type:'reed',fluteW:clamp(span/count,10,400),angle:rows?90:0,measured:true};
+}
 let _lastReference=null;
 async function recreateFromReference(dataUrl,opts){
   opts=opts||{};
@@ -6833,13 +6847,18 @@ async function recreateFromReference(dataUrl,opts){
     /* The pixels measured ribs; if the analyser said nothing about glass, the
      * measurement stands in. A material without its surface is a colour field. */
     const per=m.features.periodic;
-    if(cls==='material'&&per&&per.count>=2&&!(recipe&&Array.isArray(recipe.effects)&&recipe.effects.some(e=>e&&e.type==='glass'))){
+    const namesSurface=r=>r&&Array.isArray(r.effects)&&r.effects.some(e=>e&&SURFACE_FX.has(e.type));
+    if(cls==='material'&&per&&per.count>=2&&!namesSurface(recipe)){
       recipe=recipe||{effects:[]}; recipe.effects=Array.isArray(recipe.effects)?recipe.effects:[];
-      recipe.effects.push({type:'glass',mode:'reeded',count:per.count,angle:per.axis==='rows'?90:0,frost:0,measured:true});
+      /* Ribs run across the axis they repeat along, so the period spans the
+       * height when the repetition is down the rows. This used to emit
+       * {type:'glass'}, which stopped rendering the day glass left FX_ONLY:
+       * the layer was built and nothing drew it. The fallback has to name an
+       * engine the stack actually has. */
+      recipe.effects.push(reedFromRibs(per,fw,fh));
       report.measuredRibs=per.count;
     }
     if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
-      const snapshot=JSON.parse(JSON.stringify(doc));
       /* The base stays the FITTED mesh: it is measured against every pixel,
        * while a linear or radial base named by the analyser is read off an
        * 8x8 grid and was, measured, always worse (the glass poster: 15.7 with
@@ -6847,19 +6866,41 @@ async function recreateFromReference(dataUrl,opts){
        * effects also made the effects take the blame for it, and the whole
        * recipe was reverted together. So only the EFFECTS are tried on top,
        * and the analyser's base is reported rather than obeyed. */
-      const r2={effects:recipe.effects};
-      const rep=applyRecipeReport(field,r2,{img,grid:m.grid,features:m.features,list:doc.frame.children});
-      if(recipe.base&&recipe.base!=='mesh') rep.ignored.push('base "'+recipe.base+'": kept the fitted mesh, which is measured against every pixel');
-      const withFx=measure('mesh + recipe');
-      const tolerance=cls==='material'?6:2;
-      if(withFx.error>alone.error+tolerance){
-        load(snapshot);
-        report.reverted=`the recipe raised the error from ${alone.error} to ${withFx.error}; kept the fitted field`;
-        report.ignored=report.ignored.concat(rep.applied.map(a=>a+' (reverted: made the render worse)'));
-      }else{
-        report.engines=base.applied.concat(rep.applied); report.ignored=report.ignored.concat(rep.ignored);
-        report.error=withFx.error; report.verdict=withFx.verdict; report.cells=withFx.cells;
+      const ctx={img,grid:m.grid,features:m.features,list:doc.frame.children};
+      /* RMS decides COLOUR, never SURFACE. Mean per-pixel distance always
+       * prefers smooth: the fitted mesh is the smoothest answer there is, so
+       * a ribbed render scores WORSE against a ribbed reference than a plain
+       * blur does unless the ribs line up to the pixel — which nothing makes
+       * them do. Judged that way the gate can never accept a texture, and a
+       * photograph of fluted glass came back as a bare gradient. So a surface
+       * the analyser named is kept on structure alone, and only the colour
+       * effects are still tried against the measurement. */
+      const surf=recipe.effects.filter(e=>e&&SURFACE_FX.has(e.type));
+      const col=recipe.effects.filter(e=>e&&!SURFACE_FX.has(e.type));
+      let applied=base.applied.slice(), ignored=report.ignored.slice(), last=alone;
+      if(recipe.base&&recipe.base!=='mesh') ignored.push('base "'+recipe.base+'": kept the fitted mesh, which is measured against every pixel');
+      if(surf.length){
+        const rs=applyRecipeReport(field,{effects:surf},ctx);
+        applied=applied.concat(rs.applied); ignored=ignored.concat(rs.ignored);
+        report.surfaceKept=rs.applied.slice();
+        last=measure('mesh + surface');
       }
+      if(col.length){
+        const snap2=JSON.parse(JSON.stringify(doc));
+        const rc=applyRecipeReport(field,{effects:col},ctx);
+        const withFx=measure('mesh + colour');
+        const tolerance=cls==='material'?6:2;
+        if(withFx.error>last.error+tolerance){
+          load(snap2);
+          report.reverted=`the colour part of the recipe raised the error from ${last.error} to ${withFx.error}; kept the fitted field`;
+          ignored=ignored.concat(rc.applied.map(a=>a+' (reverted: made the render worse)'));
+        }else{
+          applied=applied.concat(rc.applied); ignored=ignored.concat(rc.ignored);
+          last=withFx;
+        }
+      }
+      report.engines=applied; report.ignored=ignored;
+      report.error=last.error; report.verdict=last.verdict; report.cells=last.cells;
     }
   }
   timing.total=Math.round(performance.now()-T0);
@@ -13608,7 +13649,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   historySize:()=>HIST?HIST.size():0,
   historyList:()=>HIST?HIST.list():[],
   historyJump, setHistoryLimit, pushHistory,
-  render, refresh, renderImmediate, canvasRect,
+  render, refresh, renderImmediate, canvasRect, reedFromRibs, SURFACE_FX,
   patternInstances, symmetryInstances, derivedInstances,
   rampOrder, rampGradientCss, rampHTML, rampSel, setRampSel, rampMix, wireRamp,
   echoInstances, normalizeEcho,

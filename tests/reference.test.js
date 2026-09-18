@@ -247,3 +247,41 @@ describe("render comparison", () => {
     expect(R.compareSize(NaN)).toEqual({ W: 96, H: 96 });
   });
 });
+
+/* 18 Sep 2026. A photograph of reeded glass over orange shapes came back from
+ * the pipeline as a bare mesh gradient. The ribs HAD been measured — the
+ * classifier returned periodic:true — but the colour-field test was asked
+ * first and reads only edges, and a photograph of fluted glass is soft
+ * everywhere. It returned a colour field while holding the evidence of a
+ * material in its own result. */
+describe("a soft surface that repeats is a material, not a colour field", () => {
+  const softRibs = {
+    edge24: 0.085, // under fieldEdge 0.10 — no hard object edges anywhere
+    edge64: 0.004, // under fieldHard 0.01 — this is what claimed "colour field"
+    colours: 220,
+    periodic: { axis: "cols", lag: 18, count: 20, strength: 0.62, amp: 14.0 },
+  };
+
+  it("classifies soft, strongly periodic pixels as a material", () => {
+    const c = R.classify(softRibs);
+    expect(c.kind).toBe("material");
+    expect(c.periodic).toBe(true);
+  });
+
+  it("says in words that it saw the ribs", () => {
+    expect(R.classify(softRibs).reasons[0]).toMatch(/periodic vertical structure of about 20/);
+  });
+
+  it("still calls the same pixels a colour field once the ribs go flat", () => {
+    // Only the amplitude changes: a gradient's profile repeats but does not
+    // swing. That is the line between a field and a surface.
+    const flat = { ...softRibs, periodic: { ...softRibs.periodic, amp: 0.9 } };
+    expect(R.classify(flat).kind).toBe("color_field");
+  });
+
+  it("does not promote a HARD periodic image out of composition", () => {
+    // Slats and grids repeat too; they are arrangements, not surfaces.
+    const slats = { ...softRibs, edge64: 0.09 };
+    expect(R.classify(slats).kind).toBe("composition");
+  });
+});
