@@ -184,7 +184,7 @@ describe("POST /api/generate — success paths", () => {
       prompt: "recreate this",
       imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
     });
-    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.8-27b");
     expect(mock.lastRequest.reasoning_effort).toBe("none");
     expect(mock.lastRequest.response_format).toBeUndefined();
     // The image is sent as structured content, not inlined into the prompt.
@@ -530,7 +530,7 @@ describe("/api/analyze — classification routing", () => {
     expect(res.status).toBe(200);
     expect(json.kind).toBe("recipe");
     expect(json.classification).toBe("color_field");
-    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.8-27b");
     expect(json.recipe.effects[0].type).toBe("grain");
   });
 
@@ -735,7 +735,7 @@ describe("/api/analyze — classification routing", () => {
     mock.body = groqReply(JSON.stringify(RECIPE));
     const { json } = await post("/api/analyze", { imageDataUrl: IMG, classification: "photo" });
     expect(json.kind).toBe("recipe");
-    expect(mock.lastRequest.model).toBe("qwen/qwen3.6-27b");
+    expect(mock.lastRequest.model).toBe("qwen/qwen3.8-27b");
   });
 
   it("lets a measured composition class override the 16x16 colour-field guess in generate", async () => {
@@ -767,7 +767,7 @@ describe("/api/analyze — classification routing", () => {
     const cfg = await res.json();
     expect(cfg.models).toEqual({
       text: "openai/gpt-oss-120b",
-      vision: "qwen/qwen3.6-27b",
+      vision: "qwen/qwen3.8-27b",
       visionStrong: "qwen/qwen3.8-27b",
     });
     expect(cfg.strongRoute).toBe("same provider");
