@@ -619,13 +619,10 @@ describe("a palette picks colour, not near-black that scores as saturated", () =
  * wall, spent the rest of the day's tokens doing it, and told the user to
  * give it a minute. */
 describe("a 429 says how long, and which ceiling", () => {
-  const parse = (raw) => {
-    const m = raw.match(/try again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d.]+)\s*s)?/i);
-    const secs = m
-      ? (parseInt(m[1], 10) || 0) * 3600 + (parseInt(m[2], 10) || 0) * 60 + (parseFloat(m[3]) || 0)
-      : 0;
-    return { retryAfter: secs > 0 ? Math.ceil(secs) : 20, daily: /per day|TPD|RPD/i.test(raw) };
-  };
+  /* The REAL function, not a copy of it in the test. A copy here is how the
+   * rule came to live in three places and disagree with itself. */
+  const { rateLimit } = require("../server.js");
+  const parse = (raw) => rateLimit(raw, null);
 
   it("reads a plain seconds wait", () => {
     expect(parse("Please try again in 12.3s").retryAfter).toBe(13);

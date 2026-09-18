@@ -310,6 +310,26 @@ function measuredNotes(features) {
   return out.length ? `\n\nMEASURED from the pixels (trust these over your reading): ${out.join("; ")}.` : "";
 }
 
+/** A provider 429, read once. Groq embeds the reset time and NOT always in
+ *  seconds: a per-minute limit says "try again in 12.3s", the DAILY one says
+ *  "try again in 21m55.872s". This lived in two places and then three, and
+ *  each copy went on reading a day as a minute after the others were fixed —
+ *  which is how a day's tokens went in an afternoon and how the bar came to
+ *  promise a thirty-second wait for a ceiling that does not clear by waiting. */
+function rateLimit(raw, headers) {
+  const m = String(raw).match(/try again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d.]+)\s*s)?/i);
+  const secs = m
+    ? (parseInt(m[1], 10) || 0) * 3600 + (parseInt(m[2], 10) || 0) * 60 + (parseFloat(m[3]) || 0)
+    : 0;
+  const header = headers && headers.get ? parseInt(headers.get("retry-after"), 10) : NaN;
+  const daily = /per day|TPD|RPD/i.test(String(raw));
+  return {
+    retryAfter: secs > 0 ? Math.ceil(secs) : Number.isFinite(header) ? header : 20,
+    daily,
+    message: daily ? "Daily limit (free tier) reached" : "Rate limit (free tier)",
+  };
+}
+
 async function providerCall(payload, url, key) {
   const r = await fetch(url, {
     method: "POST",
@@ -319,8 +339,15 @@ async function providerCall(payload, url, key) {
   const data = await r.json();
   if (!r.ok) {
     const msg = (data && data.error && data.error.message) || `provider ${r.status}`;
+    /** @type {Error & { status?: number, retryAfter?: number, daily?: boolean }} */
     const e = new Error(msg);
-    /** @type {any} */ (e).status = r.status;
+    e.status = r.status;
+    if (r.status === 429) {
+      const info = rateLimit(msg, r.headers);
+      e.retryAfter = info.retryAfter;
+      e.daily = info.daily;
+      e.message = info.message;
+    }
     throw e;
   }
   return data;
@@ -902,22 +929,10 @@ async function generate(body) {
     const err = new Error(raw);
     err.status = r.status;
     if (r.status === 429) {
-      /* Groq embeds the reset time, and NOT always in seconds: a per-minute
-       * limit says "try again in 12.3s" but the DAILY one says "try again in
-       * 21m55.872s". Matching seconds alone read that as 56 seconds, so the
-       * client retried every minute against a twenty-two minute wall, burned
-       * the rest of the day's tokens doing it, and told the user to give it a
-       * minute. Parse the whole duration. */
-      const m = raw.match(/try again in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d.]+)\s*s)?/i);
-      const secs = m
-        ? (parseInt(m[1], 10) || 0) * 3600 + (parseInt(m[2], 10) || 0) * 60 + (parseFloat(m[3]) || 0)
-        : 0;
-      err.retryAfter = secs > 0 ? Math.ceil(secs) : parseInt(r.headers.get("retry-after"), 10) || 20;
-      /* Say WHICH ceiling was hit. A per-minute limit clears itself while you
-       * wait; a daily one does not, and telling someone to try again shortly
-       * is simply wrong. */
-      err.daily = /per day|TPD|RPD/i.test(raw);
-      err.message = err.daily ? `Daily limit (free tier) reached` : `Rate limit (free tier)`;
+      const info = rateLimit(raw, r.headers);
+      err.retryAfter = info.retryAfter;
+      err.daily = info.daily;
+      err.message = info.message;
     }
     throw err;
   }
@@ -1134,4 +1149,4 @@ if (require.main === module) {
 
 /* Exported for characterization tests. These are the existing internals,
  * unchanged — exporting them does not alter runtime behaviour. */
-module.exports = { server, generate, analyse, planComposition, readComposition, briefToDoc, measuredNotes, REFERENCE_CLASSES, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };
+module.exports = { server, generate, analyse, rateLimit, planComposition, readComposition, briefToDoc, measuredNotes, REFERENCE_CLASSES, extractJSON, buildSystem, CAPABILITIES, PORT, resetRateLimit };
