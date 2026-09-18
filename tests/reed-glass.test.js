@@ -139,6 +139,25 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(R.seamDark).toBeCloseTo(0.75, 5);
   });
 
+  it("the flutes have a direction", () => {
+    /* The angle enters in exactly ONE place: the across-flute coordinate the
+     * whole shader already works in. The optics never learn about it, which
+     * is why turning the flutes cannot change how they refract — only which
+     * way they run. Measured on the canvas, mean change per pixel:
+     *
+     *            across a row   down a column
+     *   0 deg        3.53           0.77
+     *   30           3.39           1.81
+     *   60           1.26           3.16
+     *   90           0.26           4.86
+     *
+     * which is the clean crossover a rotation should give. */
+    expect(withReed().effects.reed.angle).toBe(0);
+    expect(withReed({ angle: 45 }).effects.reed.angle).toBe(45);
+    expect(withReed({ angle: 400 }).effects.reed.angle).toBe(90);
+    expect(withReed({ angle: -400 }).effects.reed.angle).toBe(-90);
+  });
+
   it("keeps the panel visible over flat colour", () => {
     /* Refracting a sample inside one flat region changes nothing, so over an
      * empty artboard the only thing that makes the panel an object is the

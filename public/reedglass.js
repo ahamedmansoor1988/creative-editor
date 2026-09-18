@@ -58,6 +58,7 @@ uniform float uSpec;
 uniform float uLightAng;  // radians
 uniform float uLightW;    // radians
 uniform float uAmbient;
+uniform float uAngle;      // flute direction, radians (0 = vertical flutes)
 const int AA = 4;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -132,9 +133,13 @@ vec3 page(vec2 sp){
   vec4 t = texture(uSrc, sp / uScene);
   return mix(uPageBg, t.rgb, t.a);
 }
-vec3 srcAt(float sx){
-  float sy = uBoxPos.y + (uRes.y - gl_FragCoord.y);   // canvas y, top-down
-  return page(vec2(uBoxPos.x + sx, sy));
+/* The panel-local point, y measured top-down like the canvas. */
+vec2 here(){ return vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y); }
+/* A sample displaced along the ACROSS-FLUTE axis. With vertical flutes that
+   is the x axis and this reduces to the old behaviour exactly; at any other
+   angle the displacement has to follow the flutes, not the screen. */
+vec3 srcAt(vec2 p, float d, vec2 dir){
+  return page(uBoxPos + p + d * dir);
 }
 
 void main(){
@@ -143,44 +148,32 @@ void main(){
   float R  = (1.0 + uBulge * uBulge) / (2.0 * uBulge);
   float F0 = (uIor - 1.0) / (uIor + 1.0); F0 *= F0;
   float sw = clamp(0.5 * uSeamW / hw, 0.0, 1.0);
+  /* The flute direction. Everything downstream works in the ACROSS-flute
+   * coordinate t, so the angle enters in exactly one place and the optics
+   * never learn about it. */
+  vec2 dir = vec2(cos(uAngle), sin(uAngle));
+  vec2 p0 = here();
+  float t0 = dot(p0, dir);
   vec3 acc = vec3(0.0);
   for (int j = 0; j < AA; j++) {
-    float x  = gl_FragCoord.x + (float(j) + 0.5) / float(AA) - 0.5;
-    float xf = x / fw - uPhase;
+    /* The AA offset is along the rib axis too — jittering screen x would
+     * stop antialiasing the edge as soon as the flutes turned. */
+    float t  = t0 + (float(j) + 0.5) / float(AA) - 0.5;
+    vec2  p  = p0 + ((float(j) + 0.5) / float(AA) - 0.5) * dir;
+    float xf = t / fw - uPhase;
     float i  = floor(xf);
     float u  = (xf - i - 0.5) * 2.0;                 // -1..1 across the flute
-    float cx = (i + 0.5 + uPhase) * fw;              // flute centre, px
     vec2 tr = trace(u, uIor - uDisp, R);
     vec2 tg = trace(u, uIor,         R);
     vec2 tb = trace(u, uIor + uDisp, R);
-    vec3 col = vec3(srcAt(cx + tr.x * hw).r, srcAt(cx + tg.x * hw).g, srcAt(cx + tb.x * hw).b);
+    /* trace returns where along the flute the ray came from; the displacement
+     * from THIS pixel is the difference, carried along the rib axis. */
+    vec3 col = vec3(srcAt(p, (tr.x - u) * hw, dir).r,
+                    srcAt(p, (tg.x - u) * hw, dir).g,
+                    srcAt(p, (tb.x - u) * hw, dir).b);
     vec3 trans = vec3(tr.y, tg.y, tb.y);
-    /* Where the facet totally internally reflects, show the PAGE, not nothing.
-     *
-     * At TIR the transmitted term is zero and all that was left was the
-     * ambient — 0.12 of a "studio" that, in the standalone, was a near-black
-     * scene. Over a document page that is ink: at bulge 1 with a high IOR the
-     * TIR band is a third of every flute, so the panel grew wide black bars.
-     *
-     * A facet at TIR is a mirror, and the dominant thing for a panel lying on
-     * a page to mirror is the page. Sampling it undisplaced keeps the band
-     * continuous with its neighbours instead of punching a hole, and it costs
-     * nothing where trans is 1, which is everywhere below bulge 1. */
-    /* The reflected environment, BLURRED — not a sharp copy of the page.
-     *
-     * This was srcAt(x): the page sampled straight through, undisplaced. A
-     * mirror does not show what is straight behind it, and using that as the
-     * environment painted a faint, correctly-positioned ghost of whatever sat
-     * under the panel wherever Fresnel was strong — a pale circle floating
-     * over the flutes, recognisably the shape at its true location.
-     *
-     * The reference shader reflects a smooth cyclorama, which is why it can
-     * never produce a ghost: the environment has no high frequencies to show.
-     * Averaging a wide spread across the flute gives the same property — it
-     * keeps the brightness and colour of the surroundings, which is what the
-     * reflection is for, and throws away the image. */
     vec3 mir = vec3(0.0);
-    for (int k = -2; k <= 2; k++) mir += srcAt(x + float(k) * fw * 0.6);
+    for (int k = -2; k <= 2; k++) mir += srcAt(p, float(k) * fw * 0.6, dir);
     mir /= 5.0;
     float sa = clamp(abs(u) / R, 0.0, 1.0);
     float ca = sqrt(1.0 - sa * sa);
@@ -190,16 +183,6 @@ void main(){
     float refl = 2.0 * asin(clamp(u / R, -1.0, 1.0));
     float lobe = exp(-pow((refl - uLightAng) / uLightW, 2.0));
     float refW = mix(F, 1.0, 1.0 - tg.y);
-    /* Fresnel MOVES light from transmission into reflection; it does not
-     * destroy it. cT is already scaled by (1 - Ft), and what a facet reflects
-     * at a grazing angle is its surroundings — for a panel lying on a page,
-     * the page. Without the Ft * mir term the only light left at a seam was
-     * the 0.12 ambient, which the seam darkening then took to about 0.03: a
-     * black line down every flute, over a white page, the full height of the
-     * panel whether or not anything was behind it. Same root cause as the TIR
-     * case — a fixed dark "studio" standing in for an environment that is
-     * actually the document — reached through the other door. At the crown
-     * Ft is ~0 and this term vanishes, so the reference look is untouched. */
     vec3 cR = vec3(uAmbient + uSpec * lobe) * refW + Ft * mir;
     vec3 c = cT + cR;
     float seam = smoothstep(1.0 - sw, 1.0, abs(u));
@@ -312,6 +295,7 @@ void main(){
     gl.uniform1f(loc("uLightAng"), ((+P.lightAng || 0) * Math.PI) / 180);
     gl.uniform1f(loc("uLightW"), P.lightW === undefined ? 0.25 : +P.lightW);
     gl.uniform1f(loc("uAmbient"), P.ambient === undefined ? 0.12 : +P.ambient);
+    gl.uniform1f(loc("uAngle"), ((+P.angle || 0) * Math.PI) / 180);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return cv;
   }
@@ -330,7 +314,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-mirblur6",
+    VERSION: "20260917-angle7",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),

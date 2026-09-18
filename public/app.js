@@ -319,7 +319,7 @@ const DEFAULT_EFFECTS=()=>({
    * Defaults are the reference preset from the standalone shader maker,
    * measured off a reference video (53px flute pitch, each flute an inverted
    * ~3.3x compressed copy of the backdrop). */
-  reed:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
+  reed:{on:false,fluteW:53,angle:0,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
         seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12},
   /* §5.x Fractal glass — the reed flutes over a colour field of its own.
    * A FILL, not a backdrop material: nothing is needed under it. The palette
@@ -1121,6 +1121,7 @@ function normChildren(list,depth){
         n('ior',1,2.4); n('disp',0,0.08); n('thick',0,4); n('gap',0,20);
         n('seamW',0,6); n('seamDark',0,1); n('fresnel',0,2);
         n('spec',0,4); n('lightAng',-80,80); n('lightW',0.05,1); n('ambient',0,0.3);
+        n('angle',-90,90);
       }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
       const blur=Object.assign(de.blur, ce.blur||{});
@@ -8737,6 +8738,7 @@ function buildFxSection(obj,page,add,body){
         }
         add('<div class="secTitle">Flutes</div>');
         ch('rdW','Flute width',10,400,1,'fluteW',0);
+        ch('rdAng','Direction',-90,90,1,'angle',0);
         ch('rdPh','Seam offset',0,1,0.01,'phase',2);
         ch('rdBu','Bulge',0.05,1,0.01,'bulge',2);
         ch('rdSw','Seam width',0,6,0.1,'seamW',1);
