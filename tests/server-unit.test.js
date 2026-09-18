@@ -260,3 +260,89 @@ describe("a material has a place", () => {
     expect(p.effects.reed.fluteW).toBeGreaterThanOrEqual(10);
   });
 });
+
+/* 18 Sep 2026. Four angular orange slabs in four quadrants came back as one
+ * centred hexagon. Two causes, both in the brief: the side count was
+ * hard-coded, and the grouping rule told the model to merge similar shapes. */
+describe("shapes keep their own corners and their own places", () => {
+  const { briefToDoc } = require("../server.js");
+  const build = (els) =>
+    briefToDoc({ background: { kind: "solid", colors: ["#ffffff"] }, elements: els }, 900, 600, []);
+
+  it("gives a polygon the side count the brief asked for", () => {
+    // It used to be hard-coded 6, so every polygon arrived a hexagon.
+    const { doc } = build([
+      { what: "badge", shape: "polygon", sides: 8, x: 50, y: 50, w: 40, h: 30, color: "#f5a623" },
+    ]);
+    expect(doc.frame.children.find((c) => c.name === "badge").sides).toBe(8);
+  });
+
+  it("treats a polygon with no side count as a four-cornered slab", () => {
+    const { doc } = build([{ what: "slab", shape: "polygon", x: 50, y: 50, w: 40, h: 30 }]);
+    expect(doc.frame.children.find((c) => c.name === "slab").type).toBe("rect");
+  });
+
+  it("clamps a side count the renderer cannot draw", () => {
+    const { doc } = build([
+      { what: "s", shape: "polygon", sides: 999, x: 50, y: 50, w: 10, h: 10 },
+    ]);
+    const s = doc.frame.children.find((c) => c.name === "s");
+    expect(s.sides).toBeLessThanOrEqual(24);
+    expect(s.sides).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps four separately placed slabs as four objects", () => {
+    const quads = [
+      { what: "slab, upper left", shape: "polygon", sides: 4, x: 25, y: 25, w: 40, h: 30 },
+      { what: "slab, upper right", shape: "polygon", sides: 4, x: 75, y: 25, w: 40, h: 30 },
+      { what: "slab, lower left", shape: "polygon", sides: 4, x: 25, y: 75, w: 40, h: 30 },
+      { what: "slab, lower right", shape: "polygon", sides: 4, x: 75, y: 75, w: 40, h: 30 },
+    ];
+    const { doc } = build(quads);
+    const slabs = doc.frame.children.filter((c) => c.name.startsWith("slab"));
+    expect(slabs).toHaveLength(4);
+    expect(slabs.every((s) => s.type === "rect")).toBe(true);
+    // and they are actually in four different places
+    expect(new Set(slabs.map((s) => `${s.x},${s.y}`)).size).toBe(4);
+  });
+
+  it("lets a shape run off the frame", () => {
+    // A slab cropped by the edge has the box it would have had uncropped.
+    const { doc } = build([{ what: "slab", shape: "rect", x: 110, y: 50, w: 40, h: 30 }]);
+    expect(doc.frame.children.find((c) => c.name === "slab").x).toBeGreaterThan(900 - 180);
+  });
+});
+
+describe("a four-cornered polygon is a slab, not a diamond", () => {
+  const { briefToDoc } = require("../server.js");
+  it("draws it as a rect so its edges stay level", () => {
+    // The polygon renderer stands a regular quad on its corner; every slab the
+    // model named arrived as a diamond.
+    const { doc } = briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#fff"] },
+        elements: [
+          { what: "slab", shape: "polygon", sides: 4, x: 50, y: 50, w: 40, h: 20, rotation: 12 },
+        ],
+      },
+      900,
+      600,
+      [],
+    );
+    const slab = doc.frame.children.find((c) => c.name === "slab");
+    expect(slab.type).toBe("rect");
+    expect(slab.rot).toBe(12);
+  });
+  it("still draws a real polygon from five sides up", () => {
+    const { doc } = briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#fff"] },
+        elements: [{ what: "star", shape: "polygon", sides: 6, x: 50, y: 50, w: 20, h: 20 }],
+      },
+      900,
+      600,
+      [],
+    );
+    expect(doc.frame.children.find((c) => c.name === "star").type).toBe("polygon");
+  });
+});

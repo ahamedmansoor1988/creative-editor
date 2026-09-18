@@ -343,10 +343,10 @@ async function providerCall(payload, url, key) {
  * against the same wall. */
 const BRIEF_SYSTEM = `You describe a reference image as a STRUCTURAL brief for a layout tool. Reply with ONLY JSON, no prose:
 {"background":{"kind":"solid"|"gradient","colors":["#hex","#hex"],"angle":0-360},
- "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom","material":"none"|"reed","flutes":2-80,"fluteAngle":-90-90}],
+ "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom","sides":3-12,"material":"none"|"reed","flutes":2-80,"fluteAngle":-90-90}],
  "text":[{"content":"the words, verbatim","x":0-100,"y":0-100,"size":1-60,"weight":"regular"|"bold","color":"#hex","align":"left"|"center"|"right"}],
  "unsupported":["what flat shapes and text cannot express here"]}
-x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. A row, stack, fan or grid of similar shapes is ONE element with its count and repeat, whose x,y,w,h describe the box of the WHOLE group (the copies fill it evenly), colorEnd being the last copy's colour. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
+x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. ONE ELEMENT PER THING YOU CAN POINT AT. Shapes that sit in different places are different elements however alike they look — four slabs in four corners are four elements, each with its own x,y,w,h, not one box around them all. Use count and repeat ONLY for copies at even spacing along a line or grid, and then x,y,w,h describe the box of the WHOLE group and colorEnd the last copy's colour. Name each element by what and where it is ("slab, upper right"), never by a category ("orange shapes"). A shape may run off the frame: give it the box it would have if the frame did not stop it, using values below 0 or above 100. sides is how many corners a polygon has — 4 for a slab or a quadrilateral, 3 for a triangle. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
 
 async function readComposition(imageDataUrl, features, prompt, hint) {
   const payload = {
@@ -502,7 +502,22 @@ function briefToDoc(brief, fw, fh, rows) {
     }
     const fill = colorEnd && count === 1 ? { kind: "linear", angle: gw >= gh ? 0 : 90, stops: [{ pos: 0, color }, { pos: 1, color: colorEnd }] } : { kind: "solid", color };
     if (shape === "line") { children.push({ type: "line", name, x: +(cx - gw / 2).toFixed(1), y: +cy.toFixed(1), x2: +(cx + gw / 2).toFixed(1), y2: +cy.toFixed(1), stroke: { width: Math.max(1, Math.min(60, Math.round(gh))), color }, opacity: alpha }); return; }
-    if (shape === "polygon") { children.push({ ...base, type: "polygon", sides: 6, innerRatio: 1, fill, pattern: pattern || undefined }); return; }
+    /* A four-cornered polygon is a SLAB, and the polygon renderer draws a
+     * regular one standing on its corner — so every quadrilateral the model
+     * named came out a diamond. A rect with the rotation it was given is what
+     * a slab actually is; polygons keep their meaning from five sides up. */
+    if (shape === "polygon" && Math.round(Number(e.sides) || 4) === 4) {
+      children.push({ ...base, type: "rect", fill, pattern: pattern || undefined });
+      return;
+    }
+    if (shape === "polygon") {
+      /* The side count used to be hard-coded 6, so EVERY polygon the model
+       * named came out a hexagon — four angular orange slabs arrived as one
+       * centred hexagon, and the brief had no word to correct it with. */
+      const sides = Math.max(3, Math.min(24, Math.round(Number(e.sides) || 4)));
+      children.push({ ...base, type: "polygon", sides, innerRatio: 1, fill, pattern: pattern || undefined });
+      return;
+    }
     if ((shape === "ellipse" || shape === "path") && cut) {
       children.push({ type: "path", name, points: halfEllipsePath(cx, cy, gw / 2, gh / 2, cut).map((p) => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), ox: +(p.ox || 0).toFixed(1), oy: +(p.oy || 0).toFixed(1), ix: +(p.ix || 0).toFixed(1), iy: +(p.iy || 0).toFixed(1) })), closed: true, fillOn: true, fill, stroke: { width: 0, color }, opacity: alpha });
       if (pattern) unsupported.push(`${name}: ${count} half shapes drawn as one; the repeater does not take paths yet`);
