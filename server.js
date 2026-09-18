@@ -251,7 +251,8 @@ function buildSystem(prompt, currentDoc, force) {
  * Deliberately conservative: an effect the model is unsure about is worse than
  * one it omits, because a recipe gets APPLIED. */
 const ANALYSE_SYSTEM = `You analyse a reference image and describe HOW IT WAS MADE, as a recipe of rendering engines. Reply with ONLY JSON, no prose:
-{"base":"mesh"|"linear"|"radial"|"solid"|"liquid","effects":[...],"structure":"one short phrase","confidence":0..1}
+{"base":"mesh"|"linear"|"radial"|"solid"|"liquid","effects":[...],"parts":true|false,"structure":"one short phrase","confidence":0..1}
+parts: TRUE when the picture is made of distinct things — shapes with their own edges, panels, slabs, blocks, text, a pane of glass over part of it — and FALSE only when it is one continuous field of colour across the whole frame with no object in it. Judge this from what you see, not from how it would be built; a field seen through a texture is still FALSE, but a field with one hard-edged shape on it is TRUE.
 base: "mesh" for a smooth multi-colour field, "linear"/"radial" only when the field is plainly one axis or one centre, "solid" for one flat colour, "liquid" for folded, flowing colour with creases and no visible stops.
 Each effect is one of (applied in the order given, bottom to top):
 {"type":"blur","kind":"gaussian","radius":0-200}
@@ -261,7 +262,7 @@ Each effect is one of (applied in the order given, bottom to top):
 {"type":"noise","amount":0..1,"mono":true|false,"scale":1-32}
 {"type":"glass","mode":"backdrop"|"frosted"|"reeded","depth":-200..200,"refraction":-200..200,"frost":0-100,"count":2-64,"angle":-90..90} (reeded = fluted ribs; count = ribs across the image, angle 0 = vertical ribs, 90 = horizontal)
 {"type":"light","intensity":0..2.8,"angle":-180..180} (a volumetric light cone or beam over the field)
-{"type":"reed","fluteW":10-400,"angle":-90..90,"bulge":0.05..1,"ior":1..2.4,"gap":0..20} (FLUTED GLASS over the layers beneath: vertical ribs, each an inverted compressed copy of what is behind, with hard seams between. fluteW = rib pitch in px, angle 0 = vertical. Use this, not "glass", whenever the picture is something SEEN THROUGH ribbed glass)
+{"type":"reed","fluteW":10-400,"angle":-90..90,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"bulge":0.05..1,"ior":1..2.4,"gap":0..20} (FLUTED GLASS over the layers beneath: vertical ribs, each an inverted compressed copy of what is behind, with hard seams between. fluteW = rib pitch in px, angle 0 = vertical. Use this, not "glass", whenever the picture is something SEEN THROUGH ribbed glass. x,y,w,h are OPTIONAL and describe the pane's box as percentages of the frame, x,y being its centre: give them when the glass covers only PART of the picture, and leave them out when it covers all of it)
 {"type":"fractal","fluteW":10-400,"blobs":1-8,"size":0.05..0.8,"gain":0.5..5,"fieldScale":0.2..4} (the same fluted glass over a colour field of ITS OWN — no layers needed beneath. Use when the ribs are the whole picture and there is nothing recognisable behind them)
 {"type":"iridescent","spread":0..1} (a thin dispersive film over the shape: soft rainbow bands that follow its outline, like oil on water or a soap bubble)
 Include ONLY effects you can see direct evidence of. An effect you are unsure about is worse than a missing one, because it will be applied.
@@ -342,10 +343,10 @@ async function providerCall(payload, url, key) {
  * against the same wall. */
 const BRIEF_SYSTEM = `You describe a reference image as a STRUCTURAL brief for a layout tool. Reply with ONLY JSON, no prose:
 {"background":{"kind":"solid"|"gradient","colors":["#hex","#hex"],"angle":0-360},
- "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom"}],
+ "elements":[{"what":"short noun phrase","shape":"rect"|"ellipse"|"path"|"line"|"polygon","count":1-64,"x":0-100,"y":0-100,"w":0-100,"h":0-100,"rotation":-180-180,"color":"#hex","colorEnd":"#hex","alpha":0-1,"soft":0-1,"repeat":"none"|"horizontal"|"vertical"|"fan"|"grid","cut":"none"|"left"|"right"|"top"|"bottom","material":"none"|"reed","flutes":2-80,"fluteAngle":-90-90}],
  "text":[{"content":"the words, verbatim","x":0-100,"y":0-100,"size":1-60,"weight":"regular"|"bold","color":"#hex","align":"left"|"center"|"right"}],
  "unsupported":["what flat shapes and text cannot express here"]}
-x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. A row, stack, fan or grid of similar shapes is ONE element with its count and repeat, whose x,y,w,h describe the box of the WHOLE group (the copies fill it evenly), colorEnd being the last copy's colour. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
+x,y are an element's CENTRE in percent of the width and height; w,h its size in percent; text size is percent of the height. A row, stack, fan or grid of similar shapes is ONE element with its count and repeat, whose x,y,w,h describe the box of the WHOLE group (the copies fill it evenly), colorEnd being the last copy's colour. A half circle is an ellipse with cut. soft 0 is a hard edge, 1 a glow. Up to 12 elements, bottom to top. Every visible word goes in text, verbatim, one entry per line or block. A pane of RIBBED or FLUTED GLASS laid over what is behind it is an element with material "reed" and no colour of its own: give it the box the pane covers, "flutes" for how many ribs cross that box, and "fluteAngle" 0 for vertical ribs, 90 for horizontal. List it AFTER the things it covers, because it refracts whatever is beneath it. Everything visible THROUGH the pane is still its own element, at the position and colour it would have without the glass — describe the shape, not the smear. Photographic detail, 3D shading, perspective and masks go in unsupported. Say nothing about how to build it.`;
 
 async function readComposition(imageDataUrl, features, prompt, hint) {
   const payload = {
@@ -467,6 +468,24 @@ function briefToDoc(brief, fw, fh, rows) {
     }
     const x = cx - w / 2, y = cy - h / 2;
     const base = { name, x: +x.toFixed(1), y: +y.toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), opacity: alpha, rot };
+    /* A MATERIAL PANEL. Reed glass has no colour of its own — it refracts the
+     * layers already beneath it — so it is a placed rectangle carrying the
+     * effect, with its fill switched off, and it must come after the things it
+     * covers. This is the whole point of the reference that prompted it: half
+     * an orange slab crisp, the other half behind the ribs. A full-frame wash
+     * cannot say that; a panel with a box can. */
+    if (e.material === "reed") {
+      const flutes = Math.max(2, Math.min(80, Math.round(Number(e.flutes) || 20)));
+      const fa = Math.max(-90, Math.min(90, Number(e.fluteAngle) || 0));
+      const span = Math.abs(fa) >= 45 ? gh : gw;
+      children.push({
+        ...base, type: "rect", w: +gw.toFixed(1), h: +gh.toFixed(1),
+        x: +(cx - gw / 2).toFixed(1), y: +(cy - gh / 2).toFixed(1),
+        fill: { kind: "solid", color: "#ffffff" }, fillOpacity: 0,
+        effects: { reed: { on: true, fluteW: Math.max(10, Math.min(400, span / flutes)), angle: fa } },
+      });
+      return;
+    }
     const thin = Math.max(w, h) / Math.max(1, Math.min(w, h)) >= 4;
     const darkGround = (() => { const v = parseInt(bgColor.slice(1), 16); return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255 < 0.35; })();
     if (soft >= 0.5 && thin) {

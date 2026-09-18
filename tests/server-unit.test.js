@@ -175,3 +175,88 @@ describe("CAPABILITIES registry", () => {
     }
   });
 });
+
+/* 18 Sep 2026. A photograph of orange slabs behind panes of fluted glass came
+ * back as a blurred gradient with ribs scratched over it. The recipe route has
+ * no word for a shape, so it could never have produced that picture however
+ * well its mesh was fitted — and the analyser had read it correctly all along
+ * ("flat slabs behind a vertical fluted pane"). Two things followed: the brief
+ * can place a material, and the analyser says when a picture has parts. */
+describe("a material has a place", () => {
+  const { briefToDoc } = require("../server.js");
+  const build = (el) =>
+    briefToDoc(
+      { background: { kind: "solid", colors: ["#ffffff"] }, elements: [el] },
+      900,
+      600,
+      [],
+    );
+
+  it("builds a reed pane as a placed layer with no colour of its own", () => {
+    const { doc } = build({
+      what: "fluted glass pane",
+      shape: "rect",
+      x: 25,
+      y: 50,
+      w: 50,
+      h: 100,
+      material: "reed",
+      flutes: 20,
+    });
+    const pane = doc.frame.children.find((c) => c.name === "fluted glass pane");
+    expect(pane).toBeTruthy();
+    expect(pane.effects.reed.on).toBe(true);
+    // the box it covers: half the width, centred a quarter in
+    expect(pane.w).toBeCloseTo(450, 0);
+    expect(pane.x).toBeCloseTo(0, 0);
+    // 20 ribs across 450px
+    expect(pane.effects.reed.fluteW).toBeCloseTo(22.5, 1);
+    // a backdrop material shows the layers beneath, never its own fill
+    expect(pane.fillOpacity).toBe(0);
+  });
+
+  it("measures the rib pitch down the HEIGHT when the ribs run horizontally", () => {
+    const { doc } = build({
+      what: "pane",
+      x: 50,
+      y: 50,
+      w: 100,
+      h: 50,
+      material: "reed",
+      flutes: 10,
+      fluteAngle: 90,
+    });
+    const pane = doc.frame.children.find((c) => c.name === "pane");
+    expect(pane.effects.reed.angle).toBe(90);
+    expect(pane.effects.reed.fluteW).toBeCloseTo(30, 1); // 300px tall / 10
+  });
+
+  it("leaves an ordinary element alone", () => {
+    const { doc } = build({
+      what: "slab",
+      shape: "rect",
+      x: 50,
+      y: 50,
+      w: 40,
+      h: 20,
+      color: "#ff8800",
+    });
+    const slab = doc.frame.children.find((c) => c.name === "slab");
+    expect(slab.effects).toBeUndefined();
+    expect(slab.fill.color).toBe("#ff8800");
+  });
+
+  it("clamps a rib count the model could not have meant", () => {
+    const { doc } = build({
+      what: "p",
+      x: 50,
+      y: 50,
+      w: 100,
+      h: 100,
+      material: "reed",
+      flutes: 9999,
+    });
+    const p = doc.frame.children.find((c) => c.name === "p");
+    expect(p.effects.reed.fluteW).toBeGreaterThanOrEqual(10);
+  });
+});

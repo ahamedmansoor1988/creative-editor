@@ -6619,6 +6619,19 @@ function applyRecipeReport(obj,recipe,ctx){
        * itself and there would be nothing left beneath for it to refract. */
       if(!list){ report.ignored.push('reed: no layer list to add a glass layer to'); return; }
       const o=layerOver(obj,list,'Reed glass');
+      /* A PANEL, when the analyser gives it a box. Reed glass covering only
+       * part of the frame is what makes a reference like fluted glass over a
+       * slab read: half the shape crisp, half of it smeared. Without a box the
+       * layer covers the whole object, which is the old behaviour and still
+       * the default. x,y,w,h arrive as percentages of the object. */
+      const pct=(v,d)=>Number.isFinite(+v)?clamp(+v,-50,150):d;
+      if(['x','y','w','h'].some(k=>Number.isFinite(+fx[k]))){
+        const pw=pct(fx.w,100)/100*obj.w, ph=pct(fx.h,100)/100*obj.h;
+        o.w=Math.max(2,pw); o.h=Math.max(2,ph);
+        o.x=obj.x+pct(fx.x,50)/100*obj.w-o.w/2;
+        o.y=obj.y+pct(fx.y,50)/100*obj.h-o.h/2;
+        report.panel={x:+o.x.toFixed(1),y:+o.y.toFixed(1),w:+o.w.toFixed(1),h:+o.h.toFixed(1)};
+      }
       const R=o.effects.reed;
       R.on=true;
       if(Number.isFinite(+fx.fluteW)) R.fluteW=clamp(+fx.fluteW,10,400);
@@ -6628,7 +6641,7 @@ function applyRecipeReport(obj,recipe,ctx){
       if(Number.isFinite(+fx.gap))    R.gap=clamp(+fx.gap,0,20);
       setMaterial(o,'reed');
       report.created.push(o);
-      applied.push('reed glass ('+Math.round(R.fluteW)+'px flutes)');
+      applied.push('reed glass ('+Math.round(R.fluteW)+'px flutes'+(report.panel?', panel':'')+')');
     }else if(fx.type==='fractal'){
       /* A FILL: the field is its own, so it goes ON the object. And the
        * palette comes from the grid we MEASURED, never from the model — the
@@ -6739,7 +6752,14 @@ function enginesInDoc(d){
     if(o.symmetry) out.add('symmetry '+o.symmetry.mode);
     if(o.echo) out.add('echo x'+o.echo.copies);
     if(o.fill&&o.fill.kind&&o.fill.kind!=='solid') out.add(o.fill.kind+' fill');
-    (o.fx||[]).forEach(e=>{ if(e.added&&e.on!==false) out.add(e.type); });
+    /* Ask the stack whether the effect is ON, not whether a UI flag says it
+     * was added. A reed panel built by the composition planner carries
+     * effects.reed with no `added`, so the report said "no engines" while the
+     * panel was plainly refracting on the canvas and the EFFECTS IN USE list
+     * showed it. A report that can miss the engine it just placed is worse
+     * than no report. */
+    Object.keys(o.effects||{}).forEach(t=>{ if(o.effects[t]&&o.effects[t].on&&fxOn(o,t)) out.add(t); });
+    (o.fx||[]).forEach(e=>{ if(e&&e.type&&e.added&&e.on!==false) out.add(e.type); });
     if(o.type==='text') out.add('text');
     if(o.type==='path') out.add('path');
     if(o.children) walk(o.children);
@@ -6786,13 +6806,21 @@ async function recreateFromReference(dataUrl,opts){
     return cmp;
   };
   const load=d=>{ setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; };
-  if(cls==='composition'){
+  /* The composition route, as a routine: the field route ESCALATES into it
+   * when the analyser reports the picture has parts, so there is one
+   * implementation rather than two that drift. */
+  const runComposition=async()=>{
     /* The strong route has an INPUT ceiling per minute (7,000 tokens on the
      * free tier) and the picture is most of the request, so compositions go
      * at 448px — structure survives that — and a request the provider still
      * calls too large (413) is sent once more at 320px. */
     const fine=R.measureImage(img,8).grid;
-    const body={imageDataUrl:await shrinkForModel(dataUrl,448),classification:cls,features:m.features,imageSamples:fine,prompt:opts.prompt||'',frame:{w:fw,h:fh}};
+    /* Always 'composition', never the measured class: this routine IS the
+     * composition route, and when the field route escalates into it the
+     * measured class is still 'color_field'. Sending that asked the server for
+     * a recipe and it answered with one — no document, and the escalation fell
+     * straight back to the mesh it was trying to escape. */
+    const body={imageDataUrl:await shrinkForModel(dataUrl,448),classification:'composition',features:m.features,imageSamples:fine,prompt:opts.prompt||'',frame:{w:fw,h:fh}};
     const plan=async b=>{
       try{ return await withRateLimitRetry(()=>callAnalyze(b),say); }
       catch(e){
@@ -6826,6 +6854,9 @@ async function recreateFromReference(dataUrl,opts){
     report.plan=best.doc; report.brief=best.brief; report.unsupported=best.unsupported; report.model=best.model; report.usage=best.usage;
     report.error=best.cmp.error; report.verdict=best.cmp.verdict; report.cells=best.cmp.cells;
     report.engines=enginesInDoc(doc);
+  };
+  if(cls==='composition'){
+    await runComposition();
   }else{
     const bg=meanHexOf(m.grid.rows.flat());
     load({frame:{name:'Reference',w:fw,h:fh,bg,children:[{type:'rect',name:'Field',x:0,y:0,w:fw,h:fh,fill:{kind:'solid',color:bg}}]}});
@@ -6858,7 +6889,28 @@ async function recreateFromReference(dataUrl,opts){
       recipe.effects.push(reedFromRibs(per,fw,fh));
       report.measuredRibs=per.count;
     }
-    if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
+    /* THE PICTURE HAS PARTS. A recipe describes one field and what was done on
+     * top of it; it has no word for a shape. So when the analyser says the
+     * reference is made of distinct things, the field route cannot express it
+     * however well its mesh is fitted — a photograph of orange slabs behind
+     * panes of fluted glass came back as a blurred gradient with the ribs
+     * scratched on, and no threshold could have saved it. The pixels guessed
+     * the class; the model judges the structure, and it wins. */
+    if(recipe&&recipe.parts===true){
+      report.escalated=`the analyser read this as ${recipe.structure||'a picture with parts'}, which a single field cannot express`;
+      say('The analyser says this picture has parts — planning it as a composition…');
+      const fieldDoc=JSON.parse(JSON.stringify(doc));
+      const fieldCmp=alone;
+      try{
+        await runComposition();
+        report.classification='composition (escalated)';
+      }catch(e){
+        load(fieldDoc);
+        report.escalationError=e.message;
+        report.engines=base.applied.slice();
+        report.error=fieldCmp.error; report.verdict=fieldCmp.verdict; report.cells=fieldCmp.cells;
+      }
+    }else if(recipe&&Array.isArray(recipe.effects)&&recipe.effects.length){
       /* The base stays the FITTED mesh: it is measured against every pixel,
        * while a linear or radial base named by the analyser is read off an
        * 8x8 grid and was, measured, always worse (the glass poster: 15.7 with
@@ -6867,6 +6919,23 @@ async function recreateFromReference(dataUrl,opts){
        * recipe was reverted together. So only the EFFECTS are tried on top,
        * and the analyser's base is reported rather than obeyed. */
       const ctx={img,grid:m.grid,features:m.features,list:doc.frame.children};
+      /* THE MODEL NAMES THE GROUND, THE PIXELS COLOUR IT. This used to keep
+       * the fitted mesh always, on the grounds that a mesh is measured against
+       * every pixel while the analyser's base is read off an 8x8 grid. That is
+       * true and it was still wrong: asked about a flat white backdrop the
+       * model answered "solid" and was overruled by a mesh fitted to the whole
+       * picture, which is why a clean ground came out muddy. So the model says
+       * WHAT KIND of ground it is; fillFromGrid still measures the colour off
+       * the pixels. A mesh remains the default when it names nothing. */
+      let ground=alone, groundApplied=base.applied.slice();
+      if(typeof recipe.base==='string'&&recipe.base!=='mesh'){
+        const rb=applyRecipeReport(field,{base:recipe.base,effects:[]},ctx);
+        if(rb.applied.length){
+          groundApplied=rb.applied.slice();
+          report.groundFromModel=recipe.base;
+          ground=measure('ground: '+recipe.base);
+        }else report.ignored=report.ignored.concat(rb.ignored);
+      }
       /* RMS decides COLOUR, never SURFACE. Mean per-pixel distance always
        * prefers smooth: the fitted mesh is the smoothest answer there is, so
        * a ribbed render scores WORSE against a ribbed reference than a plain
@@ -6877,8 +6946,7 @@ async function recreateFromReference(dataUrl,opts){
        * effects are still tried against the measurement. */
       const surf=recipe.effects.filter(e=>e&&SURFACE_FX.has(e.type));
       const col=recipe.effects.filter(e=>e&&!SURFACE_FX.has(e.type));
-      let applied=base.applied.slice(), ignored=report.ignored.slice(), last=alone;
-      if(recipe.base&&recipe.base!=='mesh') ignored.push('base "'+recipe.base+'": kept the fitted mesh, which is measured against every pixel');
+      let applied=groundApplied.slice(), ignored=report.ignored.slice(), last=ground;
       if(surf.length){
         const rs=applyRecipeReport(field,{effects:surf},ctx);
         applied=applied.concat(rs.applied); ignored=ignored.concat(rs.ignored);

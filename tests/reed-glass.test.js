@@ -557,3 +557,115 @@ describe("structure is kept on structure, not on pixel distance", () => {
     expect(editor.SURFACE_FX.has("blur")).toBe(false);
   });
 });
+
+describe("reed glass can be a panel over part of the frame", () => {
+  const GRID2 = {
+    rows: [
+      ["#ffffff", "#ff8800"],
+      ["#ff8800", "#ffffff"],
+    ],
+  };
+  const docWithSubject = () => {
+    const d = editor.normalizeDoc({
+      frame: {
+        name: "f",
+        w: 900,
+        h: 600,
+        bg: "#ffffff",
+        children: [
+          {
+            type: "rect",
+            name: "Field",
+            x: 0,
+            y: 0,
+            w: 900,
+            h: 600,
+            fill: { kind: "solid", color: "#ff8800" },
+          },
+        ],
+      },
+    });
+    return d.frame;
+  };
+
+  it("places the pane where the analyser says, as a share of the object", () => {
+    const f = docWithSubject(),
+      subject = f.children[0];
+    const rep = editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "reed", fluteW: 40, x: 25, y: 50, w: 50, h: 100 }] },
+      { list: f.children, grid: GRID2 },
+    );
+    const pane = f.children.find((o) => o.name === "Reed glass");
+    expect(pane.w).toBeCloseTo(450, 0);
+    expect(pane.h).toBeCloseTo(600, 0);
+    expect(pane.x).toBeCloseTo(0, 0);
+    expect(rep.applied.join()).toMatch(/panel/);
+  });
+
+  it("covers the whole object when no box is given — the old behaviour", () => {
+    const f = docWithSubject(),
+      subject = f.children[0];
+    const rep = editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "reed", fluteW: 40 }] },
+      { list: f.children, grid: GRID2 },
+    );
+    const pane = f.children.find((o) => o.name === "Reed glass");
+    expect(pane.w).toBe(subject.w);
+    expect(pane.h).toBe(subject.h);
+    expect(rep.applied.join()).not.toMatch(/panel/);
+  });
+
+  it("still sits ABOVE the thing it refracts", () => {
+    const f = docWithSubject(),
+      subject = f.children[0];
+    editor.applyRecipeReport(
+      subject,
+      { effects: [{ type: "reed", fluteW: 40, x: 50, y: 50, w: 60, h: 80 }] },
+      { list: f.children, grid: GRID2 },
+    );
+    expect(f.children.indexOf(f.children.find((o) => o.name === "Reed glass"))).toBeGreaterThan(
+      f.children.indexOf(subject),
+    );
+  });
+});
+
+describe("the report names the engines the document actually has", () => {
+  it("counts an effect that is ON even without an added flag", () => {
+    /* A reed panel built by the composition planner carries effects.reed with
+     * no `added`, and the report said "no engines" while the pane was visibly
+     * refracting. A report that can miss the engine it just placed is worse
+     * than no report at all. */
+    const d = editor.normalizeDoc({
+      frame: {
+        name: "f",
+        w: 900,
+        h: 600,
+        bg: "#fff",
+        children: [
+          {
+            type: "rect",
+            name: "Slab",
+            x: 0,
+            y: 0,
+            w: 400,
+            h: 400,
+            fill: { kind: "solid", color: "#ff8800" },
+          },
+          {
+            type: "rect",
+            name: "Pane",
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 400,
+            fillOpacity: 0,
+            effects: { reed: { on: true, fluteW: 40 } },
+          },
+        ],
+      },
+    });
+    expect(editor.enginesInDoc(d)).toContain("reed");
+  });
+});
