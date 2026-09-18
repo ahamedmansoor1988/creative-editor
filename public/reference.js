@@ -58,7 +58,6 @@
     materialHard: 0.05, // material: hard edges below this (glass 0.034, object-03 0.065)
     periodicStrength: 0.2, // ...and a periodic profile at least this strong (glass 0.28)
     periodicAmp: 4, // ...with at least this amplitude in luminance (glass 8.3, object-01 1.7)
-    periodicLag: 4, // lags 2..3 are pixel noise, not structure
     close: 12, // verdict bands, shared with the mesh fitter's own report
     approximate: 30,
   });
@@ -227,8 +226,17 @@
   function classify(f) {
     const reasons = [];
     const p = f.periodic || { strength: 0, amp: 0, lag: 0 };
-    const periodic =
-      p.strength >= T.periodicStrength && p.amp >= T.periodicAmp && p.lag >= T.periodicLag;
+    /* No lag floor. It read "lags 2..3 are pixel noise", but the profile is a
+     * MEAN down the whole axis, and averaging 128 rows divides noise by about
+     * eleven — nothing random survives that at amplitude 4. What it actually
+     * rejected was fine ribs: at 128px a lag of 2 is the Nyquist limit, so
+     * every reference with more than ~32 flutes had its ribs counted
+     * correctly and then discarded (a 45-flute photograph measured 43 at lag
+     * 2, strength 0.83, amplitude 9.7 — and came back a colour field). The
+     * amplitude test already draws the line the lag floor was aiming at:
+     * both gradients sit at lag 2 with amplitude 0.9 and 0.65, an order below
+     * real flutes. Two tests for one thing, and the blunt one was deciding. */
+    const periodic = p.strength >= T.periodicStrength && p.amp >= T.periodicAmp;
     /* Asked BEFORE the colour-field test, which reads edges only. A photograph
      * of reeded glass is soft everywhere — the ribs have no hard edge — so it
      * matched "almost no edges" and returned a colour field while carrying

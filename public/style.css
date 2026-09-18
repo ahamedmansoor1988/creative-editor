@@ -682,7 +682,7 @@ body.panel-left-collapsed #agentBar{
   font-weight:var(--weight-regular); background:none; min-width:0;}
 #agentStatus{
   color:var(--muted); font-size:var(--text-meta); white-space:nowrap;
-  max-width:280px; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto;
+  max-width:460px; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto;
 }
 #agentStatus.err{color:var(--danger);}
 #generateBtn{

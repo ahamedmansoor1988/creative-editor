@@ -6906,7 +6906,12 @@ async function recreateFromReference(dataUrl,opts){
   timing.total=Math.round(performance.now()-T0);
   pushHistory('Recreate from reference'); refresh();
   _lastReference=report;
-  const line=`${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255) · ${report.engines.join(', ')||'no engines'}`+
+  /* Engines FIRST. The bar truncates with an ellipsis, and this line used to
+   * end with the engine list — so the one thing the run is asked to report,
+   * which engines it reached for, was the one thing always cut off. A
+   * screenshot reading "... · mesh (..." could not say whether the glass had
+   * been applied or dropped. */
+  const line=`${report.engines.join(', ')||'no engines'} · ${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
     (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+
     (report.ignored.length?' · not applied: '+report.ignored.join('; '):'');
   say(line,report.verdict==='failed');

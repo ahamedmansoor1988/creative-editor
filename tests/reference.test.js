@@ -285,3 +285,45 @@ describe("a soft surface that repeats is a material, not a colour field", () => 
     expect(R.classify(slats).kind).toBe("composition");
   });
 });
+
+/* 18 Sep 2026, second pass. The reorder above was necessary but not
+ * sufficient: Mansoor's own photograph still came back a colour field. The
+ * ribs HAD been counted correctly — 43 of 45 — and were then discarded by a
+ * lag floor that read "lags 2..3 are pixel noise". At 128px a lag of 2 is the
+ * Nyquist limit, so the floor rejected every reference finer than ~32 flutes.
+ * The profile is a MEAN down the whole axis, and averaging 128 rows divides
+ * noise by about eleven, so amplitude already draws that line. The floor is
+ * gone; these hold the line that replaced it. */
+describe("fine ribs are ribs, not noise", () => {
+  const fine = {
+    edge24: 0.0,
+    edge64: 0.0,
+    colours: 240,
+    // 45 flutes measured through the real path: lag 2, the finest resolvable.
+    periodic: { axis: "cols", lag: 2, count: 43, strength: 0.833, amp: 9.69 },
+  };
+
+  it("accepts a strong, high-amplitude signal at the Nyquist lag", () => {
+    expect(R.classify(fine).kind).toBe("material");
+  });
+
+  it("still rejects a gradient sitting at the same lag", () => {
+    // gradient-01 and -02 both peak at lag 2. Amplitude is what separates
+    // them from flutes: 0.91 and 0.65 against 9.69, an order apart.
+    for (const amp of [0.91, 0.65]) {
+      const g = { ...fine, periodic: { ...fine.periodic, amp } };
+      expect(R.classify(g).kind).toBe("color_field");
+    }
+  });
+
+  it("has no lag threshold left to tune", () => {
+    expect(R.THRESHOLDS.periodicLag).toBeUndefined();
+  });
+
+  it("reports ribs it cannot resolve as absent rather than as a wrong count", () => {
+    // Past Nyquist the flutes average away; amplitude collapses to ~0.4, so
+    // the picture reads as the smooth field it has become, not as false ribs.
+    const aliased = { ...fine, periodic: { ...fine.periodic, count: 64, amp: 0.4 } };
+    expect(R.classify(aliased).kind).toBe("color_field");
+  });
+});
