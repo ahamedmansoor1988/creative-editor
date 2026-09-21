@@ -53,6 +53,7 @@
     reed: { slot: "material", label: "Reed glass", multi: false, backdrop: true },
     fractal: { slot: "material", label: "Fractal glass", multi: false },
     divider: { slot: "material", label: "Shape divider", multi: false },
+    beam: { slot: "material", label: "Light beam", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -93,6 +94,7 @@
     "reed",
     "fractal",
     "divider",
+    "beam",
     "blob",
     "glass2",
     "light",
@@ -161,6 +163,10 @@
      * analytic shapes, this cuts whatever the user drew. See
      * public/shape-divider.js. */
     "divider",
+    /* Ported from the Spectral Light Beam lab. An OVERLAY, not a material: it
+     * lights what is beneath rather than replacing it, and composites
+     * additively. See public/light-beam-fx.js. */
+    "beam",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran

@@ -339,6 +339,12 @@ const DEFAULT_EFFECTS=()=>({
     enabled0:1,kind0:0,angle0:0,count0:1,spacing0:0.75,width0:0.035,offset0:0,curve0:0.3,smooth0:0.025,
     enabled1:0,kind1:0,angle1:1.5708,count1:1,spacing1:0.75,width1:0.035,offset1:0,curve1:0.3,smooth1:0.025,
     enabled2:0,kind2:1,angle2:0.3,count2:3,spacing2:0.72,width2:0.026,offset2:0,curve2:0.35,smooth2:0.025},
+  /* Spectral Light Beam: a volumetric emitter over the layers beneath. Source
+   * is 0..1 of the object's box so it can be a handle you drag rather than two
+   * sliders you guess at; direction is radians because the shader is. */
+  beam:{on:false,sourceX:0.17,sourceY:0.245,direction:-0.42,fan:1.28,beams:5,
+    intensity:2.24,falloff:0.64,sharpness:0.92,dispersion:0.98,haze:0.58,
+    starburst:0.72,coreSize:0.42,edgeGlow:1.55,streaks:1.08,streakDensity:1.58},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
   glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -449,6 +455,19 @@ function rand01(seed,i,salt){
 }
 const R_W=1,R_H=2,R_ROT=3,R_JX=4,R_JY=5,R_HOLE=6;
 let uidN=0;
+/* The ceiling on one object's effect stack. It was a bare 32 in two places,
+ * which was comfortable when there were fewer than 32 effects and became a
+ * silent truncation the moment there were 33: every known type gets an entry,
+ * so the cap sat BELOW the number of built-in effects and the last one in
+ * LEGACY_ORDER — noise — was cut off on every load, re-minted with a fresh id
+ * and its saved settings lost. Derived from the registry now, with room for
+ * the duplicates a multi effect allows, so adding an effect cannot do that
+ * again. */
+function maxFxEntries(){
+  const FS=window.FxStack;
+  const known=FS&&FS.types?FS.types().length:33;
+  return Math.max(64, known*2);
+}
 function newId(){ uidN+=1; return 'o'+Date.now().toString(36)+'-'+uidN.toString(36); }
 
 
@@ -660,7 +679,7 @@ function normStyleDef(s,i){
   out.fillOpacity=clamp(s.fillOpacity===undefined?1:+s.fillOpacity,0,1);
   out.strokeOpacity=clamp(s.strokeOpacity===undefined?1:+s.strokeOpacity,0,1);
   out.blend=BLEND_MODES.includes(s.blend)?s.blend:'normal';
-  out.fx=(Array.isArray(s.fx)?s.fx:[]).slice(0,32)
+  out.fx=(Array.isArray(s.fx)?s.fx:[]).slice(0,maxFxEntries())
     .filter(e=>e&&typeof e==='object'&&typeof e.type==='string')
     .map(e=>({
       id:typeof e.id==='string'&&e.id?e.id:newId(),
@@ -1099,6 +1118,19 @@ function normChildren(list,depth){
         });
       }
       /* §5.x Fractal glass. Same snapshot-before-assign rule as reed. */
+      const bm=(()=>{
+        const bmDef=Object.assign({},de.beam);
+        const bm=Object.assign(de.beam, ce.beam||{});
+        bm.on=!!bm.on && ['rect','ellipse','polygon','path'].includes(c.type);
+        const n=(k,lo,hi)=>{ const v=+bm[k]; bm[k]=Number.isFinite(v)?clamp(v,lo,hi):bmDef[k]; };
+        n('sourceX',-0.5,1.5); n('sourceY',-0.5,1.5);
+        n('direction',-Math.PI,Math.PI); n('fan',0.05,3.14);
+        n('beams',1,6); bm.beams=Math.round(bm.beams);
+        n('intensity',0,5); n('falloff',0,1); n('sharpness',0,1);
+        n('dispersion',0,2); n('haze',0,2); n('starburst',0,1);
+        n('coreSize',0.05,1.5); n('edgeGlow',0,3); n('streaks',0,3); n('streakDensity',0.2,4);
+        return bm;
+      })();
       const dv=(()=>{
         /* Shape Divider. The layer numbers above 2 are not in the defaults —
          * twelve layers of nine keys each would be a hundred lines of literal
@@ -1341,7 +1373,7 @@ function normChildren(list,depth){
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
-        prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv,
+        prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv, beam:bm,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -1352,7 +1384,7 @@ function normChildren(list,depth){
       const known=FS?FS.types():Object.keys(EFF);
       let stack=Array.isArray(c.fx)?c.fx:null;
       if(stack){
-        stack=stack.slice(0,32).filter(e=>e&&known.includes(e.type)).map(e=>({
+        stack=stack.slice(0,maxFxEntries()).filter(e=>e&&known.includes(e.type)).map(e=>({
           id:typeof e.id==='string'&&e.id?e.id:newId(),
           type:e.type, on:e.on!==false,
           params:(e.params&&typeof e.params==='object')?e.params:{},
@@ -4227,6 +4259,29 @@ function drawOneInner(c,W,H,obj){
       window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
       return;
     }
+    const bmx=fx.beam;
+    if(bmx&&fxOn(obj,'beam')&&obj.type!=='text'&&window.LightBeamEngine&&window.LightBeamEngine.available()){
+      /* AN OVERLAY, not a material: it does not replace the shape's colour, it
+       * lights what is already there. Drawn with 'lighter' so it ADDS — the
+       * tile is premultiplied and empty where there is no light, which is what
+       * a beam does to a scene. Painted with normal alpha instead it would
+       * darken everything it misses, and a light that darkens is not one. */
+      const tm=(c.getTransform&&c.getTransform())||null;
+      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
+      const img=window.LightBeamEngine.render(Math.max(1,Math.round(sbox.w)),Math.max(1,Math.round(sbox.h)),bmx);
+      if(img){
+        const place=o=>{
+          c.save();
+          c.globalAlpha=obj.opacity;
+          c.globalCompositeOperation='lighter';
+          c.beginPath(); pathFor(c,o); c.clip();
+          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.restore();
+        };
+        paintWithInstances(obj,place);
+        return;
+      }
+    }
     const dvx=fx.divider;
     if(dvx&&fxOn(obj,'divider')&&obj.type!=='text'&&window.ShapeDividerEngine&&window.ShapeDividerEngine.available()){
       /* A FILL that CARVES. Every other material asks what colour the shape
@@ -5286,6 +5341,28 @@ function paint(){
    * its points, and a straight overlay would claim a shape the artwork does
    * not have. Line widths divide by z so handles stay a constant size on
    * screen at any zoom, like every other handle in the app. */
+  (function drawBeamSource(){
+    /* A light is placed by looking at where it falls, so its source is a ring
+     * you drag, not two numbers you guess at. Drawn in the shape's own frame
+     * so it turns with the shape, exactly as the mesh net does. */
+    const o=primary();
+    if(!o||!o.effects||!o.effects.beam) return;
+    const B=o.effects.beam;
+    if(!B.on||!fxOn(o,'beam')) return;
+    const b=boxOf(o);
+    ctx.save();
+    applyObjectTransform(ctx,o);
+    const x=b.x+B.sourceX*b.w, y=b.y+B.sourceY*b.h, r=7/z;
+    ctx.lineWidth=2/z;
+    ctx.strokeStyle='rgba(0,0,0,.55)';
+    ctx.beginPath(); ctx.arc(x,y,r+1/z,0,7); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.95)';
+    ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.stroke();
+    // a stub showing which way the beam points, so direction is visible too
+    const ux=Math.cos(B.direction)*r*2.4, uy=-Math.sin(B.direction)*r*2.4;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+ux,y+uy); ctx.stroke();
+    ctx.restore();
+  })();
   (function drawMeshNet(){
     const ME=window.MeshGradient;
     if(!ME||!ME.available()) return;
@@ -6095,7 +6172,7 @@ try{
 }catch(_){}
 const PAGE_TYPE={
   'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
-  'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Shape divider':'divider','Prism':'prism','Capsule':'capsule',
+  'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Shape divider':'divider','Light beam':'beam','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
@@ -6172,11 +6249,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7364,6 +7441,7 @@ function fxActive(obj,name){
     case 'Reed glass': return !!(e.reed&&e.reed.on);
     case 'Fractal glass': return !!(e.fractal&&e.fractal.on);
     case 'Shape divider': return !!(e.divider&&e.divider.on);
+    case 'Light beam': return !!(e.beam&&e.beam.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -8891,6 +8969,65 @@ function buildFxSection(obj,page,add,body){
     }
   }
 
+  if(page==='Light beam'){
+    const R=obj.effects.beam;
+    const LBE=window.LightBeamEngine;
+    if(!(LBE&&LBE.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="lbOn" ${R.on?'checked':''}> Enable light beam</label>`);
+      $('lbOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      if(R.on){
+        const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+          id, label, min, max, step, value:R[key],
+          format:v=>(+v).toFixed(dp),
+          onInput:v=>{ R[key]=v; render(); },
+          onChange:()=>pushHistory(label),
+        });
+        const pre=Object.keys(LBE.PRESETS||{});
+        if(pre.length){
+          add(`<label class="slider uiRow"><span>Preset</span>
+            <select id="lbPre">${pre.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join('')}
+            </select></label>`);
+          $('lbPre').addEventListener('change',e=>{
+            Object.assign(R,LBE.PRESETS[e.target.value]||{});
+            pushHistory('Beam preset'); refresh();
+          });
+        }
+        /* The source is a HANDLE on the canvas, not a pair of sliders: a light
+         * is placed by looking at where it falls, and two numbers make you
+         * guess. Drag the ring. */
+        add(`<div class="fxHint">Drag the ring on the canvas to move the light source.</div>`);
+        /* Degrees at the edge, radians inside, same as every other angle here. */
+        chipRow(add,{
+          id:'lbDir', label:'Direction', min:-180, max:180, step:1,
+          value:Math.round(R.direction*180/Math.PI),
+          format:v=>`${Math.round(+v)}°`,
+          onInput:v=>{ R.direction=(+v)*Math.PI/180; render(); },
+          onChange:()=>pushHistory('Beam direction'),
+        });
+        chipRow(add,{
+          id:'lbFan', label:'Spread', min:3, max:180, step:1,
+          value:Math.round(R.fan*180/Math.PI),
+          format:v=>`${Math.round(+v)}°`,
+          onInput:v=>{ R.fan=(+v)*Math.PI/180; render(); },
+          onChange:()=>pushHistory('Beam spread'),
+        });
+        ch('lbBeams','Beams',1,6,1,'beams',0);
+        ch('lbInt','Intensity',0,5,0.01,'intensity',2);
+        ch('lbFall','Reach',0,1,0.01,'falloff',2);
+        ch('lbSharp','Edge sharpness',0,1,0.01,'sharpness',2);
+        ch('lbDisp','Dispersion',0,2,0.01,'dispersion',2);
+        ch('lbHaze','Haze',0,2,0.01,'haze',2);
+        ch('lbStar','Starburst',0,1,0.01,'starburst',2);
+        ch('lbCore','Core size',0.05,1.5,0.01,'coreSize',2);
+        ch('lbEdge','Edge glow',0,3,0.01,'edgeGlow',2);
+        ch('lbStr','Streaks',0,3,0.01,'streaks',2);
+        ch('lbSD','Streak density',0.2,4,0.01,'streakDensity',2);
+      }
+    }
+    return;
+  }
   if(page==='Shape divider'){
     const R=obj.effects.divider;
     const SDE=window.ShapeDividerEngine;
@@ -10975,6 +11112,21 @@ canvas.addEventListener('pointerdown',e=>{
    * the net is shown, the point under the cursor wins; the grips are one
    * pixel away in every direction. */
   (function(){
+    // The beam's source ring, tested before the transform grips for the same
+    // reason the mesh points are: it can sit right on top of one.
+    const o=primary();
+    if(!o||selIds.size!==1||o.locked) return;
+    const B=o.effects&&o.effects.beam;
+    if(!B||!B.on||!fxOn(o,'beam')) return;
+    const b=boxOf(o), grip=11/view.z;
+    const L=localPoint(o,p);
+    const hx=b.x+B.sourceX*b.w, hy=b.y+B.sourceY*b.h;
+    if(Math.hypot(hx-L.x,hy-L.y)>grip) return;
+    drag={mode:'beamSrc', obj:o, box:b, dx:hx-L.x, dy:hy-L.y};
+    cap(); refresh();
+  })();
+  if(drag&&drag.mode==='beamSrc') return;
+  (function(){
     const ME=window.MeshGradient;
     if(!ME||!ME.available()) return;
     const o=primary();
@@ -11301,6 +11453,17 @@ canvas.addEventListener('pointermove',e=>{
     }
     render(); syncInspector(); return;
   }
+  if(drag.mode==='beamSrc'){
+    const B=drag.obj.effects.beam, b=drag.box;
+    const L=localPoint(drag.obj,p);
+    /* Allowed outside the box: a light source off the edge, throwing its beam
+     * across the shape, is a normal thing to want and the shader handles it. */
+    B.sourceX=clamp(((L.x+drag.dx)-b.x)/Math.max(b.w,1e-6),-0.5,1.5);
+    B.sourceY=clamp(((L.y+drag.dy)-b.y)/Math.max(b.h,1e-6),-0.5,1.5);
+    paintCacheClear();
+    refresh();
+    return;
+  }
   if(drag.mode==='meshPt'){
     const M=drag.obj.effects.mesh, b=drag.box, pt=M.points[drag.i];
     if(pt){
@@ -11598,6 +11761,7 @@ const endDrag=e=>{
   }
   if(d.mode==='resize'){ pushHistory(); refresh(); return; }
   if(d.mode==='abMove'&&!d.moved) return;    // plain click on the label: already selected, nothing changed
+  if(d.mode==='beamSrc'){ pushHistory('Move light source'); return; }
   if(d.mode==='meshPt'){ pushHistory('Move mesh point'); return; }
   if(d.mode==='abMove'){ pushHistory('Move artboard'); return; }
   if(d.mode==='move'&&!d.moved){
