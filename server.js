@@ -512,10 +512,17 @@ function meshFromRows(rows, cols, rws, fallback) {
       const x = cols === 1 ? 0.5 : i / (cols - 1);
       const y = rws === 1 ? 0.5 : j / (rws - 1);
       const r = g[Math.round(y * (g.length - 1))] || [];
+      const hex = HEX(r[Math.round(x * (r.length - 1))], fallback || "#808080");
+      /* [r,g,b], NOT "#rrggbb". The mesh engine normalises a point's colour
+       * with `Array.isArray(pt.color) ? pt.color : [136,136,136]` — so a hex
+       * STRING is not rejected, it is silently replaced by mid-grey, and the
+       * whole net renders as one flat #888888 slab. Every colour measured off
+       * the reference was arriving correctly and being thrown away here. */
+      const v = parseInt(hex.slice(1), 16);
       pts.push({
         x: +x.toFixed(4),
         y: +y.toFixed(4),
-        color: HEX(r[Math.round(x * (r.length - 1))], fallback || "#808080"),
+        color: [(v >> 16) & 255, (v >> 8) & 255, v & 255],
       });
     }
   }

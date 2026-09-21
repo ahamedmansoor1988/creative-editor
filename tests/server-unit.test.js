@@ -392,9 +392,13 @@ describe("an element can be made by an engine", () => {
     const m = doc.frame.children.find((c) => c.name === "wash").effects.mesh;
     expect(m.on).toBe(true);
     expect(m.points).toHaveLength(m.cols * m.rows);
-    // corners of the net come from the corners of the measured grid
-    expect(m.points[0].color).toBe("#ff0000");
-    expect(m.points[m.points.length - 1].color).toBe("#000044");
+    /* Corners of the net come from the corners of the measured grid — as
+     * [r,g,b], which is the only format the editor's normaliser keeps. This
+     * asserted hex strings and passed for days while every mesh the
+     * composition route built rendered as flat #888888: it was checking the
+     * format this file invented, not the one the reader wants. */
+    expect(m.points[0].color).toEqual([255, 0, 0]);
+    expect(m.points[m.points.length - 1].color).toEqual([0, 0, 68]);
     // normalised coordinates, which is what the mesh engine stores
     expect(m.points.every((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)).toBe(true);
   });
@@ -670,5 +674,80 @@ describe("a 429 says how long, and which ceiling", () => {
 
   it("falls back rather than returning zero when the wording changes", () => {
     expect(parse("Rate limit reached.").retryAfter).toBe(20);
+  });
+});
+
+/* 21 Sep 2026, and the actual cause of the grey slab. Two guesses before this
+ * were wrong — the grid was fine, the model's copy was fine — because the
+ * colours were arriving correctly and being discarded at the very last step.
+ *
+ * A mesh point's colour is [r,g,b]. An iridescence colour is "#rrggbb". Two
+ * neighbouring effects, two formats, and the mesh normaliser does
+ * `Array.isArray(pt.color) ? pt.color : [136,136,136]` — so a hex string is
+ * not REJECTED, it is silently replaced by mid-grey. Every point became
+ * #888888 and the whole net rendered as one flat slab. */
+describe("a mesh point's colour is [r,g,b], not a hex string", () => {
+  const { briefToDoc } = require("../server.js");
+  const GRID = [
+    ["#ff0000", "#00ff00"],
+    ["#0000ff", "#ffff00"],
+  ];
+  const mesh = () =>
+    briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#ffffff"] },
+        elements: [{ what: "w", shape: "rect", x: 50, y: 50, w: 100, h: 100, material: "mesh" }],
+      },
+      900,
+      600,
+      GRID,
+    ).doc.frame.children.find((c) => c.name === "w").effects.mesh;
+
+  it("emits arrays, which is what the editor's normaliser keeps", () => {
+    const pts = mesh().points;
+    expect(pts.every((p) => Array.isArray(p.color))).toBe(true);
+    expect(pts.every((p) => p.color.length === 3)).toBe(true);
+    expect(pts.every((p) => p.color.every((v) => Number.isInteger(v) && v >= 0 && v <= 255))).toBe(
+      true,
+    );
+  });
+
+  it("carries the measured colours through, not mid-grey", () => {
+    const pts = mesh().points;
+    expect(pts[0].color).toEqual([255, 0, 0]);
+    // #888888 is what a rejected point becomes; none may be that by accident
+    expect(pts.every((p) => p.color.join() === "136,136,136")).toBe(false);
+  });
+
+  it("does not hand the editor a string it will quietly throw away", () => {
+    /* The normaliser's own line, which is what made this silent:
+     *   color: Array.isArray(pt.color) ? pt.color : [136,136,136]
+     * A wrong format costs the colour, not an error. */
+    const app = require("node:fs").readFileSync(
+      require("node:path").join(process.cwd(), "public/app.js"),
+      "utf8",
+    );
+    expect(app).toContain("Array.isArray(pt&&pt.color)?pt.color:[136,136,136]");
+    expect(mesh().points.some((p) => typeof p.color === "string")).toBe(false);
+  });
+
+  it("iridescence takes hex, and still does — the two formats differ on purpose", () => {
+    const iri = briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#000000"] },
+        elements: [
+          { what: "orb", shape: "ellipse", x: 50, y: 50, w: 50, h: 50, material: "iridescent" },
+        ],
+      },
+      800,
+      1000,
+      [
+        ["#ff00aa", "#00e5ff", "#7b2cff"],
+        ["#ffe100", "#22ff88", "#ff5500"],
+        ["#0044ff", "#ff00ee", "#00ffcc"],
+      ],
+    ).doc.frame.children.find((c) => c.name === "orb").effects.iridescent;
+    expect(typeof iri.colorCore).toBe("string");
+    expect(iri.colorCore).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
