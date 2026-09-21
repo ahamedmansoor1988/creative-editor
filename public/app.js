@@ -6981,6 +6981,16 @@ async function recreateFromReference(dataUrl,opts){
   const img=await loadImageFrom(dataUrl);
   const m=R.measureImage(img,8);
   const cls=m.classification;
+  /* THE PROMPT'S ONE PATH TO STRUCTURE. The class above comes from the pixels
+   * and the model's `parts` flag; the person typing had no say, and "create
+   * mesh gradient" over an icon came back a composition with slabs and text.
+   * A word that names a FIELD forces the field route and switches escalation
+   * off. It is also the route that survives a rate limit: a fitted mesh needs
+   * no model call, where a composition needs two or three. */
+  const PI=window.PromptIntent;
+  const routeIntent=PI?PI.routeFromPrompt(opts.prompt):null;
+  const forcedField=!!(routeIntent&&routeIntent.route==='field');
+  const routeCls=forcedField&&cls==='composition'?'color_field':cls;
   const timing={measure:Math.round(performance.now()-T0)};
   const fw=m.aspect>=1?900:Math.round(600*m.aspect), fh=m.aspect>=1?Math.round(900/m.aspect):600;
   say(`Reference read as a ${cls.replace('_',' ')}: ${m.reasons[0]}`);
@@ -7045,7 +7055,8 @@ async function recreateFromReference(dataUrl,opts){
     report.error=best.cmp.error; report.verdict=best.cmp.verdict; report.cells=best.cmp.cells;
     report.engines=enginesInDoc(doc);
   };
-  if(cls==='composition'){
+  if(routeIntent) report.routeFromPrompt=routeIntent;
+  if(cls==='composition'&&!forcedField){
     await runComposition();
   }else{
     const bg=meanHexOf(m.grid.rows.flat());
@@ -7060,7 +7071,7 @@ async function recreateFromReference(dataUrl,opts){
     say(`Mesh fitted (error ${alone.error}/255) — asking what was done on top…`);
     let j=null;
     t=performance.now();
-    try{ j=await withRateLimitRetry(()=>callAnalyze({imageDataUrl:small,classification:cls,features:m.features,imageSamples:m.grid,prompt:opts.prompt||''}),say); }
+    try{ j=await withRateLimitRetry(()=>callAnalyze({imageDataUrl:small,classification:routeCls,features:m.features,imageSamples:m.grid,prompt:opts.prompt||''}),say); }
     catch(e){ report.analyserError=e.message; }
     timing.model=Math.round(performance.now()-t);
     let recipe=j&&j.recipe&&typeof j.recipe==='object'?j.recipe:null;
@@ -7157,7 +7168,7 @@ async function recreateFromReference(dataUrl,opts){
      * 75. So the cheap route runs first and in full, and its own measurement
      * decides — the model says a composition is possible, the pixels say
      * whether one is needed. */
-    if(recipe&&recipe.parts===true&&report.verdict!=='close'){
+    if(recipe&&recipe.parts===true&&report.verdict!=='close'&&!forcedField){
       report.escalated=`the analyser read this as ${recipe.structure||'a picture with parts'}, and this route only reached ${report.verdict} (${report.error})`;
       say('This route only reached '+report.verdict+' and the analyser says the picture has parts — planning it as a composition…');
       const fieldDoc=JSON.parse(JSON.stringify(doc));
@@ -7204,6 +7215,7 @@ async function recreateFromReference(dataUrl,opts){
    * screenshot reading "... · mesh (..." could not say whether the glass had
    * been applied or dropped. */
   const line=`${report.engines.join(', ')||'no engines'} · ${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
+    (report.routeFromPrompt?` · ${report.routeFromPrompt.word} (from prompt)`:'')+
     (report.recolor?` · recoloured to ${report.recolor.to}`:'')+
     (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+
     (report.ignored.length?' · not applied: '+report.ignored.join('; '):'');
