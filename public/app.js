@@ -7181,6 +7181,20 @@ async function recreateFromReference(dataUrl,opts){
       }
     }
   }
+  /* THE PROMPT'S ONE PATH TO COLOUR. Every colour above was measured off the
+   * reference — the model is not allowed to invent one — which meant "in red
+   * shades" had nowhere to land and a blue reference came back blue whatever
+   * was typed. So a colour NAMED in the prompt now recolours the finished
+   * document, deterministically: its hue against the reference's measured
+   * dominant hue, every colour rotated by the difference, lightness and
+   * saturation untouched. Applied after the measurement, because the
+   * measurement is against the reference and the reference is not red. */
+  const RC=window.Recolor;
+  const intent=RC?RC.intentFromPrompt(opts.prompt):null;
+  if(intent){
+    const rc=RC.recolorDoc(doc,intent,m.grid&&m.grid.rows);
+    if(rc){ report.recolor=rc; paintCacheClear(); }
+  }
   timing.total=Math.round(performance.now()-T0);
   pushHistory('Recreate from reference'); refresh();
   _lastReference=report;
@@ -7190,6 +7204,7 @@ async function recreateFromReference(dataUrl,opts){
    * screenshot reading "... · mesh (..." could not say whether the glass had
    * been applied or dropped. */
   const line=`${report.engines.join(', ')||'no engines'} · ${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
+    (report.recolor?` · recoloured to ${report.recolor.to}`:'')+
     (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+
     (report.ignored.length?' · not applied: '+report.ignored.join('; '):'');
   say(line,report.verdict==='failed');
