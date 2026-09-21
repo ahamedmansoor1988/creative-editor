@@ -122,6 +122,30 @@
       description: "Fluted glass over a colour field of its own — no layers needed beneath it.",
     },
     {
+      id: "divider",
+      label: "Shape divider",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "divider",
+      supportedInputs: ["rect", "ellipse", "polygon", "path"],
+      tagline: "cut the shape you drew",
+      description:
+        "Cuts the shape you drew into pieces with straight, curved, wave or radial dividers.",
+    },
+    {
+      id: "beam",
+      label: "Light beam",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "beam",
+      supportedInputs: ["rect", "ellipse", "polygon", "path"],
+      tagline: "volumetric spectral light",
+      description:
+        "A spectral emitter that lights the layers beneath it. Drag the ring to move the source.",
+    },
+    {
       id: "innerLens",
       label: "Inner lens",
       category: "shader",

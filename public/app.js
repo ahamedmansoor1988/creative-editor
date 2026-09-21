@@ -335,7 +335,7 @@ const DEFAULT_EFFECTS=()=>({
    * whatever the user drew is the body. Twelve divider layers, one enabled;
    * every number is normalised to half the object's box so a value means the
    * same thing whatever size the shape is. */
-  divider:{on:false,color:'#5b88e5',fillAlpha:1,smoothness:0.3,dividerCount:1,
+  divider:{on:false,fillAlpha:1,smoothness:0.3,dividerCount:1,
     enabled0:1,kind0:0,angle0:0,count0:1,spacing0:0.75,width0:0.035,offset0:0,curve0:0.3,smooth0:0.025,
     enabled1:0,kind1:0,angle1:1.5708,count1:1,spacing1:0.75,width1:0.035,offset1:0,curve1:0.3,smooth1:0.025,
     enabled2:0,kind2:1,angle2:0.3,count2:3,spacing2:0.72,width2:0.026,offset2:0,curve2:0.35,smooth2:0.025},
@@ -1141,7 +1141,11 @@ function normChildren(list,depth){
         dv.on=!!dv.on && ['rect','ellipse','polygon','path','line'].includes(c.type);
         const MAXD=(window.ShapeDividerEngine&&window.ShapeDividerEngine.MAX_DIVIDERS)||12;
         const num=(k,lo,hi,def)=>{ const v=+dv[k]; dv[k]=Number.isFinite(v)?clamp(v,lo,hi):def; };
-        if(!/^#[0-9a-fA-F]{6}$/.test(dv.color||'')) dv.color=dvDef.color;
+        /* No colour of its own: the shape already has a fill, and a second
+         * colour on the effect is the same value in two places — set one and
+         * the other silently disagrees. Carried over from an older document,
+         * it is dropped. */
+        delete dv.color;
         num('fillAlpha',0,1,1); num('smoothness',0,1,dvDef.smoothness);
         num('dividerCount',1,MAXD,1); dv.dividerCount=Math.round(dv.dividerCount);
         for(let i=0;i<MAXD;i++){
@@ -4308,7 +4312,12 @@ function drawOneInner(c,W,H,obj){
       sc.translate(-obj.x,-obj.y);
       sc.beginPath(); pathFor(sc,obj); sc.fill();
       sc.restore();
-      const img=window.ShapeDividerEngine.render(W,H,sil,dvx);
+      /* THE SHAPE'S OWN COLOUR. The divider cuts the shape; what is left is
+       * still the shape, so it wears the shape's fill. A gradient or an image
+       * fill gives its first colour, which is the closest a flat cut-out can
+       * come — stated rather than silently approximated. */
+      const paint=Object.assign({},dvx,{color:firstColor(obj.fill||{kind:'solid',color:'#cccccc'})});
+      const img=window.ShapeDividerEngine.render(W,H,sil,paint);
       if(img){
         const place=o=>{
           c.save();
@@ -9045,10 +9054,7 @@ function buildFxSection(obj,page,add,body){
         });
         /* No shape, no size, no roundness: the object IS the shape. Everything
          * here is about the cuts. */
-        add(`<div class="fxHint">Cuts the shape you drew. Draw any shape, then divide it.</div>`);
-        add(`<label class="slider uiRow"><span>Fill color</span><input type="color" id="dvCol" value="${esc(R.color)}"></label>`);
-        $('dvCol').addEventListener('input',e=>{ R.color=e.target.value; render(); });
-        $('dvCol').addEventListener('change',()=>pushHistory('Divider colour'));
+        add(`<div class="fxHint">Cuts the shape you drew, in the shape's own fill colour. Change it under Fill.</div>`);
         ch('dvAlpha','Opacity',0,1,0.01,'fillAlpha',2);
         ch('dvSmooth','Corner rounding',0,1,0.01,'smoothness',2);
 
@@ -14130,13 +14136,15 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
     reed:    o=>Object.assign(o.effects.reed,{on:true}),
     fractal: o=>Object.assign(o.effects.fractal,{on:true}),
+    divider: o=>Object.assign(o.effects.divider,{on:true}),
+    beam:    o=>Object.assign(o.effects.beam,{on:true}),
     noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
     glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
   };
 
   /* Catalog id -> the inspector page that edits it, so applying can open the
    * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',fractal:'Fractal glass',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
+  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',fractal:'Fractal glass',divider:'Shape divider',beam:'Light beam',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
                   noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }

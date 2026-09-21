@@ -302,3 +302,101 @@ describe("the effect stack is not capped below the number of effects", () => {
     expect(known).toBeGreaterThan(32); // which is what broke the old constant
   });
 });
+
+/* Found by Mansoor: both effects were missing from the "Add fill or effect"
+ * picker AND the Effects menu, and applying one from the menu added a stack
+ * entry without switching the effect on. Being READY, registered, normalised,
+ * drawn and panelled is still not enough — there are FIVE more surfaces, and
+ * each one fails silently. */
+describe("an effect is reachable from every surface, not just the stack", () => {
+  const app = readPublic("app.js");
+  const index = readPublic("index.html");
+  const catalog = readPublic("engine-catalog.js");
+
+  for (const [id, label] of [
+    ["divider", "Shape divider"],
+    ["beam", "Light beam"],
+  ]) {
+    describe(label, () => {
+      it("has an entry in the engine catalog, which is what the picker lists", () => {
+        expect(catalog).toContain(`id: "${id}"`);
+        expect(catalog).toContain(`label: "${label}"`);
+        expect(catalog).toContain(`rendererType: "${id}"`);
+      });
+
+      it("has a row in the Effects menu", () => {
+        expect(index).toContain(`data-capability="${id}"`);
+      });
+
+      it("switches the effect ON when applied, not just the stack entry", () => {
+        /* Without this the stack showed the effect, the picker said it was
+         * applied, and the canvas did not change. */
+        expect(app).toMatch(
+          new RegExp(`${id}:\\s*o=>Object.assign\\(o.effects.${id},\\{on:true\\}\\)`),
+        );
+      });
+
+      it("knows which panel to open after applying", () => {
+        expect(app).toContain(`${id}:'${label}'`);
+      });
+    });
+  }
+
+  it("the catalog and the stack agree on how many engines there are", () => {
+    const win = {};
+    new Function("window", readPublic("fxstack.js"))(win);
+    const cat = {};
+    new Function("window", catalog)(cat);
+    /* Only a READY effect has to map to an fx type. The repeater is kind
+     * "effect" but status MIGRATION, and says why in its own statusReason:
+     * "Pattern instancing is not yet a stack effect." Holding it to the same
+     * rule would be asserting that nothing may be half-built. */
+    const C = cat.EngineCatalog;
+    const types = new Set(win.FxStack.types());
+    const unknown = C.all()
+      .filter((e) => e.kind === "effect" && C.status(e.id) === C.READY)
+      .filter((e) => e.rendererType && !types.has(e.rendererType))
+      .map((e) => e.id);
+    expect(unknown).toEqual([]);
+  });
+});
+
+/* Mansoor, on the panel: "the color should be from the fill no need blue as
+ * default". Right, and the same argument retires the lab's Roundness: the
+ * shape already has a fill and a corner radius, so a second copy of either on
+ * the effect is one value in two places, and setting one leaves the other
+ * quietly disagreeing. */
+describe("the effect owns nothing the shape already owns", () => {
+  const app = readPublic("app.js");
+  const lab = readPublic("shape-divider-tool.js");
+
+  it("has no colour of its own", () => {
+    expect(lab).toContain('fill:"#5b88e5"'); // the lab carries one
+    expect(app).not.toContain("divider:{on:false,color:");
+    expect(app).not.toContain("dvCol"); // and the panel has no row for it
+  });
+
+  it("paints with the shape's fill instead", () => {
+    const draw = app.slice(app.indexOf("const dvx=fx.divider;"));
+    expect(draw.slice(0, 2600)).toContain("color:firstColor(obj.fill");
+  });
+
+  it("drops a colour carried over from an older document", () => {
+    const norm = app.slice(app.indexOf("const dv=(()=>{"));
+    expect(norm.slice(0, 2200)).toContain("delete dv.color;");
+  });
+
+  it("has no roundness, size or aspect either — the object supplies them", () => {
+    // Verified on canvas at radius 0/20/50/75: square through to fully round.
+    const src = readPublic("shape-divider.js");
+    for (const gone of ["u_roundness", "u_size", "u_sides"]) {
+      expect(src).not.toContain(gone);
+    }
+    /* u_aspect STAYS: it is the tile's aspect ratio, which keeps distances
+     * isotropic so a circle's fillet is round on a wide box. The lab's
+     * "Width / height" was a different thing — a control that stretched its
+     * own silhouette, which an object's own w and h now do. */
+    expect(src).toContain("u_aspect");
+    expect(app).not.toContain("divider:{on:false,roundness");
+  });
+});
