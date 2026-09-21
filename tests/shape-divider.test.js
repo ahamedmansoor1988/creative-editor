@@ -386,7 +386,29 @@ describe("the effect owns nothing the shape already owns", () => {
     expect(norm.slice(0, 2200)).toContain("delete dv.color;");
   });
 
-  it("has no roundness, size or aspect either — the object supplies them", () => {
+  it("reaches Roundness without storing a second copy of it", () => {
+    /* Mansoor asked for Roundness in the panel twice. It is there now, and it
+     * edits obj.radius — the same corner radius the Shape panel edits, with
+     * the same maxRadiusFor clamp. A SECOND DOOR onto one field, not a second
+     * field: a copy could disagree with the shape, and this cannot. */
+    const panel = app.slice(app.indexOf("if(page==='Shape divider')"));
+    const body = panel.slice(0, 4000);
+    expect(body).toContain("id:'dvRound'");
+    expect(body).toContain("maxRadiusFor(obj)");
+    expect(body).toContain("obj.radius=n");
+    // and nothing named roundness is kept on the effect itself
+    expect(app).not.toMatch(/divider:\{on:false,[^}]*roundness/);
+  });
+
+  it("offers it only where a radius means something", () => {
+    // An ellipse has no corners to round; the row is not drawn for one.
+    const panel = app.slice(app.indexOf("if(page==='Shape divider')"));
+    expect(panel.slice(0, 4000)).toContain(
+      "if(Array.isArray(obj.radii)||typeof obj.radius==='number')",
+    );
+  });
+
+  it("has no size or aspect control — the object supplies them", () => {
     // Verified on canvas at radius 0/20/50/75: square through to fully round.
     const src = readPublic("shape-divider.js");
     for (const gone of ["u_roundness", "u_size", "u_sides"]) {

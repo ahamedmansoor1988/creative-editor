@@ -9055,6 +9055,27 @@ function buildFxSection(obj,page,add,body){
         /* No shape, no size, no roundness: the object IS the shape. Everything
          * here is about the cuts. */
         add(`<div class="fxHint">Cuts the shape you drew, in the shape's own fill colour. Change it under Fill.</div>`);
+        /* ROUNDNESS, reachable from here. It is not a second value — it edits
+         * obj.radius, the same corner radius the Shape panel edits, through
+         * the same clamp. A copy on the effect would be one thing stored
+         * twice, and setting either would leave the other disagreeing; a
+         * second door onto one field cannot do that. Shown only where a
+         * radius means something: an ellipse has no corners to round. */
+        if(Array.isArray(obj.radii)||typeof obj.radius==='number'){
+          const rMax=maxRadiusFor(obj);
+          const cur=Array.isArray(obj.radii)?(+obj.radii[0]||0):(+obj.radius||0);
+          chipRow(add,{
+            id:'dvRound', label:'Roundness', min:0, max:rMax, step:1,
+            value:clamp(cur,0,rMax),
+            format:v=>`${Math.round(+v)}px`,
+            onInput:v=>{
+              const n=clamp(+v,0,maxRadiusFor(obj));
+              if(Array.isArray(obj.radii)) obj.radii=[n,n,n,n]; else obj.radius=n;
+              paintCacheClear(); render();
+            },
+            onChange:()=>pushHistory('Roundness'),
+          });
+        }
         ch('dvAlpha','Opacity',0,1,0.01,'fillAlpha',2);
         ch('dvSmooth','Corner rounding',0,1,0.01,'smoothness',2);
 
