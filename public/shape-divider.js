@@ -17,18 +17,26 @@
  * turned into a signed distance field, and sampled. Everything downstream is
  * the lab's shader untouched.
  *
- * The field is built at FIELD_RES on the long side rather than at tile size.
- * The smoothing radii live between 0.002 and 0.13 of half the box, so a couple
- * of hundred samples across it is far finer than anything that reads, and the
- * transform is O(n) per axis either way — it is the upload that would cost. */
+ * The field tracks the TILE, between a floor and a ceiling, and its edge is
+ * placed from the silhouette's own sub-pixel coverage rather than from which
+ * side of a pixel centre the boundary fell — see signedField. A fixed
+ * resolution and a binary mask were, together, why a cleanly drawn curve came
+ * back visibly rasterised. */
 (function () {
   "use strict";
 
-  const VERSION = "20260921-divider1";
-  /* Long side of the distance field. 256 puts a sample every 0.4% of the box,
-   * and the smallest fillet the panel can ask for is 0.2% — half a sample, and
-   * bilinear filtering covers that. Measured: 512 is indistinguishable. */
-  const FIELD_RES = 256;
+  const VERSION = "20260921-divider2";
+  /* The field follows the TILE, within bounds. A fixed 256 was fine for a
+   * thumbnail and four times undersampled on a shape drawn a thousand pixels
+   * wide, which is the other half of why a curve came out rasterised. The
+   * floor keeps a tiny shape from being measured on a grid too coarse to hold
+   * its corners; the ceiling keeps the transform — two linear passes over the
+   * grid, run on every draw — off the critical path on a huge one. */
+  const FIELD_MIN = 128;
+  const FIELD_MAX = 1024;
+  function fieldResFor(w, h) {
+    return Math.max(FIELD_MIN, Math.min(FIELD_MAX, Math.max(w, h)));
+  }
   const MAX_DIVIDERS = 12;
   const KINDS = ["Straight lines", "Parabolic curves", "Wave lines", "Radial spokes"];
 
@@ -153,20 +161,39 @@
 
   /** A silhouette's SIGNED distance field, in the shader's own units: y spans
    *  -1..1 across the box, so one pixel is 2/h of it. Inside is negative,
-   *  which is the convention every SDF in the lab's shader already uses. */
+   *  which is the convention every SDF in the lab's shader already uses.
+   *
+   *  THE EDGE IS PLACED SUB-PIXEL. A binary inside/outside grid puts every
+   *  zero crossing at a pixel centre, so the exact distance transform then
+   *  reproduces that grid's staircase faithfully — and bilinear filtering
+   *  smooths BETWEEN samples that already have the steps baked in, which is
+   *  why a curve came out visibly rasterised however cleanly it was drawn.
+   *  The canvas has already computed sub-pixel coverage for us in the alpha;
+   *  throwing it away was the mistake. Within one pixel of the boundary the
+   *  distance is taken from that coverage — a pixel 30% covered has its edge
+   *  0.2px past the centre, not at it — and the transform supplies everything
+   *  further out, where a pixel of error is invisible anyway. */
   function signedField(alpha, w, h) {
-    const inside = new Uint8Array(w * h),
-      outside = new Uint8Array(w * h);
-    for (let i = 0; i < w * h; i++) {
-      if (alpha[i * 4 + 3] > 127) inside[i] = 1;
+    const n = w * h;
+    const inside = new Uint8Array(n),
+      outside = new Uint8Array(n);
+    const cov = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = alpha[i * 4 + 3] / 255;
+      cov[i] = a;
+      if (a > 0.5) inside[i] = 1;
       else outside[i] = 1;
     }
     const dOut = edt2d(inside, w, h); // distance to the shape, for pixels outside
     const dIn = edt2d(outside, w, h); // distance to the outside, for pixels inside
     const scale = 2 / h;
-    const field = new Float32Array(w * h);
-    for (let i = 0; i < w * h; i++) {
-      field[i] = inside[i] ? -Math.sqrt(dIn[i]) * scale : Math.sqrt(dOut[i]) * scale;
+    const field = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const px = inside[i] ? -Math.sqrt(dIn[i]) : Math.sqrt(dOut[i]);
+      /* |px| <= 1 is the boundary band: the pixel touches the edge, so its
+       * own coverage locates the edge far better than the grid does. Outside
+       * the band the coverage is 0 or 1 and carries no information. */
+      field[i] = (Math.abs(px) <= 1 ? 0.5 - cov[i] : px) * scale;
     }
     return field;
   }
@@ -273,12 +300,18 @@
     h = Math.max(1, Math.round(h));
 
     // the silhouette, at field resolution
-    const fw = Math.max(8, Math.round(w >= h ? FIELD_RES : (FIELD_RES * w) / h));
-    const fh = Math.max(8, Math.round(h >= w ? FIELD_RES : (FIELD_RES * h) / w));
+    const R = fieldResFor(w, h);
+    const fw = Math.max(8, Math.round(w >= h ? R : (R * w) / h));
+    const fh = Math.max(8, Math.round(h >= w ? R : (R * h) / w));
     const mc = document.createElement("canvas");
     mc.width = fw;
     mc.height = fh;
     const mx = mc.getContext("2d", { willReadFrequently: true });
+    /* High-quality downscale: the coverage read back IS the sub-pixel edge, so
+     * a nearest-neighbour resample here would throw away the very thing the
+     * field is about to be built from. */
+    mx.imageSmoothingEnabled = true;
+    mx.imageSmoothingQuality = "high";
     mx.drawImage(silhouette, 0, 0, fw, fh);
     const field = signedField(mx.getImageData(0, 0, fw, fh).data, fw, fh);
 
@@ -326,7 +359,9 @@
     VERSION,
     MAX_DIVIDERS,
     KINDS,
-    FIELD_RES,
+    FIELD_MIN,
+    FIELD_MAX,
+    fieldResFor,
     available,
     render,
     // exported for the tests: the geometry is the part worth pinning

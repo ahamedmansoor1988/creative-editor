@@ -99,6 +99,94 @@ describe("the body is a distance field, not a mask", () => {
   });
 });
 
+/* Mansoor: "why so rasterized?" — a cleanly drawn curve came back with a
+ * visible staircase. Two causes, compounding.
+ *
+ * The field was built at a fixed 256 however large the shape was drawn, so a
+ * thousand-pixel shape was four times undersampled. And the mask was
+ * THRESHOLDED to binary before the transform ran, which threw away the
+ * sub-pixel coverage the canvas had already computed — so the exact distance
+ * transform faithfully reproduced that binary grid's staircase, and bilinear
+ * filtering then smoothed between samples that already had the steps in them.
+ */
+describe("the edge is smooth, not stepped", () => {
+  const disc = (w, h, r, soft) => {
+    /* `soft` writes real coverage at the boundary, as an antialiased canvas
+     * fill does. Without it there is nothing sub-pixel to recover. */
+    const a = new Uint8ClampedArray(w * h * 4);
+    const cx = (w - 1) / 2,
+      cy = (h - 1) / 2;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x - cx, y - cy) - r;
+        const cov = soft ? Math.max(0, Math.min(1, 0.5 - d)) : d <= 0 ? 1 : 0;
+        a[(y * w + x) * 4 + 3] = Math.round(cov * 255);
+      }
+    return a;
+  };
+
+  it("is closer to the true distance at the boundary than a binary mask can be", () => {
+    /* The honest measure: a disc's signed distance is known exactly, so
+     * compare both fields against it over the band where the staircase lives.
+     * A pixel 30% covered has its edge a fifth of a pixel PAST the centre; a
+     * binary mask can only say "outside", so every such pixel reports the
+     * same distance — and that is the staircase, in one number. */
+    const w = 96,
+      h = 96,
+      r = 34;
+    const soft = SDE.signedField(disc(w, h, r, true), w, h);
+    const hard = SDE.signedField(disc(w, h, r, false), w, h);
+    const scale = 2 / h;
+    const cx = (w - 1) / 2,
+      cy = (h - 1) / 2;
+    const rms = (fld) => {
+      let sum = 0,
+        n = 0;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const truth = (Math.hypot(x - cx, y - cy) - r) * scale;
+          if (Math.abs(truth) > 1.5 * scale) continue; // the boundary band
+          const e = fld[y * w + x] - truth;
+          sum += e * e;
+          n++;
+        }
+      return Math.sqrt(sum / Math.max(1, n));
+    };
+    const softErr = rms(soft),
+      hardErr = rms(hard);
+    expect(n_ok(softErr)).toBe(true);
+    expect(softErr).toBeLessThan(hardErr);
+    function n_ok(v) {
+      return Number.isFinite(v) && v >= 0;
+    }
+  });
+
+  it("still signs it correctly", () => {
+    const w = 64,
+      h = 64;
+    const f = SDE.signedField(disc(w, h, 20, true), w, h);
+    expect(f[32 * w + 32]).toBeLessThan(0);
+    expect(f[1 * w + 1]).toBeGreaterThan(0);
+  });
+
+  it("sizes the field to the tile instead of a fixed number", () => {
+    expect(SDE.fieldResFor(820, 820)).toBe(820); // was a flat 256
+    expect(SDE.fieldResFor(40, 40)).toBe(SDE.FIELD_MIN); // a floor for tiny shapes
+    expect(SDE.fieldResFor(4000, 4000)).toBe(SDE.FIELD_MAX); // a ceiling for huge ones
+    expect(SDE.FIELD_MAX).toBeGreaterThan(256);
+  });
+
+  it("keeps the long side leading on a non-square tile", () => {
+    expect(SDE.fieldResFor(900, 300)).toBe(900);
+    expect(SDE.fieldResFor(300, 900)).toBe(900);
+  });
+
+  it("resamples the silhouette with smoothing, or there is no coverage to read", () => {
+    const src = readPublic("shape-divider.js");
+    expect(src).toContain('mx.imageSmoothingQuality = "high"');
+  });
+});
+
 describe("the effect owns no shape of its own", () => {
   const src = readPublic("shape-divider.js");
   const lab = readPublic("shape-divider-tool.js");
