@@ -52,6 +52,7 @@
     iridescent: { slot: "material", label: "Iridescence", multi: false },
     reed: { slot: "material", label: "Reed glass", multi: false, backdrop: true },
     fractal: { slot: "material", label: "Fractal glass", multi: false },
+    divider: { slot: "material", label: "Shape divider", multi: false },
     liquid: { slot: "material", label: "Liquid gradient", multi: false },
     flare: { slot: "material", label: "Prism flare", multi: false },
     glass3d: { slot: "material", label: "Glass 3D", multi: false },
@@ -91,6 +92,7 @@
     "iridescent",
     "reed",
     "fractal",
+    "divider",
     "blob",
     "glass2",
     "light",
@@ -154,6 +156,11 @@
      * animation is deliberately not ported — a document is static and must
      * export as what you see. See public/fractal-glass.js. */
     "fractal",
+    /* Ported from the Shape Divider lab (public/shape-composer.html), with
+     * the one change that makes it an effect: the lab picks from five
+     * analytic shapes, this cuts whatever the user drew. See
+     * public/shape-divider.js. */
+    "divider",
     /* The three the layered-reference flow composes with: a mesh underneath,
      * motion blur over it, grain or noise on top. Their engines were never
      * dead — the analyser already emitted all three and the draw paths ran

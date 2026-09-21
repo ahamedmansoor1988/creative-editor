@@ -330,6 +330,15 @@ const DEFAULT_EFFECTS=()=>({
     seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
     blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,transparent:true,bgAlpha:0,
     colors:IRI_PALETTES[0].colors.slice()},
+  /* Shape Divider: cuts the object's OWN outline into pieces. No shape of its
+   * own — the lab it came from picks from five analytic silhouettes, and here
+   * whatever the user drew is the body. Twelve divider layers, one enabled;
+   * every number is normalised to half the object's box so a value means the
+   * same thing whatever size the shape is. */
+  divider:{on:false,color:'#5b88e5',fillAlpha:1,smoothness:0.3,dividerCount:1,
+    enabled0:1,kind0:0,angle0:0,count0:1,spacing0:0.75,width0:0.035,offset0:0,curve0:0.3,smooth0:0.025,
+    enabled1:0,kind1:0,angle1:1.5708,count1:1,spacing1:0.75,width1:0.035,offset1:0,curve1:0.3,smooth1:0.025,
+    enabled2:0,kind2:1,angle2:0.3,count2:3,spacing2:0.72,width2:0.026,offset2:0,curve2:0.35,smooth2:0.025},
   blob:{on:false,smoothness:40,mode:'union'},
   // the blob field driven through the glass optics
   glass2:{on:false,smoothness:40,mode:'union',depth:40,refraction:35,frost:0,reflection:25,light:35,dispersion:0,tint:'#ffffff',opacity:100},
@@ -1090,6 +1099,38 @@ function normChildren(list,depth){
         });
       }
       /* §5.x Fractal glass. Same snapshot-before-assign rule as reed. */
+      const dv=(()=>{
+        /* Shape Divider. The layer numbers above 2 are not in the defaults —
+         * twelve layers of nine keys each would be a hundred lines of literal
+         * for something nobody has yet switched on — so they are minted here,
+         * once, from the same template the panel's "Add divider" uses. */
+        const dvDef=Object.assign({},de.divider);
+        const dv=Object.assign(de.divider, ce.divider||{});
+        dv.on=!!dv.on && ['rect','ellipse','polygon','path','line'].includes(c.type);
+        const MAXD=(window.ShapeDividerEngine&&window.ShapeDividerEngine.MAX_DIVIDERS)||12;
+        const num=(k,lo,hi,def)=>{ const v=+dv[k]; dv[k]=Number.isFinite(v)?clamp(v,lo,hi):def; };
+        if(!/^#[0-9a-fA-F]{6}$/.test(dv.color||'')) dv.color=dvDef.color;
+        num('fillAlpha',0,1,1); num('smoothness',0,1,dvDef.smoothness);
+        num('dividerCount',1,MAXD,1); dv.dividerCount=Math.round(dv.dividerCount);
+        for(let i=0;i<MAXD;i++){
+          const seed=dvDef[`kind${i}`]!==undefined
+            ? {kind:dvDef[`kind${i}`],angle:dvDef[`angle${i}`],count:dvDef[`count${i}`],spacing:dvDef[`spacing${i}`],
+               width:dvDef[`width${i}`],offset:dvDef[`offset${i}`],curve:dvDef[`curve${i}`],smooth:dvDef[`smooth${i}`],
+               enabled:dvDef[`enabled${i}`]}
+            : {kind:0,angle:(i%2)*1.5708,count:1,spacing:0.75,width:0.035,offset:0,curve:0.3,smooth:0.025,enabled:0};
+          if(dv[`enabled${i}`]===undefined) dv[`enabled${i}`]=seed.enabled;
+          dv[`enabled${i}`]=dv[`enabled${i}`]?1:0;
+          num(`kind${i}`,0,3,seed.kind); dv[`kind${i}`]=Math.round(dv[`kind${i}`]);
+          num(`angle${i}`,-Math.PI,Math.PI,seed.angle);
+          num(`count${i}`,1,12,seed.count); dv[`count${i}`]=Math.round(dv[`count${i}`]);
+          num(`spacing${i}`,0.1,1,seed.spacing);
+          num(`width${i}`,0.004,0.14,seed.width);
+          num(`offset${i}`,-0.7,0.7,seed.offset);
+          num(`curve${i}`,-0.6,0.6,seed.curve);
+          num(`smooth${i}`,0.001,0.15,seed.smooth);
+        }
+        return dv;
+      })();
       const frDef=Object.assign({},de.fractal);
       const fr=Object.assign(de.fractal, ce.fractal||{});
       fr.on=!!fr.on && ['rect','ellipse','polygon','path'].includes(c.type);
@@ -1300,7 +1341,7 @@ function normChildren(list,depth){
       });
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, flare:flr, glass3d:g3,
-        prism:pr, capsule:cap, reed:rd, fractal:fr,
+        prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
@@ -4186,6 +4227,44 @@ function drawOneInner(c,W,H,obj){
       window.CapsuleEngine.capsule(c.canvas,W,H,{x:obj.x,y:obj.y,w:obj.w,h:obj.h},cap,fxDraft);
       return;
     }
+    const dvx=fx.divider;
+    if(dvx&&fxOn(obj,'divider')&&obj.type!=='text'&&window.ShapeDividerEngine&&window.ShapeDividerEngine.available()){
+      /* A FILL that CARVES. Every other material asks what colour the shape
+       * should be; this one asks what is left of it. So the object's own
+       * outline goes in as the body — rasterised through pathFor, the same
+       * call the clip below uses, which is why a hand-drawn path works as well
+       * as a rect — and the dividers subtract from it.
+       *
+       * Note what is NOT here: no shape, no size, no aspect, no roundness. The
+       * lab this came from owns five silhouettes and needs them; an effect
+       * sits on a shape that already exists and has no business owning a
+       * shape list. */
+      const tm=(c.getTransform&&c.getTransform())||null;
+      const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
+      const W=Math.max(1,Math.round(sbox.w)), H=Math.max(1,Math.round(sbox.h));
+      const sil=document.createElement('canvas');
+      sil.width=W; sil.height=H;
+      const sc=sil.getContext('2d');
+      sc.fillStyle='#fff';
+      sc.save();
+      /* pathFor works in document units about the object's own origin, so the
+       * silhouette is drawn with the box mapped onto the tile. */
+      sc.scale(W/Math.max(1e-6,obj.w),H/Math.max(1e-6,obj.h));
+      sc.translate(-obj.x,-obj.y);
+      sc.beginPath(); pathFor(sc,obj); sc.fill();
+      sc.restore();
+      const img=window.ShapeDividerEngine.render(W,H,sil,dvx);
+      if(img){
+        const place=o=>{
+          c.save();
+          c.globalAlpha=obj.opacity;
+          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.restore();
+        };
+        paintWithInstances(obj,place);
+        return;
+      }
+    }
     const frx=fx.fractal;
     if(frx&&fxOn(obj,'fractal')&&obj.type!=='text'&&window.FractalFieldEngine&&window.FractalFieldEngine.available()){
       /* A FILL, not a backdrop material: the field is its own, so nothing is
@@ -6016,7 +6095,7 @@ try{
 }catch(_){}
 const PAGE_TYPE={
   'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Flare':'flare',
-  'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Prism':'prism','Capsule':'capsule',
+  'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Shape divider':'divider','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
@@ -6093,11 +6172,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Gradient','Light','Liquid','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7284,6 +7363,7 @@ function fxActive(obj,name){
     case 'Iridescence': return !!(e.iridescent&&e.iridescent.on);
     case 'Reed glass': return !!(e.reed&&e.reed.on);
     case 'Fractal glass': return !!(e.fractal&&e.fractal.on);
+    case 'Shape divider': return !!(e.divider&&e.divider.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -8811,6 +8891,78 @@ function buildFxSection(obj,page,add,body){
     }
   }
 
+  if(page==='Shape divider'){
+    const R=obj.effects.divider;
+    const SDE=window.ShapeDividerEngine;
+    if(!(SDE&&SDE.available())){
+      add(`<div class="fxHint">Needs WebGL2, which this browser doesn't provide.</div>`);
+    } else {
+      add(`<label class="slider"><input type="checkbox" id="dvOn" ${R.on?'checked':''}> Enable shape divider</label>`);
+      $('dvOn').addEventListener('change',e=>{ R.on=e.target.checked; pushHistory(); refresh(); });
+      if(R.on){
+        const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+          id, label, min, max, step, value:R[key],
+          format:v=>(+v).toFixed(dp),
+          onInput:v=>{ R[key]=v; render(); },
+          onChange:()=>pushHistory(label),
+        });
+        /* No shape, no size, no roundness: the object IS the shape. Everything
+         * here is about the cuts. */
+        add(`<div class="fxHint">Cuts the shape you drew. Draw any shape, then divide it.</div>`);
+        add(`<label class="slider uiRow"><span>Fill color</span><input type="color" id="dvCol" value="${esc(R.color)}"></label>`);
+        $('dvCol').addEventListener('input',e=>{ R.color=e.target.value; render(); });
+        $('dvCol').addEventListener('change',()=>pushHistory('Divider colour'));
+        ch('dvAlpha','Opacity',0,1,0.01,'fillAlpha',2);
+        ch('dvSmooth','Corner rounding',0,1,0.01,'smoothness',2);
+
+        const MAXD=SDE.MAX_DIVIDERS||12;
+        const KINDS=SDE.KINDS||['Straight lines','Parabolic curves','Wave lines','Radial spokes'];
+        add(`<div class="mSec">DIVIDERS</div>`);
+        for(let i=0;i<R.dividerCount;i++){
+          const k=+R[`kind${i}`];
+          add(`<div class="fxHint">${i===0?'Main divider':'Divider '+(i+1)}</div>`);
+          if(i>0){
+            add(`<label class="slider"><input type="checkbox" id="dvEn${i}" ${R[`enabled${i}`]?'checked':''}> Enabled</label>`);
+            $(`dvEn${i}`).addEventListener('change',e=>{ R[`enabled${i}`]=e.target.checked?1:0; pushHistory('Divider'); refresh(); });
+          }
+          add(`<label class="slider uiRow"><span>Style</span>
+            <select id="dvK${i}">${KINDS.map((n,j)=>
+              `<option value="${j}" ${j===k?'selected':''}>${esc(n)}</option>`).join('')}
+            </select></label>`);
+          $(`dvK${i}`).addEventListener('change',e=>{ R[`kind${i}`]=+e.target.value; pushHistory('Divider style'); refresh(); });
+          /* The state is radians because the shader is; the control is
+           * degrees because people are. Converted at the edge rather than
+           * stored twice. */
+          chipRow(add,{
+            id:`dvA${i}`, label:'Rotate', min:-180, max:180, step:1,
+            value:Math.round(R[`angle${i}`]*180/Math.PI),
+            format:v=>`${Math.round(+v)}°`,
+            onInput:v=>{ R[`angle${i}`]=(+v)*Math.PI/180; render(); },
+            onChange:()=>pushHistory('Divider angle'),
+          });
+          ch(`dvC${i}`,'Lines',1,12,1,`count${i}`,0);
+          if(k!==3) ch(`dvS${i}`,'Spread',0.1,1,0.01,`spacing${i}`,2);
+          ch(`dvW${i}`,'Width',0.004,0.14,0.001,`width${i}`,3);
+          ch(`dvO${i}`,'Position',-0.7,0.7,0.01,`offset${i}`,2);
+          if(k===1||k===2) ch(`dvR${i}`,'Curve',-0.6,0.6,0.01,`curve${i}`,2);
+          ch(`dvJ${i}`,'Layer smoothing',0.001,0.15,0.001,`smooth${i}`,3);
+        }
+        if(R.dividerCount<MAXD){
+          add(`<button class="btn" id="dvAdd" type="button">+ Add divider</button>`);
+          $('dvAdd').addEventListener('click',()=>{
+            const i=R.dividerCount++;
+            R[`enabled${i}`]=1;
+            pushHistory('Add divider'); refresh();
+          });
+        }
+        if(R.dividerCount>1){
+          add(`<button class="btn" id="dvDel" type="button">Remove last divider</button>`);
+          $('dvDel').addEventListener('click',()=>{ R.dividerCount--; pushHistory('Remove divider'); refresh(); });
+        }
+      }
+    }
+    return;
+  }
   if(page==='Fractal glass'){
     const R=obj.effects.fractal;
     if(!(window.FractalFieldEngine&&window.FractalFieldEngine.available())){

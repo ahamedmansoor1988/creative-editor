@@ -114,6 +114,8 @@
   <div class="menu" data-menu="effects">Effects
     <div class="dropdown">
       <button id="enginesOpen" type="button"><i data-icon="sparkles"></i>Add fill or effect…</button>
+      <button type="button" onclick="location.href='shape-composer.html'"><i data-icon="polygon"></i>Open Shape Composer…</button>
+      <button type="button" onclick="location.href='light-beam.html'"><i data-icon="sun"></i>Open Spectral Light Beam…</button>
       <div class="menuDivider" aria-hidden="true"></div>
       <div class="menuLabel">Fills</div>
       <button type="button" data-capability="imageFill"><i data-icon="image"></i>Image fill</button>
@@ -170,6 +172,7 @@
 
 <div id="appNotch" class="floating" aria-label="App links">
   <button type="button">Presets</button>
+  <button type="button" onclick="location.href='shape-composer.html'">Shape Lab</button>
   <button type="button">About</button>
   <button type="button">Help</button>
   <button id="profileBtn" type="button" aria-label="User profile" title="User profile">MA</button>
@@ -586,6 +589,7 @@
 <script src="capsule.js?v=20260916-clean1"></script>
 <script src="reedglass.js?v=20260917-angle7"></script>
 <script src="fractal-glass.js?v=20260917-alpha2"></script>
+<script src="shape-divider.js?v=20260921-divider1"></script>
 <script src="boolean.js"></script>
 <script src="snap.js"></script>
 <script src="components.js"></script>
@@ -602,7 +606,7 @@
      the paint cache ran above 1x, and its long-shadow opacity dead above
      about 0.3). Documents carrying other effects render
      either way. -->
-<script>window.FX_ONLY = ["mesh", "shadow", "iridescent", "reed", "fractal", "noise"];</script>
+<script>window.FX_ONLY = ["mesh", "shadow", "iridescent", "reed", "fractal", "noise", "divider"];</script>
 <script src="fxstack.js?v=20260916-reed1"></script>
 <script src="engine-catalog.js?v=20260915-reed3"></script>
 <script src="reference.js?v=20260906-ref1"></script>
