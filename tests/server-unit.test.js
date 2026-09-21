@@ -399,14 +399,35 @@ describe("an element can be made by an engine", () => {
     expect(m.points.every((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)).toBe(true);
   });
 
-  it("survives a reference with no colour grid", () => {
-    const { doc } = build(
-      { what: "wash", shape: "rect", x: 50, y: 50, w: 50, h: 50, material: "mesh" },
+  it("says so when there is no colour grid, instead of painting a grey slab", () => {
+    /* It used to fill every point with #808080, which renders as a flat grey
+     * that looks exactly like a working mesh with no colour in it — the worst
+     * failure available, because nothing about it says the colours never
+     * arrived. The element keeps its own colour and the miss is reported. */
+    const out = briefToDoc(
+      {
+        background: { kind: "solid", colors: ["#000000"] },
+        elements: [
+          {
+            what: "wash",
+            shape: "rect",
+            x: 50,
+            y: 50,
+            w: 50,
+            h: 50,
+            color: "#c83232",
+            material: "mesh",
+          },
+        ],
+      },
+      800,
+      1000,
       [],
     );
-    const m = doc.frame.children.find((c) => c.name === "wash").effects.mesh;
-    expect(m.points).toHaveLength(16);
-    expect(m.points.every((p) => /^#[0-9a-f]{6}$/i.test(p.color))).toBe(true);
+    const o = out.doc.frame.children.find((c) => c.name === "wash");
+    expect(o.effects).toBeUndefined();
+    expect(o.fill.color).toBe("#c83232");
+    expect(out.unsupported.join(" ")).toMatch(/colour grid/);
   });
 
   it("builds a receding stack for repeat echo, not a grid", () => {

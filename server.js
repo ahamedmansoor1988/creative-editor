@@ -497,19 +497,26 @@ function iriPaletteFromRows(rows) {
   return { colorCore: pick[2], colorLeft: pick[0], colorRight: pick[4], colorTop: pick[3], colorEdge: pick[1] };
 }
 
-function meshFromRows(rows, cols, rws) {
-  const g = Array.isArray(rows) && rows.length ? rows : null;
+function meshFromRows(rows, cols, rws, fallback) {
+  /* Returns null when there is no grid to measure. It used to fill every
+   * point with #808080, which renders as a flat grey slab that looks exactly
+   * like a working mesh with no colour in it — the worst possible failure,
+   * because nothing about it says the colours never arrived. The caller uses
+   * the element's own colour instead, and a flat one of THOSE is at least
+   * honest about being flat. */
+  const g = (Array.isArray(rows) ? rows : []).filter((r) => Array.isArray(r) && r.length);
+  if (!g.length) return null;
   const pts = [];
   for (let j = 0; j < rws; j++) {
     for (let i = 0; i < cols; i++) {
       const x = cols === 1 ? 0.5 : i / (cols - 1);
       const y = rws === 1 ? 0.5 : j / (rws - 1);
-      let color = "#808080";
-      if (g) {
-        const r = g[Math.round(y * (g.length - 1))] || [];
-        color = HEX(r[Math.round(x * (r.length - 1))], "#808080");
-      }
-      pts.push({ x: +x.toFixed(4), y: +y.toFixed(4), color });
+      const r = g[Math.round(y * (g.length - 1))] || [];
+      pts.push({
+        x: +x.toFixed(4),
+        y: +y.toFixed(4),
+        color: HEX(r[Math.round(x * (r.length - 1))], fallback || "#808080"),
+      });
     }
   }
   return pts;
@@ -584,6 +591,12 @@ function briefToDoc(brief, fw, fh, rows) {
      * ships; the brief simply had no word for them. */
     if (e.material === "iridescent" || e.material === "mesh") {
       const type = ["rect", "ellipse", "polygon"].includes(e.shape) ? e.shape : "rect";
+      /* No grid, no mesh: the element keeps its own colour rather than
+       * becoming a grey slab that looks like a mesh which lost its palette. */
+      const meshPoints = e.material === "mesh" ? meshFromRows(rows, 4, 4, color) : null;
+      if (e.material === "mesh" && !meshPoints) {
+        unsupported.push(`${name}: a mesh needs the reference's colour grid, which did not arrive`);
+      }
       children.push({
         ...base,
         type,
@@ -591,7 +604,9 @@ function briefToDoc(brief, fw, fh, rows) {
         effects:
           e.material === "iridescent"
             ? { iridescent: Object.assign({ on: true }, iriPaletteFromRows(rows) || {}) }
-            : { mesh: { on: true, cols: 4, rows: 4, points: meshFromRows(rows, 4, 4) } },
+            : meshPoints
+              ? { mesh: { on: true, cols: 4, rows: 4, points: meshPoints } }
+              : undefined,
         echo: echo || undefined,
         pattern: echo ? undefined : pattern || undefined,
       });
