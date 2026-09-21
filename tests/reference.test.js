@@ -414,3 +414,41 @@ describe("the colour grid weights by alpha", () => {
     ]);
   });
 });
+
+/* 21 Sep 2026, and the other half of it. Weighting the grid by alpha stopped
+ * the GRID reading black, but the copy SENT TO THE MODEL was still flattened
+ * onto a fresh canvas — transparent black — and encoded as JPEG, which has no
+ * alpha. So the model was shown an app icon on a black field, reported a dark
+ * ground perfectly reasonably, and the composition came back a grey slab.
+ *
+ * One mechanism fixes both: a transparent reference is what it looks like ON A
+ * PAGE, and the page is white. Composited once at decode, so the grid, the
+ * edges and the model's copy are all measuring the same picture. */
+describe("a transparent reference is measured on the page, not on black", () => {
+  it("composites at decode rather than inheriting a transparent canvas", () => {
+    const src = fs.readFileSync(path.join(here, "..", "public", "reference.js"), "utf8");
+    const fn = src.slice(src.indexOf("function imageToRGBA"), src.indexOf("function compareSize"));
+    expect(fn).toContain('x.fillStyle = "#ffffff"');
+    // and the fill must come BEFORE the draw, or it erases the picture
+    expect(fn.indexOf("fillRect")).toBeLessThan(fn.indexOf("drawImage"));
+  });
+
+  it("sends the model the same white ground the pixels are measured on", () => {
+    const app = fs.readFileSync(path.join(here, "..", "public", "app.js"), "utf8");
+    const fn = app.slice(app.indexOf("async function shrinkForModel"));
+    const body = fn.slice(0, 1600);
+    expect(body).toContain("x.fillStyle='#ffffff'");
+    expect(body.indexOf("fillRect")).toBeLessThan(body.indexOf("x.drawImage"));
+  });
+
+  it("routes every image through it, not only the ones big enough to shrink", () => {
+    /* A small PNG used to be forwarded untouched, so whether the model saw
+     * transparency at all depended on the file's size. */
+    const app = fs.readFileSync(path.join(here, "..", "public", "app.js"), "utf8");
+    const fn = app.slice(
+      app.indexOf("async function shrinkForModel"),
+      app.indexOf("async function shrinkForModel") + 1600,
+    );
+    expect(fn).not.toContain("if(scale>=1) return dataUrl;");
+  });
+});

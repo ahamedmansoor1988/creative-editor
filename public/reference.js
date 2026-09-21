@@ -376,6 +376,8 @@
       mb += rgba[i * 4 + 2] * a;
       ma += a;
     }
+    /* Agrees with the compositing above: an empty cell reads as the page.
+     * This only fires for a caller that hands over raw alpha of its own. */
     const fallback = ma > 0 ? hex(mr / ma, mg / ma, mb / ma) : "#ffffff";
     const rows = [];
     for (let gy = 0; gy < n; gy++) {
@@ -409,11 +411,22 @@
 
   /* ---- DOM helpers -------------------------------------------------------- */
 
+  /** Decoded to pixels, ON WHITE.
+   *
+   *  A fresh canvas is transparent BLACK, so a reference with any
+   *  transparency — an app icon is mostly transparent margin — was measured as
+   *  black wherever it was empty. Every edge, every luminance and every colour
+   *  downstream inherited that, and it is not what anyone looking at the
+   *  picture sees: transparency on a page reads as the page, and the page is
+   *  white. Compositing once here means the grid, the edges and the copy sent
+   *  to the model are all measuring the SAME picture. */
   function imageToRGBA(img, W, H) {
     const c = document.createElement("canvas");
     c.width = W;
     c.height = H;
     const x = c.getContext("2d", { willReadFrequently: true });
+    x.fillStyle = "#ffffff";
+    x.fillRect(0, 0, W, H);
     x.drawImage(img, 0, 0, W, H);
     return x.getImageData(0, 0, W, H);
   }

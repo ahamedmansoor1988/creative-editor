@@ -13720,10 +13720,21 @@ async function shrinkForModel(dataUrl,maxPx){
     });
     const w=img.naturalWidth, h=img.naturalHeight;
     const scale=Math.min(1, (maxPx||SEND_MAX_PX)/Math.max(w,h));
-    if(scale>=1) return dataUrl;                  // already small enough
     const c=document.createElement('canvas');
     c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
-    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const x=c.getContext('2d');
+    /* ON WHITE, always. A fresh canvas is transparent BLACK and JPEG has no
+     * alpha, so an app icon — mostly transparent margin — was flattened to its
+     * own silhouette on a black field before the model ever saw it. It then
+     * reported a dark ground, perfectly reasonably, and the composition came
+     * back a grey slab. The same white the measurement composites onto, so
+     * the model and the pixels are looking at one picture.
+     *
+     * Every image goes through here now, not only the ones big enough to need
+     * shrinking: a small PNG used to be forwarded untouched, so whether the
+     * model saw transparency at all depended on the file's size. */
+    x.fillStyle='#ffffff'; x.fillRect(0,0,c.width,c.height);
+    x.drawImage(img,0,0,c.width,c.height);
     return c.toDataURL('image/jpeg',0.82);
   }catch(_){ return dataUrl; }                    // a bad decode must not block
 }
