@@ -327,3 +327,90 @@ describe("fine ribs are ribs, not noise", () => {
     expect(R.classify(aliased).kind).toBe("color_field");
   });
 });
+
+/* 21 Sep 2026. An app icon came back as a flat grey slab. The colour grid
+ * averaged raw RGB and ignored alpha entirely — and a transparent pixel
+ * stores 0,0,0 — so every transparent region was MEASURED AS BLACK. An icon
+ * is mostly transparent margin, so its corners sampled pure black and its
+ * mean was dragged into the mud, and the background, the mesh net and every
+ * palette built off that grid inherited it.
+ *
+ * Transparency is absence, not a colour. */
+describe("the colour grid weights by alpha", () => {
+  /** A solid block of one colour covering the middle, transparent around it. */
+  const iconish = (w, h, colour) => {
+    const [r, g, b] = colour;
+    const a = new Uint8ClampedArray(w * h * 4);
+    const m = Math.round(w * 0.25);
+    for (let y = m; y < h - m; y++)
+      for (let x = m; x < w - m; x++) {
+        const i = (y * w + x) * 4;
+        a[i] = r;
+        a[i + 1] = g;
+        a[i + 2] = b;
+        a[i + 3] = 255;
+      }
+    return a;
+  };
+
+  it("does not report transparent margin as black", () => {
+    const w = 64,
+      h = 64;
+    const rows = R.sampleGrid(iconish(w, h, [180, 60, 220]), w, h, 4);
+    expect(rows.flat()).not.toContain("#000000");
+  });
+
+  it("gives an empty cell the picture's own colour, not an invented one", () => {
+    const w = 64,
+      h = 64;
+    const rows = R.sampleGrid(iconish(w, h, [180, 60, 220]), w, h, 4);
+    // the corner cell holds nothing; it takes the mean of what IS there
+    expect(rows[0][0]).toBe("#b43cdc");
+  });
+
+  it("still measures an opaque picture exactly as before", () => {
+    // the nine references are JPEGs: no alpha, so nothing about them moves
+    const w = 8,
+      h = 8;
+    const a = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      a[i * 4] = 10 + i;
+      a[i * 4 + 1] = 20;
+      a[i * 4 + 2] = 30;
+      a[i * 4 + 3] = 255;
+    }
+    const rows = R.sampleGrid(a, w, h, 2);
+    expect(rows).toHaveLength(2);
+    expect(rows[0][0]).toMatch(/^#[0-9a-f]{6}$/);
+    // green and blue are constant, so they survive the average untouched
+    expect(rows[0][0].slice(3)).toBe("141e");
+  });
+
+  it("weights a half-transparent pixel at half, not at full", () => {
+    const w = 2,
+      h = 1;
+    const a = new Uint8ClampedArray(w * h * 4);
+    a[0] = 255;
+    a[3] = 255; // opaque red
+    a[4] = 0;
+    a[5] = 0;
+    a[6] = 255;
+    a[7] = 128; // half-alpha blue
+    const [cell] = R.sampleGrid(a, w, h, 1).flat();
+    const v = parseInt(cell.slice(1), 16);
+    const red = (v >> 16) & 255,
+      blue = v & 255;
+    expect(red).toBeGreaterThan(blue); // the opaque one carries more weight
+  });
+
+  it("falls back to white only when there is nothing at all", () => {
+    const w = 4,
+      h = 4;
+    expect(R.sampleGrid(new Uint8ClampedArray(w * h * 4), w, h, 2).flat()).toEqual([
+      "#ffffff",
+      "#ffffff",
+      "#ffffff",
+      "#ffffff",
+    ]);
+  });
+});

@@ -352,7 +352,31 @@
   }
 
   /** Measured colour grid, n x n, row 0 at the top. Area averages. */
+  /** The measured colour grid, WEIGHTED BY ALPHA.
+   *
+   *  This averaged raw RGB and ignored the alpha entirely, and a transparent
+   *  pixel stores 0,0,0 — so every transparent region was measured as BLACK.
+   *  An app icon is mostly transparent margin, so its grid came back black at
+   *  the corners and its mean landed in mid-grey, and a reference like that
+   *  produced a flat grey slab that had nothing to do with the picture.
+   *  Transparency is absence, not a colour: it contributes nothing, and a cell
+   *  with nothing in it takes the picture's own average rather than inventing
+   *  a value for it. */
   function sampleGrid(rgba, w, h, n) {
+    // the picture's own alpha-weighted mean, for cells that hold nothing
+    let mr = 0,
+      mg = 0,
+      mb = 0,
+      ma = 0;
+    for (let i = 0; i < w * h; i++) {
+      const a = rgba[i * 4 + 3] / 255;
+      if (!a) continue;
+      mr += rgba[i * 4] * a;
+      mg += rgba[i * 4 + 1] * a;
+      mb += rgba[i * 4 + 2] * a;
+      ma += a;
+    }
+    const fallback = ma > 0 ? hex(mr / ma, mg / ma, mb / ma) : "#ffffff";
     const rows = [];
     for (let gy = 0; gy < n; gy++) {
       const row = [];
@@ -368,13 +392,15 @@
         for (let y = y0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {
             const i = (y * w + x) * 4;
-            r += rgba[i];
-            g += rgba[i + 1];
-            b += rgba[i + 2];
-            k++;
+            const a = rgba[i + 3] / 255;
+            if (!a) continue;
+            r += rgba[i] * a;
+            g += rgba[i + 1] * a;
+            b += rgba[i + 2] * a;
+            k += a;
           }
         }
-        row.push(hex(r / k, g / k, b / k));
+        row.push(k > 0 ? hex(r / k, g / k, b / k) : fallback);
       }
       rows.push(row);
     }
