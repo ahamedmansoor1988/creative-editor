@@ -502,11 +502,72 @@ describe("the effect owns nothing the shape already owns", () => {
     for (const gone of ["u_roundness", "u_size", "u_sides"]) {
       expect(src).not.toContain(gone);
     }
-    /* u_aspect STAYS: it is the tile's aspect ratio, which keeps distances
-     * isotropic so a circle's fillet is round on a wide box. The lab's
+    /* u_span STAYS, and replaced u_aspect: it says how far the TILE reaches
+     * in half-object-heights, which carries the aspect ratio and the margin
+     * at once. Distances stay isotropic, so a circle's fillet is round on a
+     * wide box, and the cuts do not move when the margin changes. The lab's
      * "Width / height" was a different thing — a control that stretched its
      * own silhouette, which an object's own w and h now do. */
-    expect(src).toContain("u_aspect");
+    expect(src).toContain("u_span");
+    expect(src).not.toContain("u_aspect");
     expect(app).not.toContain("divider:{on:false,roundness");
+  });
+});
+
+/* Mansoor, pointing at the middle band of a stadium cut into five: "should be
+ * smooth too! why is it hard box?" — every other band filleted correctly and
+ * that one had square ends.
+ *
+ * A distance field needs ROOM around the shape. A stadium's straight side
+ * reaches the tile edge exactly, so past it the sampler clamps, everything
+ * beyond reads as still inside, and the smooth subtraction has nothing to
+ * round against. The curved bands filleted because there the outline sits
+ * inside the tile and the field has real "outside" to work with. */
+describe("the field has room around the shape", () => {
+  it("measures distance in the OBJECT's height, not the padded tile's", () => {
+    /* Otherwise adding margin would silently rescale every divider: the same
+     * spacing would move the cuts the moment the padding changed. */
+    const w = 64,
+      h = 64;
+    const a = new Uint8ClampedArray(w * h * 4);
+    a[(32 * w + 32) * 4 + 3] = 255;
+    const tight = SDE.signedField(a, w, h); // default: tile IS the object
+    const padded = SDE.signedField(a, w, h, 2 / 32); // object is half the tile
+    // the same pixel is twice as far away when the object is half the tile
+    expect(padded[32 * w + 42]).toBeCloseTo(tight[32 * w + 42] * 2, 5);
+  });
+
+  it("keeps the old meaning when no margin is given", () => {
+    const w = 32,
+      h = 32;
+    const a = new Uint8ClampedArray(w * h * 4);
+    a[(16 * w + 16) * 4 + 3] = 255;
+    const withDefault = SDE.signedField(a, w, h);
+    const explicit = SDE.signedField(a, w, h, 2 / h);
+    expect(Array.from(withDefault)).toEqual(Array.from(explicit));
+  });
+
+  it("the draw path pads the tile and places it back expanded", () => {
+    const app = readPublic("app.js");
+    const draw = app.slice(
+      app.indexOf("const dvx=fx.divider;"),
+      app.indexOf("const frx=fx.fractal;"),
+    );
+    expect(draw).toContain("const PAD=");
+    expect(draw).toContain("const TW=W+PAD*2, TH=H+PAD*2");
+    // rendered on the padded tile, but measured in the object's own height
+    expect(draw).toContain("render(TW,TH,sil,paint,H)");
+    // and drawn back over the expanded rect, or the margin would crop
+    expect(draw).toContain("o.x-padDocX");
+    expect(draw).toContain("o.w+padDocX*2");
+  });
+
+  it("the margin clears the widest fillet and the widest cut", () => {
+    /* The fillet reaches 0.13 of half the height and a cut 0.14; the margin is
+     * a fifth of the box, comfortably past both. */
+    const src = readPublic("shape-divider.js");
+    expect(src).toContain("mix(.002,.13,u_edgeSmooth)");
+    const app = readPublic("app.js");
+    expect(app).toContain("0.2*Math.max(W,H)");
   });
 });

@@ -4301,13 +4301,25 @@ function drawOneInner(c,W,H,obj){
       const tm=(c.getTransform&&c.getTransform())||null;
       const sbox=canvasRect(tm,obj.x,obj.y,obj.w,obj.h);
       const W=Math.max(1,Math.round(sbox.w)), H=Math.max(1,Math.round(sbox.h));
+      /* MARGIN. A distance field needs room around the shape. Where the
+       * silhouette reaches the tile edge — a stadium's straight side does,
+       * exactly — the sampler clamps at the border, everything past it reads
+       * as still inside, and the smooth subtraction has nothing to round
+       * against: that band came out a hard box while the curved ones filleted
+       * correctly. The widest fillet is 0.13 of half the height and the widest
+       * cut 0.14, so a fifth of the box is comfortably clear of both. */
+      const PAD=Math.max(2,Math.round(0.2*Math.max(W,H)));
+      const TW=W+PAD*2, TH=H+PAD*2;
+      const padDocX=PAD*(obj.w/Math.max(1e-6,W)), padDocY=PAD*(obj.h/Math.max(1e-6,H));
       const sil=document.createElement('canvas');
-      sil.width=W; sil.height=H;
+      sil.width=TW; sil.height=TH;
       const sc=sil.getContext('2d');
       sc.fillStyle='#fff';
       sc.save();
       /* pathFor works in document units about the object's own origin, so the
-       * silhouette is drawn with the box mapped onto the tile. */
+       * silhouette is drawn with the box mapped onto the tile, inset by the
+       * margin. */
+      sc.translate(PAD,PAD);
       sc.scale(W/Math.max(1e-6,obj.w),H/Math.max(1e-6,obj.h));
       sc.translate(-obj.x,-obj.y);
       sc.beginPath(); pathFor(sc,obj); sc.fill();
@@ -4317,12 +4329,14 @@ function drawOneInner(c,W,H,obj){
        * fill gives its first colour, which is the closest a flat cut-out can
        * come — stated rather than silently approximated. */
       const paint=Object.assign({},dvx,{color:firstColor(obj.fill||{kind:'solid',color:'#cccccc'})});
-      const img=window.ShapeDividerEngine.render(W,H,sil,paint);
+      /* H, not TH, is the object's own height inside the tile: every divider
+       * number is measured in half of it, so the margin cannot move the cuts. */
+      const img=window.ShapeDividerEngine.render(TW,TH,sil,paint,H);
       if(img){
         const place=o=>{
           c.save();
           c.globalAlpha=obj.opacity;
-          c.drawImage(img,o.x,o.y,o.w,o.h);
+          c.drawImage(img,o.x-padDocX,o.y-padDocY,o.w+padDocX*2,o.h+padDocY*2);
           c.restore();
         };
         paintWithInstances(obj,place);

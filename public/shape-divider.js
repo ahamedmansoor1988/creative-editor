@@ -25,7 +25,7 @@
 (function () {
   "use strict";
 
-  const VERSION = "20260921-divider2";
+  const VERSION = "20260921-divider3";
   /* The field follows the TILE, within bounds. A fixed 256 was fine for a
    * thumbnail and four times undersampled on a shape drawn a thousand pixels
    * wide, which is the other half of why a curve came out rasterised. The
@@ -48,7 +48,8 @@
   precision highp float;in vec2 v_uv;out vec4 fragColor;
   uniform sampler2D u_body;
   uniform vec2 u_resolution;
-  uniform float u_aspect,u_edgeSmooth,u_intersectionSmooth,u_fillAlpha;
+  uniform vec2 u_span;
+  uniform float u_edgeSmooth,u_intersectionSmooth,u_fillAlpha;
   uniform vec3 u_fill;
   uniform float u_enabled[12],u_kind[12],u_angle[12],u_count[12],u_spacing[12],u_width[12],u_offset[12],u_curve[12],u_smooth[12];
   #define PI 3.14159265359
@@ -60,7 +61,7 @@
    * clamped to its edge, which reads as "far outside" and keeps a divider that
    * runs past the shape from wrapping back into it. */
   float body(vec2 p){
-    vec2 uv=vec2(p.x/max(u_aspect,.0001),p.y)*.5+.5;
+    vec2 uv=p/max(u_span,vec2(.0001))*.5+.5;
     return texture(u_body,clamp(uv,vec2(.001),vec2(.999))).r;
   }
 
@@ -89,7 +90,10 @@
   }
 
   void main(){
-    vec2 p=v_uv*2.-1.;p.x*=u_aspect;
+    /* p is measured in HALF THE OBJECT's height, whatever the tile around it
+     * is — so a spacing or a width means the same thing however much margin
+     * the field needed. u_span says how far the tile reaches in those units. */
+    vec2 p=(v_uv*2.-1.)*u_span;
     float shapeD=body(p),cuts=10.;
     for(int i=0;i<12;i++){
       float layerOn=0.;for(int j=0;j<12;j++)if(j==i)layerOn=u_enabled[j];
@@ -173,7 +177,7 @@
    *  distance is taken from that coverage — a pixel 30% covered has its edge
    *  0.2px past the centre, not at it — and the transform supplies everything
    *  further out, where a pixel of error is invisible anyway. */
-  function signedField(alpha, w, h) {
+  function signedField(alpha, w, h, unitsPerPx) {
     const n = w * h;
     const inside = new Uint8Array(n),
       outside = new Uint8Array(n);
@@ -186,7 +190,7 @@
     }
     const dOut = edt2d(inside, w, h); // distance to the shape, for pixels outside
     const dIn = edt2d(outside, w, h); // distance to the outside, for pixels inside
-    const scale = 2 / h;
+    const scale = Number.isFinite(unitsPerPx) ? unitsPerPx : 2 / h;
     const field = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const px = inside[i] ? -Math.sqrt(dIn[i]) : Math.sqrt(dOut[i]);
@@ -247,7 +251,7 @@
       gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
       const names = [
         "resolution",
-        "aspect",
+        "span",
         "edgeSmooth",
         "intersectionSmooth",
         "fill",
@@ -293,11 +297,22 @@
    * @param {object} s  effect state
    * @returns {HTMLCanvasElement|null}
    */
-  function render(w, h, silhouette, s) {
+  /**
+   * @param {number} w  tile width in device pixels, INCLUDING any margin
+   * @param {number} h  tile height, including margin
+   * @param {HTMLCanvasElement} silhouette  the outline drawn on that tile
+   * @param {object} s  effect state
+   * @param {number} [objH]  the object's own height within the tile. Every
+   *   divider number is measured in half of THIS, so adding margin around the
+   *   shape does not move the cuts. Defaults to the tile, which is what a
+   *   caller with no margin means.
+   */
+  function render(w, h, silhouette, s, objH) {
     const gl = boot();
     if (!gl || !(w >= 1) || !(h >= 1) || !silhouette) return null;
     w = Math.max(1, Math.round(w));
     h = Math.max(1, Math.round(h));
+    const oh = Number.isFinite(objH) && objH > 0 ? objH : h;
 
     // the silhouette, at field resolution
     const R = fieldResFor(w, h);
@@ -313,7 +328,11 @@
     mx.imageSmoothingEnabled = true;
     mx.imageSmoothingQuality = "high";
     mx.drawImage(silhouette, 0, 0, fw, fh);
-    const field = signedField(mx.getImageData(0, 0, fw, fh).data, fw, fh);
+    /* Distance in field pixels -> the shader's units, which are half the
+     * OBJECT's height. One field pixel spans h/fh tile pixels, and oh tile
+     * pixels span 2 units. */
+    const unitsPerPx = (2 * h) / (oh * fh);
+    const field = signedField(mx.getImageData(0, 0, fw, fh).data, fw, fh, unitsPerPx);
 
     _cv.width = w;
     _cv.height = h;
@@ -331,7 +350,8 @@
     gl.uniform1i(_u.body, 0);
 
     gl.uniform2f(_u.resolution, w, h);
-    gl.uniform1f(_u.aspect, w / Math.max(1, h));
+    // how far the tile reaches, in half-object-heights
+    gl.uniform2f(_u.span, w / Math.max(1, oh / 2) / 2, h / Math.max(1, oh / 2) / 2);
     const smooth = clamp01(s.smoothness);
     gl.uniform1f(_u.edgeSmooth, smooth);
     gl.uniform1f(_u.intersectionSmooth, smooth);
