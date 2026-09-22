@@ -305,6 +305,11 @@ function measuredNotes(features) {
       `a repeated structure of about ${Math.round(p.count)} copies ${p.axis === "rows" ? "stacked vertically (horizontal bands)" : "across the width (vertical bands)"}, pitch ${(p.pitch * 100).toFixed(1)}% of the ${p.axis === "rows" ? "height" : "width"}`,
     );
   }
+  const sj = features.subject;
+  if (sj && sj.count === 1)
+    out.push(
+      `exactly ONE subject on a plain ${sj.ground} ground, its box starting at ${sj.x}%,${sj.y}% and spanning ${sj.w}% of the width by ${sj.h}% of the height — describe that one thing and what sits on it, and do not add a second copy anywhere`,
+    );
   if (features.grain && features.grain.amount >= 0.3) out.push(`film grain, amount about ${features.grain.amount}`);
   if (Number.isFinite(features.colours)) out.push(`${features.colours} distinct colours cover at least 1% each`);
   return out.length ? `\n\nMEASURED from the pixels (trust these over your reading): ${out.join("; ")}.` : "";
@@ -529,7 +534,21 @@ function meshFromRows(rows, cols, rws, fallback) {
   return pts;
 }
 
-function briefToDoc(brief, fw, fh, rows) {
+/** Two elements the model described as the same thing in two places. The
+ *  same shape and material, the same size within a little, and boxes that do
+ *  not overlap: a stack of copies, which a reference with ONE measured subject
+ *  cannot have. */
+function looksDuplicate(a, b) {
+  if ((a.shape || "rect") !== (b.shape || "rect")) return false;
+  if ((a.material || "none") !== (b.material || "none")) return false;
+  const near = (p, q, tol) => Math.abs(Number(p) - Number(q)) <= tol;
+  if (!near(a.w, b.w, Math.max(6, 0.2 * Number(a.w))) || !near(a.h, b.h, Math.max(6, 0.2 * Number(a.h)))) return false;
+  const dx = Math.abs(Number(a.x) - Number(b.x)), dy = Math.abs(Number(a.y) - Number(b.y));
+  const minW = Math.min(Number(a.w), Number(b.w)), minH = Math.min(Number(a.h), Number(b.h));
+  return dx >= 0.6 * minW || dy >= 0.6 * minH;
+}
+
+function briefToDoc(brief, fw, fh, rows, subject) {
   const pct = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(-50, Math.min(150, n)) : d; };
   const unsupported = [];
   const children = [];
@@ -542,7 +561,47 @@ function briefToDoc(brief, fw, fh, rows) {
   } else {
     children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, fill: { kind: "solid", color: bgColor } });
   }
-  const elements = (Array.isArray(brief && brief.elements) ? brief.elements : []).slice(0, 12);
+  let elements = (Array.isArray(brief && brief.elements) ? brief.elements : []).slice(0, 12);
+  const one = subject && subject.count === 1 ? subject : null;
+  const anchor = one ? { x: one.x + one.w / 2, y: one.y + one.h / 2 } : null;
+  if (one) {
+    /* THE PIXELS SAY THERE IS ONE. Where the model has described the same
+     * thing twice — "rounded square, upper" and "rounded square, lower" for
+     * one icon — keep the copy nearest the measured subject and drop the
+     * rest, and say so. This is not a guess about the model: the reference
+     * was measured to have one subject on a plain ground. */
+    /* WHICH COPY SURVIVES is decided once, by the biggest element — the
+     * subject's own shape — and everything else keeps the copy nearest to
+     * THAT, not to the measured centre. Deciding per part sent the "lower"
+     * square through with the "upper" word: the two were equidistant from
+     * the centre and each part broke the tie its own way, so the word landed
+     * above the square instead of on it. One anchor, one copy. */
+    const cx0 = one.x + one.w / 2, cy0 = one.y + one.h / 2;
+    const valid = elements.filter((e) => e && typeof e === "object");
+    const area = (e) => (Number(e.w) || 0) * (Number(e.h) || 0);
+    const big = valid.slice().sort((a, b) => area(b) - area(a))[0];
+    let ax = cx0, ay = cy0;
+    if (big) {
+      const twins = valid.filter((e) => e === big || looksDuplicate(big, e));
+      const nearest = twins.slice().sort((a, b) => Math.hypot(Number(a.x) - cx0, Number(a.y) - cy0) - Math.hypot(Number(b.x) - cx0, Number(b.y) - cy0))[0];
+      ax = Number(nearest.x); ay = Number(nearest.y);
+    }
+    anchor.x = ax; anchor.y = ay;
+    const dist = (e) => Math.hypot(Number(e.x) - ax, Number(e.y) - ay);
+    const kept = [];
+    elements.forEach((e) => {
+      if (!e || typeof e !== "object") return;
+      const twin = kept.findIndex((k) => looksDuplicate(k, e));
+      if (twin < 0) return kept.push(e);
+      if (dist(e) < dist(kept[twin])) {
+        unsupported.push(`dropped "${String(kept[twin].what || kept[twin].shape || "element").slice(0, 40)}": the reference has one subject`);
+        kept[twin] = e;
+      } else {
+        unsupported.push(`dropped "${String(e.what || e.shape || "element").slice(0, 40)}": the reference has one subject`);
+      }
+    });
+    elements = kept;
+  }
   elements.forEach((e, idx) => {
     if (!e || typeof e !== "object") return;
     const name = String(e.what || e.shape || "element").slice(0, 40) || "element " + (idx + 1);
@@ -677,7 +736,21 @@ function briefToDoc(brief, fw, fh, rows) {
     if (shape === "path") shape = "rect";
     children.push({ ...base, type: shape, fill, pattern: pattern || undefined, echo: echo || undefined });
   });
-  const texts = (Array.isArray(brief && brief.text) ? brief.text : []).slice(0, 8);
+  let texts = (Array.isArray(brief && brief.text) ? brief.text : []).slice(0, 8);
+  if (one) {
+    // the same words twice, for the same reason
+    const seen = new Map();
+    // nearest to the surviving copy's anchor, the same one the elements used
+    const near = (t) => Math.hypot(Number(t.x) - anchor.x, Number(t.y) - anchor.y);
+    texts.forEach((t) => {
+      const key = String((t && t.content) || "").trim().toLowerCase();
+      if (!key) return;
+      const prev = seen.get(key);
+      if (!prev || near(t) < near(prev)) seen.set(key, t);
+    });
+    if (seen.size < texts.filter((t) => t && String(t.content || "").trim()).length) unsupported.push("dropped repeated text: the reference has one subject");
+    texts = [...seen.values()];
+  }
   texts.forEach((t) => {
     const content = t && typeof t.content === "string" ? t.content.trim().slice(0, 200) : "";
     if (!content) return;
@@ -688,6 +761,54 @@ function briefToDoc(brief, fw, fh, rows) {
     const x = align === "center" ? cx : align === "right" ? cx + approxW / 2 : cx - approxW / 2;
     children.push({ type: "text", name: content.slice(0, 24), x: +x.toFixed(1), y: +(cy - size * 0.6).toFixed(1), text: content, size: +size.toFixed(1), weight: /bold|black|heavy/i.test(String(t.weight || "")) ? 700 : 400, color: HEX(t.color, "#ffffff"), align, mode: "point" });
   });
+  if (one && children.length > 1) {
+    /* THE PIXELS SAY WHERE IT IS. The model's numbers are percent of the frame
+     * and it does not reason about aspect: a "square" comes back w 80, h 80,
+     * which in a wide frame is a wide ellipse. Its INTERNAL layout is good —
+     * the dot centred on the square, the words beneath — so that is kept:
+     * the union of everything it placed is fitted onto the measured box, per
+     * axis. Placement and proportion come from the pixels; arrangement from
+     * the model. The background is not part of the subject and stays. */
+    const items = children.slice(1);
+    let ux = Infinity, uy = Infinity, vx = -Infinity, vy = -Infinity;
+    items.forEach((c) => {
+      const w = Number.isFinite(c.w) ? c.w : 0, h = Number.isFinite(c.h) ? c.h : 0;
+      ux = Math.min(ux, c.x); uy = Math.min(uy, c.y);
+      vx = Math.max(vx, c.x + w); vy = Math.max(vy, c.y + h);
+    });
+    const uw = vx - ux, uh = vy - uy;
+    if (uw > 1 && uh > 1) {
+      const tx = (one.x / 100) * fw, ty = (one.y / 100) * fh;
+      const tw = (one.w / 100) * fw, th = (one.h / 100) * fh;
+      const sx = tw / uw, sy = th / uh;
+      items.forEach((c) => {
+        c.x = +(tx + (c.x - ux) * sx).toFixed(1);
+        c.y = +(ty + (c.y - uy) * sy).toFixed(1);
+        if (Number.isFinite(c.w)) c.w = +(c.w * sx).toFixed(1);
+        if (Number.isFinite(c.h)) c.h = +(c.h * sy).toFixed(1);
+        if (c.type === "text" && Number.isFinite(c.size)) c.size = +(c.size * Math.min(sx, sy)).toFixed(1);
+        if (c.type === "line") { c.x2 = +(tx + (c.x2 - ux) * sx).toFixed(1); c.y2 = +(ty + (c.y2 - uy) * sy).toFixed(1); }
+      });
+      unsupported.push(`placed onto the measured subject box (${one.w}% x ${one.h}% of the frame)`);
+    }
+    /* THE CORNERS, from the pixels. The element that spans the subject box is
+     * the subject's own shape, and its corner radius was measured off the
+     * silhouette — the model is not asked for it, because "rounded" is a word
+     * and a radius is a number, and it reliably gets the number wrong. Only
+     * a rect can take one; an ellipse has no corners, and a small mark inside
+     * the subject is not the subject. */
+    if (Number.isFinite(one.radius) && one.radius > 0) {
+      const tw = (one.w / 100) * fw, th = (one.h / 100) * fh;
+      const px = (one.radius / 100) * Math.min(tw, th);
+      let applied = 0;
+      items.forEach((c) => {
+        if (c.type !== "rect" || Number.isFinite(c.radius)) return;
+        const w = Number.isFinite(c.w) ? c.w : 0, h = Number.isFinite(c.h) ? c.h : 0;
+        if (w >= 0.7 * tw && h >= 0.7 * th) { c.radius = +px.toFixed(1); applied++; }
+      });
+      if (applied) unsupported.push(`corner radius ${one.radius}% measured off the silhouette`);
+    }
+  }
   const briefUnsupported = (Array.isArray(brief && brief.unsupported) ? brief.unsupported : []).filter((x) => typeof x === "string").map((x) => x.slice(0, 120));
   return {
     doc: { frame: { name: "Reference composition", w: fw, h: fh, bg: bgColor, children: children.slice(0, 24) } },
@@ -712,7 +833,7 @@ async function planComposition(body) {
       `. Read the image again and correct positions, sizes, counts and colours where the render was wrong.`;
   }
   const read = await readComposition(imageDataUrl, features, prompt, hint);
-  const built = briefToDoc(read.brief, fw, fh, rows);
+  const built = briefToDoc(read.brief, fw, fh, rows, features && features.subject);
   return { kind: "plan", classification: "composition", doc: built.doc, brief: read.brief, unsupported: built.unsupported, model: read.model, usage: read.usage };
 }
 

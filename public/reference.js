@@ -217,6 +217,120 @@
     };
   }
 
+  /** WHERE THE SUBJECT IS. The ground is the median of the border pixels;
+   *  anything that differs from it by more than a little is subject; the box
+   *  is their extent. It is ONE subject when there is enough of it to matter,
+   *  it does not fill the frame (that is a field, not a thing on a ground),
+   *  and it fills its own box solidly (four slabs with gaps between them are
+   *  four things, and get no box). A measured fact the model is then handed,
+   *  the same way it is handed the colours: it may say what the thing is, but
+   *  not where it is or how many of it there are. */
+  function subjectBox(rgba, w, h) {
+    const n = w * h;
+    const br = [],
+      bg = [],
+      bb = [];
+    const take = (i) => {
+      br.push(rgba[i * 4]);
+      bg.push(rgba[i * 4 + 1]);
+      bb.push(rgba[i * 4 + 2]);
+    };
+    for (let x = 0; x < w; x++) {
+      take(x);
+      take((h - 1) * w + x);
+    }
+    for (let y = 1; y < h - 1; y++) {
+      take(y * w);
+      take(y * w + w - 1);
+    }
+    const med = (a) => a.slice().sort((p, q) => p - q)[a.length >> 1];
+    const g = [med(br), med(bg), med(bb)];
+    const TOL = 28;
+    let minX = w,
+      minY = h,
+      maxX = -1,
+      maxY = -1,
+      marked = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const d = Math.max(
+          Math.abs(rgba[i] - g[0]),
+          Math.abs(rgba[i + 1] - g[1]),
+          Math.abs(rgba[i + 2] - g[2]),
+        );
+        if (d <= TOL) continue;
+        marked++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const ground = hex(g[0], g[1], g[2]);
+    if (maxX < 0) return { count: 0, ground, reason: "nothing differs from the ground" };
+    const bw = maxX - minX + 1,
+      bh = maxY - minY + 1;
+    const coverage = marked / (bw * bh);
+    const frameShare = (bw * bh) / n;
+    /* ONE subject covers most of its own box: a rounded rectangle nearly all
+     * of it, a circle 78%. Four slabs in four corners cover 44% of theirs —
+     * the joint box is mostly the ground between them — and 35% let that
+     * through as one thing. 60% sits between the circle and the slabs. */
+    const one = marked >= 0.004 * n && frameShare <= 0.92 && coverage >= 0.6;
+    /* THE CORNER RADIUS, measured. Walk the box's diagonal in from each
+     * corner until the subject begins. A corner arc of radius r crosses that
+     * diagonal r(1 - 1/sqrt2) = 0.293r in from the corner, so the walk's
+     * length IS the radius, times 3.41. This is measured across the arc, not
+     * at its tangent row: the top row of a rounded rect is a single sliver
+     * whose width says sqrt(r), not r, and reading it there was 4 points
+     * out on a 25% corner. The four corners are averaged so one anti-aliased
+     * pixel cannot skew it. A circle reads as 50% of the shorter side, a
+     * pill, which is what a circle is to a rounded rect; a sharp rectangle
+     * reads as 0. The model is never asked for this number, because it is
+     * the kind it gets wrong and the pixels get right. Percent of the SHORTER
+     * side, capped at 50. */
+    const differs = (x, y) => {
+      const i = (y * w + x) * 4;
+      return (
+        Math.max(
+          Math.abs(rgba[i] - g[0]),
+          Math.abs(rgba[i + 1] - g[1]),
+          Math.abs(rgba[i + 2] - g[2]),
+        ) > TOL
+      );
+    };
+    const short = Math.max(1, Math.min(bw, bh));
+    const ARC = 1 - Math.SQRT1_2; // where a corner arc meets the box diagonal
+    const diagonal = (sx, sy, dx, dy) => {
+      const lim = Math.floor(short / 2);
+      let k = 0;
+      while (k < lim && !differs(sx + dx * k, sy + dy * k)) k++;
+      return k / ARC; // the radius, in pixels
+    };
+    const corners = [
+      diagonal(minX, minY, 1, 1),
+      diagonal(maxX, minY, -1, 1),
+      diagonal(minX, maxY, 1, -1),
+      diagonal(maxX, maxY, -1, -1),
+    ];
+    const radius = Math.min(
+      50,
+      +((100 * (corners.reduce((a, b) => a + b, 0) / 4)) / short).toFixed(1),
+    );
+    return {
+      count: one ? 1 : 0,
+      ground,
+      x: +((100 * minX) / w).toFixed(1),
+      y: +((100 * minY) / h).toFixed(1),
+      w: +((100 * bw) / w).toFixed(1),
+      h: +((100 * bh) / h).toFixed(1),
+      radius,
+      coverage: +coverage.toFixed(2),
+      frameShare: +frameShare.toFixed(2),
+    };
+  }
+
   /** Every measurement the classifier and the planner use. `grainCrop` is an
    *  optional {rgba,w,h} at native resolution. */
   function features(rgba, w, h, grainCrop) {
@@ -233,6 +347,7 @@
       colours: distinctColours(rgba, w, h),
       periodic: periodicity(L, w, h),
       grain,
+      subject: subjectBox(rgba, w, h),
     };
   }
 
@@ -240,6 +355,21 @@
   function classify(f) {
     const reasons = [];
     const p = f.periodic || { strength: 0, amp: 0, lag: 0 };
+    /* ONE THING ON A GROUND, asked first. The subject was measured, not
+     * inferred: exactly one region differs from a plain border colour and it
+     * fills its own box. An icon, a logo, a card. That is a composition by
+     * definition, whatever its edges do — a lone blue rounded square on white
+     * read as a MATERIAL here (soft anti-aliased edges over a profile whose
+     * one plateau counted as periodic), and only the model's `parts` flag,
+     * one call later, could send it back. The pixels already knew. */
+    const sj = f.subject;
+    if (sj && sj.count === 1) {
+      reasons.push(
+        `one subject on a plain ${sj.ground} ground, ${sj.w}% x ${sj.h}% of the frame` +
+          (sj.radius > 0 ? `, corner radius ${sj.radius}% of its shorter side` : ""),
+      );
+      return { kind: "composition", reasons, periodic: false, subject: sj };
+    }
     /* No lag floor. It read "lags 2..3 are pixel noise", but the profile is a
      * MEAN down the whole axis, and averaging 128 rows divides noise by about
      * eleven — nothing random survives that at amplitude 4. What it actually
@@ -504,6 +634,7 @@
     edgeFractions,
     distinctColours,
     periodicity,
+    subjectBox,
     grainFromCrop,
     features,
     classify,

@@ -1,0 +1,21 @@
+#lightBeam .sc-stage {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  overflow:hidden;
+}
+#lightBeam canvas {
+  width:auto;
+  height:100%;
+  max-width:100%;
+  aspect-ratio:736 / 1308;
+  object-fit:contain;
+}
+#lightBeam .sc-badge {
+  left:calc(50% - min((100vh - 92px) * .28135, (100vw - 356px) * .5) + 12px);
+}
+@media (max-width:760px) {
+  #lightBeam .sc-stage { padding:10px; }
+  #lightBeam .sc-badge { left:22px; }
+}

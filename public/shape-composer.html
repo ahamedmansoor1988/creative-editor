@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shape Divider — Creative Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="shape-composer.css">
+</head>
+<body>
+  <main class="sc-app" id="shapeComposer">
+    <header>
+      <a class="sc-brand" href="index.html"><b>✦</b> Creative Editor</a>
+      <span class="sc-separator"></span>
+      <span class="sc-title">Shape Divider</span>
+      <div class="sc-actions">
+        <select data-preset aria-label="Preset"></select>
+        <button data-play type="button">Pause</button>
+        <button data-advanced type="button">More controls</button>
+        <button data-reset type="button">Reset</button>
+        <button data-export class="primary" type="button">Export PNG</button>
+      </div>
+    </header>
+    <section class="sc-workspace">
+      <div class="sc-stage">
+        <canvas aria-label="Editable divided shape preview"></canvas>
+        <div class="sc-badge">WEBGL2 · LIVE</div>
+        <button class="sc-reveal" data-collapse type="button" aria-label="Toggle controls">Sliders</button>
+      </div>
+      <aside>
+        <div class="sc-panel-head"><div><small>PROCEDURAL SHAPE TOOL</small><h1>Shape Divider</h1></div><button data-collapse type="button" aria-label="Hide controls">×</button></div>
+        <p>Choose one shape, then stack straight, curved, wave, or radial divider layers.</p>
+        <div data-controls></div>
+      </aside>
+    </section>
+  </main>
+  <script src="shape-divider-tool.js"></script>
+  <script>
+    try {
+      ShapeDividerTool.mount(document.getElementById("shapeComposer"));
+    } catch (error) {
+      document.querySelector("[data-controls]").textContent = `Renderer error: ${error.message}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

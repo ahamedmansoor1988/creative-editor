@@ -161,6 +161,31 @@ function design(prompt, isModify) {
   };
 }
 
+/* THE DUPLICATED BRIEF. Asked to describe ONE centred app icon (a blue rounded
+ * square with a white dot and the word Morpho), qwen3.8-27b on 21 Sep 2026
+ * returned the thing twice — "upper" and "lower", each with its own dot and
+ * its own word. The mock answers a composition read with that exact brief,
+ * so the fix (the pixels measured one subject; the server keeps one copy,
+ * fits it onto the measured box and gives it the measured corner radius) can
+ * be proven in the live editor without a key and without spending quota. */
+const DUPLICATED_BRIEF = {
+  background: { kind: "solid", colors: ["#ffffff"] },
+  elements: [
+    { what: "rounded square, upper", shape: "rect", x: 50, y: 25, w: 80, h: 80, color: "#4f6bff" },
+    { what: "white dot, upper", shape: "ellipse", x: 50, y: 20, w: 15, h: 15, color: "#ffffff" },
+    { what: "rounded square, lower", shape: "rect", x: 50, y: 75, w: 80, h: 80, color: "#4f6bff" },
+    { what: "white dot, lower", shape: "ellipse", x: 50, y: 70, w: 15, h: 15, color: "#ffffff" },
+  ],
+  text: [
+    { content: "Morpho", x: 50, y: 35, size: 8, color: "#ffffff", align: "center" },
+    { content: "Morpho", x: 50, y: 85, size: 8, color: "#ffffff", align: "center" },
+  ],
+};
+const isBriefRead = (messages) =>
+  /^You describe a reference image as a STRUCTURAL brief/.test(
+    String((messages[0] && messages[0].content) || ""),
+  );
+
 const server = http.createServer((req, res) => {
   if (req.method !== "POST") {
     res.writeHead(405, { "Content-Type": "application/json" });
@@ -179,7 +204,9 @@ const server = http.createServer((req, res) => {
     const text = typeof user === "string" ? user : JSON.stringify(user);
     const isModify = text.includes("CURRENT DESIGN");
 
-    const content = JSON.stringify(design(text, isModify));
+    const content = JSON.stringify(
+      isBriefRead(messages) ? DUPLICATED_BRIEF : design(text, isModify),
+    );
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({

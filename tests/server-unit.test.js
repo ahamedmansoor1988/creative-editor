@@ -751,3 +751,128 @@ describe("a mesh point's colour is [r,g,b], not a hex string", () => {
     expect(iri.colorCore).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
+
+/* 21 Sep 2026. The exact brief the model returned for one centred icon —
+ * "rounded square, upper" and "rounded square, lower", each with its own dot
+ * and its own "Morpho" — with the subject the pixels measured. The pixels say
+ * there is ONE and where. The model keeps its say over what the thing is and
+ * how it is arranged inside; it loses its say over how many and where. */
+describe("one measured subject overrules a duplicated brief", () => {
+  const { briefToDoc } = require("../server.js");
+  const brief = () => ({
+    background: { kind: "solid", colors: ["#ffffff"] },
+    elements: [
+      {
+        what: "rounded square, upper",
+        shape: "rect",
+        x: 50,
+        y: 25,
+        w: 80,
+        h: 80,
+        color: "#4f6bff",
+      },
+      { what: "white dot, upper", shape: "ellipse", x: 50, y: 20, w: 15, h: 15, color: "#ffffff" },
+      {
+        what: "rounded square, lower",
+        shape: "rect",
+        x: 50,
+        y: 75,
+        w: 80,
+        h: 80,
+        color: "#4f6bff",
+      },
+      { what: "white dot, lower", shape: "ellipse", x: 50, y: 70, w: 15, h: 15, color: "#ffffff" },
+    ],
+    text: [
+      { content: "Morpho", x: 50, y: 35, size: 8, color: "#ffffff", align: "center" },
+      { content: "Morpho", x: 50, y: 85, size: 8, color: "#ffffff", align: "center" },
+    ],
+  });
+  // a wide frame with a square icon in the middle, as measured off the pixels
+  const subject = { count: 1, ground: "#ffffff", x: 37.5, y: 16.7, w: 25, h: 66.7, coverage: 0.97 };
+
+  it("keeps one square, one dot and one Morpho", () => {
+    const { doc, unsupported } = briefToDoc(brief(), 1600, 900, [], subject);
+    const names = doc.frame.children.map((c) => c.name);
+    expect(names.filter((n) => /rounded square/.test(n))).toHaveLength(1);
+    expect(names.filter((n) => /white dot/.test(n))).toHaveLength(1);
+    expect(doc.frame.children.filter((c) => c.type === "text")).toHaveLength(1);
+    expect(unsupported.join(" | ")).toMatch(/dropped "rounded square/);
+    expect(unsupported.join(" | ")).toMatch(/dropped repeated text/);
+  });
+
+  it("keeps the copy nearest the measured subject", () => {
+    // the subject centre is at y 50: "lower" at y 75 is as far as "upper" at
+    // y 25, so the box, not the name, decides — exactly one survives, and it
+    // is fitted onto the measured box below. Move the subject up, and the
+    // upper copy is the one kept.
+    const high = { ...subject, y: 5, h: 45 };
+    const { doc, unsupported } = briefToDoc(brief(), 1600, 900, [], high);
+    const squares = doc.frame.children.filter((c) => /rounded square/.test(c.name));
+    expect(squares).toHaveLength(1);
+    expect(squares[0].name).toBe("rounded square, upper");
+    expect(unsupported.join(" | ")).toMatch(/dropped "rounded square, lower"/);
+  });
+
+  it("keeps the parts of ONE copy together", () => {
+    /* the squares are equidistant from the measured centre (y 25 and y 75
+     * about 50); the dot and the word are not. Decided per part, the lower
+     * square came through with the upper word, which then sat above it. */
+    const { doc } = briefToDoc(brief(), 1600, 900, [], subject);
+    const sq = doc.frame.children.find((c) => /rounded square/.test(c.name));
+    const dot = doc.frame.children.find((c) => /white dot/.test(c.name));
+    const word = doc.frame.children.find((c) => c.type === "text");
+    const copy = /upper|lower/.exec(sq.name)[0];
+    expect(dot.name).toContain(copy);
+    // the word sits INSIDE the square, as it does in the brief
+    expect(word.y).toBeGreaterThan(sq.y);
+    expect(word.y).toBeLessThan(sq.y + sq.h);
+    expect(dot.y).toBeGreaterThan(sq.y);
+  });
+
+  it("fits what survives onto the measured box, per axis", () => {
+    // 1600 x 900 frame; the measured box is 37.5%,16.7% / 25% x 66.7% of it
+    const { doc, unsupported } = briefToDoc(brief(), 1600, 900, [], subject);
+    const items = doc.frame.children.slice(1);
+    const ux = Math.min(...items.map((c) => c.x)),
+      uy = Math.min(...items.map((c) => c.y));
+    const vx = Math.max(...items.map((c) => c.x + (c.w || 0)));
+    const vy = Math.max(...items.map((c) => c.y + (c.h || 0)));
+    expect(ux).toBeCloseTo(600, 0);
+    expect(uy).toBeCloseTo(150.3, 0);
+    expect(vx).toBeCloseTo(1000, 0);
+    expect(vy).toBeCloseTo(750.6, 0);
+    // the square is no longer a wide 80% x 80% slab: it is as tall as the box says
+    const sq = items.find((c) => /rounded square/.test(c.name));
+    expect(sq.w).toBeLessThan(sq.h);
+    expect(unsupported.join(" | ")).toMatch(/placed onto the measured subject box/);
+  });
+
+  it("gives the subject's rect the corner radius the pixels measured", () => {
+    const { doc, unsupported } = briefToDoc(brief(), 1600, 900, [], { ...subject, radius: 22 });
+    const sq = doc.frame.children.find((c) => /rounded square/.test(c.name));
+    // 22% of the shorter side of the measured box (25% of 1600 = 400px)
+    expect(sq.radius).toBeCloseTo(88, 0);
+    // the small dot inside is not the subject and takes none
+    const dot = doc.frame.children.find((c) => /white dot/.test(c.name));
+    expect(dot.radius).toBeUndefined();
+    expect(unsupported.join(" | ")).toMatch(/corner radius 22% measured/);
+  });
+
+  it("leaves a sharp subject sharp", () => {
+    const { doc } = briefToDoc(brief(), 1600, 900, [], { ...subject, radius: 0 });
+    const sq = doc.frame.children.find((c) => /rounded square/.test(c.name));
+    expect(sq.radius).toBeUndefined();
+  });
+
+  it("changes nothing when the pixels did not measure one subject", () => {
+    // 994.jpg is a legitimate stack of discs: two copies are two copies
+    const none = { count: 0, ground: "#ffffff" };
+    const { doc, unsupported } = briefToDoc(brief(), 1600, 900, [], none);
+    expect(doc.frame.children.filter((c) => /rounded square/.test(c.name))).toHaveLength(2);
+    expect(doc.frame.children.filter((c) => c.type === "text")).toHaveLength(2);
+    expect(unsupported.join(" | ")).not.toMatch(/dropped/);
+    // and with no subject at all, the old behaviour exactly
+    expect(briefToDoc(brief(), 1600, 900, []).doc.frame.children).toHaveLength(7);
+  });
+});

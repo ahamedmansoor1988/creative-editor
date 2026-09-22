@@ -6901,6 +6901,16 @@ function renderFrameCanvas(){
 function loadImageFrom(dataUrl){
   return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('That file could not be read as an image.')); i.src=dataUrl; });
 }
+/** The reference as it looks on a page: transparency composited onto white. */
+async function flattenOnWhite(img){
+  const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+  if(!(w>0&&h>0)) return img;
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,w,h);
+  x.drawImage(img,0,0);
+  return loadImageFrom(c.toDataURL('image/png'));
+}
 async function callAnalyze(body){
   const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));
@@ -6978,7 +6988,13 @@ async function recreateFromReference(dataUrl,opts){
   if(!R) throw new Error('reference.js did not load');
   const say=(m,err)=>{ status(m,err); if(opts.onStatus) opts.onStatus(m); };
   const T0=performance.now();
-  const img=await loadImageFrom(dataUrl);
+  /* ON WHITE, ONCE, FOR EVERY CONSUMER. The measurement and the copy sent to
+   * the model were already composited onto white; the mesh FITTER was still
+   * handed the raw image and sampled its transparent margin as black — the
+   * third copy of that bug, and the black corners on a fitted icon. Flattened
+   * here, before anything reads it, so measure, fit and compare are all
+   * looking at one picture. */
+  const img=await flattenOnWhite(await loadImageFrom(dataUrl));
   const m=R.measureImage(img,8);
   const cls=m.classification;
   /* THE PROMPT'S ONE PATH TO STRUCTURE. The class above comes from the pixels
@@ -6995,7 +7011,7 @@ async function recreateFromReference(dataUrl,opts){
   const fw=m.aspect>=1?900:Math.round(600*m.aspect), fh=m.aspect>=1?Math.round(900/m.aspect):600;
   say(`Reference read as a ${cls.replace('_',' ')}: ${m.reasons[0]}`);
   const small=await shrinkForModel(dataUrl);
-  const report={classification:cls,reasons:m.reasons,features:m.features,frame:{w:fw,h:fh},
+  const report={classification:routeCls,reasons:m.reasons,features:m.features,frame:{w:fw,h:fh},
     engines:[],recipe:null,plan:null,unsupported:[],ignored:[],attempts:[],
     error:null,verdict:'unmeasured',model:null,modelConfidence:null,timing};
   const measure=label=>{
@@ -7214,7 +7230,7 @@ async function recreateFromReference(dataUrl,opts){
    * which engines it reached for, was the one thing always cut off. A
    * screenshot reading "... · mesh (..." could not say whether the glass had
    * been applied or dropped. */
-  const line=`${report.engines.join(', ')||'no engines'} · ${cls.replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
+  const line=`${report.engines.join(', ')||'no engines'} · ${String(report.classification).replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
     (report.routeFromPrompt?` · ${report.routeFromPrompt.word} (from prompt)`:'')+
     (report.recolor?` · recoloured to ${report.recolor.to}`:'')+
     (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+

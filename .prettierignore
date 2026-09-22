@@ -37,3 +37,13 @@ public/webgl-gradient.css
 # 2026, moved in from the Desktop). Not app source; ignored so the gate stays
 # meaningful. Remove this line once it is moved back out.
 ~stillspeaking
+
+# Standalone labs the in-app effects were ported from (fxstack.js, shape-divider.js
+# and light-beam-fx.js name them as provenance). Kept as reference pages, not app
+# source, on the same terms as the WebGL gradient lab above.
+public/light-beam.html
+public/light-beam.js
+public/light-beam.css
+public/shape-composer.html
+public/shape-composer.css
+public/shape-divider-tool.js

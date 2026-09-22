@@ -452,3 +452,246 @@ describe("a transparent reference is measured on the page, not on black", () => 
     expect(fn).not.toContain("if(scale>=1) return dataUrl;");
   });
 });
+
+/* 21 Sep 2026. "create this" over an app icon came back as two stacked copies
+ * stretched to the frame. The model had named the right things; it was free
+ * to invent where they were and how many, because nothing MEASURED that. The
+ * pipeline measures colour so the model cannot invent it; this measures the
+ * subject so it cannot invent placement either. */
+describe("where the subject is", () => {
+  /** A w x h picture of ground colour g with one solid block of colour c. */
+  const scene = (w, h, g, c, box) => {
+    const a = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      a[i * 4] = g[0];
+      a[i * 4 + 1] = g[1];
+      a[i * 4 + 2] = g[2];
+      a[i * 4 + 3] = 255;
+    }
+    const paint = ([x0, y0, bw, bh]) => {
+      for (let y = y0; y < y0 + bh; y++)
+        for (let x = x0; x < x0 + bw; x++) {
+          const i = (y * w + x) * 4;
+          a[i] = c[0];
+          a[i + 1] = c[1];
+          a[i + 2] = c[2];
+        }
+    };
+    (Array.isArray(box[0]) ? box : [box]).forEach(paint);
+    return a;
+  };
+
+  it("finds one icon on a plain ground and boxes it, in percent", () => {
+    // a wide frame, a square subject in the middle: the case that failed
+    const w = 160,
+      h = 90;
+    const s = R.subjectBox(scene(w, h, [255, 255, 255], [80, 110, 240], [60, 15, 40, 60]), w, h);
+    expect(s.count).toBe(1);
+    expect(s.ground).toBe("#ffffff");
+    expect(s.x).toBeCloseTo(37.5, 0);
+    expect(s.y).toBeCloseTo(16.7, 0);
+    expect(s.w).toBeCloseTo(25, 0);
+    expect(s.h).toBeCloseTo(66.7, 0);
+    expect(s.coverage).toBeGreaterThan(0.95);
+  });
+
+  it("reads the ground off the border, whatever colour it is", () => {
+    const w = 64,
+      h = 64;
+    const s = R.subjectBox(scene(w, h, [10, 12, 20], [230, 90, 40], [20, 20, 24, 24]), w, h);
+    expect(s.count).toBe(1);
+    expect(s.ground).toBe("#0a0c14");
+  });
+
+  it("is NOT one subject when the picture is a field that fills the frame", () => {
+    // a gradient: everything differs from the border somewhere, and the box
+    // is the whole frame. That is a field, not a thing on a ground.
+    const w = 64,
+      h = 64;
+    const a = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        a[i] = (x * 4) % 256;
+        a[i + 1] = 80;
+        a[i + 2] = (y * 4) % 256;
+        a[i + 3] = 255;
+      }
+    expect(R.subjectBox(a, w, h).count).toBe(0);
+  });
+
+  it("is NOT one subject when there are several things with gaps between them", () => {
+    // four slabs in four corners: their joint box is mostly empty ground
+    const w = 100,
+      h = 100;
+    const four = [
+      [5, 5, 30, 30],
+      [65, 5, 30, 30],
+      [5, 65, 30, 30],
+      [65, 65, 30, 30],
+    ];
+    const s = R.subjectBox(scene(w, h, [255, 255, 255], [240, 120, 30], four), w, h);
+    expect(s.count).toBe(0);
+    expect(s.coverage).toBeLessThan(0.6); // 44%: mostly the ground between them
+  });
+
+  it("is nothing when nothing differs from the ground", () => {
+    const w = 32,
+      h = 32;
+    const s = R.subjectBox(scene(w, h, [200, 200, 200], [200, 200, 200], [4, 4, 4, 4]), w, h);
+    expect(s.count).toBe(0);
+  });
+
+  it("is carried in the features the model is handed", () => {
+    const w = 64,
+      h = 64;
+    const a = scene(w, h, [255, 255, 255], [80, 110, 240], [16, 16, 32, 32]);
+    const f = R.features(a, w, h, null);
+    expect(f.subject).toBeTruthy();
+    expect(f.subject.count).toBe(1);
+  });
+});
+
+/* 22 Sep 2026. A lone rounded square on white measured as a MATERIAL in the
+ * live editor — soft anti-aliased edges over a profile whose one plateau
+ * counted as periodic — and took the material route, where no subject can be
+ * built. One measured subject on a plain ground is a composition, first. */
+describe("one measured subject decides the route", () => {
+  const soft = {
+    edge24: 0.02,
+    edge64: 0.004,
+    colours: 3,
+    periodic: { axis: "rows", lag: 40, strength: 0.9, amp: 12, count: 2 },
+  };
+  it("routes a thing on a ground to the composition route, whatever its edges", () => {
+    expect(R.classify(soft).kind).toBe("material"); // the reading it got before
+    const c = R.classify({
+      ...soft,
+      subject: { count: 1, ground: "#ffffff", x: 31.3, y: 16.7, w: 37.5, h: 66.7, radius: 21.3 },
+    });
+    expect(c.kind).toBe("composition");
+    expect(c.reasons[0]).toMatch(/one subject on a plain #ffffff ground, 37.5% x 66.7%/);
+    expect(c.reasons[0]).toMatch(/corner radius 21.3%/);
+  });
+  it("says nothing about corners when there are none", () => {
+    const c = R.classify({
+      ...soft,
+      subject: { count: 1, ground: "#000000", w: 40, h: 40, radius: 0 },
+    });
+    expect(c.kind).toBe("composition");
+    expect(c.reasons[0]).not.toMatch(/corner/);
+  });
+  it("changes nothing when the pixels did not find one subject", () => {
+    expect(R.classify({ ...soft, subject: { count: 0, ground: "#ffffff" } }).kind).toBe("material");
+    expect(R.classify(soft).kind).toBe("material");
+  });
+  it("is what the live measurement hands over", () => {
+    // the icon from the live editor: 1600x900 white, one blue rounded square
+    const w = 160,
+      h = 90;
+    const a = new Uint8ClampedArray(w * h * 4).fill(255);
+    for (let y = 15; y < 75; y++)
+      for (let x = 50; x < 110; x++) {
+        const i = (y * w + x) * 4;
+        a[i] = 80;
+        a[i + 1] = 110;
+        a[i + 2] = 240;
+      }
+    const f = R.features(a, w, h, null);
+    expect(f.subject.count).toBe(1);
+    expect(R.classify(f).kind).toBe("composition");
+  });
+});
+
+/* 21 Sep 2026. The one thing the model can't be trusted with and the pixels
+ * can measure: the corner radius. Walked in along the box's diagonal from each
+ * corner, the subject begins 0.293r in, so that walk IS the radius. A circle
+ * reads as 50% of the shorter side — a pill — and a sharp rect as 0. */
+describe("the subject's corner radius, measured", () => {
+  /** A w x h picture: ground g, one rounded rect of colour c at box, radius r. */
+  const rounded = (w, h, g, c, [x0, y0, bw, bh], r) => {
+    const a = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      a[i * 4] = g[0];
+      a[i * 4 + 1] = g[1];
+      a[i * 4 + 2] = g[2];
+      a[i * 4 + 3] = 255;
+    }
+    const inside = (x, y) => {
+      const px = x + 0.5,
+        py = y + 0.5;
+      const lx = x0 + r,
+        rx = x0 + bw - r,
+        ty = y0 + r,
+        by = y0 + bh - r;
+      if (px < x0 || px > x0 + bw || py < y0 || py > y0 + bh) return false;
+      const cx = px < lx ? lx : px > rx ? rx : px;
+      const cy = py < ty ? ty : py > by ? by : py;
+      return Math.hypot(px - cx, py - cy) <= r;
+    };
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if (inside(x, y)) {
+          const i = (y * w + x) * 4;
+          a[i] = c[0];
+          a[i + 1] = c[1];
+          a[i + 2] = c[2];
+        }
+    return a;
+  };
+  const W = 200,
+    H = 200,
+    G = [255, 255, 255],
+    C = [80, 110, 240];
+
+  it("reads a rounded square's radius off the silhouette", () => {
+    // box 120 wide, radius 30 -> 25% of the shorter side
+    const s = R.subjectBox(rounded(W, H, G, C, [40, 40, 120, 120], 30), W, H);
+    expect(s.count).toBe(1);
+    expect(Math.abs(s.radius - 25)).toBeLessThan(3);
+  });
+
+  it("reads a sharp rectangle as 0", () => {
+    const s = R.subjectBox(rounded(W, H, G, C, [40, 60, 120, 80], 0), W, H);
+    expect(s.count).toBe(1);
+    expect(s.radius).toBeLessThan(1.5);
+  });
+
+  it("reads a circle as a pill: 50% of the shorter side", () => {
+    const s = R.subjectBox(rounded(W, H, G, C, [40, 40, 120, 120], 60), W, H);
+    expect(s.count).toBe(1);
+    expect(s.radius).toBeGreaterThan(45);
+    expect(s.radius).toBeLessThanOrEqual(50);
+  });
+
+  it("is a percent of the SHORTER side on a wide subject", () => {
+    // 160 wide, 80 tall, radius 20 -> 25% of 80
+    const s = R.subjectBox(rounded(W, H, G, C, [20, 60, 160, 80], 20), W, H);
+    expect(Math.abs(s.radius - 25)).toBeLessThan(3);
+  });
+
+  it("caps at 50 and never goes negative", () => {
+    const s = R.subjectBox(rounded(W, H, G, C, [40, 40, 120, 120], 90), W, H);
+    expect(s.radius).toBeLessThanOrEqual(50);
+    expect(s.radius).toBeGreaterThanOrEqual(0);
+  });
+
+  it("a single solid subject still counts as one; four slabs still do not", () => {
+    expect(R.subjectBox(rounded(W, H, G, C, [40, 40, 120, 120], 60), W, H).count).toBe(1); // circle: 78%
+    const a = rounded(W, H, G, C, [10, 10, 60, 60], 0);
+    // paint three more sharp blocks in the other corners
+    for (const [x0, y0] of [
+      [130, 10],
+      [10, 130],
+      [130, 130],
+    ])
+      for (let y = y0; y < y0 + 60; y++)
+        for (let x = x0; x < x0 + 60; x++) {
+          const i = (y * W + x) * 4;
+          a[i] = C[0];
+          a[i + 1] = C[1];
+          a[i + 2] = C[2];
+        }
+    expect(R.subjectBox(a, W, H).count).toBe(0);
+  });
+});
