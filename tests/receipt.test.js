@@ -23,6 +23,7 @@ beforeAll(() => {
 
 /* The report of the real run on 22 Sep 2026: one full-bleed icon, qwen read
  * it once, one square with the measured corners, error 19.96. */
+/** @returns {any} the flow's report is untyped; fixtures poke at it freely */
 const composition = () => ({
   classification: "composition",
   reasons: [
