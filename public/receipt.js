@@ -49,8 +49,13 @@
     const dropped = unsupported.filter((s) => /^dropped/.test(String(s)));
     const notes = unsupported.filter((s) => !/^dropped/.test(String(s)));
 
-    /* 1 · PIXELS: what was measured, before any model was asked. */
+    /* 1 · PIXELS: what was measured, before any model was asked. With no
+     * subject the fact is the classifier's first reason and the lines are
+     * its others; nothing is added that the classifier did not decide on — a
+     * count of colours it already named, or a "repeat" whose amplitude it
+     * rejected, would only mislead. */
     const pixels = { key: "pixels", n: 1, title: "Pixels", lines: [] };
+    const reasons = (Array.isArray(r.reasons) ? r.reasons : []).map((x) => String(x));
     if (sj) {
       pixels.fact = `One subject on ${sj.ground === "transparent" ? "a transparent ground" : sj.ground}`;
       pixels.lines.push(
@@ -58,15 +63,13 @@
       );
       if (sj.radius > 0) pixels.lines.push(`corners ${sj.radius}% of the side`);
       pixels.box = { x: sj.x, y: sj.y, w: sj.w, h: sj.h };
+      if (Number.isFinite(f.colours)) pixels.lines.push(plural(f.colours, "distinct colour"));
     } else {
-      pixels.fact =
-        Array.isArray(r.reasons) && r.reasons[0] ? cap(String(r.reasons[0])) : "Measured";
+      pixels.fact = reasons[0] ? cap(reasons[0]) : "Measured";
+      reasons.slice(1).forEach((x) => pixels.lines.push(x));
+      if (Number.isFinite(f.colours) && !reasons.some((x) => /distinct colour/.test(x)))
+        pixels.lines.push(plural(f.colours, "distinct colour"));
     }
-    if (Number.isFinite(f.colours)) pixels.lines.push(plural(f.colours, "distinct colour"));
-    // a repeat only matters when nothing overrules it: one subject's single
-    // plateau reads as a weak period, and saying so would mislead
-    if (!sj && f.periodic && f.periodic.count >= 2 && f.periodic.strength >= 0.2)
-      pixels.lines.push(`repeats about ${Math.round(f.periodic.count)} times`);
     if (Number.isFinite(f.w) && Number.isFinite(f.h) && f.h > 0) pixels.aspect = f.w / f.h;
 
     /* 2 · ROUTE: which of the two routes, and who decided. */

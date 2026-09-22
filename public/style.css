@@ -684,9 +684,10 @@ body.panel-left-collapsed #receipt{
   width:min(1040px, calc(100vw - var(--ruler-gutter) - var(--tools-rail-w) - var(--right-panel-w) - var(--chrome-gap) - var(--chrome-gap) - var(--chrome-gap)));
 }
 #receipt[hidden]{display:none;}
-#receipt .rcStrip{display:flex; align-items:stretch; position:relative;}
-#receipt .rcStage{flex:1 1 0; min-width:0; padding:10px 12px; display:flex; flex-direction:column; gap:3px; border-left:1px solid var(--line);}
-#receipt .rcStage:first-child{border-left:0; flex:0 0 auto; max-width:300px; background:var(--info-bg); border-radius:12px 0 0 12px;}
+#receipt .rcStrip{display:flex; flex-wrap:wrap; align-items:stretch; position:relative;}
+#receipt .rcStage{flex:1 1 150px; min-width:0; padding:10px 12px; display:flex; flex-direction:column; gap:3px; border-left:1px solid var(--line); border-top:1px solid var(--line); margin-top:-1px;}
+#receipt .rcStage:first-child{border-left:0; flex:1.6 1 250px; max-width:340px; background:var(--info-bg); border-radius:12px 0 0 12px;}
+#receipt .rcStrip{padding-top:1px; overflow:hidden; border-radius:12px;}
 #receipt .rcNum{font-size:var(--text-meta); letter-spacing:1.2px; color:var(--muted);}
 #receipt .rcFact{font-size:var(--text-body); font-weight:500; color:var(--text-strong);}
 #receipt .rcLine{color:var(--muted); line-height:15px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
@@ -695,7 +696,7 @@ body.panel-left-collapsed #receipt{
 #receipt .rcThumb img{width:64px; height:64px; object-fit:contain; display:block;}
 #receipt .rcBox{position:absolute; border:1.5px dashed var(--accent, #2563eb); border-radius:2px; box-sizing:border-box; pointer-events:none;}
 #receipt .rcText{display:flex; flex-direction:column; gap:3px; min-width:0;}
-#receipt .rcSeg{display:inline-flex; align-self:flex-start; background:var(--field-bg, #f4f4f6); border-radius:999px; padding:2px; margin:2px 0;}
+#receipt .rcSeg{display:inline-flex; flex-wrap:wrap; align-self:flex-start; max-width:100%; background:var(--field-bg, #f4f4f6); border-radius:14px; padding:2px; margin:2px 0;}
 #receipt .rcSegBtn{border:0; background:none; font:inherit; font-size:var(--text-meta); color:var(--muted); padding:3px 10px; border-radius:999px; cursor:pointer;}
 #receipt .rcSegBtn.on{background:var(--text-strong); color:var(--panel); cursor:default;}
 #receipt .rcLink{border:0; background:none; font:inherit; font-size:var(--text-meta); font-weight:500; color:var(--accent, #2563eb); padding:0; text-align:left; cursor:pointer; margin-top:2px;}

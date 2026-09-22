@@ -165,12 +165,24 @@ describe("five stages from a composition report", () => {
     expect(RC.stages(r)[3].lines).toContain("placed on the measured box");
   });
 
-  it("pixels: a weak repeat is not reported over a measured subject", () => {
+  it("pixels: with no subject, the classifier's reasons and nothing invented", () => {
+    // the live gradient: "hard edges (1.4% of pixels), 34 distinct colours",
+    // and a lag-2 period the classifier rejected on amplitude — the strip
+    // had said "34 distinct colours" twice and "repeats about 64 times"
     const r = composition();
-    r.features.periodic = { count: 4, strength: 0.4 };
-    expect(RC.stages(r)[0].lines.join()).not.toMatch(/repeats/);
     r.features.subject = { count: 0 };
-    expect(RC.stages(r)[0].lines).toContain("repeats about 4 times");
+    r.features.colours = 34;
+    r.features.periodic = { count: 64, strength: 0.4, amp: 0.9 };
+    r.reasons = ["hard edges (1.4% of pixels), 34 distinct colours"];
+    const px = RC.stages(r)[0];
+    expect(px.fact).toBe("Hard edges (1.4% of pixels), 34 distinct colours");
+    expect(px.lines).toEqual([]);
+    // a second reason the classifier gave is carried
+    r.reasons.push("repeated horizontally about 26 times");
+    expect(RC.stages(r)[0].lines).toEqual(["repeated horizontally about 26 times"]);
+    // a reason that did not name the colours gets the count once
+    r.reasons = ["almost no edges (1.2% soft, 0.1% hard)"];
+    expect(RC.stages(r)[0].lines).toEqual(["34 distinct colours"]);
   });
 
   it("times under a second read in milliseconds", () => {
@@ -273,6 +285,14 @@ describe("it is wired in", () => {
     expect(app).toContain("await recreateFromReference(dataUrl,Object.assign({},opts,{route:r}));");
     expect(app).toContain("if(opts.route) report.routeOverride=opts.route;");
   });
+  it("the bar's status line says the route was chosen, not that the prompt chose it", () => {
+    // the strip said "chosen by you" while the bar still said "(from prompt)"
+    expect(app).toContain("(chosen by you)");
+    expect(
+      app.indexOf("report.routeOverride?` · ${report.routeOverride} (chosen by you)`"),
+    ).toBeLessThan(app.indexOf("(from prompt)"));
+  });
+
   it("goes away with the reference, and for a plain generate", () => {
     expect(app).toContain("if(!dataUrl&&window.Receipt) window.Receipt.hide();");
     expect(app.indexOf("if(window.Receipt) window.Receipt.hide();\n    let data;")).toBeGreaterThan(

@@ -81,6 +81,14 @@ describe("it is wired into the reference flow", () => {
     );
   });
 
+  it("yields to a route chosen by hand on the receipt", () => {
+    // "create mesh gradient" forced the field; clicking Composition on the
+    // strip re-ran as a field anyway, and said "chosen by you" over a mesh
+    expect(app).toContain(
+      "const forcedField=opts.route?opts.route==='field':!!(routeIntent&&routeIntent.route==='field');",
+    );
+  });
+
   it("switches escalation off, or the model's parts flag would undo the ask", () => {
     expect(app).toContain("recipe.parts===true&&report.verdict!=='close'&&!forcedField");
   });

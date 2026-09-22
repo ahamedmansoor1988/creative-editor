@@ -7023,7 +7023,7 @@ async function recreateFromReference(dataUrl,opts){
   const routeIntent=PI?PI.routeFromPrompt(opts.prompt):null;
   /* And one override from the receipt strip: the other route, chosen by the
    * person after seeing what this one did. */
-  const forcedField=!!(routeIntent&&routeIntent.route==='field')||opts.route==='field';
+  const forcedField=opts.route?opts.route==='field':!!(routeIntent&&routeIntent.route==='field');
   const forcedComposition=opts.route==='composition';
   const routeCls=forcedField&&cls==='composition'?'color_field':forcedComposition?'composition':cls;
   const timing={measure:Math.round(performance.now()-T0)};
@@ -7260,7 +7260,7 @@ async function recreateFromReference(dataUrl,opts){
    * screenshot reading "... · mesh (..." could not say whether the glass had
    * been applied or dropped. */
   const line=`${report.engines.join(', ')||'no engines'} · ${String(report.classification).replace('_',' ')} · ${report.verdict} (error ${report.error}/255)`+
-    (report.routeFromPrompt?` · ${report.routeFromPrompt.word} (from prompt)`:'')+
+    (report.routeOverride?` · ${report.routeOverride} (chosen by you)`:report.routeFromPrompt?` · ${report.routeFromPrompt.word} (from prompt)`:'')+
     (report.recolor?` · recoloured to ${report.recolor.to}`:'')+
     (report.unsupported.length?' · unsupported: '+report.unsupported.join('; '):'')+
     (report.ignored.length?' · not applied: '+report.ignored.join('; '):'');
