@@ -306,10 +306,15 @@ function measuredNotes(features) {
     );
   }
   const sj = features.subject;
-  if (sj && sj.count === 1)
+  if (sj && sj.count === 1) {
+    const where = sj.w >= 99 && sj.h >= 99
+      ? "filling the whole frame"
+      : `its box starting at ${sj.x}%,${sj.y}% and spanning ${sj.w}% of the width by ${sj.h}% of the height`;
+    const corners = Number.isFinite(sj.radius) && sj.radius > 0 ? `, its corners rounded (radius ${sj.radius}% of its shorter side)` : "";
     out.push(
-      `exactly ONE subject on a plain ${sj.ground} ground, its box starting at ${sj.x}%,${sj.y}% and spanning ${sj.w}% of the width by ${sj.h}% of the height — describe that one thing and what sits on it, and do not add a second copy anywhere`,
+      `exactly ONE subject on a plain ${sj.ground} ground, ${where}${corners} — describe that one thing and what sits on it, and do not add a second copy anywhere`,
     );
+  }
   if (features.grain && features.grain.amount >= 0.3) out.push(`film grain, amount about ${features.grain.amount}`);
   if (Number.isFinite(features.colours)) out.push(`${features.colours} distinct colours cover at least 1% each`);
   return out.length ? `\n\nMEASURED from the pixels (trust these over your reading): ${out.join("; ")}.` : "";

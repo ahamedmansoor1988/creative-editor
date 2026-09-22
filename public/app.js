@@ -6994,8 +6994,12 @@ async function recreateFromReference(dataUrl,opts){
    * third copy of that bug, and the black corners on a fitted icon. Flattened
    * here, before anything reads it, so measure, fit and compare are all
    * looking at one picture. */
-  const img=await flattenOnWhite(await loadImageFrom(dataUrl));
-  const m=R.measureImage(img,8);
+  const raw=await loadImageFrom(dataUrl);
+  const img=await flattenOnWhite(raw);
+  /* Measured from the RAW picture: reference.js flattens it onto white
+   * itself for every colour reading, and keeps the alpha plane, which is
+   * where a cut-cornered icon says where its ground is. */
+  const m=R.measureImage(raw,8);
   const cls=m.classification;
   /* THE PROMPT'S ONE PATH TO STRUCTURE. The class above comes from the pixels
    * and the model's `parts` flag; the person typing had no say, and "create

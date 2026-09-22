@@ -217,16 +217,47 @@
     };
   }
 
-  /** WHERE THE SUBJECT IS. The ground is the median of the border pixels;
-   *  anything that differs from it by more than a little is subject; the box
-   *  is their extent. It is ONE subject when there is enough of it to matter,
-   *  it does not fill the frame (that is a field, not a thing on a ground),
-   *  and it fills its own box solidly (four slabs with gaps between them are
-   *  four things, and get no box). A measured fact the model is then handed,
-   *  the same way it is handed the colours: it may say what the thing is, but
-   *  not where it is or how many of it there are. */
-  function subjectBox(rgba, w, h) {
+  /** WHERE THE SUBJECT IS. A subject is a sharp-edged region on a plain
+   *  ground, and the ground shows around it or at the frame's corners.
+   *
+   *  The ground is tried three ways, in order: transparency, when the
+   *  picture has any (a PNG icon's cut corners); the median colour of the
+   *  border (an icon on a white margin); and the colour the four corners
+   *  share (a full-bleed icon whose cut corners were flattened onto white —
+   *  the edges are all icon, so the median is icon too, and the first try
+   *  boxes the whole frame with nothing around it). Each candidate is
+   *  measured the same way. Everything that differs from it is boxed. One
+   *  thing fills its own box (a circle 78%, a rounded rect nearly all of it;
+   *  four slabs in four corners 44%). The box sits inside the frame, or the
+   *  corners of the frame are ground — the shape touches the edges. And the
+   *  boundary is an EDGE: between two neighbouring pixels on a corner
+   *  diagonal the distance from the ground jumps by at least half the
+   *  tolerance, where a gradient ramps by two units a pixel. A radial wash
+   *  whose corners agree has the same ground-shaped corners as a rounded
+   *  rect, and fails only there.
+   *
+   *  A measured fact the model is then handed, the same way it is handed the
+   *  colours: it may say what the thing is, but not where it is, how many of
+   *  it there are, or how round its corners are. */
+  function subjectBox(rgba, w, h, alpha) {
     const n = w * h;
+    const TOL = 28;
+    const ARC = 1 - Math.SQRT1_2; // where a corner arc meets the box diagonal
+    const chan = (x, y) => {
+      const i = (y * w + x) * 4;
+      return [rgba[i], rgba[i + 1], rgba[i + 2]];
+    };
+    const maxDiff = (a, b) =>
+      Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+    const colourDist = (g) => (x, y) => maxDiff(chan(x, y), g);
+
+    const candidates = [];
+    if (alpha && alpha.length === n) {
+      let clear = 0;
+      for (let i = 0; i < n; i++) if (alpha[i] < 128) clear++;
+      if (clear >= 0.004 * n && clear < n)
+        candidates.push({ ground: "transparent", tol: 127, dist: (x, y) => alpha[y * w + x] });
+    }
     const br = [],
       bg = [],
       bb = [];
@@ -244,96 +275,96 @@
       take(y * w + w - 1);
     }
     const med = (a) => a.slice().sort((p, q) => p - q)[a.length >> 1];
-    const g = [med(br), med(bg), med(bb)];
-    const TOL = 28;
-    let minX = w,
-      minY = h,
-      maxX = -1,
-      maxY = -1,
-      marked = 0;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        const d = Math.max(
-          Math.abs(rgba[i] - g[0]),
-          Math.abs(rgba[i + 1] - g[1]),
-          Math.abs(rgba[i + 2] - g[2]),
-        );
-        if (d <= TOL) continue;
-        marked++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    const ground = hex(g[0], g[1], g[2]);
-    if (maxX < 0) return { count: 0, ground, reason: "nothing differs from the ground" };
-    const bw = maxX - minX + 1,
-      bh = maxY - minY + 1;
-    const coverage = marked / (bw * bh);
-    const frameShare = (bw * bh) / n;
-    /* ONE subject covers most of its own box: a rounded rectangle nearly all
-     * of it, a circle 78%. Four slabs in four corners cover 44% of theirs —
-     * the joint box is mostly the ground between them — and 35% let that
-     * through as one thing. 60% sits between the circle and the slabs. */
-    const one = marked >= 0.004 * n && frameShare <= 0.92 && coverage >= 0.6;
-    /* THE CORNER RADIUS, measured. Walk the box's diagonal in from each
-     * corner until the subject begins. A corner arc of radius r crosses that
-     * diagonal r(1 - 1/sqrt2) = 0.293r in from the corner, so the walk's
-     * length IS the radius, times 3.41. This is measured across the arc, not
-     * at its tangent row: the top row of a rounded rect is a single sliver
-     * whose width says sqrt(r), not r, and reading it there was 4 points
-     * out on a 25% corner. The four corners are averaged so one anti-aliased
-     * pixel cannot skew it. A circle reads as 50% of the shorter side, a
-     * pill, which is what a circle is to a rounded rect; a sharp rectangle
-     * reads as 0. The model is never asked for this number, because it is
-     * the kind it gets wrong and the pixels get right. Percent of the SHORTER
-     * side, capped at 50. */
-    const differs = (x, y) => {
-      const i = (y * w + x) * 4;
-      return (
-        Math.max(
-          Math.abs(rgba[i] - g[0]),
-          Math.abs(rgba[i + 1] - g[1]),
-          Math.abs(rgba[i + 2] - g[2]),
-        ) > TOL
-      );
-    };
-    const short = Math.max(1, Math.min(bw, bh));
-    const ARC = 1 - Math.SQRT1_2; // where a corner arc meets the box diagonal
-    const diagonal = (sx, sy, dx, dy) => {
+    const border = [med(br), med(bg), med(bb)];
+    candidates.push({ ground: hex(...border), tol: TOL, dist: colourDist(border) });
+    const corners = [chan(0, 0), chan(w - 1, 0), chan(0, h - 1), chan(w - 1, h - 1)];
+    const cornerMean = [0, 1, 2].map((k) => corners.reduce((a, c) => a + c[k], 0) / 4);
+    if (corners.every((c) => maxDiff(c, cornerMean) <= TOL) && maxDiff(cornerMean, border) > TOL)
+      candidates.push({ ground: hex(...cornerMean), tol: TOL, dist: colourDist(cornerMean) });
+
+    const evaluate = (cand) => {
+      let minX = w,
+        minY = h,
+        maxX = -1,
+        maxY = -1,
+        marked = 0;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          if (cand.dist(x, y) <= cand.tol) continue;
+          marked++;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      if (maxX < 0) return null;
+      const bw = maxX - minX + 1,
+        bh = maxY - minY + 1;
+      const coverage = marked / (bw * bh);
+      const frameShare = (bw * bh) / n;
+      const box = {
+        x: +((100 * minX) / w).toFixed(1),
+        y: +((100 * minY) / h).toFixed(1),
+        w: +((100 * bw) / w).toFixed(1),
+        h: +((100 * bh) / h).toFixed(1),
+        coverage: +coverage.toFixed(2),
+        frameShare: +frameShare.toFixed(2),
+      };
+      if (marked < 0.004 * n || coverage < 0.6) return { box };
+      /* THE CORNERS. Walk the box's diagonal in from each corner until the
+       * subject begins. A corner arc of radius r crosses that diagonal
+       * 0.293r in, so the walk IS the radius (the top row's inset says
+       * sqrt(r), not r). The step that crosses, or the one after it — an
+       * anti-aliased edge takes two pixels — must be a jump, not a ramp. */
+      const short = Math.max(1, Math.min(bw, bh));
       const lim = Math.floor(short / 2);
-      let k = 0;
-      while (k < lim && !differs(sx + dx * k, sy + dy * k)) k++;
-      return k / ARC; // the radius, in pixels
+      const walk = (sx, sy, dx, dy) => {
+        const at = (j) => {
+          const x = sx + dx * j,
+            y = sy + dy * j;
+          return x < 0 || y < 0 || x >= w || y >= h ? null : cand.dist(x, y);
+        };
+        let k = 0;
+        while (k < lim && at(k) <= cand.tol) k++;
+        const before = at(k - 1),
+          here = at(k),
+          after = at(k + 1);
+        const jump = Math.max(before == null ? 0 : here - before, after == null ? 0 : after - here);
+        return { k, sharp: here > cand.tol && jump >= cand.tol / 2 };
+      };
+      const walks = [
+        walk(minX, minY, 1, 1),
+        walk(maxX, minY, -1, 1),
+        walk(minX, maxY, 1, -1),
+        walk(maxX, maxY, -1, -1),
+      ];
+      const inside = minX > 0 || minY > 0 || maxX < w - 1 || maxY < h - 1;
+      const groundAtCorners = walks.every((v) => v.k >= 1);
+      if (!inside && !groundAtCorners) return { box };
+      if (walks.filter((v) => v.sharp).length < 3) return { box };
+      const radius = Math.min(
+        50,
+        +((100 * (walks.reduce((a, v) => a + v.k, 0) / 4 / ARC)) / short).toFixed(1),
+      );
+      return { one: { count: 1, ground: cand.ground, ...box, radius } };
     };
-    const corners = [
-      diagonal(minX, minY, 1, 1),
-      diagonal(maxX, minY, -1, 1),
-      diagonal(minX, maxY, 1, -1),
-      diagonal(maxX, maxY, -1, -1),
-    ];
-    const radius = Math.min(
-      50,
-      +((100 * (corners.reduce((a, b) => a + b, 0) / 4)) / short).toFixed(1),
+
+    let fallback = null;
+    for (const cand of candidates) {
+      const r = evaluate(cand);
+      if (r && r.one) return r.one;
+      if (r && !fallback) fallback = { count: 0, ground: cand.ground, ...r.box };
+    }
+    return (
+      fallback || {
+        count: 0,
+        ground: candidates[0].ground,
+        reason: "nothing differs from the ground",
+      }
     );
-    return {
-      count: one ? 1 : 0,
-      ground,
-      x: +((100 * minX) / w).toFixed(1),
-      y: +((100 * minY) / h).toFixed(1),
-      w: +((100 * bw) / w).toFixed(1),
-      h: +((100 * bh) / h).toFixed(1),
-      radius,
-      coverage: +coverage.toFixed(2),
-      frameShare: +frameShare.toFixed(2),
-    };
   }
 
-  /** Every measurement the classifier and the planner use. `grainCrop` is an
-   *  optional {rgba,w,h} at native resolution. */
-  function features(rgba, w, h, grainCrop) {
+  function features(rgba, w, h, grainCrop, alpha) {
     const L = luminance(rgba, w, h);
     const e = edgeFractions(L, w, h);
     const grain = grainCrop
@@ -347,7 +378,7 @@
       colours: distinctColours(rgba, w, h),
       periodic: periodicity(L, w, h),
       grain,
-      subject: subjectBox(rgba, w, h),
+      subject: subjectBox(rgba, w, h, alpha || null),
     };
   }
 
@@ -550,15 +581,30 @@
    *  picture sees: transparency on a page reads as the page, and the page is
    *  white. Compositing once here means the grid, the edges and the copy sent
    *  to the model are all measuring the SAME picture. */
+  /** The picture at W x H, flattened onto white — every consumer sees one
+   *  opaque picture — with its alpha plane kept aside on `.alpha` (null for
+   *  an opaque picture), because transparency is where a cut-cornered icon
+   *  says where its ground is. */
   function imageToRGBA(img, W, H) {
     const c = document.createElement("canvas");
     c.width = W;
     c.height = H;
     const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, W, H);
+    const raw = x.getImageData(0, 0, W, H).data;
+    let alpha = null;
+    for (let i = 3; i < raw.length; i += 4)
+      if (raw[i] < 255) {
+        alpha = new Uint8Array(W * H);
+        for (let j = 0; j < W * H; j++) alpha[j] = raw[j * 4 + 3];
+        break;
+      }
     x.fillStyle = "#ffffff";
     x.fillRect(0, 0, W, H);
     x.drawImage(img, 0, 0, W, H);
-    return x.getImageData(0, 0, W, H);
+    const d = x.getImageData(0, 0, W, H);
+    d.alpha = alpha;
+    return d;
   }
 
   /** Native-resolution centre crop, for grain. */
@@ -593,7 +639,7 @@
     const fw = aspect >= 1 ? FEATURE_RES : Math.max(16, Math.round(FEATURE_RES * aspect));
     const fh = aspect >= 1 ? Math.max(16, Math.round(FEATURE_RES / aspect)) : FEATURE_RES;
     const d = imageToRGBA(img, fw, fh);
-    const f = features(d.data, fw, fh, cropRGBA(img, GRAIN_CROP));
+    const f = features(d.data, fw, fh, cropRGBA(img, GRAIN_CROP), d.alpha);
     const cls = classify(f);
     const n = gridN || 8;
     return {

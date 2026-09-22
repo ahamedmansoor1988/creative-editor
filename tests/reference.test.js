@@ -429,8 +429,13 @@ describe("a transparent reference is measured on the page, not on black", () => 
     const src = fs.readFileSync(path.join(here, "..", "public", "reference.js"), "utf8");
     const fn = src.slice(src.indexOf("function imageToRGBA"), src.indexOf("function compareSize"));
     expect(fn).toContain('x.fillStyle = "#ffffff"');
-    // and the fill must come BEFORE the draw, or it erases the picture
-    expect(fn.indexOf("fillRect")).toBeLessThan(fn.indexOf("drawImage"));
+    // the fill must come BEFORE the draw that is read out, or it erases the
+    // picture; the first draw is the raw one whose alpha plane is kept aside
+    const readOut = fn.indexOf("const d = x.getImageData");
+    const flatDraw = fn.lastIndexOf("drawImage", readOut);
+    expect(fn.indexOf("fillRect")).toBeLessThan(flatDraw);
+    expect(flatDraw).toBeLessThan(readOut);
+    expect(fn).toContain("d.alpha = alpha");
   });
 
   it("sends the model the same white ground the pixels are measured on", () => {
@@ -549,6 +554,136 @@ describe("where the subject is", () => {
     const f = R.features(a, w, h, null);
     expect(f.subject).toBeTruthy();
     expect(f.subject.count).toBe(1);
+  });
+});
+
+/* 22 Sep 2026. Mansoor's Morpho icon is FULL-BLEED: the picture is the icon,
+ * only its corners cut. With the border's median as the only ground, the
+ * edges are all icon, the median is icon, the box is the whole frame with
+ * nothing around it — no subject, and the model's two slabs went through.
+ * So the ground is tried three ways (transparency, the border median, the
+ * colour the four corners share), and a subject must have an EDGE, which is
+ * the one thing a radial wash with agreeing corners does not have. */
+describe("a full-bleed subject", () => {
+  const W = 160,
+    H = 160;
+  /** The frame IS a rounded rect of colour c (or a gradient from c to c2),
+   *  radius r; the corners are transparent (alpha 0) or painted g. */
+  const fullBleed = ({ r, c, c2 = null, g, transparent = false }) => {
+    const rgba = new Uint8ClampedArray(W * H * 4);
+    const alpha = new Uint8Array(W * H);
+    const inside = (x, y) => {
+      const px = x + 0.5,
+        py = y + 0.5;
+      const cx = px < r ? r : px > W - r ? W - r : px;
+      const cy = py < r ? r : py > H - r ? H - r : py;
+      return Math.hypot(px - cx, py - cy) <= r;
+    };
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4,
+          j = y * W + x;
+        if (inside(x, y)) {
+          const t = c2 ? (x + y) / (W + H) : 0;
+          const col = c2 ? c.map((v, k) => v + (c2[k] - v) * t) : c;
+          rgba[i] = col[0];
+          rgba[i + 1] = col[1];
+          rgba[i + 2] = col[2];
+          rgba[i + 3] = 255;
+          alpha[j] = 255;
+        } else {
+          // what flattening onto white leaves in a cut corner
+          rgba[i] = g[0];
+          rgba[i + 1] = g[1];
+          rgba[i + 2] = g[2];
+          rgba[i + 3] = 255;
+          alpha[j] = transparent ? 0 : 255;
+        }
+      }
+    return { rgba, alpha: transparent ? alpha : null };
+  };
+  const BLUE = [80, 110, 240],
+    WHITE = [255, 255, 255];
+
+  it("with transparent corners: one subject filling the frame, on a transparent ground", () => {
+    const { rgba, alpha } = fullBleed({ r: 32, c: BLUE, g: WHITE, transparent: true });
+    const s = R.subjectBox(rgba, W, H, alpha);
+    expect(s.count).toBe(1);
+    expect(s.ground).toBe("transparent");
+    expect([s.x, s.y, s.w, s.h]).toEqual([0, 0, 100, 100]);
+    expect(Math.abs(s.radius - 20)).toBeLessThan(2);
+  });
+
+  it("flattened onto white (a JPEG): the corners' colour is the ground", () => {
+    const { rgba } = fullBleed({ r: 32, c: BLUE, g: WHITE, transparent: false });
+    const s = R.subjectBox(rgba, W, H, null);
+    expect(s.count).toBe(1);
+    expect(s.ground).toBe("#ffffff");
+    expect([s.x, s.y, s.w, s.h]).toEqual([0, 0, 100, 100]);
+    expect(Math.abs(s.radius - 20)).toBeLessThan(2);
+  });
+
+  it("keeps a gradient-filled icon whose light end is near the ground", () => {
+    // a mesh-like fill running from deep blue to a pale blue 47 off white
+    const { rgba } = fullBleed({
+      r: 32,
+      c: BLUE,
+      c2: [208, 220, 255],
+      g: WHITE,
+      transparent: false,
+    });
+    const s = R.subjectBox(rgba, W, H, null);
+    expect(s.count).toBe(1);
+    expect(s.ground).toBe("#ffffff");
+  });
+
+  it("a full-bleed circle: the border median is white and the box is the frame", () => {
+    const { rgba } = fullBleed({ r: 80, c: BLUE, g: WHITE, transparent: false });
+    const s = R.subjectBox(rgba, W, H, null);
+    expect(s.count).toBe(1);
+    expect(s.radius).toBeGreaterThan(45);
+  });
+
+  it("a radial wash whose corners agree is NOT a subject: it has no edge", () => {
+    const rgba = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const d = Math.hypot(x - W / 2, y - H / 2) / Math.hypot(W / 2, H / 2); // 0 centre, 1 corner
+        const i = (y * W + x) * 4;
+        rgba[i] = 255 - 200 * d;
+        rgba[i + 1] = 120 - 100 * d;
+        rgba[i + 2] = 255 - 60 * d;
+        rgba[i + 3] = 255;
+      }
+    const s = R.subjectBox(rgba, W, H, null);
+    expect(s.count).toBe(0);
+    expect(R.classify(R.features(rgba, W, H, null)).kind).not.toBe("composition");
+  });
+
+  it("a picture with hard edges everywhere is NOT a subject: nothing is ground", () => {
+    // a checkerboard fills the frame; the corners are not a ground around anything
+    const rgba = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const on = ((x >> 4) + (y >> 4)) & 1;
+        const i = (y * W + x) * 4;
+        rgba[i] = on ? 240 : 30;
+        rgba[i + 1] = on ? 120 : 60;
+        rgba[i + 2] = on ? 40 : 200;
+        rgba[i + 3] = 255;
+      }
+    expect(R.subjectBox(rgba, W, H, null).count).toBe(0);
+  });
+
+  it("is what the live measurement hands over, alpha and all", () => {
+    const { rgba, alpha } = fullBleed({ r: 32, c: BLUE, g: WHITE, transparent: true });
+    const f = R.features(rgba, W, H, null, alpha);
+    expect(f.subject.count).toBe(1);
+    expect(f.subject.ground).toBe("transparent");
+    expect(R.classify(f).kind).toBe("composition");
+    expect(R.classify(f).reasons[0]).toMatch(
+      /one subject on a plain transparent ground, 100% x 100%/,
+    );
   });
 });
 

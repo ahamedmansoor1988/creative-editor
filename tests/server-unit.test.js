@@ -865,6 +865,40 @@ describe("one measured subject overrules a duplicated brief", () => {
     expect(sq.radius).toBeUndefined();
   });
 
+  it("tells the model a full-bleed subject fills the frame, corners and all", () => {
+    const { measuredNotes } = require("../server.js");
+    const full = measuredNotes({
+      subject: { count: 1, ground: "transparent", x: 0, y: 0, w: 100, h: 100, radius: 20 },
+    });
+    expect(full).toMatch(
+      /exactly ONE subject on a plain transparent ground, filling the whole frame/,
+    );
+    expect(full).toMatch(/corners rounded \(radius 20% of its shorter side\)/);
+    const boxed = measuredNotes({ subject });
+    expect(boxed).toMatch(/its box starting at 37.5%,16.7% and spanning 25% of the width/);
+    expect(boxed).not.toMatch(/corners rounded/); // this fixture measured none
+  });
+
+  it("fits a full-bleed subject onto the whole frame", () => {
+    const full = {
+      count: 1,
+      ground: "transparent",
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 100,
+      radius: 20,
+      coverage: 0.97,
+    };
+    const { doc } = briefToDoc(brief(), 1000, 1000, [], full);
+    const sq = doc.frame.children.find((c) => /rounded square/.test(c.name));
+    expect(sq.x).toBeCloseTo(0, 0);
+    expect(sq.y).toBeCloseTo(0, 0);
+    expect(sq.w).toBeCloseTo(1000, 0);
+    expect(sq.h).toBeCloseTo(1000, 0);
+    expect(sq.radius).toBeCloseTo(200, 0);
+  });
+
   it("changes nothing when the pixels did not measure one subject", () => {
     // 994.jpg is a legitimate stack of discs: two copies are two copies
     const none = { count: 0, ground: "#ffffff" };
