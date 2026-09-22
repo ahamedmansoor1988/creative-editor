@@ -14349,6 +14349,32 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
     const type=item.rendererType;
     if(!type||!obj.effects||!obj.effects[type]){ engSay('That engine has no renderer yet.'); return; }
     const FS=window.FxStack, meta=FS&&FS.meta(type);
+    /* A BACKDROP LENS ON A PAINTED OBJECT goes on its own layer above. Reed,
+     * glass, prism and capsule have no colour of their own: they refract the
+     * page beneath the object. Pushed onto an object that already has a
+     * material they can only replace it — the stack allows one material and
+     * the topmost wins — so the mesh went dark and the lens refracted the
+     * white artboard: a white slab with faint lines, and a warning whose
+     * advice (reorder) could only flip which of the two vanished. The
+     * reference flow already places a lens this way (layerOver); the picker
+     * now agrees with it. */
+    const activeMat=FS&&obj.fx?FS.activeMaterial(obj.fx):null;
+    if(meta&&meta.backdrop&&activeMat&&activeMat.type!==type){
+      const list=activeList();
+      if(list&&list.includes(obj)){
+        const o=layerOver(obj,list,item.label);
+        setMaterial(o,type);
+        const entry=o.fx.find(e=>e.type===type);
+        (OPENING[type]||(()=>{}))({effects:{[type]:entry.params}});
+        setSelIds(new Set([o.id]),o.id);
+        focusFxEntry(o,entry);
+        pushHistory('Apply '+item.label);
+        refresh();
+        status(`${item.label} placed on its own layer above ${obj.name||'the object'} — it refracts what is beneath it, and ${FS.label(activeMat.type)} stays.`);
+        engClose();
+        return;
+      }
+    }
     const present=visibleRecipeEntries(obj).filter(e=>e.type===type);
     let entry;
     if(meta&&meta.multi&&present.length){
