@@ -5889,6 +5889,18 @@ function syncLayers(){
     nm.className='lname';
     nm.textContent=c.type==='text'?c.text:c.name;
     r.appendChild(nm);
+    /* Where it came from, when a reference run made it: px = measured off the
+     * reference, ai = the model's reading, both = named by the model and
+     * placed by the pixels. Absent on anything drawn by hand. */
+    if(c.origin==='pixels'||c.origin==='model'||c.origin==='both'){
+      const o=document.createElement('span');
+      o.className='originBadge'+(c.origin==='model'?'':' px');
+      o.textContent=c.origin==='pixels'?'px':c.origin==='model'?'ai':'px·ai';
+      o.title=c.origin==='pixels'?'From the pixels: measured off the reference'
+        :c.origin==='model'?'From the model: its reading of the reference'
+        :'Named by the model, placed and sized by the pixels';
+      r.appendChild(o);
+    }
     const n=derivedInstances(c).length;
     if(n){
       const badge=document.createElement('span');
@@ -7009,8 +7021,11 @@ async function recreateFromReference(dataUrl,opts){
    * no model call, where a composition needs two or three. */
   const PI=window.PromptIntent;
   const routeIntent=PI?PI.routeFromPrompt(opts.prompt):null;
-  const forcedField=!!(routeIntent&&routeIntent.route==='field');
-  const routeCls=forcedField&&cls==='composition'?'color_field':cls;
+  /* And one override from the receipt strip: the other route, chosen by the
+   * person after seeing what this one did. */
+  const forcedField=!!(routeIntent&&routeIntent.route==='field')||opts.route==='field';
+  const forcedComposition=opts.route==='composition';
+  const routeCls=forcedField&&cls==='composition'?'color_field':forcedComposition?'composition':cls;
   const timing={measure:Math.round(performance.now()-T0)};
   const fw=m.aspect>=1?900:Math.round(600*m.aspect), fh=m.aspect>=1?Math.round(900/m.aspect):600;
   say(`Reference read as a ${cls.replace('_',' ')}: ${m.reasons[0]}`);
@@ -7076,11 +7091,12 @@ async function recreateFromReference(dataUrl,opts){
     report.engines=enginesInDoc(doc);
   };
   if(routeIntent) report.routeFromPrompt=routeIntent;
-  if(cls==='composition'&&!forcedField){
+  if(opts.route) report.routeOverride=opts.route;
+  if((cls==='composition'||forcedComposition)&&!forcedField){
     await runComposition();
   }else{
     const bg=meanHexOf(m.grid.rows.flat());
-    load({frame:{name:'Reference',w:fw,h:fh,bg,children:[{type:'rect',name:'Field',x:0,y:0,w:fw,h:fh,fill:{kind:'solid',color:bg}}]}});
+    load({frame:{name:'Reference',w:fw,h:fh,bg,children:[{type:'rect',name:'Field',x:0,y:0,w:fw,h:fh,fill:{kind:'solid',color:bg},origin:'pixels'}]}});
     const field=doc.frame.children[0];
     let t=performance.now();
     const base=applyRecipeReport(field,{base:'mesh',effects:[]},{img,grid:m.grid,list:doc.frame.children});
@@ -7188,7 +7204,7 @@ async function recreateFromReference(dataUrl,opts){
      * 75. So the cheap route runs first and in full, and its own measurement
      * decides — the model says a composition is possible, the pixels say
      * whether one is needed. */
-    if(recipe&&recipe.parts===true&&report.verdict!=='close'&&!forcedField){
+    if(recipe&&recipe.parts===true&&report.verdict!=='close'&&!forcedField){ report.escalated=true;
       report.escalated=`the analyser read this as ${recipe.structure||'a picture with parts'}, and this route only reached ${report.verdict} (${report.error})`;
       say('This route only reached '+report.verdict+' and the analyser says the picture has parts — planning it as a composition…');
       const fieldDoc=JSON.parse(JSON.stringify(doc));
@@ -7229,6 +7245,15 @@ async function recreateFromReference(dataUrl,opts){
   timing.total=Math.round(performance.now()-T0);
   pushHistory('Recreate from reference'); refresh();
   _lastReference=report;
+  /* THE RECEIPT. Five stages above the bar, from this report: what the pixels
+   * measured, the route and who chose it, what the model read, what was built,
+   * how close it came. The one override is the other route. */
+  if(window.Receipt) window.Receipt.render(report,{image:dataUrl,onRoute:async r=>{
+    $('generateBtn').disabled=true;
+    try{ await recreateFromReference(dataUrl,Object.assign({},opts,{route:r})); }
+    catch(e){ status(e.message||String(e),true); }
+    finally{ $('generateBtn').disabled=false; }
+  }});
   /* Engines FIRST. The bar truncates with an ellipsis, and this line used to
    * end with the engine list — so the one thing the run is asked to report,
    * which engines it reached for, was the one thing always cut off. A
@@ -13704,6 +13729,7 @@ document.addEventListener('keyup',e=>{
 let attachedImage=null;
 function setAttachment(dataUrl){
   attachedImage=dataUrl;
+  if(!dataUrl&&window.Receipt) window.Receipt.hide();
   $('attachChip').style.display=dataUrl?'':'none';
   $('attachBtn').style.display=dataUrl?'none':'';
   if(dataUrl) $('attachThumb').src=dataUrl;
@@ -13851,6 +13877,7 @@ async function generate(){
       await recreateFromReference(attachedImage,{prompt});
       return;
     }
+    if(window.Receipt) window.Receipt.hide();
     let data;
     try{
       data=await callGenerate();

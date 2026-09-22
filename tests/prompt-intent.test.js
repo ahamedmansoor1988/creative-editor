@@ -70,13 +70,15 @@ describe("it is wired into the reference flow", () => {
   });
 
   it("forces the field route instead of the composition route", () => {
-    expect(app).toContain("if(cls==='composition'&&!forcedField){");
+    expect(app).toContain("if((cls==='composition'||forcedComposition)&&!forcedField){");
   });
 
   it("asks the analyser as a field when forced, not as a composition", () => {
     // classification:'composition' would route the server to planComposition
     expect(app).toContain("classification:routeCls,");
-    expect(app).toContain("const routeCls=forcedField&&cls==='composition'?'color_field':cls;");
+    expect(app).toContain(
+      "const routeCls=forcedField&&cls==='composition'?'color_field':forcedComposition?'composition':cls;",
+    );
   });
 
   it("switches escalation off, or the model's parts flag would undo the ask", () => {

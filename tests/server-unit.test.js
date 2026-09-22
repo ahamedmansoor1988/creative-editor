@@ -899,6 +899,24 @@ describe("one measured subject overrules a duplicated brief", () => {
     expect(sq.radius).toBeCloseTo(200, 0);
   });
 
+  it("says where each layer came from", () => {
+    const { doc } = briefToDoc(brief(), 1600, 900, [], subject);
+    const by = (re) => doc.frame.children.find((c) => re.test(c.name));
+    expect(by(/Background/).origin).toBe("model"); // the brief gave a colour
+    expect(by(/rounded square/).origin).toBe("both"); // named by the model, placed by the pixels
+    expect(by(/white dot/).origin).toBe("model");
+    expect(doc.frame.children.find((c) => c.type === "text").origin).toBe("model");
+    // a sharp subject is still placed by the pixels
+    const sharp = briefToDoc(brief(), 1600, 900, [], { ...subject, radius: 0 }).doc;
+    expect(sharp.frame.children.find((c) => /rounded square/.test(c.name)).origin).toBe("both");
+    // with no measured subject, nothing is "both"
+    const none = briefToDoc(brief(), 1600, 900, []).doc;
+    expect(none.frame.children.slice(1).every((c) => c.origin === "model")).toBe(true);
+    // a background with no colour from the brief is the measured mean
+    const noBg = briefToDoc({ elements: [] }, 900, 600, [["#ff0000", "#ff0000"]]).doc;
+    expect(noBg.frame.children[0].origin).toBe("pixels");
+  });
+
   it("changes nothing when the pixels did not measure one subject", () => {
     // 994.jpg is a legitimate stack of discs: two copies are two copies
     const none = { count: 0, ground: "#ffffff" };

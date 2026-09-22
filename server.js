@@ -562,9 +562,9 @@ function briefToDoc(brief, fw, fh, rows, subject) {
   const measuredMean = meanHexOfRows(rows || []);
   const bgColor = bgColors[0] || measuredMean || "#111111";
   if (bg.kind === "gradient" && bgColors.length >= 2) {
-    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, fill: { kind: "linear", angle: ((pct(bg.angle, 90) % 360) + 360) % 360, stops: bgColors.slice(0, 4).map((c, i, a) => ({ pos: a.length === 1 ? 0 : i / (a.length - 1), color: c })) } });
+    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, origin: "model", fill: { kind: "linear", angle: ((pct(bg.angle, 90) % 360) + 360) % 360, stops: bgColors.slice(0, 4).map((c, i, a) => ({ pos: a.length === 1 ? 0 : i / (a.length - 1), color: c })) } });
   } else {
-    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, fill: { kind: "solid", color: bgColor } });
+    children.push({ type: "rect", name: "Background", x: 0, y: 0, w: fw, h: fh, origin: bgColors[0] ? "model" : "pixels", fill: { kind: "solid", color: bgColor } });
   }
   let elements = (Array.isArray(brief && brief.elements) ? brief.elements : []).slice(0, 12);
   const one = subject && subject.count === 1 ? subject : null;
@@ -654,7 +654,10 @@ function briefToDoc(brief, fw, fh, rows, subject) {
       if (colorEnd && colorEnd !== color) unsupported.push(`${name}: the colour change across ${count} copies (${color} to ${colorEnd}); the copies share one fill`);
     }
     const x = cx - w / 2, y = cy - h / 2;
-    const base = { name, x: +x.toFixed(1), y: +y.toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), opacity: alpha, rot };
+    /* WHERE IT CAME FROM, for the layers panel: the model named it; the
+     * pixels supply a material's palette, and, for one measured subject, the
+     * box and corners of the shape that spans it (set below). */
+    const base = { name, x: +x.toFixed(1), y: +y.toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), opacity: alpha, rot, origin: "model" };
     /* AN ELEMENT MADE BY AN ENGINE. The builder could only ever give a shape a
      * solid, linear or radial paint, so a soap-film sphere and a soft
      * many-colour wash both came out as a radial fill picking ONE colour from
@@ -670,6 +673,7 @@ function briefToDoc(brief, fw, fh, rows, subject) {
       }
       children.push({
         ...base,
+        origin: "both",
         type,
         fill: { kind: "solid", color },
         effects:
@@ -716,7 +720,7 @@ function briefToDoc(brief, fw, fh, rows, subject) {
       return;
     }
     const fill = colorEnd && count === 1 ? { kind: "linear", angle: gw >= gh ? 0 : 90, stops: [{ pos: 0, color }, { pos: 1, color: colorEnd }] } : { kind: "solid", color };
-    if (shape === "line") { children.push({ type: "line", name, x: +(cx - gw / 2).toFixed(1), y: +cy.toFixed(1), x2: +(cx + gw / 2).toFixed(1), y2: +cy.toFixed(1), stroke: { width: Math.max(1, Math.min(60, Math.round(gh))), color }, opacity: alpha }); return; }
+    if (shape === "line") { children.push({ type: "line", origin: "model", name, x: +(cx - gw / 2).toFixed(1), y: +cy.toFixed(1), x2: +(cx + gw / 2).toFixed(1), y2: +cy.toFixed(1), stroke: { width: Math.max(1, Math.min(60, Math.round(gh))), color }, opacity: alpha }); return; }
     /* A four-cornered polygon is a SLAB, and the polygon renderer draws a
      * regular one standing on its corner — so every quadrilateral the model
      * named came out a diamond. A rect with the rotation it was given is what
@@ -734,7 +738,7 @@ function briefToDoc(brief, fw, fh, rows, subject) {
       return;
     }
     if ((shape === "ellipse" || shape === "path") && cut) {
-      children.push({ type: "path", name, points: halfEllipsePath(cx, cy, gw / 2, gh / 2, cut).map((p) => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), ox: +(p.ox || 0).toFixed(1), oy: +(p.oy || 0).toFixed(1), ix: +(p.ix || 0).toFixed(1), iy: +(p.iy || 0).toFixed(1) })), closed: true, fillOn: true, fill, stroke: { width: 0, color }, opacity: alpha });
+      children.push({ type: "path", origin: "model", name, points: halfEllipsePath(cx, cy, gw / 2, gh / 2, cut).map((p) => ({ x: +p.x.toFixed(1), y: +p.y.toFixed(1), ox: +(p.ox || 0).toFixed(1), oy: +(p.oy || 0).toFixed(1), ix: +(p.ix || 0).toFixed(1), iy: +(p.iy || 0).toFixed(1) })), closed: true, fillOn: true, fill, stroke: { width: 0, color }, opacity: alpha });
       if (pattern) unsupported.push(`${name}: ${count} half shapes drawn as one; the repeater does not take paths yet`);
       return;
     }
@@ -764,7 +768,7 @@ function briefToDoc(brief, fw, fh, rows, subject) {
     const cx = (pct(t.x, 50) / 100) * fw, cy = (pct(t.y, 50) / 100) * fh;
     const approxW = content.length * size * 0.55;
     const x = align === "center" ? cx : align === "right" ? cx + approxW / 2 : cx - approxW / 2;
-    children.push({ type: "text", name: content.slice(0, 24), x: +x.toFixed(1), y: +(cy - size * 0.6).toFixed(1), text: content, size: +size.toFixed(1), weight: /bold|black|heavy/i.test(String(t.weight || "")) ? 700 : 400, color: HEX(t.color, "#ffffff"), align, mode: "point" });
+    children.push({ type: "text", origin: "model", name: content.slice(0, 24), x: +x.toFixed(1), y: +(cy - size * 0.6).toFixed(1), text: content, size: +size.toFixed(1), weight: /bold|black|heavy/i.test(String(t.weight || "")) ? 700 : 400, color: HEX(t.color, "#ffffff"), align, mode: "point" });
   });
   if (one && children.length > 1) {
     /* THE PIXELS SAY WHERE IT IS. The model's numbers are percent of the frame
@@ -802,14 +806,16 @@ function briefToDoc(brief, fw, fh, rows, subject) {
      * and a radius is a number, and it reliably gets the number wrong. Only
      * a rect can take one; an ellipse has no corners, and a small mark inside
      * the subject is not the subject. */
-    if (Number.isFinite(one.radius) && one.radius > 0) {
+    {
       const tw = (one.w / 100) * fw, th = (one.h / 100) * fh;
-      const px = (one.radius / 100) * Math.min(tw, th);
+      const px = Number.isFinite(one.radius) && one.radius > 0 ? (one.radius / 100) * Math.min(tw, th) : 0;
       let applied = 0;
       items.forEach((c) => {
-        if (c.type !== "rect" || Number.isFinite(c.radius)) return;
         const w = Number.isFinite(c.w) ? c.w : 0, h = Number.isFinite(c.h) ? c.h : 0;
-        if (w >= 0.7 * tw && h >= 0.7 * th) { c.radius = +px.toFixed(1); applied++; }
+        if (w < 0.7 * tw || h < 0.7 * th) return;
+        c.origin = "both"; // the model named it; the pixels placed and sized it
+        if (c.type !== "rect" || Number.isFinite(c.radius) || !px) return;
+        c.radius = +px.toFixed(1); applied++;
       });
       if (applied) unsupported.push(`corner radius ${one.radius}% measured off the silhouette`);
     }

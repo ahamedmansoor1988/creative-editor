@@ -565,7 +565,8 @@
   <div id="noSel" class="hint">Select an element to edit it.</div>
 </div>
 
-<!-- bottom: agentic bar -->
+<!-- bottom: the run's receipt (receipt.js), then the agentic bar -->
+<div id="receipt" hidden></div>
 <div id="agentBar" class="floating">
   <button id="attachBtn" data-icon="image" aria-label="Attach a reference image" title="Attach one reference image (or Ctrl+V)"></button>
   <div id="attachChip" style="display:none"><img id="attachThumb" alt=""><button id="attachX" data-icon="x" data-icon-size="12" aria-label="Remove attached image" title="Remove image"></button></div>
@@ -612,6 +613,7 @@
 <script src="reference.js?v=20260922-subject2"></script>
 <script src="recolor.js?v=20260921-recolor1"></script>
 <script src="prompt-intent.js?v=20260921-intent1"></script>
+<script src="receipt.js?v=20260922-receipt1"></script>
 <script src="history.js"></script>
 <script type="module">
   /* clipper2.mjs is an ES module and the app is classic scripts, so a tiny
@@ -625,7 +627,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260916-field1"></script>
-  <script src="app.js?v=20260922-subject2"></script>
+  <script src="app.js?v=20260922-receipt1"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>
