@@ -320,14 +320,14 @@ const DEFAULT_EFFECTS=()=>({
    * measured off a reference video (53px flute pitch, each flute an inverted
    * ~3.3x compressed copy of the backdrop). */
   reed:{on:false,fluteW:53,angle:0,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
-        seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12},
+        seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,frost:0},
   /* §5.x Fractal glass — the reed flutes over a colour field of its own.
    * A FILL, not a backdrop material: nothing is needed under it. The palette
    * is shared with Iridescence so the two sit in the same colour world, and
    * the standalone's animation is deliberately absent — drift moves the field
    * by hand instead, because a document must export as what you see. */
   fractal:{on:false,fluteW:53,phase:0.06,bulge:0.45,ior:1.5,disp:0.008,thick:1,gap:10,
-    seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,
+    seamW:1.6,seamDark:0.75,fresnel:1,spec:0.5,lightAng:35,lightW:0.25,ambient:0.12,frost:0,
     blobs:4,size:0.2,gain:2.4,gamma:1,fieldScale:1,driftX:0,driftY:0,transparent:true,bgAlpha:0,
     colors:IRI_PALETTES[0].colors.slice()},
   /* Shape Divider: cuts the object's OWN outline into pieces. No shape of its
@@ -1078,7 +1078,7 @@ function normChildren(list,depth){
         n('ior',1,2.4); n('disp',0,0.08); n('thick',0,4); n('gap',0,20);
         n('seamW',0,6); n('seamDark',0,1); n('fresnel',0,2);
         n('spec',0,4); n('lightAng',-80,80); n('lightW',0.05,1); n('ambient',0,0.3);
-        n('angle',-90,90);
+        n('angle',-90,90); n('frost',0,100);
       }
       const fnum=(o,k,lo,hi,d)=>{ const v=+o[k]; o[k]=Number.isFinite(v)?clamp(v,lo,hi):d; };
       const blur=Object.assign(de.blur, ce.blur||{});
@@ -6295,6 +6295,7 @@ function applyRecipeReport(obj,recipe,ctx){
       if(Number.isFinite(+fx.bulge))  R.bulge=clamp(+fx.bulge,0.05,1);
       if(Number.isFinite(+fx.ior))    R.ior=clamp(+fx.ior,1,2.4);
       if(Number.isFinite(+fx.gap))    R.gap=clamp(+fx.gap,0,20);
+      if(Number.isFinite(+fx.frost))  R.frost=clamp(+fx.frost,0,100);
       setMaterial(o,'reed');
       report.created.push(o);
       applied.push('reed glass ('+Math.round(R.fluteW)+'px flutes'+(report.panel?', panel':'')+')');
@@ -8796,6 +8797,7 @@ function buildFxSection(obj,page,add,body){
         ch('rdDs','Dispersion',0,0.08,0.001,'disp',3);
         ch('rdTh','Thickness',0,4,0.05,'thick',2);
         ch('rdGp','Distance',0,20,0.1,'gap',1);
+        ch('rdFrost','Frost',0,100,1,'frost',0);
         add('<div class="secTitle" style="margin-top:8px">Light</div>');
         ch('rdFr','Edge fresnel',0,2,0.01,'fresnel',2);
         ch('rdSp','Highlight',0,4,0.01,'spec',2);

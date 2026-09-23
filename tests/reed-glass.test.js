@@ -16,6 +16,15 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { loadEditor } from "./helpers/load-editor.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const readPublic = (f) =>
+  fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public", f),
+    "utf8",
+  );
 
 /** The page's own gate. index.html sets this before fxstack.js narrows READY. */
 const FX_ONLY = ["mesh", "shadow", "iridescent", "reed", "fractal"];
@@ -137,6 +146,31 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(R.ior).toBeCloseTo(1.5, 5);
     expect(R.gap).toBeCloseTo(10, 5);
     expect(R.seamDark).toBeCloseTo(0.75, 5);
+    expect(R.frost).toBe(0); // clear glass unless asked
+  });
+
+  /* 23 Sep 2026. Figma's pattern refraction has Frost; ours did not. Frost
+   * diffuses the transmitted image over a disc whose radius is the amount
+   * times half a flute, and is kept 0..100 like the Glass engine's. */
+  it("frost: 0..100 in the document, a chip in the panel, one uniform in the shader", () => {
+    expect(withReed({ frost: 999 }).effects.reed.frost).toBe(100);
+    expect(withReed({ frost: -5 }).effects.reed.frost).toBe(0);
+    expect(withReed({ frost: "soft" }).effects.reed.frost).toBe(0);
+    const app = readPublic("app.js");
+    expect(app).toContain("ch('rdFrost','Frost',0,100,1,'frost',0);");
+    expect(app).toContain("if(Number.isFinite(+fx.frost))  R.frost=clamp(+fx.frost,0,100);");
+    const shader = readPublic("reedglass.js");
+    expect(shader).toContain("uniform float uFrost;");
+    expect(shader).toContain("vec3 frostedAt(vec2 p, float d, vec2 dir, float radius, float rot){");
+    expect(shader).toContain("float frostR = uFrost * hw;");
+    expect(shader).toContain(
+      'gl.uniform1f(loc("uFrost"), Math.max(0, Math.min(1, (+P.frost || 0) / 100)));',
+    );
+    // the transmitted image is what gets frosted; the mirror term stays as it was
+    expect(shader).toContain("frostedAt(p, (tg.x - u) * hw, dir, frostR, frostRot).g");
+    expect(shader).toContain(
+      "for (int k = -2; k <= 2; k++) mir += srcAt(p, float(k) * fw * 0.6, dir);",
+    );
   });
 
   it("the flutes have a direction", () => {

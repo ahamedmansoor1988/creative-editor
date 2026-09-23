@@ -34,10 +34,11 @@ describe("the page sampler folds", () => {
     expect(page).toContain("if (hi.x < lo.x || hi.y < lo.y) return uPageBg;");
   });
 
-  it("is a new build, so the cache key and the console stamp say so", () => {
-    expect(src).toContain('VERSION: "20260923-fold1"');
+  it("the cache key and the console stamp agree, and postdate the fold", () => {
+    const stamp = /VERSION: "(\d{8}-[a-z0-9]+)"/.exec(src)[1];
     const index = fs.readFileSync(path.join(here, "..", "public", "index.html"), "utf8");
-    expect(index).toContain("reedglass.js?v=20260923-fold1");
+    expect(index).toContain(`reedglass.js?v=${stamp}`);
+    expect(Number(stamp.slice(0, 8))).toBeGreaterThanOrEqual(20260923);
   });
 
   /* The fold, run on the CPU as the shader runs it: mod, then a triangle wave. */

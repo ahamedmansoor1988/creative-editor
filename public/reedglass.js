@@ -59,6 +59,7 @@ uniform float uLightAng;  // radians
 uniform float uLightW;    // radians
 uniform float uAmbient;
 uniform float uAngle;      // flute direction, radians (0 = vertical flutes)
+uniform float uFrost;      // diffusion of the transmitted image, 0..1
 const int AA = 4;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -156,6 +157,27 @@ vec2 here(){ return vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y); }
 vec3 srcAt(vec2 p, float d, vec2 dir){
   return page(uBoxPos + p + d * dir);
 }
+/* FROST. Sandblasted glass scatters each ray over a small cone, so what is
+   seen through it is the page diffused: the average of the page over a disc
+   around where the clear ray would have landed. Eight taps on a golden-angle
+   spiral, turned by a per-pixel hash so the tap pattern reads as grain, not
+   as eight ghosts; the disc's radius is the frost amount times half a flute,
+   so "fully frosted" means a flute's worth of diffusion whatever the pitch.
+   Only the transmitted image is frosted — the reflections already average a
+   span of the page, and the seams and the highlight are the surface, which
+   frosting does not move. At zero this is the single clear sample. */
+const int FROST_TAPS = 8;
+vec3 frostedAt(vec2 p, float d, vec2 dir, float radius, float rot){
+  vec2 sp = uBoxPos + p + d * dir;
+  if (radius < 0.5) return page(sp);
+  vec3 acc = vec3(0.0);
+  for (int k = 0; k < FROST_TAPS; k++) {
+    float a = rot + float(k) * 2.39996323;
+    float r = radius * sqrt((float(k) + 0.5) / float(FROST_TAPS));
+    acc += page(sp + r * vec2(cos(a), sin(a)));
+  }
+  return acc / float(FROST_TAPS);
+}
 
 void main(){
   float fw = max(uFluteW, 2.0);
@@ -169,6 +191,8 @@ void main(){
   vec2 dir = vec2(cos(uAngle), sin(uAngle));
   vec2 p0 = here();
   float t0 = dot(p0, dir);
+  float frostR = uFrost * hw;
+  float frostRot = 6.2831853 * hash(p0 * 0.7 + 3.1);
   vec3 acc = vec3(0.0);
   for (int j = 0; j < AA; j++) {
     /* The AA offset is along the rib axis too — jittering screen x would
@@ -183,9 +207,9 @@ void main(){
     vec2 tb = trace(u, uIor + uDisp, R);
     /* trace returns where along the flute the ray came from; the displacement
      * from THIS pixel is the difference, carried along the rib axis. */
-    vec3 col = vec3(srcAt(p, (tr.x - u) * hw, dir).r,
-                    srcAt(p, (tg.x - u) * hw, dir).g,
-                    srcAt(p, (tb.x - u) * hw, dir).b);
+    vec3 col = vec3(frostedAt(p, (tr.x - u) * hw, dir, frostR, frostRot).r,
+                    frostedAt(p, (tg.x - u) * hw, dir, frostR, frostRot).g,
+                    frostedAt(p, (tb.x - u) * hw, dir, frostR, frostRot).b);
     vec3 trans = vec3(tr.y, tg.y, tb.y);
     vec3 mir = vec3(0.0);
     for (int k = -2; k <= 2; k++) mir += srcAt(p, float(k) * fw * 0.6, dir);
@@ -311,6 +335,8 @@ void main(){
     gl.uniform1f(loc("uLightW"), P.lightW === undefined ? 0.25 : +P.lightW);
     gl.uniform1f(loc("uAmbient"), P.ambient === undefined ? 0.12 : +P.ambient);
     gl.uniform1f(loc("uAngle"), ((+P.angle || 0) * Math.PI) / 180);
+    // the document keeps frost as 0..100, like the Glass engine's; the shader takes 0..1
+    gl.uniform1f(loc("uFrost"), Math.max(0, Math.min(1, (+P.frost || 0) / 100)));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return cv;
   }
@@ -329,7 +355,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260923-fold1",
+    VERSION: "20260923-frost1",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
