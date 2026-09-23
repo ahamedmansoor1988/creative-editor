@@ -122,6 +122,21 @@ vec3 page(vec2 sp){
   vec2 lo = max(uArt.xy + 4.0, vec2(0.0));
   vec2 hi = min(uArt.xy + uArt.zw - 4.0, uScene - 1.0);
   if (hi.x < lo.x || hi.y < lo.y) return uPageBg;
+  /* FOLD, do not clamp. A ray that runs off the artboard used to be pinned to
+   * its edge column — so every off-page ray on a row landed on the SAME
+   * texel, and since the ray's tilt grows without bound towards a seam
+   * (tan of the exit angle, times the air gap), a whole band beside each seam
+   * read one column of the page repeated across it: horizontal streaks that
+   * varied only down the panel. Measured live: 40% of a row at flute width
+   * 310 was the right edge column, to within 12 levels. Folding the point
+   * back into the page (a triangle wave over its span) continues the page in
+   * both directions and never lands two rays on one texel by construction;
+   * a ray that has travelled many spans simply sees the page mirrored many
+   * times, which reads as frosting, not a bar. Rule 1 above still holds: the
+   * panel never answers with the frame colour. */
+  vec2 span = max(hi - lo, vec2(1.0));
+  vec2 tt = mod(sp - lo, 2.0 * span);
+  sp = lo + (span - abs(tt - span));
   sp = clamp(sp, lo, hi);
   /* Composite over the page colour instead of reading .rgb straight.
    *
@@ -314,7 +329,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260917-angle7",
+    VERSION: "20260923-fold1",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),
