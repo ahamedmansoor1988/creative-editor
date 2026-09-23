@@ -114,39 +114,7 @@
   <div class="menu" data-menu="effects">Effects
     <div class="dropdown">
       <button id="enginesOpen" type="button"><i data-icon="sparkles"></i>Add fill or effect…</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <div class="menuLabel">Fills</div>
-      <button type="button" data-capability="imageFill"><i data-icon="image"></i>Image fill</button>
-      <button type="button" data-capability="linearGradient"><i data-icon="palette"></i>Gradient</button>
-      <button type="button" data-capability="mesh"><i data-icon="grid"></i>Mesh gradient</button>
-      <button type="button" data-capability="iridescent"><i data-icon="sparkles"></i>Iridescence</button>
-      <button type="button" data-capability="reed"><i data-icon="line"></i>Reed glass</button>
-      <button type="button" data-capability="fractal"><i data-icon="sparkles"></i>Fractal glass</button>
-      <button type="button" data-capability="divider"><i data-icon="polygon"></i>Shape divider</button>
-      <button type="button" data-capability="beam"><i data-icon="sun"></i>Light beam</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <div class="menuLabel">Effects</div>
-      <button type="button" data-capability="shadow"><i data-icon="layers"></i>Drop shadow</button>
-      <button type="button" data-capability="innerShadow"><i data-icon="circle-dashed"></i>Inner shadow</button>
-      <button type="button" data-capability="glow"><i data-icon="sparkles"></i>Glow</button>
-      <button type="button" data-capability="bloom"><i data-icon="sun"></i>Bloom</button>
-      <button type="button" data-capability="backgroundBlur"><i data-icon="layers"></i>Background blur</button>
-      <button type="button" data-capability="blur"><i data-icon="circle-dashed"></i>Blur</button>
-      <button type="button" data-capability="grain"><i data-icon="grid"></i>Grain</button>
-      <button type="button" data-capability="noise"><i data-icon="shuffle"></i>Noise</button>
-      <button type="button" data-capability="distortion"><i data-icon="waves"></i>Distortion</button>
-      <button type="button" data-capability="warp"><i data-icon="move"></i>Warp</button>
-      <button type="button" data-capability="displacement"><i data-icon="scan"></i>Displacement</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <div class="menuLabel">Structure</div>
-      <button type="button" data-capability="symmetry"><i data-icon="shuffle"></i>Symmetry</button>
-      <button type="button" data-capability="echo"><i data-icon="duplicate"></i>Echo</button>
-      <div class="menuDivider" aria-hidden="true"></div>
-      <div class="menuLabel">Filters</div>
-      <button type="button" data-capability="colorAdjust"><i data-icon="sliders"></i>Color adjustments</button>
-      <button type="button" data-capability="colorMap"><i data-icon="palette"></i>Color mapping</button>
-      <button type="button" data-capability="channelFx"><i data-icon="shuffle"></i>Channel effects</button>
-      <button type="button" data-capability="stylize"><i data-icon="wand-sparkles"></i>Stylize</button>
+      <!-- the rest of this menu is generated from engine-catalog.js when the app loads -->
     </div>
   </div>
   
@@ -608,8 +576,8 @@
      about 0.3). Documents carrying other effects render
      either way. -->
 <script>window.FX_ONLY = ["mesh", "shadow", "iridescent", "reed", "fractal", "noise", "divider", "beam"];</script>
-<script src="fxstack.js?v=20260921-beam1"></script>
-<script src="engine-catalog.js?v=20260921-beam1"></script>
+<script src="fxstack.js?v=20260923-registry1"></script>
+<script src="engine-catalog.js?v=20260923-registry1"></script>
 <script src="reference.js?v=20260922-subject2"></script>
 <script src="recolor.js?v=20260921-recolor1"></script>
 <script src="prompt-intent.js?v=20260921-intent1"></script>
@@ -627,7 +595,7 @@
 <script src="picker.js?v=2"></script>
 <script src="picker-adopt.js?v=1"></script>
 <script src="ui.js?v=20260916-field1"></script>
-  <script src="app.js?v=20260922-lens1"></script>
+  <script src="app.js?v=20260923-registry1"></script>
 <!-- Agent cable. Loads after app.js so window.__editor exists, and returns
      immediately unless the page is served from localhost. -->
 <script src="mcp-bridge.js?v=20260901-mcp4"></script>

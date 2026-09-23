@@ -132,66 +132,12 @@
    * ?fx=liquid (comma-list allowed): those types become visible for that
    * session only. Promoting an effect = adding its type string to READY in
    * a commit, which is the reviewable record of "this one is fixed". */
-  const READY = new Set([
-    // promoted effects go here, one per fix
-    "shadow", // QA'd: draw path, clamps, alias, and the full panel. See tests/shadow.test.js
-    "innerShadow", // same reusable shadow family, clipped inside the target path
-    "glow", // QA'd: both draw paths, clamps, alias, panel. See tests/glow.test.js
-    "mesh", // §4.7, ported from lab-mesh.html. See tests/mesh.test.js
-    /* Ported from Chromaform by way of the DoLittle plugin. Coverage and the
-     * curved normal come from the layer's own mask, so it follows any outline
-     * including a ring. Driven control by control on the canvas; see
-     * tests/iridescent.test.js and public/iridescent.js. */
-    "iridescent",
-    /* Fluted glass refracting the layers BENEATH the panel — the one thing a
-     * glass effect has to do, and the thing a material built from its own fill
-     * cannot do at all. The shader is ported from the author's own reed-glass
-     * shader maker, whose defaults were measured off a reference video; the
-     * optics are carried across untouched and only the source of a sample
-     * changed. Driven in a mockup over four backdrops before it came near the
-     * editor: mean saturation through the panel holds at 93-98% of the
-     * backdrop's. See public/reedglass.js and tests/reed-glass.test.js. */
-    "reed",
-    /* The sibling of reed: the same flute optics over a colour field of its
-     * own rather than the layers beneath, so it is a fill and needs nothing
-     * under it. Palette comes from the Iridescence sets; the standalone's
-     * animation is deliberately not ported — a document is static and must
-     * export as what you see. See public/fractal-glass.js. */
-    "fractal",
-    /* Ported from the Shape Divider lab (public/shape-composer.html), with
-     * the one change that makes it an effect: the lab picks from five
-     * analytic shapes, this cuts whatever the user drew. See
-     * public/shape-divider.js. */
-    "divider",
-    /* Ported from the Spectral Light Beam lab. An OVERLAY, not a material: it
-     * lights what is beneath rather than replacing it, and composites
-     * additively. See public/light-beam-fx.js. */
-    "beam",
-    /* The three the layered-reference flow composes with: a mesh underneath,
-     * motion blur over it, grain or noise on top. Their engines were never
-     * dead — the analyser already emitted all three and the draw paths ran
-     * them — but with no panel a value the model chose could not afterwards be
-     * changed by hand, which is an engine you can trigger and not steer.
-     * See tests/pixel-effects.test.js. */
-    "blur", // incl. directional, which is the motion blur
-    "bloom",
-    "colorAdjust",
-    "colorMap",
-    "channelFx",
-    "stylize",
-    "distortion",
-    "warp",
-    "displacement",
-    "backgroundBlur",
-    "grain",
-    "noise",
-    "glass",
-    /* "gradient" (the stripe engine) is QA'd and now HAS the panel it never
-     * had — see tests/gradient.test.js — but it is not being offered: it is
-     * the effect slated for retirement once fractal glass replaces it, so
-     * shipping it now would put a control in front of users that is meant to
-     * go away. Promoting it is this one line when that decision settles. */
-  ]);
+  /* DERIVED, since 23 Sep 2026. This set used to be written here by hand,
+   * one type per fix, beside the catalog's own status field — two records of
+   * the same fact, and they drifted. It now starts empty and engine-catalog.js
+   * promotes every renderer whose catalog entry is ready, through promote()
+   * below, which still honours the page's FX_ONLY narrowing. */
+  const READY = new Set();
   let DEV = new Set();
   try {
     DEV = new Set(
@@ -219,6 +165,14 @@
   function isReady(type) {
     if (ONLY && !ONLY.has(type)) return DEV.has(type);
     return READY.has(type) || DEV.has(type);
+  }
+  /** Mark a renderer finished. Only a registered type, and only one the page
+   *  has not narrowed away; returns whether it went in. */
+  function promote(type) {
+    if (!REG[type]) return false;
+    if (ONLY && !ONLY.has(type)) return false;
+    READY.add(type);
+    return true;
   }
 
   function meta(type) {
@@ -349,6 +303,7 @@
     LEGACY_ORDER,
     READY,
     isReady,
+    promote,
     meta,
     slotOf,
     isBackdrop,

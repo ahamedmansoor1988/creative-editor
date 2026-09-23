@@ -13602,26 +13602,30 @@ document.querySelectorAll('.dropdown button').forEach(b=>{
  * HIDDEN here, entry by entry, along with a group label left with nothing
  * visible under it; nothing is removed. */
 (function(){
-  if(!window.FX_ONLY||!window.EngineCatalog||!window.FxStack) return;
+  /* THE EFFECTS MENU IS GENERATED from the catalog, in its order: a group
+   * for each kind with something ready to offer, one button per capability.
+   * It was written by hand in index.html and then pruned here against the
+   * gate, so an effect the catalog offered could be missing from the menu
+   * (glass was) and the labels of emptied groups had to be hidden after the
+   * fact. The gate still decides what is ready — the catalog's status() asks
+   * it — so the page's FX_ONLY narrowing shows here exactly as before. */
+  if(!window.EngineCatalog||!window.FxStack||typeof window.EngineCatalog.menu!=='function') return;
   const menu=document.querySelector('[data-menu="effects"] .dropdown');
   if(!menu) return;
-  menu.querySelectorAll('[data-capability]').forEach(b=>{
-    const id=b.dataset.capability;
-    /* Ask the stack about the capability it names, and only fall back to the
-     * catalog's renderer for ids the stack does not carry. Resolving through
-     * the catalog first asks about whatever engine an id is aliased onto,
-     * which can be a different engine with a different readiness — allowed by
-     * one registry and hidden by another. */
-    const known=window.FxStack.types().includes(id);
-    const cap=window.EngineCatalog.get(id);
-    const type=known?id:(cap&&cap.rendererType);
-    if(type&&!window.FxStack.isReady(type)) b.hidden=true;
+  const anchor=menu.querySelector('#enginesOpen');
+  const frag=document.createDocumentFragment();
+  window.EngineCatalog.menu().forEach(group=>{
+    const rule=document.createElement('div'); rule.className='menuDivider'; rule.setAttribute('aria-hidden','true'); frag.appendChild(rule);
+    const label=document.createElement('div'); label.className='menuLabel'; label.textContent=group.label; frag.appendChild(label);
+    group.items.forEach(item=>{
+      const b=document.createElement('button'); b.type='button'; b.dataset.capability=item.id;
+      const i=document.createElement('i'); i.setAttribute('data-icon',item.icon||'sparkles'); b.appendChild(i);
+      b.appendChild(document.createTextNode(item.label));
+      frag.appendChild(b);
+    });
   });
-  menu.querySelectorAll('.menuLabel').forEach(label=>{
-    let n=label.nextElementSibling, any=false;
-    while(n&&!n.classList.contains('menuLabel')){ if(n.tagName==='BUTTON'&&!n.hidden) any=true; n=n.nextElementSibling; }
-    if(!any){ label.hidden=true; const d=label.previousElementSibling; if(d&&d.classList.contains('menuDivider')) d.hidden=true; }
-  });
+  if(anchor&&anchor.parentNode===menu) anchor.after(frag); else menu.appendChild(frag);
+  if(window.Icons&&typeof window.Icons.hydrate==='function') window.Icons.hydrate(menu);
 })();
 /* Top-bar commands (undo, redo, export) share the menu commands. */
 document.querySelectorAll('.tbCmd[data-cmd]').forEach(b=>{
@@ -14235,49 +14239,22 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   /* Starting parameters chosen to be SEEN. Several effects are "on" at a
    * value of zero — grain, noise, blur — so applying them with their stored
    * defaults would add a stack entry that renders nothing. */
-  const OPENING={
-    shadow:  o=>Object.assign(o.effects.shadow,{on:true}),
-    innerShadow:o=>Object.assign(o.effects.innerShadow,{on:true,blur:12,alpha:.35}),
-    glow:    o=>Object.assign(o.effects.glow,{on:true,radius:18,alpha:0.7}),
-    bloom:   o=>Object.assign(o.effects.bloom,{amount:1,radius:24,threshold:.65,knee:.25}),
-    backgroundBlur:o=>Object.assign(o.effects.backgroundBlur,{on:true,radius:20,opacity:1}),
-    colorAdjust:o=>Object.assign(o.effects.colorAdjust,{exposure:0,blackPoint:0,whitePoint:1,
-      brightness:.1,contrast:0,brilliance:0,gamma:1,saturation:0,vibrance:0,
-      temperature:0,tint:0,highlights:0,shadows:0,filterAmount:0,definition:0}),
-    colorMap:o=>Object.assign(o.effects.colorMap,{mode:'gradientMap',shadow:'#1b103d',highlight:'#ffdc7a',amount:1}),
-    channelFx:o=>Object.assign(o.effects.channelFx,{mode:'rgbSplit',amount:12,angle:0,mix:1}),
-    stylize:o=>Object.assign(o.effects.stylize,{mode:'posterize',levels:6,mix:1}),
-    distortion:o=>Object.assign(o.effects.distortion,{mode:'wave',amount:24,wavelength:.2,phase:0,axis:'x'}),
-    warp:o=>Object.assign(o.effects.warp,{envelope:'arc',strength:24,axis:'horizontal'}),
-    displacement:o=>Object.assign(o.effects.displacement,{scaleX:28,scaleY:18,mapScale:1,seed:1}),
-    grain:   o=>Object.assign(o.effects.grain,{amount:0.35}),
-    blur:    o=>Object.assign(o.effects.blur,{kind:'gaussian',radius:10}),
-    mesh:    o=>Object.assign(o.effects.mesh,{on:true}),
-    iridescent:o=>Object.assign(o.effects.iridescent,{on:true}),
-    reed:    o=>Object.assign(o.effects.reed,{on:true}),
-    fractal: o=>Object.assign(o.effects.fractal,{on:true}),
-    divider: o=>Object.assign(o.effects.divider,{on:true}),
-    beam:    o=>Object.assign(o.effects.beam,{on:true}),
-    noise:   o=>Object.assign(o.effects.noise,{amount:0.3}),
-    glass:   o=>Object.assign(o.effects.glass,{on:true,mode:'backdrop'}),
-  };
-
-  /* Catalog id -> the inspector page that edits it, so applying can open the
-   * controls rather than leaving someone to hunt for them. */
-  const PAGE_FOR={mesh:'Mesh',iridescent:'Iridescence',reed:'Reed glass',fractal:'Fractal glass',divider:'Shape divider',beam:'Light beam',shadow:'Shadow',innerShadow:'Inner Shadow',glow:'Glow',bloom:'Bloom',backgroundBlur:'Background Blur',colorAdjust:'Color Adjustments',colorMap:'Color Mapping',channelFx:'Channel Effects',stylize:'Stylize',distortion:'Distortion',warp:'Warp',displacement:'Displacement',grain:'Grain',blur:'Blur',
-                  noise:'Noise',glass:'Glass',linearGradient:'Fill',imageFill:'Fill'};
+  /* Which values an engine opens with, which inspector page edits it and
+   * which icon stands for it all come from its catalog entry now (see
+   * engine-catalog.js): three hand-kept maps lived here and drifted. */
+  function applyOpening(type,facade){
+    const C=EC(); const data=C&&typeof C.opening==='function'?C.opening(type):null;
+    if(data&&facade&&facade.effects&&facade.effects[type]) Object.assign(facade.effects[type],data);
+  }
 
   function engSay(msg){ const el=$('engStatus'); if(el) el.textContent=msg||''; }
-
-  const ENG_ICON={imageFill:'image',linearGradient:'palette',mesh:'grid',iridescent:'sparkles',reed:'line',fractal:'sparkles',shadow:'layers',innerShadow:'circle-dashed',glow:'sparkles',bloom:'sun',backgroundBlur:'layers',colorAdjust:'sliders',colorMap:'palette',channelFx:'shuffle',stylize:'wand-sparkles',distortion:'waves',warp:'move',displacement:'scan',
-                  blur:'circle-dashed',grain:'grid',noise:'shuffle',glass:'sparkles'};
 
   /** Reuse the app's vendored Lucide set rather than introducing a second
    * icon language for one picker. */
   function engPreview(item){
     const el=document.createElement('span');
     el.className='engIcon';
-    el.innerHTML=window.Icons?Icons.svg(ENG_ICON[item.id]||'sparkles'):'';
+    el.innerHTML=window.Icons?Icons.svg(item.icon||'sparkles'):'';
     return el;
   }
 
@@ -14365,7 +14342,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
         const o=layerOver(obj,list,item.label);
         setMaterial(o,type);
         const entry=o.fx.find(e=>e.type===type);
-        (OPENING[type]||(()=>{}))({effects:{[type]:entry.params}});
+        applyOpening(type,{effects:{[type]:entry.params}});
         setSelIds(new Set([o.id]),o.id);
         focusFxEntry(o,entry);
         pushHistory('Apply '+item.label);
@@ -14381,7 +14358,7 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
       const source=present[present.length-1].params||obj.effects[type];
       const params=JSON.parse(JSON.stringify(source));
       const facade={effects:{[type]:params}};
-      (OPENING[type]||(()=>{}))(facade);
+      applyOpening(type,facade);
       entry={id:newId(),type,on:true,added:true,params};
       obj.fx.push(entry);
     }else{
@@ -14397,14 +14374,14 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
         entry.params=clean;
         obj.effects[type]=clean;
       }
-      (OPENING[type]||(()=>{}))({effects:{[type]:entry.params}});
+      applyOpening(type,{effects:{[type]:entry.params}});
       entry.on=true; entry.added=true;
       if(!obj.effects[type]) obj.effects[type]=entry.params;
     }
     focusFxEntry(obj,entry);
     pushHistory('Apply '+item.label);
     refresh();
-    const page=PAGE_FOR[item.id];
+    const page=item.page;
     engOpenPage(page);
     status(item.label+' applied. Adjust it in the inspector.');
     engClose();

@@ -224,15 +224,20 @@ describe("every surface that has to agree before it is reachable", () => {
   const app = readPublic("app.js");
   const stack = readPublic("fxstack.js");
   const index = readPublic("index.html");
+  const catalog = readPublic("engine-catalog.js");
 
   it("is a material in the stack registry", () => {
     expect(stack).toContain('divider: { slot: "material", label: "Shape divider", multi: false }');
   });
 
-  it("is in READY and in the stack order", () => {
+  it("is in the stack order, and the catalog's ready status reaches the gate", () => {
     expect(stack).toMatch(/"divider",/);
-    const ready = stack.slice(stack.indexOf("const READY"));
-    expect(ready).toContain('"divider"');
+    // READY is derived (23 Sep 2026): boot the stack and the catalog together
+    const win = {};
+    new Function("window", stack)(win);
+    new Function("window", catalog)(win);
+    expect(win.EngineCatalog.get("divider").status).toBe("ready");
+    expect(win.FxStack.READY.has("divider")).toBe(true);
   });
 
   it("is offered by the page's own gate", () => {
@@ -397,8 +402,7 @@ describe("the effect stack is not capped below the number of effects", () => {
  * drawn and panelled is still not enough — there are FIVE more surfaces, and
  * each one fails silently. */
 describe("an effect is reachable from every surface, not just the stack", () => {
-  const app = readPublic("app.js");
-  const index = readPublic("index.html");
+  const stack = readPublic("fxstack.js");
   const catalog = readPublic("engine-catalog.js");
 
   for (const [id, label] of [
@@ -412,20 +416,31 @@ describe("an effect is reachable from every surface, not just the stack", () => 
         expect(catalog).toContain(`rendererType: "${id}"`);
       });
 
+      /* The Effects menu, the opening values and the inspector page all come
+       * from the catalog entry now (23 Sep 2026); app.js and index.html carry
+       * no copy of them to drift. */
+      const booted = () => {
+        const win = {};
+        new Function("window", stack)(win);
+        new Function("window", catalog)(win);
+        return win.EngineCatalog;
+      };
+
       it("has a row in the Effects menu", () => {
-        expect(index).toContain(`data-capability="${id}"`);
+        const ids = booted()
+          .menu()
+          .flatMap((g) => g.items.map((i) => i.id));
+        expect(ids).toContain(id);
       });
 
       it("switches the effect ON when applied, not just the stack entry", () => {
         /* Without this the stack showed the effect, the picker said it was
          * applied, and the canvas did not change. */
-        expect(app).toMatch(
-          new RegExp(`${id}:\\s*o=>Object.assign\\(o.effects.${id},\\{on:true\\}\\)`),
-        );
+        expect(booted().opening(id)).toEqual({ on: true });
       });
 
       it("knows which panel to open after applying", () => {
-        expect(app).toContain(`${id}:'${label}'`);
+        expect(booted().get(id).page).toBe(label);
       });
     });
   }
