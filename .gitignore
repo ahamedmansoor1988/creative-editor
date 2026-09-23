@@ -23,3 +23,6 @@ research/
 # headless Chrome profiles the scene lab creates
 lab-out/.chrome-profile-*/
 lab-out/*.json
+# scratch renders: OFF baselines and QC runs. The deliverables stay tracked.
+lab-out/baseline-*.png
+lab-out/qc/
