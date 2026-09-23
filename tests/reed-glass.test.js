@@ -149,6 +149,28 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     expect(R.frost).toBe(0); // clear glass unless asked
   });
 
+  /* 23 Sep 2026. Noise added on a reed layer did nothing: the reed branch
+   * drew its tile and returned before the behind pass (shadows), the over
+   * pass (grain, inner shadow) and the pixel pass (noise, blur, bloom, the
+   * colour and channel filters) that every other lens gets. */
+  it("is painted through the shared lens steps: after the capture, finished like Glass", () => {
+    const app = readPublic("app.js");
+    const capture = app.indexOf(
+      "const backdropPixelState=_isBackdropMat?captureBackdropMaterialPixels(c,obj):null;",
+    );
+    const reed = app.indexOf(
+      "if(rdx&&fxOn(obj,'reed')&&obj.type!=='text'&&window.ReedGlassEngine&&window.ReedGlassEngine.available()){",
+    );
+    const glass = app.indexOf("if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&gla.mode==='solid3d'");
+    expect(capture).toBeGreaterThan(0);
+    expect(reed).toBeGreaterThan(capture);
+    expect(reed).toBeLessThan(glass);
+    const branch = app.slice(reed, glass);
+    expect(branch).toContain("finishBackdropMaterial(c,obj,null,backdropPixelState);");
+    expect(branch).toContain("_rc.drawImage(cleanBackdrop||c.canvas,0,0);");
+    expect(branch).not.toMatch(/c\.restore\(\);\s*return;/); // no early return past the finish
+  });
+
   /* 23 Sep 2026. Figma's pattern refraction has Frost; ours did not. Frost
    * diffuses the transmitted image over a disc whose radius is the amount
    * times half a flute, and is kept 0..100 like the Glass engine's. */

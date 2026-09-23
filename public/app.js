@@ -3850,6 +3850,35 @@ function drawOneInner(c,W,H,obj){
         return;
       }
     }
+    const gla=fx.glass;
+    /* The active backdrop material, asked ONCE and used for both the
+     * behind-slot pre-pass and the pixel capture below. Text is excluded
+     * throughout because these engines take their geometry from a box. */
+    const _FSm=window.FxStack, _mat=(_FSm&&obj.fx)?_FSm.activeMaterial(obj.fx):null;
+    const _isBackdropMat=!!(_mat&&_FSm.isBackdrop(_mat.type)&&obj.type!=='text');
+    let cleanBackdrop=null;
+    if(_isBackdropMat){
+      /* Material renderers return before the ordinary shape painter, where
+       * behind-slot effects normally run. Paint only that slot first so a
+       * backdrop-material layer can cast shadows and outer glows without
+       * painting its ordinary fill. drawObject's backdrop isolation also
+       * removes the caster interior, so the material cannot refract its own
+       * shadow — the shadow follows the LAYER SILHOUETTE, not the refracted
+       * pixels.
+       *
+       * This was gated on `glass` specifically, so a Lens layer cast nothing
+       * at all: measured 0.0 luminance darkening below the shape against 19.8
+       * for the same shadow on Glass and 61.6 on a plain rect. Same reason the
+       * pixel-effect gate had to be generalized — the classification belongs
+       * to FxStack, not to a type name spelled out here. */
+      cleanBackdrop=snapshotClean(c);                       // A: before any behind effect
+      obj.__behindOnly=true;                                 // B
+      try{ drawObject(c,obj); }finally{ delete obj.__behindOnly; }
+    }
+    // clean + this layer's shadows: the restore target for step E
+    const backdropPixelState=_isBackdropMat?captureBackdropMaterialPixels(c,obj):null;
+    /* REED GLASS, after the shared prelude for a backdrop material (steps A
+     * and B, and the pixel capture), not before it. */
     const rdx=fx.reed;
     if(rdx&&fxOn(obj,'reed')&&obj.type!=='text'&&window.ReedGlassEngine&&window.ReedGlassEngine.available()){
       /* A sheet of fluted glass: it reads the page BENEATH it and refracts it,
@@ -3899,7 +3928,11 @@ function drawOneInner(c,W,H,obj){
       const _rc=_reedSrc.getContext('2d');
       _rc.setTransform(1,0,0,1,0,0);
       _rc.globalCompositeOperation='copy';   // replaces alpha too, so empty page stays empty
-      _rc.drawImage(c.canvas,0,0);
+      /* From the CLEAN page when the layer casts a shadow (step A), so the
+       * flutes cannot refract the layer's own shadow — the same source Glass
+       * reads. Without a behind effect there is no snapshot and the live
+       * canvas is the page. */
+      _rc.drawImage(cleanBackdrop||c.canvas,0,0);
       _rc.globalCompositeOperation='source-over';
       const img=window.ReedGlassEngine.render(_reedSrc,c.canvas.width,c.canvas.height,sbox,
         canvasRect(tm,0,0,fr.w,fr.h),
@@ -3914,36 +3947,18 @@ function drawOneInner(c,W,H,obj){
         pathFor(c,obj); c.clip();
         c.drawImage(img,obj.x,obj.y,obj.w,obj.h);
         c.restore();
+        /* Steps D and E, as for Solid 3D: the tile was painted straight onto
+         * c, so there is nothing to composite from a clean copy — but the
+         * over slot (grain, inner shadow, stripe) and the pixel slot (noise,
+         * blur, bloom, the colour and channel filters) still apply. This
+         * branch used to RETURN before either, and before the behind pass
+         * above: Noise added on a reed layer did nothing, measured as no
+         * change in high-frequency energy at any amount, and a reed layer
+         * cast no shadow. */
+        finishBackdropMaterial(c,obj,null,backdropPixelState);
         return;
       }
     }
-    const gla=fx.glass;
-    /* The active backdrop material, asked ONCE and used for both the
-     * behind-slot pre-pass and the pixel capture below. Text is excluded
-     * throughout because these engines take their geometry from a box. */
-    const _FSm=window.FxStack, _mat=(_FSm&&obj.fx)?_FSm.activeMaterial(obj.fx):null;
-    const _isBackdropMat=!!(_mat&&_FSm.isBackdrop(_mat.type)&&obj.type!=='text');
-    let cleanBackdrop=null;
-    if(_isBackdropMat){
-      /* Material renderers return before the ordinary shape painter, where
-       * behind-slot effects normally run. Paint only that slot first so a
-       * backdrop-material layer can cast shadows and outer glows without
-       * painting its ordinary fill. drawObject's backdrop isolation also
-       * removes the caster interior, so the material cannot refract its own
-       * shadow — the shadow follows the LAYER SILHOUETTE, not the refracted
-       * pixels.
-       *
-       * This was gated on `glass` specifically, so a Lens layer cast nothing
-       * at all: measured 0.0 luminance darkening below the shape against 19.8
-       * for the same shadow on Glass and 61.6 on a plain rect. Same reason the
-       * pixel-effect gate had to be generalized — the classification belongs
-       * to FxStack, not to a type name spelled out here. */
-      cleanBackdrop=snapshotClean(c);                       // A: before any behind effect
-      obj.__behindOnly=true;                                 // B
-      try{ drawObject(c,obj); }finally{ delete obj.__behindOnly; }
-    }
-    // clean + this layer's shadows: the restore target for step E
-    const backdropPixelState=_isBackdropMat?captureBackdropMaterialPixels(c,obj):null;
     if(gla&&fxOn(obj,'glass')&&obj.type!=='text'&&gla.mode==='solid3d'&&window.GlassObjectEngine&&window.GlassObjectEngine.available()){
       const base=DEFAULT_EFFECTS().glass3d;
       const g3=Object.assign({},base,{on:true,mat:(gla.frost||0)>8?'frosted':'glass',tint:gla.tint,
