@@ -191,7 +191,8 @@ void main(){
   vec2 dir = vec2(cos(uAngle), sin(uAngle));
   vec2 p0 = here();
   float t0 = dot(p0, dir);
-  float frostR = uFrost * hw;
+  /* Frost's reach: a full flute of diffusion at 100, whatever the pitch. */
+  float frostR = uFrost * fw;
   float frostRot = 6.2831853 * hash(p0 * 0.7 + 3.1);
   vec3 acc = vec3(0.0);
   for (int j = 0; j < AA; j++) {
@@ -210,6 +211,13 @@ void main(){
     vec3 col = vec3(frostedAt(p, (tr.x - u) * hw, dir, frostR, frostRot).r,
                     frostedAt(p, (tg.x - u) * hw, dir, frostR, frostRot).g,
                     frostedAt(p, (tb.x - u) * hw, dir, frostR, frostRot).b);
+    /* FROST, the rest of it. A sandblasted surface also scatters some of the
+     * light falling on it back OUT, which lifts the panel toward a milky
+     * white and flattens its contrast. Diffusion alone was invisible over a
+     * smooth page — a mesh blurred is the same mesh — and that is where it
+     * was first tried. Applied to the transmitted term only, before the
+     * reflection is added, so the highlight and the seams keep their depth. */
+    col = mix(col, vec3(0.94), 0.35 * uFrost);
     vec3 trans = vec3(tr.y, tg.y, tb.y);
     vec3 mir = vec3(0.0);
     for (int k = -2; k <= 2; k++) mir += srcAt(p, float(k) * fw * 0.6, dir);
@@ -229,6 +237,9 @@ void main(){
     acc += c;
   }
   vec3 c = acc / float(AA);
+  /* The microfacets of a frosted surface read as a fine grain, up to about
+   * five levels either way at 100 — over the dither, which stays. */
+  c += (hash(gl_FragCoord.xy * 1.37 + 7.0) - 0.5) * (0.10 * uFrost);
   c += (hash(gl_FragCoord.xy) - 0.5) / 255.0;        // dither
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
@@ -355,7 +366,7 @@ void main(){
   window.ReedGlassEngine = {
     /* Stamped so "is this the build with the fix in it" is one line in the
        console rather than a round of screenshots: ReedGlassEngine.VERSION. */
-    VERSION: "20260923-frost1",
+    VERSION: "20260923-frost2",
     render,
     available: () => init(),
     PRESETS: Object.keys(PRESETS),

@@ -184,7 +184,10 @@ describe("the document keeps every parameter inside what the panel can undo", ()
     const shader = readPublic("reedglass.js");
     expect(shader).toContain("uniform float uFrost;");
     expect(shader).toContain("vec3 frostedAt(vec2 p, float d, vec2 dir, float radius, float rot){");
-    expect(shader).toContain("float frostR = uFrost * hw;");
+    expect(shader).toContain("float frostR = uFrost * fw;");
+    // diffusion alone is invisible over a smooth page: frost also lifts and grains
+    expect(shader).toContain("col = mix(col, vec3(0.94), 0.35 * uFrost);");
+    expect(shader).toContain("(hash(gl_FragCoord.xy * 1.37 + 7.0) - 0.5) * (0.10 * uFrost)");
     expect(shader).toContain(
       'gl.uniform1f(loc("uFrost"), Math.max(0, Math.min(1, (+P.frost || 0) / 100)));',
     );
