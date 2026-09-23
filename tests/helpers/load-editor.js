@@ -258,6 +258,7 @@ export function loadEditor(opts) {
    * without it that panel builds its "engine did not load" branch and none of
    * it can be tested. */
   for (const dep of [
+    "color.js",
     "structure.js",
     "fxstack.js",
     "engine-catalog.js",
