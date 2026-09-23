@@ -111,6 +111,19 @@ async function ev(expr) {
 
 await send("Page.enable");
 await send("Runtime.enable");
+/* Anything the page throws or logs as an error during the run is a finding. */
+const pageErrors = [];
+ws.on("message", (m) => {
+  const j = JSON.parse(m);
+  if (j.method === "Runtime.exceptionThrown")
+    pageErrors.push(
+      j.params.exceptionDetails?.exception?.description ||
+        j.params.exceptionDetails?.text ||
+        "exception",
+    );
+  if (j.method === "Runtime.consoleAPICalled" && j.params.type === "error")
+    pageErrors.push(j.params.args.map((a) => a.value || a.description).join(" "));
+});
 
 /* ---- the scene ---------------------------------------------------------- */
 const SCENE = `
@@ -329,6 +342,7 @@ if (MODE === "off-hashes") {
     farCorner: await diff("moverOut", "moverIn", 700, 480, 120, 60),
     footprintUnderA_OFF: await diff("moverOutOff", "moverInOff", 200, 220, 120, 60),
   };
+  results.pageErrors = pageErrors;
   fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
 }
