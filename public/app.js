@@ -582,6 +582,17 @@ function normalizeDoc(d){
     pos:clamp(+g.pos||0,-10000,10000),
     locked:!!g.locked,
   }));
+  /* SCENE MODE (lab, 23 Sep 2026). One light for the whole page — a document
+   * object like the guides, so it saves and undoes with the page, and NOT an
+   * effect: effects are per object and a light is not. Off by default, and
+   * when off nothing in the renderer reads it. The flag is the control of the
+   * experiment: does treating the page as one optical system look different? */
+  const sc=f.scene&&typeof f.scene==='object'?f.scene:{};
+  const lt=sc.light&&typeof sc.light==='object'?sc.light:{};
+  f.scene={on:sc.on===true,light:{
+    x:Number.isFinite(+lt.x)?clamp(+lt.x,-10000,10000):Math.round(f.w*0.25),
+    y:Number.isFinite(+lt.y)?clamp(+lt.y,-10000,10000):Math.round(f.h*0.15),
+  }};
   /* §6.5 artboards. `frame` stays the PAGE canvas — every existing reader of
    * frame.w/h/children keeps working — and artboards are named regions on it.
    * Membership is GEOMETRIC (a child belongs to the artboard containing its
@@ -1876,6 +1887,72 @@ function snapshotClean(c){
   g.drawImage(c.canvas,0,0);
   g.globalCompositeOperation='source-over';
   return _cleanBackdrop;
+}
+/* ---- SCENE MODE: one light for the page (lab, 23 Sep 2026) ----
+ * With the flag on, three things stop being per-object numbers and become
+ * consequences of where the one light is: which way every drop shadow falls
+ * and how far; where the highlight sits on every glass and reed surface; and
+ * the tinted shadow a glass object casts onto whatever is beneath it, which
+ * is what "light through glass" looks like on a page. The light sits at a
+ * height above the page (three quarters of the page's long side), objects
+ * a few units above it, and the rest is the geometry of that. With the flag
+ * off none of these are read: the per-object numbers apply exactly as before. */
+const SCENE_LIFT=40;               // how far above the page an object sits, in page units
+function sceneOn(){ return !!(doc&&doc.frame&&doc.frame.scene&&doc.frame.scene.on); }
+function sceneLight(){
+  const f=doc.frame, L=(f.scene&&f.scene.light)||{x:f.w*0.25,y:f.h*0.15};
+  return {x:L.x,y:L.y,h:0.75*Math.max(f.w,f.h)};
+}
+/** The light as seen from an object's centre: the vector from the light to
+ *  the centre (page units), its length, the azimuth (degrees, canvas y down,
+ *  0 = light to the left of the object... i.e. the direction the light's rays
+ *  travel across the page) and the elevation (degrees above the page). */
+function sceneLightAt(obj){
+  const L=sceneLight(), b=boxOf(obj);
+  const cx=b.x+b.w/2, cy=b.y+b.h/2;
+  const dx=cx-L.x, dy=cy-L.y, d=Math.hypot(dx,dy)||1e-6;
+  return {dx,dy,d,h:L.h,azimuth:Math.atan2(dy,dx)*180/Math.PI,elevation:Math.atan2(L.h,d)*180/Math.PI};
+}
+/** Where an object's shadow falls under the scene light: away from the light,
+ *  longer the farther the object is from it. */
+function sceneShadowVec(obj){
+  const s=sceneLightAt(obj), k=SCENE_LIFT/s.h;
+  return {x:s.dx*k,y:s.dy*k};
+}
+/** The glass engine's light angle for a scene light seen from an object.
+ *  The shader's convention is checked against the harness, not assumed. */
+function sceneGlassAngle(s){ return (((180-s.azimuth)%360)+360)%360; } // the shader's light vector lives in a y-up frame
+/** The reed engine's highlight angle: the light's tilt across the flutes,
+ *  as its shader defines the lobe — positive when the light is on the
+ *  side the flute's right flank faces. Degrees, in the panel's range. */
+function sceneReedAngle(obj,angleDeg){
+  const s=sceneLightAt(obj), a=(+angleDeg||0)*Math.PI/180;
+  const across=-(s.dx*Math.cos(a)+s.dy*Math.sin(a));   // light minus centre, along the across-flute axis
+  return clamp(Math.atan2(across,s.h)*180/Math.PI,-80,80);
+}
+/** Light through a glass object, on the page beneath it: its silhouette,
+ *  displaced by the light, softened with distance, multiplied in with the
+ *  colour the glass lets through — its tint, deeper for a thicker or more
+ *  absorbing glass, and never brighter than the page it lands on. */
+function paintSceneTransmission(c,obj,matType){
+  if(!sceneOn()||obj.type==='text') return;
+  const E=obj.effects||{};
+  let tint='#ffffff', density;
+  if(matType==='glass'&&E.glass){ tint=/^#[0-9a-f]{6}$/i.test(E.glass.tint||'')?E.glass.tint:'#ffffff'; density=clamp(0.12+(+E.glass.absorption||0)*0.4+(+E.glass.depth||0)/600,0.1,0.55); }
+  else if(matType==='reed'&&E.reed){ density=clamp(0.2+(+E.reed.thick||0)*0.1,0.15,0.6); }
+  else return;
+  const s=sceneLightAt(obj), v=sceneShadowVec(obj);
+  const soft=clamp(6+s.d*0.02,6,40);
+  const ink=rgbHex(hexRgb(tint).map(ch=>(255+(ch-255)*density)*0.9));
+  const OFF=1e4;   // draw the caster off the page and bring only its shadow back
+  c.save();
+  c.globalCompositeOperation='multiply';
+  c.globalAlpha=obj.opacity;
+  c.shadowColor=ink; c.shadowBlur=soft;
+  c.shadowOffsetX=v.x+OFF; c.shadowOffsetY=v.y;
+  c.translate(-OFF,0);
+  pathFor(c,obj); c.fillStyle='#000'; c.fill();
+  c.restore();
 }
 /* Step D. `plain` mirrors drawObject's own flag (a 'flood' stripe fills the
  * whole target); `transformed` says the caller already applied the object's
@@ -3255,6 +3332,9 @@ function paintSig(obj){
   if(FS&&obj.fx) obj.fx.forEach(e=>{
     if(FS.entryOn(e)) s+='|'+e.type+JSON.stringify(e.params);
   });
+  /* Scene mode: a cached paint holds the shadow the light put there, so the
+   * light's position is part of what the paint was made from. */
+  if(sceneOn()){ const L=sceneLight(); s+='|scene'+L.x+','+L.y; }
   return s;
 }
 /** How far this object's ink can spill outside its own box. */
@@ -3858,6 +3938,12 @@ function drawOneInner(c,W,H,obj){
     const _isBackdropMat=!!(_mat&&_FSm.isBackdrop(_mat.type)&&obj.type!=='text');
     let cleanBackdrop=null;
     if(_isBackdropMat){
+      /* Scene mode: light through this glass lands on the page beneath it,
+       * tinted, displaced by the light. Painted BEFORE the clean snapshot so
+       * the lens refracts the pool the way it refracts everything else
+       * under it, and the part that reaches past the silhouette shows on
+       * whatever lies below — another glass included. */
+      paintSceneTransmission(c,obj,_mat.type);
       /* Material renderers return before the ordinary shape painter, where
        * behind-slot effects normally run. Paint only that slot first so a
        * backdrop-material layer can cast shadows and outer glows without
@@ -3939,7 +4025,7 @@ function drawOneInner(c,W,H,obj){
         /* Flute pitch and seam are DOCUMENT lengths in the panel and device
          * lengths in the shader, so they scale with the canvas; everything else
          * is in flute half-widths and is already scale-free. */
-        Object.assign({},rdx,{fluteW:rdx.fluteW*sx,seamW:rdx.seamW*sx,
+        Object.assign({},rdx,sceneOn()?{lightAng:sceneReedAngle(obj,rdx.angle)}:{},{fluteW:rdx.fluteW*sx,seamW:rdx.seamW*sx,
           pageBg:fr.bg||'#ffffff'}));
       if(img){
         c.save();
@@ -4011,7 +4097,8 @@ function drawOneInner(c,W,H,obj){
        * a handful of objects. */
       const _matN=allObjects().filter(o=>o.type!=='text'&&o.effects&&o.effects.glass&&fxOn(o,'glass')).length;
       const _doCrop=(_matN>=2)||(gcw*gch>=1600000);
-      const glassParams=Object.assign({},gla,{
+      const sceneL=sceneOn()?sceneLightAt(obj):null;
+      const glassParams=Object.assign({},gla,sceneL?{lightAngle:sceneGlassAngle(sceneL),lightElevation:sceneL.elevation}:{},{
         frost:gla.mode==='frosted'?Math.max(35,gla.frost||0):gla.frost,
         flutes:gla.mode==='reeded'?gla.reedStrength:0,
         fluteWidth:gla.reedWidth,fluteAngle:gla.reedAngle,
@@ -4140,7 +4227,10 @@ function drawObject(c,obj,plain){
            * screenshot failure); expanding the shadow kernel widens coverage
            * while keeping the edge continuous. */
           sc.shadowColor=ink; sc.shadowBlur=sd.blur+sd.spread;
-          sc.shadowOffsetX=sd.x; sc.shadowOffsetY=sd.y;
+          /* Scene mode: the offset is where the page light puts it, not the
+           * pair of numbers on the object. Off, exactly the numbers. */
+          const so=sceneOn()?sceneShadowVec(obj):{x:sd.x,y:sd.y};
+          sc.shadowOffsetX=so.x; sc.shadowOffsetY=so.y;
           sc.beginPath(); mkPath(sc);
           sc.fillStyle=ink; sc.fill();
         }
@@ -4923,6 +5013,17 @@ function paint(){
       ctx.strokeStyle=i===meshSel?'#2563eb':'rgba(255,255,255,.95)';
       ctx.stroke();
     });
+    ctx.restore();
+  })();
+  /* The scene light, when scene mode is on: a sun you can drag. Drawn in
+   * page space like the mesh net, sized in screen pixels. */
+  (function drawSceneLight(){
+    if(!sceneOn()) return;
+    const L=sceneLight(), r=9/z;
+    ctx.save();
+    ctx.lineWidth=2/z; ctx.strokeStyle='#2563eb'; ctx.fillStyle='#fff7d6';
+    for(let k=0;k<8;k++){ const a=k*Math.PI/4; ctx.beginPath(); ctx.moveTo(L.x+Math.cos(a)*r*1.5,L.y+Math.sin(a)*r*1.5); ctx.lineTo(L.x+Math.cos(a)*r*2.2,L.y+Math.sin(a)*r*2.2); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(L.x,L.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
   })();
   // ---- screen-space chrome (line widths divided by z stay constant) ----
@@ -10728,6 +10829,13 @@ canvas.addEventListener('pointerdown',e=>{
     cap(); refresh();
   })();
   if(drag&&drag.mode==='beamSrc') return;
+  if(sceneOn()&&!drag){
+    const L=sceneLight();
+    if(Math.hypot(p.x-L.x,p.y-L.y)<=12/view.z){
+      drag={mode:'light',dx:L.x-p.x,dy:L.y-p.y};
+      e.preventDefault(); return;
+    }
+  }
   (function(){
     const ME=window.MeshGradient;
     if(!ME||!ME.available()) return;
@@ -11066,6 +11174,12 @@ canvas.addEventListener('pointermove',e=>{
     refresh();
     return;
   }
+  if(drag.mode==='light'){
+    const L=doc.frame.scene.light;
+    L.x=Math.round(p.x+drag.dx); L.y=Math.round(p.y+drag.dy);
+    paintCacheClear(); render(); paint();
+    return;
+  }
   if(drag.mode==='meshPt'){
     const M=drag.obj.effects.mesh, b=drag.box, pt=M.points[drag.i];
     if(pt){
@@ -11233,6 +11347,7 @@ canvas.addEventListener('pointermove',e=>{
   }
 });
 const endDrag=e=>{
+  if(drag&&drag.mode==='light'){ drag=null; pushHistory('Move light'); refresh(); return; }
   if(!drag) return;
   const d=drag; drag=null;
   snapLines=[]; snapIndex=null;
@@ -12651,6 +12766,7 @@ function syncMenuChecks(){
   document.querySelectorAll('.dropdown button[data-check]').forEach(b=>{
     let on=false;
     if(b.dataset.check==='rulers') on=showRulers;
+    else if(b.dataset.check==='scene') on=!!(doc&&doc.frame.scene&&doc.frame.scene.on);
     else if(b.dataset.check==='grid') on=!!(doc&&doc.frame.grid&&doc.frame.grid.show);
     else if(b.dataset.check==='snap') on=!!snapCfg.on;
     else if(b.dataset.check==='guides') on=!!(doc&&!guidesHidden);
@@ -12972,6 +13088,7 @@ const CMDS={
   },
   clearHistory(){ if(HIST){ HIST.reset(); syncHistoryPanel(); } },
   toggleRulers(){ showRulers=!showRulers; syncRulersClass(); paint(); },
+  toggleScene(){ if(doc){ doc.frame.scene.on=!doc.frame.scene.on; paintCacheClear(); pushHistory(doc.frame.scene.on?'Scene mode on':'Scene mode off'); render(); paint(); syncMenuChecks(); } },
   toggleGrid(){ if(doc){ doc.frame.grid.show=!doc.frame.grid.show; pushHistory(); render(); } },
   toggleSnap(){ snapCfg.on=!snapCfg.on; paint(); },
   toggleGuides(){ if(doc){ guidesHidden=!guidesHidden; paint(); } },
@@ -13653,6 +13770,9 @@ window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d
   get sel(){return sel;}, set sel(i){setSel(i); refresh();},
   /* Mesh editing state, for QA: the mode and which handle is picked. */
   setMeshEdit, get meshSel(){return meshSel;}, set meshSel(i){meshSel=i; refresh();},
+  /* Scene mode (lab): the light, the derived geometry, the toggle. */
+  sceneOn, sceneLight, sceneLightAt, sceneShadowVec, sceneGlassAngle, sceneReedAngle,
+  toggleScene(){ CMDS.toggleScene(); },
   get selInstance(){return selInstance;},
   get view(){return view;},
   get snapCfg(){return snapCfg;},

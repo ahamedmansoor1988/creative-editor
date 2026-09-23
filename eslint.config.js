@@ -116,6 +116,12 @@ module.exports = [
     },
   },
 
+  // The scene-mode lab harness: ESM on Node, driving headless Chrome.
+  {
+    files: ["lab/**/*.mjs"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: { ...globals.node } },
+  },
+
   // Must stay last: turns off stylistic rules that would fight Prettier.
   prettier,
 ];

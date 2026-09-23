@@ -884,8 +884,10 @@ function render(frameCanvas, W, H, geoms, P){
   gl.uniform1f(loc.fluteMode,P.fluteMode||0);
   gl.uniform1f(loc.fluteCount,P.fluteCount||10);
   gl.uniform1f(loc.fluteRandom,0);
-  gl.uniform1f(loc.lightAngle,45);
-  gl.uniform1f(loc.lightElevation,30);
+  /* The standalone's pinned light, unless the caller places one: scene mode
+   * (app.js) hands every glass the same page light, as seen from that glass. */
+  gl.uniform1f(loc.lightAngle,P.lightAngle===undefined?45:P.lightAngle);
+  gl.uniform1f(loc.lightElevation,P.lightElevation===undefined?30:P.lightElevation);
   gl.uniform1f(loc.debugView,0);
 
   gl.uniform1f(loc.depth,P.depth);
