@@ -7666,7 +7666,23 @@ function buildFxSection(obj,page,add,body){
           ${isFill?'<option value="image">Image fill</option>':''}</select></label>`);
         body.querySelectorAll('.apKind')[fi].value=f.kind;
         if(f.kind==='solid'){
-          add(`<label class="slider">Color <input type="color" class="apColor" data-i="${fi}" value="${f.color}"></label>`);
+          /* THE COLOUR OF WHAT IS SELECTED. A mesh replaces the fill, so the
+           * fill's own colour changes nothing on screen — Mansoor set it to
+           * yellow with a mesh point selected and watched the mesh stay blue.
+           * With a point selected, this row colours that point, the same
+           * value the Mesh step's own control edits; with none, the row says
+           * why it will not show and how to pick one. */
+          const M=isFill&&fi===0&&obj.effects&&obj.effects.mesh&&fxOn(obj,'mesh')?obj.effects.mesh:null;
+          const meshPt=M&&meshSel!=null&&Array.isArray(M.points)&&M.points[meshSel]?M.points[meshSel]:null;
+          if(meshPt){
+            add(`<label class="slider uiRow"><span>Point ${meshSel+1} colour</span><input type="color" id="apMeshCol" value="${rgbHex(meshPt.color)}" aria-label="Selected mesh point colour"></label>`);
+            add(`<div class="fxHint">The fill is replaced by Mesh gradient; this colours the selected point.</div>`);
+            $('apMeshCol').addEventListener('input',e=>{ meshPt.color=hexRgb(e.target.value); paintCacheClear(); render(); });
+            $('apMeshCol').addEventListener('change',()=>pushHistory());
+          }else{
+            add(`<label class="slider">Color <input type="color" class="apColor" data-i="${fi}" value="${f.color}"></label>`);
+            if(M) add(`<div class="fxHint">Replaced by Mesh gradient — click a handle on the canvas to colour a point.</div>`);
+          }
         }else if(f.kind==='image'){
           add(imageFillEditorHTML(f,'apImg',fi));
         }else{
@@ -13635,6 +13651,8 @@ pushHistory(); refresh();
 window.__editor={ get doc(){return doc;}, set doc(d){setActiveDoc(normalizeDoc(d)); setSel(-1); selInstance=null; pushHistory(); refresh();},
   get pages(){return pages;}, get pageIdx(){return pageIdx;}, setActivePage,
   get sel(){return sel;}, set sel(i){setSel(i); refresh();},
+  /* Mesh editing state, for QA: the mode and which handle is picked. */
+  setMeshEdit, get meshSel(){return meshSel;}, set meshSel(i){meshSel=i; refresh();},
   get selInstance(){return selInstance;},
   get view(){return view;},
   get snapCfg(){return snapCfg;},
