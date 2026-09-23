@@ -1,0 +1,24 @@
+{
+  "sources": {
+    "A": {
+      "path": "/Users/mansoorahamed/Documents/execution agent/highres-webgl-app.html",
+      "sha1": "10541b83d313",
+      "lines": 1483
+    },
+    "B": {
+      "path": "/Users/mansoorahamed/Desktop/creative-editor/public/glass.js",
+      "sha1": "99ff4c345b9f",
+      "lines": 993
+    },
+    "C": {
+      "path": "/Users/mansoorahamed/Documents/2026_Files/Website-Claude/refract/lib/glass.ts",
+      "sha1": "d80d90c969e3",
+      "lines": 722
+    }
+  },
+  "substitutions": {
+    "A": "GLSL `float eta = 1.0 / 1.52;` -> `float eta = 1.0 / labIor;` (+ `uniform float labIor;`)",
+    "B": "none (takes P.ior natively)",
+    "C": "JS `gl.uniform1f(u.u_eta, 1 / 1.52);` -> `gl.uniform1f(u.u_eta, 1 / num(params, \"ior\", 1.52));`"
+  }
+}

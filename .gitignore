@@ -20,3 +20,9 @@ research/
 # A separate project (with its own git repo) that ended up inside this folder
 # by accident on 18 Sep 2026. Never ours to track.
 ~stillspeaking/
+# Lab output is untracked except the deliverables each lab names explicitly.
+lab-out/*
+!lab-out/glass-compare/
+lab-out/glass-compare/*
+!lab-out/glass-compare/before/
+!lab-out/glass-compare/after/

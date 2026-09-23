@@ -31,6 +31,8 @@ module.exports = [
       // linting it reports style choices we must not "fix", and editing it would
       // break the provenance recorded in THIRD-PARTY-NOTICES.md.
       "public/clipper2.mjs",
+      // Lab output: rendered PNGs, measurements, built harness pages. Not source.
+      "lab-out/**",
     ],
   },
 
@@ -114,6 +116,17 @@ module.exports = [
     rules: {
       "no-empty": ["error", { allowEmptyCatch: true }],
     },
+  },
+
+  // Lab harnesses: ESM on Node, driving headless Chrome.
+  {
+    files: ["lab/**/*.mjs"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: { ...globals.node } },
+  },
+  // Lab page code: runs inside the harness page.
+  {
+    files: ["lab/**/harness-core.js"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "script", globals: { ...globals.browser } },
   },
 
   // Must stay last: turns off stylistic rules that would fight Prettier.
