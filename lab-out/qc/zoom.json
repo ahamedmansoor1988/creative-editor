@@ -1,0 +1,185 @@
+{
+  "steps": {
+    "zoom0.25": {
+      "view": {
+        "z": 0.25,
+        "x": 225,
+        "y": 250,
+        "mode": "free"
+      },
+      "viewAfterPaint": {
+        "z": 0.25,
+        "x": 225,
+        "y": 250,
+        "mode": "free"
+      },
+      "viewHeld": true,
+      "lightScreen": {
+        "x": 300,
+        "y": 300
+      },
+      "sunPixel": [
+        255,
+        247,
+        214
+      ],
+      "ringPixel": [
+        37,
+        99,
+        235
+      ],
+      "awayPixel": [
+        56,
+        99,
+        215
+      ],
+      "sunDrawn": true,
+      "ringDrawn": true,
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "L1": {
+        "x": 460,
+        "y": 200,
+        "h": 675
+      },
+      "movedBy": 160,
+      "expectedMove": 160,
+      "grabbedInsideRadius": true,
+      "L2": {
+        "x": 460,
+        "y": 200,
+        "h": 675
+      },
+      "missedOutsideRadius": true,
+      "historyPushed": 2,
+      "histTail": [
+        "Move light",
+        "Move"
+      ]
+    },
+    "zoom1": {
+      "view": {
+        "z": 1,
+        "x": 0,
+        "y": 100,
+        "mode": "free"
+      },
+      "viewAfterPaint": {
+        "z": 1,
+        "x": 0,
+        "y": 100,
+        "mode": "free"
+      },
+      "viewHeld": true,
+      "lightScreen": {
+        "x": 300,
+        "y": 300
+      },
+      "sunPixel": [
+        255,
+        247,
+        214
+      ],
+      "ringPixel": [
+        37,
+        99,
+        235
+      ],
+      "awayPixel": [
+        228,
+        162,
+        30
+      ],
+      "sunDrawn": true,
+      "ringDrawn": true,
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "L1": {
+        "x": 340,
+        "y": 200,
+        "h": 675
+      },
+      "movedBy": 40,
+      "expectedMove": 40,
+      "grabbedInsideRadius": true,
+      "L2": {
+        "x": 340,
+        "y": 200,
+        "h": 675
+      },
+      "missedOutsideRadius": true,
+      "historyPushed": 2,
+      "histTail": [
+        "Move light",
+        "Move"
+      ]
+    },
+    "zoom4": {
+      "view": {
+        "z": 4,
+        "x": -900,
+        "y": -500,
+        "mode": "free"
+      },
+      "viewAfterPaint": {
+        "z": 4,
+        "x": -900,
+        "y": -500,
+        "mode": "free"
+      },
+      "viewHeld": true,
+      "lightScreen": {
+        "x": 300,
+        "y": 300
+      },
+      "sunPixel": [
+        255,
+        247,
+        214
+      ],
+      "ringPixel": [
+        37,
+        99,
+        235
+      ],
+      "awayPixel": [
+        219,
+        219,
+        221
+      ],
+      "sunDrawn": true,
+      "ringDrawn": true,
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "L1": {
+        "x": 310,
+        "y": 200,
+        "h": 675
+      },
+      "movedBy": 10,
+      "expectedMove": 10,
+      "grabbedInsideRadius": true,
+      "L2": {
+        "x": 310,
+        "y": 200,
+        "h": 675
+      },
+      "missedOutsideRadius": true,
+      "historyPushed": 2,
+      "histTail": [
+        "Move light",
+        "Move"
+      ]
+    }
+  },
+  "pageErrors": []
+}

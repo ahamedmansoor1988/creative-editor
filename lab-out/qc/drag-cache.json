@@ -1,0 +1,14 @@
+{
+  "before": "17ed42b07fb4",
+  "light": {
+    "x": 500,
+    "y": 320
+  },
+  "afterDrag": "4397c2c60622",
+  "fresh": "4397c2c60622",
+  "dragMatchesFresh": true,
+  "dragChangedRender": true,
+  "cacheBefore": 55,
+  "cacheAfter": 55,
+  "pageErrors": []
+}

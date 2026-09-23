@@ -4098,7 +4098,10 @@ function drawOneInner(c,W,H,obj){
       const _matN=allObjects().filter(o=>o.type!=='text'&&o.effects&&o.effects.glass&&fxOn(o,'glass')).length;
       const _doCrop=(_matN>=2)||(gcw*gch>=1600000);
       const sceneL=sceneOn()?sceneLightAt(obj):null;
-      const glassParams=Object.assign({},gla,sceneL?{lightAngle:sceneGlassAngle(sceneL),lightElevation:sceneL.elevation}:{},{
+      /* Explicit undefined when off: a document that carries these keys in its
+       * glass bag (hand-edited, or from another tool) must still render as it
+       * did before the engine could take a light — the flag is the control. */
+      const glassParams=Object.assign({},gla,{lightAngle:sceneL?sceneGlassAngle(sceneL):undefined,lightElevation:sceneL?sceneL.elevation:undefined},{
         frost:gla.mode==='frosted'?Math.max(35,gla.frost||0):gla.frost,
         flutes:gla.mode==='reeded'?gla.reedStrength:0,
         fluteWidth:gla.reedWidth,fluteAngle:gla.reedAngle,
@@ -4257,7 +4260,8 @@ function drawObject(c,obj,plain){
               c.save(); c.translate(Math.cos(a)*d,Math.sin(a)*d); drawTextGlyphs(c,obj,'fill'); c.restore(); }
           }else{
             const ink=hexAlpha(p.color,p.alpha);
-            c.shadowColor=ink; c.shadowBlur=p.blur+p.spread; c.shadowOffsetX=p.x; c.shadowOffsetY=p.y;
+            const so=sceneOn()?sceneShadowVec(obj):{x:p.x,y:p.y};   // scene mode: the light decides, for text as for shapes
+            c.shadowColor=ink; c.shadowBlur=p.blur+p.spread; c.shadowOffsetX=so.x; c.shadowOffsetY=so.y;
             c.fillStyle=ink; drawTextGlyphs(c,obj,'fill');
           }
           c.restore();
@@ -11175,8 +11179,9 @@ canvas.addEventListener('pointermove',e=>{
     return;
   }
   if(drag.mode==='light'){
+    if(!sceneOn()){ drag=null; return; }   // switched off mid-drag: the light is gone, so is the drag
     const L=doc.frame.scene.light;
-    L.x=Math.round(p.x+drag.dx); L.y=Math.round(p.y+drag.dy);
+    L.x=clamp(Math.round(p.x+drag.dx),-10000,10000); L.y=clamp(Math.round(p.y+drag.dy),-10000,10000);   // what normalizeDoc would keep
     paintCacheClear(); render(); paint();
     return;
   }
@@ -13088,7 +13093,7 @@ const CMDS={
   },
   clearHistory(){ if(HIST){ HIST.reset(); syncHistoryPanel(); } },
   toggleRulers(){ showRulers=!showRulers; syncRulersClass(); paint(); },
-  toggleScene(){ if(doc){ doc.frame.scene.on=!doc.frame.scene.on; paintCacheClear(); pushHistory(doc.frame.scene.on?'Scene mode on':'Scene mode off'); render(); paint(); syncMenuChecks(); } },
+  toggleScene(){ if(doc){ if(drag&&drag.mode==='light') drag=null; doc.frame.scene.on=!doc.frame.scene.on; paintCacheClear(); pushHistory(doc.frame.scene.on?'Scene mode on':'Scene mode off'); render(); paint(); syncMenuChecks(); } },
   toggleGrid(){ if(doc){ doc.frame.grid.show=!doc.frame.grid.show; pushHistory(); render(); } },
   toggleSnap(){ snapCfg.on=!snapCfg.on; paint(); },
   toggleGuides(){ if(doc){ guidesHidden=!guidesHidden; paint(); } },

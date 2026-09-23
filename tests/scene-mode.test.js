@@ -140,6 +140,20 @@ describe("OFF is the old renderer", () => {
     );
     expect(app).toContain("if(sceneOn()){ const L=sceneLight(); s+='|scene'+L.x+','+L.y; }");
   });
+  it("QC-02/03/04/05: off means no light key reaches glass, text shadows follow, the drag clamps and dies with the mode", () => {
+    expect(app).toContain(
+      "const glassParams=Object.assign({},gla,{lightAngle:sceneL?sceneGlassAngle(sceneL):undefined,lightElevation:sceneL?sceneL.elevation:undefined},{",
+    );
+    expect(app).toContain(
+      "const so=sceneOn()?sceneShadowVec(obj):{x:p.x,y:p.y};   // scene mode: the light decides, for text as for shapes",
+    );
+    expect(app).toContain(
+      "L.x=clamp(Math.round(p.x+drag.dx),-10000,10000); L.y=clamp(Math.round(p.y+drag.dy),-10000,10000);",
+    );
+    expect(app).toContain("if(!sceneOn()){ drag=null; return; }   // switched off mid-drag");
+    expect(app).toContain("toggleScene(){ if(doc){ if(drag&&drag.mode==='light') drag=null;");
+  });
+
   it("the glass engine keeps its pinned light unless one is placed", () => {
     const glass = readPublic("glass.js");
     expect(glass).toContain(

@@ -31,6 +31,9 @@ module.exports = [
       // linting it reports style choices we must not "fix", and editing it would
       // break the provenance recorded in THIRD-PARTY-NOTICES.md.
       "public/clipper2.mjs",
+      // The scene lab's output: PNGs, measurements, and the headless Chrome
+      // profiles it spawns. Not source.
+      "lab-out/**",
     ],
   },
 

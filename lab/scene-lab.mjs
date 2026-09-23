@@ -219,6 +219,16 @@ if (MODE === "off-hashes") {
     `const E = window.__editor; const R = E.DEFAULT_EFFECTS().reed; E.doc = { frame: { name: 'reed', w: 600, h: 300, bg: '#ffffff', children: [ { type: 'rect', name: 'bars', x: 0, y: 0, w: 600, h: 300, fill: { kind: 'linear', angle: 0, stops: [ { pos: 0, color: '#ff5a5f' }, { pos: 1, color: '#3b6df0' } ] } }, { type: 'rect', name: 'Reed glass', x: 60, y: 40, w: 480, h: 220, fillOpacity: 0, fill: { kind: 'solid', color: '#ffffff' }, effects: { reed: Object.assign({}, R, { on: true }), shadow: { on: true, x: 4, y: 8, blur: 12, alpha: 0.4, color: '#000000' } } } ] } }; return true;`,
   );
   hashes.reed = await capture("baseline-reed" + TAG);
+  /* QC-02: a glass bag carrying light keys from elsewhere must render as before with the flag off */
+  await ev(
+    `const E = window.__editor; E.doc = { frame: { name: 'foreign', w: 600, h: 400, bg: '#ffffff', children: [ { type: 'rect', name: 'tile', x: 40, y: 40, w: 520, h: 320, fill: { kind: 'linear', angle: 30, stops: [ { pos: 0, color: '#ff5a5f' }, { pos: 1, color: '#3b6df0' } ] } }, { type: 'ellipse', name: 'glass', x: 120, y: 80, w: 360, h: 240, fillOpacity: 0, fill: { kind: 'solid', color: '#ffffff' }, effects: { glass: Object.assign({}, E.DEFAULT_EFFECTS().glass, { on: true, mode: 'backdrop', lightAngle: 200, lightElevation: 70 }), shadow: { on: true, x: 4, y: 8, blur: 12, alpha: 0.4, color: '#000000' } } } ] } }; return true;`,
+  );
+  hashes.glassForeignLight = await capture("baseline-glass-foreign" + TAG);
+  /* QC-03: text with a drop shadow */
+  await ev(
+    `const E = window.__editor; E.doc = { frame: { name: 'text', w: 600, h: 300, bg: '#ffffff', children: [ { type: 'text', name: 't', x: 60, y: 120, text: 'Scene', size: 96, weight: 700, color: '#111318', effects: { shadow: { on: true, x: 10, y: 14, blur: 12, alpha: 0.5, color: '#000000' } } } ] } }; return true;`,
+  );
+  hashes.textShadow = await capture("baseline-text-shadow" + TAG);
   fs.writeFileSync(
     path.join(OUT, process.env.LAB_HASHES || "off-hashes.json"),
     JSON.stringify(hashes, null, 2),

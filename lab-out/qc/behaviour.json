@@ -1,0 +1,474 @@
+{
+  "toggle": {
+    "ok": true,
+    "detail": {
+      "before": {
+        "on": false,
+        "light": {
+          "x": 225,
+          "y": 90
+        }
+      },
+      "btnBefore": {
+        "exists": true,
+        "dataCheck": "scene",
+        "checked": false,
+        "aria": null,
+        "text": "Scene mode"
+      },
+      "afterOn": {
+        "on": true,
+        "light": {
+          "x": 225,
+          "y": 90
+        }
+      },
+      "btnOn": {
+        "exists": true,
+        "dataCheck": "scene",
+        "checked": true,
+        "aria": "true",
+        "text": "Scene mode"
+      },
+      "histOn": [
+        "Original",
+        "Move",
+        "Scene mode on"
+      ],
+      "undoVia": "menu button",
+      "afterUndo": {
+        "on": false,
+        "light": {
+          "x": 225,
+          "y": 90
+        }
+      },
+      "btnUndo": {
+        "exists": true,
+        "dataCheck": "scene",
+        "checked": true,
+        "aria": "true",
+        "text": "Scene mode"
+      },
+      "afterRedo": {
+        "on": true,
+        "light": {
+          "x": 225,
+          "y": 90
+        }
+      },
+      "hashes": {
+        "off": "4f0b2fc7e620",
+        "on": "2dc82fddef06",
+        "undo": "4f0b2fc7e620",
+        "redo": "2dc82fddef06"
+      },
+      "undoRestoresRender": true,
+      "redoRestoresRender": true,
+      "onDiffersFromOff": true
+    },
+    "newPageErrors": []
+  },
+  "lightDrag": {
+    "ok": true,
+    "detail": {
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "lightScreen": {
+        "x": 555.25,
+        "y": 273
+      },
+      "sunPixelAtLight": [
+        255,
+        247,
+        214,
+        255
+      ],
+      "during": {
+        "x": 352,
+        "y": 231
+      },
+      "after": {
+        "x": 352,
+        "y": 231
+      },
+      "moved": false,
+      "histBefore": 4,
+      "histAfter": [
+        "Scene mode on",
+        "Move",
+        "Move light"
+      ],
+      "pushed": true,
+      "afterHover": {
+        "x": 352,
+        "y": 231
+      },
+      "dragEnded": true,
+      "afterUndo": {
+        "x": 300,
+        "y": 200
+      },
+      "undoRestores": true
+    },
+    "newPageErrors": []
+  },
+  "serialise": {
+    "ok": true,
+    "detail": {
+      "inText": {
+        "on": true,
+        "light": {
+          "x": 333,
+          "y": 44
+        }
+      },
+      "cleared": {
+        "on": false,
+        "light": {
+          "x": 225,
+          "y": 90
+        }
+      },
+      "reloaded": {
+        "on": true,
+        "light": {
+          "x": 333,
+          "y": 44
+        }
+      },
+      "sceneOn": true,
+      "restored": true,
+      "afterRestore": {
+        "on": true,
+        "light": {
+          "x": -77,
+          "y": 512
+        }
+      },
+      "fileRoundTrip": true,
+      "autosaveRoundTrip": true
+    },
+    "newPageErrors": []
+  },
+  "emptyDocOn": {
+    "ok": true,
+    "detail": {
+      "hash": "34f813676f75",
+      "stats": {
+        "w": 600,
+        "h": 400,
+        "mean": [
+          255,
+          255,
+          255
+        ],
+        "sameAsFirstShare": 1
+      },
+      "sunPixel": [
+        255,
+        247,
+        214,
+        255
+      ],
+      "sceneAfterDoubleToggle": true
+    },
+    "newPageErrors": []
+  },
+  "textOnlyOn": {
+    "ok": true,
+    "detail": {
+      "hOff": "864172e12c23",
+      "hOn": "d248f3be8b8c",
+      "differs": true,
+      "diff": {
+        "meanAbs": 0.657,
+        "changedShare": 0.136
+      },
+      "stats": {
+        "w": 800,
+        "h": 400,
+        "mean": [
+          241.3,
+          241.3,
+          241.3
+        ],
+        "sameAsFirstShare": 0.8458
+      },
+      "textShadowVec": {
+        "x": -22.63118896484375,
+        "y": 6.5600000000000005
+      }
+    },
+    "newPageErrors": []
+  },
+  "lightFarOff": {
+    "ok": true,
+    "detail": {
+      "hash": "e872505c0510",
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          183.6,
+          172.8,
+          176.8
+        ],
+        "sameAsFirstShare": 0.2097
+      },
+      "geo": {
+        "light": {
+          "x": -5000,
+          "y": -5000,
+          "h": 675
+        },
+        "at": {
+          "dx": 5350,
+          "dy": 5270,
+          "d": 7509.687077368803,
+          "h": 675,
+          "azimuth": 44.5684015382902,
+          "elevation": 5.1361661834861625
+        },
+        "vec": {
+          "x": 317.03703703703707,
+          "y": 312.2962962962963
+        },
+        "glassAngle": 135.43159846170977,
+        "reedAngle": -80
+      },
+      "draggedTo": {
+        "x": -10000,
+        "y": -10000
+      },
+      "reloadedAs": {
+        "x": -10000,
+        "y": -10000
+      },
+      "storedEqualsReloaded": true,
+      "renderSameAfterReload": true
+    },
+    "newPageErrors": []
+  },
+  "toggleDuringDrag": {
+    "ok": true,
+    "detail": {
+      "histBefore": 3,
+      "mid": {
+        "on": true,
+        "light": {
+          "x": 331,
+          "y": 231
+        }
+      },
+      "afterToggleMove": {
+        "on": false,
+        "light": {
+          "x": 331,
+          "y": 231
+        }
+      },
+      "end": {
+        "on": false,
+        "light": {
+          "x": 331,
+          "y": 231
+        }
+      },
+      "hover": {
+        "x": 331,
+        "y": 231
+      },
+      "dragEnded": true,
+      "histTail": [
+        "Original",
+        "Change",
+        "Effects",
+        "Scene mode off"
+      ],
+      "hash": "4a2d191db257",
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          189.3,
+          180.2,
+          185.3
+        ],
+        "sameAsFirstShare": 0.2601
+      },
+      "regrabbed": true
+    },
+    "newPageErrors": []
+  },
+  "glassOpacity03On": {
+    "ok": true,
+    "detail": {
+      "hOff": "b436f30a1557",
+      "hOn": "445199e2d443",
+      "differs": true,
+      "diff": {
+        "meanAbs": 2.006,
+        "changedShare": 0.2719
+      },
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          188.5,
+          178.4,
+          183.4
+        ],
+        "sameAsFirstShare": 0.2634
+      }
+    },
+    "newPageErrors": []
+  },
+  "rotatedGlassOn": {
+    "ok": true,
+    "detail": {
+      "hOff": "90fbf4219059",
+      "hOn": "41e7872aaaee",
+      "differs": true,
+      "diff": {
+        "meanAbs": 6.769,
+        "changedShare": 0.2949
+      },
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          185.5,
+          172.9,
+          177.6
+        ],
+        "sameAsFirstShare": 0.2531
+      },
+      "box": {
+        "box": {
+          "x": 150,
+          "y": 120,
+          "w": 400,
+          "h": 300
+        },
+        "at": {
+          "dx": -100,
+          "dy": 210,
+          "d": 232.59406699226014,
+          "h": 675,
+          "azimuth": 115.46334506187162,
+          "elevation": 70.98687829990111
+        }
+      }
+    },
+    "newPageErrors": []
+  },
+  "zoom0.25": {
+    "ok": true,
+    "detail": {
+      "view": {
+        "z": 0.965,
+        "x": 265.75,
+        "y": 80
+      },
+      "lightScreen": {
+        "x": 555.25,
+        "y": 273
+      },
+      "sunPixel": [
+        255,
+        247,
+        214,
+        255
+      ],
+      "ringPixel": [
+        37,
+        99,
+        235,
+        255
+      ],
+      "awayPixel": [
+        229,
+        141,
+        31,
+        255
+      ],
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "L1": {
+        "x": 341,
+        "y": 200,
+        "h": 675
+      },
+      "movedBy": 41,
+      "expectedMove": 160,
+      "grabbedInsideRadius": false,
+      "L2": {
+        "x": 341,
+        "y": 200,
+        "h": 675
+      },
+      "missedOutsideRadius": true
+    },
+    "newPageErrors": []
+  },
+  "zoom4": {
+    "ok": true,
+    "detail": {
+      "view": {
+        "z": 0.965,
+        "x": 265.75,
+        "y": 80
+      },
+      "lightScreen": {
+        "x": 555.25,
+        "y": 273
+      },
+      "sunPixel": [
+        255,
+        247,
+        214,
+        255
+      ],
+      "ringPixel": [
+        37,
+        99,
+        235,
+        255
+      ],
+      "awayPixel": [
+        229,
+        141,
+        31,
+        255
+      ],
+      "L0": {
+        "x": 300,
+        "y": 200,
+        "h": 675
+      },
+      "L1": {
+        "x": 341,
+        "y": 200,
+        "h": 675
+      },
+      "movedBy": 41,
+      "expectedMove": 10,
+      "grabbedInsideRadius": false,
+      "L2": {
+        "x": 341,
+        "y": 200,
+        "h": 675
+      },
+      "missedOutsideRadius": true
+    },
+    "newPageErrors": []
+  },
+  "pageErrors": []
+}

@@ -47,3 +47,5 @@ public/light-beam.css
 public/shape-composer.html
 public/shape-composer.css
 public/shape-divider-tool.js
+# the scene lab's output (see lab/scene-lab.mjs)
+lab-out/

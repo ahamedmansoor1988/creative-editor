@@ -1,0 +1,59 @@
+{
+  "offHash": "5aa95cdd21ea",
+  "onHash": "2df8d96f8f73",
+  "onVsOff": {
+    "whole": 13.49,
+    "overlapBC": 42.27
+  },
+  "lightRightMinusLeft": {
+    "litThirds": {
+      "A": {
+        "leftThird": -3.41,
+        "rightThird": 0.23
+      },
+      "B": {
+        "leftThird": -8.05,
+        "rightThird": 8.68
+      },
+      "C": {
+        "leftThird": -10.65,
+        "rightThird": 8.13
+      }
+    },
+    "shadowStrips": {
+      "A": {
+        "leftStrip": -44.32,
+        "rightStrip": 5.25
+      },
+      "C": {
+        "leftStrip": -12.68,
+        "rightStrip": 45.95
+      }
+    },
+    "wholeFrame": 6.11
+  },
+  "optics": {
+    "interior": {
+      "depth90vs20": 3.39,
+      "ior152vs200": 0,
+      "ior152vs100": 0
+    },
+    "edgeBand": {
+      "depth90vs20": 3.44,
+      "ior152vs200": 0.32,
+      "ior152vs100": 1.12
+    },
+    "iorStoredFor1": 1,
+    "depthLeavesTilesAlone": 0.1,
+    "OFF": {
+      "interior_depth90vs20": 0.35,
+      "edgeBand_depth90vs20": 1.12
+    }
+  },
+  "behindGlass": {
+    "footprintUnderA": 38.15,
+    "restOfA": 0,
+    "farCorner": 136.1,
+    "footprintUnderA_OFF": 42.82
+  }
+}

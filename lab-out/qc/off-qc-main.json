@@ -1,0 +1,160 @@
+{
+  "app": "http://localhost:8471/",
+  "port": 9337,
+  "docs": {
+    "rectShadowGlow": {
+      "hash": "185cdd2057d0",
+      "first": "185cdd2057d0",
+      "second": "185cdd2057d0",
+      "stable": true,
+      "stats": {
+        "w": 700,
+        "h": 420,
+        "mean": [
+          211.5,
+          187.1,
+          191.4
+        ],
+        "sameAsFirstShare": 0.5319
+      },
+      "sceneKey": "null"
+    },
+    "textShadow": {
+      "hash": "3722b82ca24e",
+      "first": "3722b82ca24e",
+      "second": "3722b82ca24e",
+      "stable": true,
+      "stats": {
+        "w": 800,
+        "h": 400,
+        "mean": [
+          237.2,
+          237.2,
+          238.8
+        ],
+        "sameAsFirstShare": 0.8292
+      },
+      "sceneKey": "null"
+    },
+    "meshRotated": {
+      "hash": "1936a58c91b5",
+      "first": "1936a58c91b5",
+      "second": "1936a58c91b5",
+      "stable": true,
+      "stats": {
+        "w": 700,
+        "h": 450,
+        "mean": [
+          173.9,
+          173.5,
+          185.3
+        ],
+        "sameAsFirstShare": 0.0853
+      },
+      "sceneKey": "null"
+    },
+    "frostedEllipseShadow": {
+      "hash": "7d39032e24bd",
+      "first": "7d39032e24bd",
+      "second": "7d39032e24bd",
+      "stable": true,
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          190.7,
+          183.9,
+          189.7
+        ],
+        "sameAsFirstShare": 0.2656
+      },
+      "sceneKey": "null"
+    },
+    "reedTile": {
+      "hash": "bbba20e252b7",
+      "first": "bbba20e252b7",
+      "second": "bbba20e252b7",
+      "stable": true,
+      "stats": {
+        "w": 700,
+        "h": 400,
+        "mean": [
+          251.3,
+          158.1,
+          79.8
+        ],
+        "sameAsFirstShare": 0.1212
+      },
+      "sceneKey": "null"
+    },
+    "glassForeignLight": {
+      "hash": "9f440f77b9fb",
+      "first": "9f440f77b9fb",
+      "second": "9f440f77b9fb",
+      "stable": true,
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          189.3,
+          181.3,
+          187
+        ],
+        "sameAsFirstShare": 0.2239
+      },
+      "sceneKey": "null"
+    },
+    "glassRotatedOpacity": {
+      "hash": "67d55b7978a0",
+      "first": "67d55b7978a0",
+      "second": "67d55b7978a0",
+      "stable": true,
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          188.4,
+          180.6,
+          186.4
+        ],
+        "sameAsFirstShare": 0.217
+      },
+      "sceneKey": "null"
+    },
+    "sceneKeyOff": {
+      "hash": "bc22fea068ca",
+      "first": "bc22fea068ca",
+      "second": "bc22fea068ca",
+      "stable": true,
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          189.6,
+          180.7,
+          186
+        ],
+        "sameAsFirstShare": 0.2291
+      },
+      "sceneKey": "{\"on\":false,\"light\":{\"x\":100,\"y\":100}}"
+    },
+    "everythingOff": {
+      "hash": "6fa0111e73ca",
+      "first": "6fa0111e73ca",
+      "second": "6fa0111e73ca",
+      "stable": true,
+      "stats": {
+        "w": 900,
+        "h": 600,
+        "mean": [
+          185.4,
+          170.4,
+          173.5
+        ],
+        "sameAsFirstShare": 0.1472
+      },
+      "sceneKey": "null"
+    }
+  },
+  "pageErrors": []
+}
