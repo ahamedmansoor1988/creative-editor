@@ -190,7 +190,7 @@
   async function generateWithAI() {
     if (busy) return
     const vision = $('vision').value.trim()
-    if (!apiKey) return setStatus('No Groq key. Put GROQ_API_KEY in Test Plugin/.env and run npm run build, or paste a key below.')
+    if (!apiKey) return setStatus('No Groq key. Paste your own key below — it is kept in this file\'s plugin storage, never in the build.')
     if (!vision && !image) return setStatus('Add a reference image or describe your vision first.')
     setBusy(true)
     try {

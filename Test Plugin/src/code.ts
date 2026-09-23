@@ -912,6 +912,8 @@ async function postState(): Promise<void> {
   })
 }
 
+/* Always empty now: the build no longer writes a key into code.js. Kept so a
+ * plugin built from an older build script still reads its key the same way. */
 function envKey(): string {
   return typeof ECT_ENV !== 'undefined' && ECT_ENV && ECT_ENV.GROQ_API_KEY ? ECT_ENV.GROQ_API_KEY : ''
 }

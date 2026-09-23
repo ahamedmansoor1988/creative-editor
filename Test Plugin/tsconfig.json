@@ -1,11 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2019",
-    "lib": ["ES2019"],
+    "lib": [
+      "ES2019"
+    ],
     "strict": true,
     "skipLibCheck": true,
     "outDir": "build",
-    "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules/@figma"
+    ],
+    "rootDir": "src"
   },
-  "files": ["src/code.ts"]
+  "files": [
+    "src/code.ts"
+  ]
 }

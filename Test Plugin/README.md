@@ -55,7 +55,7 @@ Version 1, Update 130 on 23 Jun 2026; nothing shader-related changed in 131–13
 3. **Shader** — the shader on the first shader-bearing layer, all its exposed parameters, up to 4 live sliders for NUMBER parameters.
 4. **Plugin API test** — Shapes / Gradients / Effects / Glass / Shaders = PASS / FAIL / N/A, decided by reading values back from the document. N/A means the current plan did not ask for that capability.
 
-### AI flow (Groq, key taken from the creative-editor `.env`)
+### AI flow (Groq, with the key you paste into the plugin)
 1. **Brief** — `qwen/qwen3.8-27b` (falls back to `qwen3.6-27b`) reads the reference image into a *structural* JSON brief: background kind, gradient angle and colours, up to 8 elements with shape, count, centre, size and rotation in % of the canvas, colour, alpha, softness, glow, blend; lighting; grain/blur/glass amounts; any text. Colour fields (flowing gradients, auroras) are described as 2–5 soft rotated bands. Interface chrome (buttons, badges, cursors) is ignored. Up to ~900 output tokens. The panel also measures the reference's dominant colours from its pixels (k-means, shown as swatches) and passes those exact hexes to the planner.
 2. **Plan** — `openai/gpt-oss-120b` gets the brief + measured palette + your vision + the list of shader names available in the file, and returns the layer plan. Precedence is explicit: rebuild the reference's structure first (background, every element, counts), then apply the vision as overrides and additions; if the vision names colours, the reference's colour roles are remapped onto them. Soft elements must become blurred, fading layers (never hard-edged shapes); a glass layer is added only when the vision asks for glass/panels/effects or the reference shows glass; a gradient shader is used for flowing colour-field backgrounds or when the vision asks for one. Layers: rect / ellipse / blob / text; solid, linear, radial or **shader** fills; glow, shadow, inner shadow, blur, background blur, **grain** (native Noise), **glass**, **shader** effects; blend mode; opacity; a `repeat` field expands one layer into up to 24 independent copies (streaks, bands, dots). Text layers are only allowed when the vision asks for words (quotes, "headline", "title", "label"). Without an image only this step runs.
 3. **Build** — the main thread creates the nodes, resolves shader names against `listAvailableShaders()`, imports them, applies everything, places the reference image beside the frame, and re-reads the document for the PASS/FAIL panel. Each node that carries a shader is tagged with the shader id that was applied, so sliders, tuning and reopening do not depend on the id Figma reads back (the log reports if the two differ).
@@ -111,18 +111,18 @@ Test Plugin/
 ├── src/code.ts       main thread: plan → native nodes, shaders, glass, checks, randomize/reset
 ├── src/ui.html       panel (plain HTML/CSS/JS); build inlines ai.js at <!--AI_JS-->
 ├── src/ai.js         Groq client: brief, plan, tune, plan normalisation (also used by tests)
-├── build.mjs         tsc → build/code.js → code.js (+ ECT_ENV key), src/ui.html → ui.html
+├── build.mjs         tsc → build/code.js → code.js, src/ui.html → ui.html (no key built in)
 ├── test/smoke.js     offline tests against a mock Figma API           npm test
 ├── test/ai-live.js   real Groq call + mock build                      npm run test:live -- <image> "vision"
-├── code.js, ui.html  BUILD OUTPUTS (gitignored; code.js contains the key)
-└── .env              optional GROQ_API_KEY override (gitignored); default: ../.env
+├── code.js, ui.html  BUILD OUTPUTS (gitignored; contain no key)
+└── (no .env)         the key is pasted in the plugin UI and kept in Figma client storage
 ```
 
 ### Build
 ```bash
 cd ~/Desktop/creative-editor/"Test Plugin" && npm install && npm run build
 ```
-The build reads `GROQ_API_KEY` from `./.env`, else from `../.env` (the creative-editor app).
+The build embeds no key. Open the plugin, paste your Groq key in its UI; it is saved in Figma client storage for that file and never written into `code.js`. (Until 23 Sep 2026 the build copied the app's key into `code.js`, so a built plugin carried the key with it.)
 Rebuild after editing anything in `src/`. `npm test` runs the offline suite.
 
 ### Install and test in Figma desktop

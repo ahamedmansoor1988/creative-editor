@@ -1,7 +1,7 @@
 node_modules/
 .DS_Store
 .env
-# build outputs at the plugin root (code.js carries the injected API key); src/ stays versioned
+# build outputs at the plugin root; src/ stays versioned
 build/
 /code.js
 /ui.html
