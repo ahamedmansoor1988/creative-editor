@@ -689,7 +689,7 @@ const FRAG = `#version 300 es
          * the map can bend and corrugate, but it cannot mirror or duplicate. */
         float iorGain = clamp((ior - 1.0) / 0.52, 0.0, 1.25);
         float distanceGain = clamp(backdropDistance / 10.0, 0.10, 1.25);
-        float depthGain = clamp(abs(depthSigned) / 80.0, 0.0, 1.25);
+        float depthGain = clamp(abs(depth) / 80.0, 0.0, 1.25);   // depth, not depthSigned: that is already /200
         float opticalMagnitude = min(
           sqrt(refraction01) * iorGain * distanceGain * depthGain,
           1.0
@@ -697,7 +697,13 @@ const FRAG = `#version 300 es
         float opticalGain = sign(refractionSigned) * opticalMagnitude;
         float edgeU = clamp(d / max(B, 1.0), 0.0, 1.0);
         float edgeBand = sin(PI * edgeU) * (1.0 - step(B, d));
-        vec2 edgeSampleOffset = outward * (B * 0.18 * edgeBand * opticalGain);
+        /* The edge is sampled through the refracted ray again, as in the original
+         * demo (highres-webgl-app.html 990-1013): refrOffset was defined here and
+         * never called, and its stand-in was 1/200 of its intended size. The
+         * ray-ratio saturation inside refrOffset keeps the map from folding. */
+        float refractPx = sign(refractionSigned) * pow(refraction01, 1.1) * B * 1.8;
+        float maxOff = abs(refractPx) * 1.5 + 2.0;
+        vec2 edgeSampleOffset = refrOffset(n, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;
         vec2 reedSampleOffset = reedAxis
           * (reedPeriod * 0.06 * reedWave * reedAmount * opticalGain);
         vec2 stableSampleOffset = edgeSampleOffset + reedSampleOffset;

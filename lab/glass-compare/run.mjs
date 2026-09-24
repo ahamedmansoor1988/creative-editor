@@ -140,6 +140,24 @@ if (none.maxAbsDisp > 0.05 || Math.abs(synthMean - 5) > 0.15) {
   quit(1);
 }
 
+/* LAB_ONLY=reed: just B's reeded mode, for checking a patched B quickly */
+if (process.env.LAB_ONLY === "reed") {
+  const r = await ev(
+    `return LAB.measure('B', 1.52, 0.4, { extra: { flutes: 70, fluteWidth: 26, fluteAngle: 0, fluteMode: 0, fluteCount: 10 } });`,
+  );
+  console.log(
+    "B REEDED",
+    JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k !== "profile"))),
+  );
+  png(
+    "reeded-B" + TAG,
+    await ev(
+      "return (function(){ const c = LAB.render('B', LAB.backdrop('grid', 10), Object.assign(LAB.params('B', 1.52, 0.4), { flutes: 70, fluteWidth: 26, fluteAngle: 0, fluteMode: 0, fluteCount: 10 })); return c.toDataURL('image/png'); })();",
+    ),
+  );
+  ws.close();
+  quit(0);
+}
 /* 2. the sweeps */
 const runs = [];
 for (const impl of ["A", "B", "C"]) {
@@ -154,6 +172,16 @@ for (const impl of ["A", "B", "C"])
     Object.assign(await ev(`return LAB.measure('${impl}', 1.52, 1.0, { r: 1.0 });`), {
       extreme: true,
     }),
+  );
+/* B's reeded mode (ribs across the whole face): the same units slip fed its offset */
+if (process.env.LAB_REED !== "0")
+  runs.push(
+    Object.assign(
+      await ev(
+        `return LAB.measure('B', 1.52, 0.4, { extra: { flutes: 70, fluteWidth: 26, fluteAngle: 0, fluteMode: 0, fluteCount: 10 } });`,
+      ),
+      { reeded: true },
+    ),
   );
 const slim = runs.map((r) =>
   Object.fromEntries(Object.entries(r).filter(([k]) => k !== "profile")),

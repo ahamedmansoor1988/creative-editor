@@ -327,7 +327,7 @@
   function measure(impl, ior, t, opts) {
     const R = 21,
       STEP = (opts && opts.step) || 3;
-    const P = params(impl, ior, t, opts && opts.r);
+    const P = Object.assign(params(impl, ior, t, opts && opts.r), (opts && opts.extra) || {});
     const blank = lum(render(impl, backdrop("blank"), P));
     const lines = [];
     const cx = GLASS.x + GLASS.w / 2,

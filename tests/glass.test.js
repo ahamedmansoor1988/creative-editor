@@ -46,16 +46,30 @@ describe("shared Glass capability", () => {
     window.__engines.close();
   });
 
-  it("uses a fold-safe backdrop map for extreme Glass and Reeded Glass", () => {
+  /* 24 Sep 2026. The edge used to be sampled through an analytic sine bump
+   * whose depth gain divided an already-normalised depth by 80, so it moved
+   * the backdrop by 0.01 px at any setting — glass that did not refract
+   * (lab/glass-compare: A 3.46 px, B 0.01 px, C 3.05 px at IOR 1.52). The
+   * edge is sampled through the refracted ray again, as the original demo
+   * does; refrOffset's ray-ratio saturation and maxOff cap are what keep the
+   * map from folding. That is measured, not derived: the lab's fold check
+   * counts 0 order reversals at extreme settings and in reeded mode. */
+  it("samples the edge through the refracted ray, with the depth gain in the right units", () => {
     const source = fs.readFileSync("public/glass.js", "utf8");
     expect(source).toContain("vec2 stableSampleOffset");
-    expect(source).toContain("B * 0.18 * edgeBand");
+    expect(source).toContain(
+      "vec2 edgeSampleOffset = refrOffset(n, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;",
+    );
+    expect(source).not.toContain("B * 0.18 * edgeBand");
+    expect(source).toContain("float depthGain = clamp(abs(depth) / 80.0, 0.0, 1.25);");
+    // refrOffset keeps its saturation and cap: those are the fold guard now
+    expect(source).toContain("vec2 o = v / (1.0 + 0.45 * length(v)) * refractPx;");
+    expect(source).toContain(
+      "return o * min(1.0, maxOff / max(l, 1e-3)) * smoothstep(0.0, 1.5, dPx);",
+    );
+    // the reed ribs keep their bounded analytic term; dispersion still scales one settled offset
     expect(source).toContain("reedPeriod * 0.06 * reedWave");
     expect(source).not.toContain("vec2 oG = refrOffset");
-
-    // Maximum derivative of the edge sine plus the periodic reed sine.
-    // Staying below 1 preserves sample order and prevents mirrored copies.
-    expect(Math.PI * 0.18 + 2 * Math.PI * 0.06).toBeLessThan(1);
   });
 
   it("is one ready catalog entry for all glass modes", () => {
