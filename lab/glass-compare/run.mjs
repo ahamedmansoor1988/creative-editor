@@ -140,6 +140,70 @@ if (none.maxAbsDisp > 0.05 || Math.abs(synthMean - 5) > 0.15) {
   quit(1);
 }
 
+/* LAB_ONLY=eval: evaluate LAB_EVAL in the page and print it (debugging) */
+if (process.env.LAB_ONLY === "eval") {
+  console.log(JSON.stringify(await ev(process.env.LAB_EVAL)));
+  ws.close();
+  quit(0);
+}
+/* LAB_ONLY=folds: the direct fold test over the settings that can fold */
+if (process.env.LAB_ONLY === "folds") {
+  const st = {
+    none: await ev("return LAB.mapFolds('NONE', 1.52, 0.4);"),
+    shift5: await ev("return LAB.mapFolds('SYNTH5', 1.52, 0.4);"),
+    knownFold: await ev("return LAB.mapFolds('FOLD', 1.52, 0.4);"),
+  };
+  console.log(
+    "fold self-test:",
+    JSON.stringify({
+      none: st.none.folds,
+      shift5: st.shift5.folds,
+      knownFold: st.knownFold.folds,
+      knownWorst: st.knownFold.x.worstPx,
+    }),
+  );
+  if (st.none.folds || st.shift5.folds || !st.knownFold.folds) {
+    console.error("fold test failed its self-test");
+    quit(1);
+  }
+  const REED = { flutes: 70, fluteWidth: 26, fluteAngle: 0, fluteMode: 0, fluteCount: 10 };
+  const cases = [
+    ["medium", 1.52, 0.4, {}],
+    ["extreme +", 1.52, 1.0, { r: 1.0 }],
+    ["extreme, depth -", 1.52, -1.0, { r: 1.0 }],
+    ["extreme, refraction -", 1.52, 1.0, { r: -1.0 }],
+    ["reeded", 1.52, 0.4, { extra: REED }],
+    ["reeded extreme", 1.52, 1.0, { r: 1.0, extra: Object.assign({}, REED, { flutes: 100 }) }],
+  ];
+  const out = [];
+  for (const impl of (process.env.LAB_IMPLS || "A,B,C").split(",")) {
+    for (const [name, ior, tt, o] of cases) {
+      // C has no negative depth or refraction and no flutes: not applicable
+      if (impl === "C" && (tt < 0 || (o.r || 0) < 0 || o.extra)) {
+        out.push({ impl, name, na: true });
+        continue;
+      }
+      const r = await ev(`return LAB.mapFolds('${impl}', ${ior}, ${tt}, ${JSON.stringify(o)});`);
+      out.push({
+        impl,
+        name,
+        folds: r.folds,
+        worstX: r.x.worstPx,
+        worstY: r.y.worstPx,
+        at: r.x.at || r.y.at,
+      });
+      console.log(
+        `${impl}  ${name.padEnd(22)} folds ${String(r.folds).padStart(5)}  worst x ${r.x.worstPx}  worst y ${r.y.worstPx}  at ${JSON.stringify(r.x.at || r.y.at)}`,
+      );
+    }
+  }
+  fs.writeFileSync(
+    path.join(OUT, "folds" + TAG + ".json"),
+    JSON.stringify({ selfTest: st, cases: out, pageErrors }, null, 2),
+  );
+  ws.close();
+  quit(0);
+}
 /* LAB_ONLY=reed: just B's reeded mode, for checking a patched B quickly */
 if (process.env.LAB_ONLY === "reed") {
   const r = await ev(
@@ -188,7 +252,7 @@ const slim = runs.map((r) =>
 );
 for (const r of slim)
   console.log(
-    `${r.impl}${r.extreme ? " EXTREME" : ""}  IOR ${r.ior}  t ${r.t}  max ${r.maxAbsDisp} px (${r.signAtMax}, d=${r.atDepth})  interior ${r.interiorMaxAbs}  folds ${r.folds}  lines ${r.linesMeasured}/${r.linesMeasured + r.linesLost}`,
+    `${r.impl}${r.extreme ? " EXTREME" : ""}  IOR ${r.ior}  t ${r.t}  max ${r.maxAbsDisp} px (${r.signAtMax}, d=${r.atDepth})  interior ${r.interiorMaxAbs}  lines ${r.linesMeasured}/${r.linesMeasured + r.linesLost}`,
   );
 
 /* 3. pictures */

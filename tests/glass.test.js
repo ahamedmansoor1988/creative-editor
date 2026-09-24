@@ -52,14 +52,28 @@ describe("shared Glass capability", () => {
    * (lab/glass-compare: A 3.46 px, B 0.01 px, C 3.05 px at IOR 1.52). The
    * edge is sampled through the refracted ray again, as the original demo
    * does; refrOffset's ray-ratio saturation and maxOff cap are what keep the
-   * map from folding. That is measured, not derived: the lab's fold check
-   * counts 0 order reversals at extreme settings and in reeded mode. */
+   * map from folding, with the two guards pinned below. That is measured, not
+   * derived, and the measurement needs WebGL, which this runner lacks: the
+   * lab's direct fold test (`npm run lab:glass:folds`, a ramp backdrop decoded
+   * along every row and column) counts 0 reversals for medium, extreme +/-,
+   * reeded and reeded extreme. */
   it("samples the edge through the refracted ray, with the depth gain in the right units", () => {
     const source = fs.readFileSync("public/glass.js", "utf8");
     expect(source).toContain("vec2 stableSampleOffset");
     expect(source).toContain(
-      "vec2 edgeSampleOffset = refrOffset(n, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;",
+      "vec2 edgeSampleOffset = refrOffset(nEdge, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;",
     );
+    // the edge ray takes the normal from BEFORE the flutes add their rib slope:
+    // through the ribbed normal it folded reeded glass thousands of times (QC-01)
+    const nEdgeAt = source.indexOf("vec3 nEdge = n;");
+    expect(nEdgeAt).toBeGreaterThan(0);
+    expect(nEdgeAt).toBeLessThan(source.indexOf("if (flutes > 0.5) {"));
+    // an outward sample may not reach past the rim, or the taper runs the map backwards (QC-03)
+    expect(source).toContain(
+      "edgeSampleOffset *= min(1.0, 0.9 * d / max(length(edgeSampleOffset), 1e-3));",
+    );
+    // the stand-in and its dead helpers are gone (QC-04)
+    expect(source).not.toMatch(/float edgeBand = /);
     expect(source).not.toContain("B * 0.18 * edgeBand");
     expect(source).toContain("float depthGain = clamp(abs(depth) / 80.0, 0.0, 1.25);");
     // refrOffset keeps its saturation and cap: those are the fold guard now

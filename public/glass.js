@@ -435,6 +435,7 @@ const FRAG = `#version 300 es
 
         float normalK = 0.55 + 0.85 * depth01k;
         vec3 n = normalize(vec3(dir * surfTilt * 6.4 * normalK * depthSign, 1.0));
+        vec3 nEdge = n;   // the silhouette normal: the edge refracts through this, not the flutes' ribs
 
         // Flutes: fluted/reeded glass — a repeating row of thin semicircular
         // ridges (a real pressed-glass pattern) that each bend light
@@ -677,16 +678,21 @@ const FRAG = `#version 300 es
         float frostPx = (pow(frost01, 1.5) * 0.12 + rough01 * 0.045) * minSizePx();
         float maxLod = floor(log2(max(resolution.x, resolution.y)));
         float lodBase = frostPx > 0.5 ? clamp(log2(frostPx), 0.0, maxLod) : 0.0;
-        /* Fold-safe transmission map.
+        /* Transmission map (24 Sep 2026, lab/glass-compare).
          *
-         * Lighting may use the steep physical-looking normal above, but using
-         * that same normal as a texture displacement can reverse neighbouring
-         * sample coordinates at extreme settings. That fold-over was the
-         * source of the detached arches, repeated ovals and RGB spikes.
+         * The EDGE is sampled through the refracted ray, as the original demo
+         * does (highres-webgl-app.html 990-1013). It used an analytic sine bump
+         * whose depth gain divided an already-normalised depth by 80, so B moved
+         * the backdrop 0.01 px where A moved it 3.46.
          *
-         * These two analytic offsets have a combined worst-case derivative
-         * below one (pi*.18 + 2*pi*.06 ~= .94), so source order is preserved:
-         * the map can bend and corrugate, but it cannot mirror or duplicate. */
+         * The ray takes the silhouette normal from before the flutes: through
+         * the ribbed normal it fired across the whole face and flipped at every
+         * rib, folding the map thousands of times. refrOffset's saturation and
+         * cap bound it; one more guard stops an OUTWARD sample (negative depth
+         * or refraction) reaching past the rim, where the taper would run the
+         * map backwards. The REED ribs keep their bounded analytic term. The
+         * lab's direct fold test (ramp backdrop, every row and column) counts 0
+         * reversals for medium, extreme +/-, reeded and reeded extreme. */
         float iorGain = clamp((ior - 1.0) / 0.52, 0.0, 1.25);
         float distanceGain = clamp(backdropDistance / 10.0, 0.10, 1.25);
         float depthGain = clamp(abs(depth) / 80.0, 0.0, 1.25);   // depth, not depthSigned: that is already /200
@@ -695,15 +701,11 @@ const FRAG = `#version 300 es
           1.0
         );
         float opticalGain = sign(refractionSigned) * opticalMagnitude;
-        float edgeU = clamp(d / max(B, 1.0), 0.0, 1.0);
-        float edgeBand = sin(PI * edgeU) * (1.0 - step(B, d));
-        /* The edge is sampled through the refracted ray again, as in the original
-         * demo (highres-webgl-app.html 990-1013): refrOffset was defined here and
-         * never called, and its stand-in was 1/200 of its intended size. The
-         * ray-ratio saturation inside refrOffset keeps the map from folding. */
         float refractPx = sign(refractionSigned) * pow(refraction01, 1.1) * B * 1.8;
         float maxOff = abs(refractPx) * 1.5 + 2.0;
-        vec2 edgeSampleOffset = refrOffset(n, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;
+        vec2 edgeSampleOffset = refrOffset(nEdge, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;
+        if (dot(edgeSampleOffset, outward) > 0.0)
+          edgeSampleOffset *= min(1.0, 0.9 * d / max(length(edgeSampleOffset), 1e-3));
         vec2 reedSampleOffset = reedAxis
           * (reedPeriod * 0.06 * reedWave * reedAmount * opticalGain);
         vec2 stableSampleOffset = edgeSampleOffset + reedSampleOffset;

@@ -1,0 +1,202 @@
+{
+  "selfTest": {
+    "none": {
+      "impl": "NONE",
+      "ior": 1.52,
+      "t": 0.4,
+      "folds": 0,
+      "x": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      },
+      "y": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      }
+    },
+    "shift5": {
+      "impl": "SYNTH5",
+      "ior": 1.52,
+      "t": 0.4,
+      "folds": 0,
+      "x": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      },
+      "y": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      }
+    },
+    "knownFold": {
+      "impl": "FOLD",
+      "ior": 1.52,
+      "t": 0.4,
+      "folds": 446,
+      "x": {
+        "reversals": 446,
+        "worstPx": -1.38,
+        "at": [
+          228,
+          191
+        ]
+      },
+      "y": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      }
+    }
+  },
+  "cases": [
+    {
+      "impl": "A",
+      "name": "medium",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "A",
+      "name": "extreme +",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "A",
+      "name": "extreme, depth -",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "A",
+      "name": "extreme, refraction -",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "A",
+      "name": "reeded",
+      "folds": 4984,
+      "worstX": -6.9,
+      "worstY": 0,
+      "at": [
+        658,
+        426
+      ]
+    },
+    {
+      "impl": "A",
+      "name": "reeded extreme",
+      "folds": 4984,
+      "worstX": -75.19,
+      "worstY": 0,
+      "at": [
+        242,
+        396
+      ]
+    },
+    {
+      "impl": "B",
+      "name": "medium",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "B",
+      "name": "extreme +",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "B",
+      "name": "extreme, depth -",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "B",
+      "name": "extreme, refraction -",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "B",
+      "name": "reeded",
+      "folds": 4946,
+      "worstX": -10.97,
+      "worstY": 0,
+      "at": [
+        632,
+        436
+      ]
+    },
+    {
+      "impl": "B",
+      "name": "reeded extreme",
+      "folds": 5094,
+      "worstX": -65.39,
+      "worstY": -1.33,
+      "at": [
+        242,
+        180
+      ]
+    },
+    {
+      "impl": "C",
+      "name": "medium",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "C",
+      "name": "extreme +",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "C",
+      "name": "extreme, depth -",
+      "na": true
+    },
+    {
+      "impl": "C",
+      "name": "extreme, refraction -",
+      "na": true
+    },
+    {
+      "impl": "C",
+      "name": "reeded",
+      "na": true
+    },
+    {
+      "impl": "C",
+      "name": "reeded extreme",
+      "na": true
+    }
+  ],
+  "pageErrors": []
+}

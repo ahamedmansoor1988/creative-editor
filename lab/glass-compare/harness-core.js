@@ -23,6 +23,38 @@
     if (kind === "grid" || kind === "h") for (let y = s; y < H; y += S) g.fillRect(0, y, W, LW);
     return c;
   }
+  /* Position-encoding backdrops for the direct fold test. R is a coarse ramp
+   * across the frame (to about 3.5 px); G is a triangle wave of period 64 px,
+   * continuous so filtering and mips cannot break it, which resolves position
+   * to about 0.13 px within its half-period. */
+  const TRI = 64;
+  /** Triangle wave, 0..TRI/2 px. */
+  const tri = (v) => {
+    const t = ((v % TRI) + TRI) % TRI;
+    return t < TRI / 2 ? t : TRI - t;
+  };
+  function rampBackdrop(axis) {
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const g = c.getContext("2d");
+    const img = g.createImageData(W, H);
+    const n = axis === "x" ? W : H;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const v = axis === "x" ? x : y;
+        const t = v % TRI;
+        const k = (y * W + x) * 4;
+        img.data[k] = Math.round((255 * v) / (n - 1));
+        img.data[k + 1] = Math.round(
+          t < TRI / 2 ? (t * 255) / (TRI / 2) : ((TRI - t) * 255) / (TRI / 2),
+        );
+        img.data[k + 2] = Math.round((tri(v + TRI / 4) * 255) / (TRI / 2)); // quadrature: settles which side of a peak
+        img.data[k + 3] = 255;
+      }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
   function clone(src) {
     const c = document.createElement("canvas");
     c.width = W;
@@ -293,7 +325,25 @@
     g.restore();
     return c;
   }
+  /* A known fold, for the fold test's own self-test: inside the glass, the
+   * first 60 px of the left side sample x' = x0 + d + 25 e^(-d/8), which runs
+   * backwards for d < 9 (QC's case). */
+  function renderFoldSynth(bd) {
+    const c = clone(bd);
+    const g = c.getContext("2d");
+    g.save();
+    g.beginPath();
+    g.roundRect(GLASS.x, GLASS.y, GLASS.w, GLASS.h, GLASS.r);
+    g.clip();
+    for (let d = 0; d < 60; d++) {
+      const sx = GLASS.x + d + 25 * Math.exp(-d / 8);
+      g.drawImage(bd, sx, 0, 1, H, GLASS.x + d, 0, 1, H);
+    }
+    g.restore();
+    return c;
+  }
   function render(impl, bd, P) {
+    if (impl === "FOLD") return renderFoldSynth(bd);
     if (impl === "A") return A.render(bd, P);
     if (impl === "B") return renderB(bd, P);
     if (impl === "C") return renderC(bd, P);
@@ -392,33 +442,97 @@
     const ok = lines.filter((l) => l.disp !== null && l.lostShare < 0.5);
     const top = ok.reduce((b, l) => (Math.abs(l.disp) > Math.abs(b ? b.disp : 0) ? l : b), null);
     const interior = ok.filter((l) => l.d > 90);
-    /* FOLD-OVER: the image must keep the backdrop's order. A line deeper in
-     * must still APPEAR deeper in: apparent depth = d - disp (outward disp
-     * brings it toward the edge). Consecutive sampled lines on one side whose
-     * apparent order reverses by more than half a pixel are a fold — the
-     * mirrored duplicates B's comments say refract() produced. */
-    let folds = 0;
-    for (const sd of ["L", "R", "T", "B"]) {
-      const g = ok.filter((l) => l.side === sd && l.d < 90).sort((a, b) => a.d - b.d);
-      for (let i = 1; i < g.length; i++)
-        if (g[i].d - g[i - 1].d >= 1 && g[i].d - g[i].disp < g[i - 1].d - g[i - 1].disp - 0.5)
-          folds++;
-    }
     return {
       impl,
       ior,
       t,
       maxAbsDisp: top ? +Math.abs(top.disp).toFixed(2) : 0,
+      // within 4 px of the ±21 px window, or any line lost: a lower bound only
+      saturated: !!(top && Math.abs(top.disp) > R - 4) || lines.length - ok.length > 0,
       atDepth: top ? top.d : null,
       signAtMax: top ? (top.disp >= 0 ? "outward" : "inward") : null,
       interiorMaxAbs: interior.length
         ? +Math.max(...interior.map((l) => Math.abs(l.disp))).toFixed(2)
         : null,
-      folds,
       linesMeasured: ok.length,
       linesLost: lines.length - ok.length,
       profile: lines,
     };
+  }
+
+  /* ---- the direct fold test ---------------------------------------------
+   * Decode, for every pixel inside the glass, WHERE on the backdrop it
+   * sampled: (render over the ramp) / (render over white), per channel, which
+   * cancels every multiplicative term the glass applies (tint, absorption,
+   * Fresnel, the gamma round-trip). The coarse ramp picks the half-period,
+   * the triangle wave gives the position within it. Along every row the
+   * decoded x must never go backwards; along every column, y. A step back of
+   * more than TOL px is a fold — the backdrop's order reversed, a mirrored
+   * copy. Pixels within 2 px of the silhouette (antialiasing) are skipped. */
+  function sdfRect(px, py) {
+    const qx = Math.abs(px - (GLASS.x + GLASS.w / 2)) - GLASS.w / 2 + GLASS.r;
+    const qy = Math.abs(py - (GLASS.y + GLASS.h / 2)) - GLASS.h / 2 + GLASS.r;
+    return Math.min(Math.max(qx, qy), 0) + Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - GLASS.r;
+  }
+  function rgba(canvas) {
+    return canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  }
+  function decode(out, blank, k, n) {
+    const ratio = (c) => Math.min(1, Math.max(0, out[k + c] / Math.max(blank[k + c], 1)));
+    const coarse = ratio(0) * (n - 1);
+    const tG = ratio(1) * (TRI / 2),
+      tB = ratio(2) * (TRI / 2);
+    const base = Math.floor(coarse / TRI) * TRI;
+    let best = coarse,
+      bs = 1e9;
+    // G gives two positions per period (either side of a peak); the coarse
+    // ramp picks the period and the quadrature wave in B picks the side.
+    for (const b of [base - TRI, base, base + TRI])
+      for (const cand of [b + tG, b + TRI - tG]) {
+        const score = Math.abs(cand - coarse) / 8 + Math.abs(tri(cand + TRI / 4) - tB);
+        if (score < bs) {
+          bs = score;
+          best = cand;
+        }
+      }
+    return best;
+  }
+  function mapFolds(impl, ior, t, opts) {
+    const TOL = (opts && opts.tol) || 1.0;
+    const P = Object.assign(params(impl, ior, t, opts && opts.r), (opts && opts.extra) || {});
+    const blank = rgba(render(impl, backdrop("blank"), P));
+    const res = {};
+    for (const axis of ["x", "y"]) {
+      const out = rgba(render(impl, rampBackdrop(axis), P));
+      const n = axis === "x" ? W : H;
+      let count = 0,
+        worst = 0,
+        where = null;
+      const outer = axis === "x" ? H : W,
+        inner = axis === "x" ? W : H;
+      for (let a = 0; a < outer; a++) {
+        let prev = null;
+        for (let b = 0; b < inner; b++) {
+          const x = axis === "x" ? b : a,
+            y = axis === "x" ? a : b;
+          if (sdfRect(x + 0.5, y + 0.5) > -(opts && opts.edge !== undefined ? opts.edge : 2)) {
+            prev = null;
+            continue;
+          }
+          const v = decode(out, blank, (y * W + x) * 4, n);
+          if (prev !== null && v - prev < -TOL) {
+            count++;
+            if (v - prev < worst) {
+              worst = v - prev;
+              where = [x, y];
+            }
+          }
+          prev = v;
+        }
+      }
+      res[axis] = { reversals: count, worstPx: +worst.toFixed(2), at: where };
+    }
+    return { impl, ior, t, folds: res.x.reversals + res.y.reversals, x: res.x, y: res.y };
   }
 
   /* ---- pictures --------------------------------------------------------- */
@@ -471,6 +585,7 @@
     S,
     params,
     measure,
+    mapFolds,
     render,
     backdrop,
     ready() {
