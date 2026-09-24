@@ -688,11 +688,15 @@ const FRAG = `#version 300 es
          * The ray takes the silhouette normal from before the flutes: through
          * the ribbed normal it fired across the whole face and flipped at every
          * rib, folding the map thousands of times. refrOffset's saturation and
-         * cap bound it; one more guard stops an OUTWARD sample (negative depth
-         * or refraction) reaching past the rim, where the taper would run the
-         * map backwards. The REED ribs keep their bounded analytic term. The
-         * lab's direct fold test (ramp backdrop, every row and column) counts 0
-         * reversals for medium, extreme +/-, reeded and reeded extreme. */
+         * cap bound it, and one more guard bounds its growth with depth: the
+         * offset never exceeds 0.7 of the depth into the glass. Near the rim
+         * that keeps the sample map increasing in every direction — outward it
+         * magnifies at most 1/(1-0.7) = 3.3x instead of running backwards (the
+         * taper at negative depth or refraction), inward it cannot jump at high
+         * IOR. It costs 3.12 -> 2.88 px of bend at medium. The REED ribs keep
+         * their bounded analytic term. The lab's direct fold test (ramp
+         * backdrop, running maximum along every row and column, rim included,
+         * npm run lab:glass:folds) counts 0 reversals in all eight cases. */
         float iorGain = clamp((ior - 1.0) / 0.52, 0.0, 1.25);
         float distanceGain = clamp(backdropDistance / 10.0, 0.10, 1.25);
         float depthGain = clamp(abs(depth) / 80.0, 0.0, 1.25);   // depth, not depthSigned: that is already /200
@@ -704,8 +708,7 @@ const FRAG = `#version 300 es
         float refractPx = sign(refractionSigned) * pow(refraction01, 1.1) * B * 1.8;
         float maxOff = abs(refractPx) * 1.5 + 2.0;
         vec2 edgeSampleOffset = refrOffset(nEdge, 1.0 / max(ior, 1.0), refractPx, maxOff, d) * distanceGain;
-        if (dot(edgeSampleOffset, outward) > 0.0)
-          edgeSampleOffset *= min(1.0, 0.9 * d / max(length(edgeSampleOffset), 1e-3));
+        edgeSampleOffset *= min(1.0, 0.7 * d / max(length(edgeSampleOffset), 1e-3));
         vec2 reedSampleOffset = reedAxis
           * (reedPeriod * 0.06 * reedWave * reedAmount * opticalGain);
         vec2 stableSampleOffset = edgeSampleOffset + reedSampleOffset;

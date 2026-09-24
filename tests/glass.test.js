@@ -55,8 +55,10 @@ describe("shared Glass capability", () => {
    * map from folding, with the two guards pinned below. That is measured, not
    * derived, and the measurement needs WebGL, which this runner lacks: the
    * lab's direct fold test (`npm run lab:glass:folds`, a ramp backdrop decoded
-   * along every row and column) counts 0 reversals for medium, extreme +/-,
-   * reeded and reeded extreme. */
+   * checked against the running maximum along every row and column, rim
+   * included, after self-testing on three known folds) counts 0 reversals for
+   * medium, extreme +/-, IOR 2.4 extreme, reeded, reeded extreme and reeded
+   * with dispersion. */
   it("samples the edge through the refracted ray, with the depth gain in the right units", () => {
     const source = fs.readFileSync("public/glass.js", "utf8");
     expect(source).toContain("vec2 stableSampleOffset");
@@ -68,10 +70,12 @@ describe("shared Glass capability", () => {
     const nEdgeAt = source.indexOf("vec3 nEdge = n;");
     expect(nEdgeAt).toBeGreaterThan(0);
     expect(nEdgeAt).toBeLessThan(source.indexOf("if (flutes > 0.5) {"));
-    // an outward sample may not reach past the rim, or the taper runs the map backwards (QC-03)
+    // the offset never exceeds 0.7 of the depth into the glass: the map keeps its order at the
+    // rim in every direction and outward magnification stays under 3.3x (QC-03, QC-05, QC-06)
     expect(source).toContain(
-      "edgeSampleOffset *= min(1.0, 0.9 * d / max(length(edgeSampleOffset), 1e-3));",
+      "edgeSampleOffset *= min(1.0, 0.7 * d / max(length(edgeSampleOffset), 1e-3));",
     );
+    expect(source).not.toContain("dot(edgeSampleOffset, outward) > 0.0");
     // the stand-in and its dead helpers are gone (QC-04)
     expect(source).not.toMatch(/float edgeBand = /);
     expect(source).not.toContain("B * 0.18 * edgeBand");

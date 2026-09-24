@@ -14,7 +14,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -27,7 +26,6 @@
       "atDepth": 5,
       "signAtMax": "outward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -36,11 +34,10 @@
       "ior": 1.52,
       "t": 0.4,
       "maxAbsDisp": 3.46,
-      "saturated": true,
+      "saturated": false,
       "atDepth": 7,
       "signAtMax": "outward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 247,
       "linesLost": 1
     },
@@ -49,11 +46,10 @@
       "ior": 2,
       "t": 0.4,
       "maxAbsDisp": 4.57,
-      "saturated": true,
+      "saturated": false,
       "atDepth": 7,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.01,
-      "folds": 0,
       "linesMeasured": 244,
       "linesLost": 4
     },
@@ -62,11 +58,10 @@
       "ior": 1.52,
       "t": 0.2,
       "maxAbsDisp": 2.28,
-      "saturated": true,
+      "saturated": false,
       "atDepth": 5,
       "signAtMax": "outward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 246,
       "linesLost": 2
     },
@@ -75,11 +70,10 @@
       "ior": 1.52,
       "t": 0.8,
       "maxAbsDisp": 6.2,
-      "saturated": true,
+      "saturated": false,
       "atDepth": 10,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.35,
-      "folds": 0,
       "linesMeasured": 244,
       "linesLost": 4
     },
@@ -92,7 +86,6 @@
       "atDepth": null,
       "signAtMax": null,
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -100,12 +93,11 @@
       "impl": "B",
       "ior": 1.3,
       "t": 0.4,
-      "maxAbsDisp": 2.34,
+      "maxAbsDisp": 2.17,
       "saturated": false,
-      "atDepth": 5,
+      "atDepth": 7,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.02,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -113,12 +105,11 @@
       "impl": "B",
       "ior": 1.52,
       "t": 0.4,
-      "maxAbsDisp": 3.12,
+      "maxAbsDisp": 2.88,
       "saturated": false,
-      "atDepth": 7,
+      "atDepth": 8,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.03,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -126,25 +117,23 @@
       "impl": "B",
       "ior": 2,
       "t": 0.4,
-      "maxAbsDisp": 4.48,
-      "saturated": true,
-      "atDepth": 7,
+      "maxAbsDisp": 3.81,
+      "saturated": false,
+      "atDepth": 10,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.05,
-      "folds": 0,
-      "linesMeasured": 244,
-      "linesLost": 4
+      "linesMeasured": 248,
+      "linesLost": 0
     },
     {
       "impl": "B",
       "ior": 1.52,
       "t": 0.2,
-      "maxAbsDisp": 2.71,
+      "maxAbsDisp": 2.42,
       "saturated": false,
-      "atDepth": 5,
+      "atDepth": 7,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.01,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -152,14 +141,13 @@
       "impl": "B",
       "ior": 1.52,
       "t": 0.8,
-      "maxAbsDisp": 4.13,
-      "saturated": true,
-      "atDepth": 7,
+      "maxAbsDisp": 3.75,
+      "saturated": false,
+      "atDepth": 10,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.16,
-      "folds": 0,
-      "linesMeasured": 246,
-      "linesLost": 2
+      "linesMeasured": 248,
+      "linesLost": 0
     },
     {
       "impl": "C",
@@ -170,7 +158,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -183,7 +170,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -196,7 +182,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -209,7 +194,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -222,7 +206,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -235,7 +218,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0
     },
@@ -248,7 +230,6 @@
       "atDepth": 86,
       "signAtMax": "outward",
       "interiorMaxAbs": 19.9,
-      "folds": 0,
       "linesMeasured": 179,
       "linesLost": 69,
       "extreme": true
@@ -257,14 +238,13 @@
       "impl": "B",
       "ior": 1.52,
       "t": 1,
-      "maxAbsDisp": 20.41,
-      "saturated": true,
-      "atDepth": 23,
+      "maxAbsDisp": 14.02,
+      "saturated": false,
+      "atDepth": 35,
       "signAtMax": "outward",
       "interiorMaxAbs": 1.53,
-      "folds": 0,
-      "linesMeasured": 222,
-      "linesLost": 26,
+      "linesMeasured": 248,
+      "linesLost": 0,
       "extreme": true
     },
     {
@@ -276,7 +256,6 @@
       "atDepth": 2,
       "signAtMax": "inward",
       "interiorMaxAbs": 0,
-      "folds": 10,
       "linesMeasured": 248,
       "linesLost": 0,
       "extreme": true
@@ -290,7 +269,6 @@
       "atDepth": 11,
       "signAtMax": "outward",
       "interiorMaxAbs": 0.54,
-      "folds": 0,
       "linesMeasured": 248,
       "linesLost": 0,
       "reeded": true
@@ -12570,7 +12548,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.499,
+          "disp": 0.706,
           "lostShare": 0
         },
         {
@@ -13270,7 +13248,7 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": 2.087,
+          "disp": 1.546,
           "lostShare": 0
         },
         {
@@ -13340,7 +13318,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 2.177,
+          "disp": 2.171,
           "lostShare": 0
         },
         {
@@ -13543,7 +13521,7 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": 2.342,
+          "disp": 1.979,
           "lostShare": 0
         },
         {
@@ -13676,7 +13654,7 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": 2.042,
+          "disp": 1.533,
           "lostShare": 0
         },
         {
@@ -13767,7 +13745,7 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": 2.289,
+          "disp": 1.933,
           "lostShare": 0
         },
         {
@@ -13816,7 +13794,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.466,
+          "disp": 0.701,
           "lostShare": 0
         },
         {
@@ -14313,7 +14291,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.706,
           "lostShare": 0
         },
         {
@@ -15013,7 +14991,7 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": 2.491,
+          "disp": 1.551,
           "lostShare": 0
         },
         {
@@ -15083,7 +15061,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 3.123,
+          "disp": 2.741,
           "lostShare": 0
         },
         {
@@ -15216,7 +15194,7 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": 2.98,
+          "disp": 2.878,
           "lostShare": 0
         },
         {
@@ -15286,7 +15264,7 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": 3.041,
+          "disp": 2.07,
           "lostShare": 0
         },
         {
@@ -15419,7 +15397,7 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": 2.456,
+          "disp": 1.542,
           "lostShare": 0
         },
         {
@@ -15461,14 +15439,14 @@
           "axis": "h",
           "side": "B",
           "d": 8,
-          "disp": 2.653,
+          "disp": 2.636,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": 2.853,
+          "disp": 2.563,
           "lostShare": 0
         },
         {
@@ -15510,7 +15488,7 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": 2.988,
+          "disp": 2.076,
           "lostShare": 0
         },
         {
@@ -15559,7 +15537,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.498,
+          "disp": 0.701,
           "lostShare": 0
         },
         {
@@ -16056,7 +16034,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.706,
           "lostShare": 0
         },
         {
@@ -16756,8 +16734,8 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.551,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -16826,7 +16804,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 4.478,
+          "disp": 2.844,
           "lostShare": 0
         },
         {
@@ -16889,14 +16867,14 @@
           "axis": "v",
           "side": "R",
           "d": 11,
-          "disp": 3.823,
+          "disp": 3.763,
           "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 10,
-          "disp": 3.998,
+          "disp": 3.812,
           "lostShare": 0
         },
         {
@@ -16959,7 +16937,7 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": 4.346,
+          "disp": 3.36,
           "lostShare": 0
         },
         {
@@ -17029,8 +17007,8 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.073,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -17162,8 +17140,8 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.542,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -17204,14 +17182,14 @@
           "axis": "h",
           "side": "B",
           "d": 8,
-          "disp": 4.007,
+          "disp": 3.249,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": 4.339,
+          "disp": 2.85,
           "lostShare": 0
         },
         {
@@ -17253,14 +17231,14 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.076,
+          "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 10,
-          "disp": 3.529,
+          "disp": 3.504,
           "lostShare": 0
         },
         {
@@ -17302,7 +17280,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.701,
           "lostShare": 0
         },
         {
@@ -17799,7 +17777,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.709,
           "lostShare": 0
         },
         {
@@ -18499,7 +18477,7 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": 2.277,
+          "disp": 1.55,
           "lostShare": 0
         },
         {
@@ -18569,7 +18547,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 2.519,
+          "disp": 2.422,
           "lostShare": 0
         },
         {
@@ -18702,7 +18680,7 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": 2.423,
+          "disp": 2.419,
           "lostShare": 0
         },
         {
@@ -18772,7 +18750,7 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": 2.713,
+          "disp": 2.064,
           "lostShare": 0
         },
         {
@@ -18905,7 +18883,7 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": 2.191,
+          "disp": 1.54,
           "lostShare": 0
         },
         {
@@ -18954,7 +18932,7 @@
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": 2.32,
+          "disp": 2.317,
           "lostShare": 0
         },
         {
@@ -18996,7 +18974,7 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": 2.637,
+          "disp": 2.066,
           "lostShare": 0
         },
         {
@@ -19045,7 +19023,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.485,
+          "disp": 0.705,
           "lostShare": 0
         },
         {
@@ -19542,7 +19520,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.699,
           "lostShare": 0
         },
         {
@@ -20242,8 +20220,8 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.55,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -20312,7 +20290,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 4.128,
+          "disp": 2.843,
           "lostShare": 0
         },
         {
@@ -20375,14 +20353,14 @@
           "axis": "v",
           "side": "R",
           "d": 11,
-          "disp": 3.692,
+          "disp": 3.681,
           "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 10,
-          "disp": 3.769,
+          "disp": 3.75,
           "lostShare": 0
         },
         {
@@ -20445,7 +20423,7 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": 3.997,
+          "disp": 3.359,
           "lostShare": 0
         },
         {
@@ -20515,7 +20493,7 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": 3.452,
+          "disp": 2.073,
           "lostShare": 0
         },
         {
@@ -20648,8 +20626,8 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.543,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -20690,14 +20668,14 @@
           "axis": "h",
           "side": "B",
           "d": 8,
-          "disp": 3.76,
+          "disp": 3.214,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": 4.008,
+          "disp": 2.849,
           "lostShare": 0
         },
         {
@@ -20739,14 +20717,14 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": 3.479,
+          "disp": 2.076,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 10,
-          "disp": 3.516,
+          "disp": 3.498,
           "lostShare": 0
         },
         {
@@ -20788,7 +20766,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.695,
           "lostShare": 0
         },
         {
@@ -33423,8 +33401,8 @@
           "axis": "v",
           "side": "L",
           "d": 16,
-          "disp": null,
-          "lostShare": 1
+          "disp": 6.513,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -33486,15 +33464,15 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": null,
-          "lostShare": 1
+          "disp": 0.696,
+          "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 19,
-          "disp": null,
-          "lostShare": 1
+          "disp": 7.768,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -33556,7 +33534,7 @@
           "axis": "v",
           "side": "L",
           "d": 22,
-          "disp": 20.171,
+          "disp": 9.072,
           "lostShare": 0
         },
         {
@@ -33619,7 +33597,7 @@
           "axis": "v",
           "side": "L",
           "d": 25,
-          "disp": 19.426,
+          "disp": 10.362,
           "lostShare": 0
         },
         {
@@ -33682,7 +33660,7 @@
           "axis": "v",
           "side": "L",
           "d": 28,
-          "disp": 18.249,
+          "disp": 11.507,
           "lostShare": 0
         },
         {
@@ -33745,7 +33723,7 @@
           "axis": "v",
           "side": "L",
           "d": 31,
-          "disp": 16.868,
+          "disp": 12.7,
           "lostShare": 0
         },
         {
@@ -33801,14 +33779,14 @@
           "axis": "v",
           "side": "R",
           "d": 35,
-          "disp": 14.907,
+          "disp": 14.019,
           "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 34,
-          "disp": 15.29,
+          "disp": 13.99,
           "lostShare": 0
         },
         {
@@ -33864,14 +33842,14 @@
           "axis": "v",
           "side": "R",
           "d": 32,
-          "disp": 16.263,
+          "disp": 13.211,
           "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 37,
-          "disp": 13.949,
+          "disp": 13.888,
           "lostShare": 0
         },
         {
@@ -33927,7 +33905,7 @@
           "axis": "v",
           "side": "R",
           "d": 29,
-          "disp": 17.859,
+          "disp": 11.923,
           "lostShare": 0
         },
         {
@@ -33990,7 +33968,7 @@
           "axis": "v",
           "side": "R",
           "d": 26,
-          "disp": 19.239,
+          "disp": 10.656,
           "lostShare": 0
         },
         {
@@ -34053,7 +34031,7 @@
           "axis": "v",
           "side": "R",
           "d": 23,
-          "disp": 20.408,
+          "disp": 9.488,
           "lostShare": 0
         },
         {
@@ -34116,8 +34094,8 @@
           "axis": "v",
           "side": "R",
           "d": 20,
-          "disp": null,
-          "lostShare": 1
+          "disp": 8.284,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -34179,15 +34157,15 @@
           "axis": "v",
           "side": "R",
           "d": 17,
-          "disp": null,
-          "lostShare": 1
+          "disp": 6.996,
+          "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.55,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -34249,15 +34227,15 @@
           "axis": "v",
           "side": "R",
           "d": 14,
-          "disp": null,
-          "lostShare": 1
+          "disp": 5.711,
+          "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.842,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -34319,15 +34297,15 @@
           "axis": "v",
           "side": "R",
           "d": 11,
-          "disp": null,
-          "lostShare": 1
+          "disp": 4.494,
+          "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 10,
-          "disp": null,
-          "lostShare": 1
+          "disp": 4.15,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -34389,15 +34367,15 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": null,
-          "lostShare": 1
+          "disp": 3.36,
+          "lostShare": 0
         },
         {
           "axis": "v",
           "side": "L",
           "d": 13,
-          "disp": null,
-          "lostShare": 1
+          "disp": 5.44,
+          "lostShare": 0
         },
         {
           "axis": "v",
@@ -34459,8 +34437,8 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.073,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34501,8 +34479,8 @@
           "axis": "h",
           "side": "B",
           "d": 17,
-          "disp": null,
-          "lostShare": 1
+          "disp": 7,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34543,8 +34521,8 @@
           "axis": "h",
           "side": "B",
           "d": 14,
-          "disp": null,
-          "lostShare": 1
+          "disp": 5.696,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34585,15 +34563,15 @@
           "axis": "h",
           "side": "B",
           "d": 11,
-          "disp": null,
-          "lostShare": 1
+          "disp": 4.5,
+          "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": null,
-          "lostShare": 1
+          "disp": 1.542,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34634,15 +34612,15 @@
           "axis": "h",
           "side": "B",
           "d": 8,
-          "disp": null,
-          "lostShare": 1
+          "disp": 3.364,
+          "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.849,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34683,15 +34661,15 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": null,
-          "lostShare": 1
+          "disp": 2.076,
+          "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 10,
-          "disp": null,
-          "lostShare": 1
+          "disp": 4.149,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34732,15 +34710,15 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": null,
-          "lostShare": 1
+          "disp": 0.691,
+          "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 13,
-          "disp": null,
-          "lostShare": 1
+          "disp": 5.433,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34781,8 +34759,8 @@
           "axis": "h",
           "side": "T",
           "d": 16,
-          "disp": null,
-          "lostShare": 1
+          "disp": 6.5,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34823,8 +34801,8 @@
           "axis": "h",
           "side": "T",
           "d": 19,
-          "disp": null,
-          "lostShare": 1
+          "disp": 7.781,
+          "lostShare": 0
         },
         {
           "axis": "h",
@@ -34865,7 +34843,7 @@
           "axis": "h",
           "side": "T",
           "d": 22,
-          "disp": 19.541,
+          "disp": 9.071,
           "lostShare": 0
         },
         {
@@ -34907,7 +34885,7 @@
           "axis": "h",
           "side": "T",
           "d": 25,
-          "disp": 18.03,
+          "disp": 10.343,
           "lostShare": 0
         },
         {
@@ -34949,7 +34927,7 @@
           "axis": "h",
           "side": "T",
           "d": 28,
-          "disp": 15.19,
+          "disp": 11.495,
           "lostShare": 0
         },
         {
@@ -34984,14 +34962,14 @@
           "axis": "h",
           "side": "B",
           "d": 32,
-          "disp": 11.67,
+          "disp": 11.562,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 31,
-          "disp": 12.458,
+          "disp": 11.884,
           "lostShare": 0
         },
         {
@@ -35026,7 +35004,7 @@
           "axis": "h",
           "side": "B",
           "d": 29,
-          "disp": 14.232,
+          "disp": 11.924,
           "lostShare": 0
         },
         {
@@ -35068,7 +35046,7 @@
           "axis": "h",
           "side": "B",
           "d": 26,
-          "disp": 17.084,
+          "disp": 10.63,
           "lostShare": 0
         },
         {
@@ -35110,7 +35088,7 @@
           "axis": "h",
           "side": "B",
           "d": 23,
-          "disp": 19.894,
+          "disp": 9.489,
           "lostShare": 0
         },
         {
@@ -35152,8 +35130,8 @@
           "axis": "h",
           "side": "B",
           "d": 20,
-          "disp": null,
-          "lostShare": 1
+          "disp": 8.294,
+          "lostShare": 0
         }
       ]
     },
@@ -36972,7 +36950,7 @@
           "axis": "v",
           "side": "R",
           "d": 2,
-          "disp": 1.5,
+          "disp": 0.5,
           "lostShare": 0
         },
         {
@@ -37672,7 +37650,7 @@
           "axis": "v",
           "side": "L",
           "d": 4,
-          "disp": 2.487,
+          "disp": 1.5,
           "lostShare": 0
         },
         {
@@ -37742,7 +37720,7 @@
           "axis": "v",
           "side": "L",
           "d": 7,
-          "disp": 3.064,
+          "disp": 2.781,
           "lostShare": 0
         },
         {
@@ -37875,7 +37853,7 @@
           "axis": "v",
           "side": "R",
           "d": 8,
-          "disp": 3.087,
+          "disp": 3.025,
           "lostShare": 0
         },
         {
@@ -37945,7 +37923,7 @@
           "axis": "v",
           "side": "R",
           "d": 5,
-          "disp": 2.99,
+          "disp": 1.97,
           "lostShare": 0
         },
         {
@@ -38078,7 +38056,7 @@
           "axis": "h",
           "side": "T",
           "d": 4,
-          "disp": 2.456,
+          "disp": 1.542,
           "lostShare": 0
         },
         {
@@ -38120,14 +38098,14 @@
           "axis": "h",
           "side": "B",
           "d": 8,
-          "disp": 2.653,
+          "disp": 2.636,
           "lostShare": 0
         },
         {
           "axis": "h",
           "side": "T",
           "d": 7,
-          "disp": 2.853,
+          "disp": 2.563,
           "lostShare": 0
         },
         {
@@ -38169,7 +38147,7 @@
           "axis": "h",
           "side": "B",
           "d": 5,
-          "disp": 2.988,
+          "disp": 2.076,
           "lostShare": 0
         },
         {
@@ -38218,7 +38196,7 @@
           "axis": "h",
           "side": "B",
           "d": 2,
-          "disp": 1.498,
+          "disp": 0.701,
           "lostShare": 0
         },
         {

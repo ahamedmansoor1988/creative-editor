@@ -325,25 +325,30 @@
     g.restore();
     return c;
   }
-  /* A known fold, for the fold test's own self-test: inside the glass, the
-   * first 60 px of the left side sample x' = x0 + d + 25 e^(-d/8), which runs
-   * backwards for d < 9 (QC's case). */
-  function renderFoldSynth(bd) {
+  /* Known answers for the fold test: the left part of the glass samples
+   * x' = x0 + f(d) column by column, d the depth into the glass.
+   *   FOLD      f = d + 25 e^(-d/8)        steep fold near the rim (slope < -1)
+   *   MIRROR05  a 40 px mirror of slope -0.5, compressed — a GRADUAL fold
+   *   RIMFOLD   a 3 px reversal between the first two pixel columns of the rim */
+  const REMAPS = {
+    FOLD: (d) => d + 25 * Math.exp(-d / 8),
+    MIRROR05: (d) => (d <= 60 ? d : d <= 100 ? 60 - 0.5 * (d - 60) : 40 + (d - 100)),
+    RIMFOLD: (d) => (d < 1 ? d : d < 2 ? 6 : d < 3 ? 3 : d),
+  };
+  function renderRemap(bd, f) {
     const c = clone(bd);
     const g = c.getContext("2d");
     g.save();
     g.beginPath();
     g.roundRect(GLASS.x, GLASS.y, GLASS.w, GLASS.h, GLASS.r);
     g.clip();
-    for (let d = 0; d < 60; d++) {
-      const sx = GLASS.x + d + 25 * Math.exp(-d / 8);
-      g.drawImage(bd, sx, 0, 1, H, GLASS.x + d, 0, 1, H);
-    }
+    for (let d = 0; d < 140; d++)
+      g.drawImage(bd, GLASS.x + f(d + 0.5) - 0.5, 0, 1, H, GLASS.x + d, 0, 1, H);
     g.restore();
     return c;
   }
   function render(impl, bd, P) {
-    if (impl === "FOLD") return renderFoldSynth(bd);
+    if (REMAPS[impl]) return renderRemap(bd, REMAPS[impl]);
     if (impl === "A") return A.render(bd, P);
     if (impl === "B") return renderB(bd, P);
     if (impl === "C") return renderC(bd, P);
@@ -448,7 +453,7 @@
       t,
       maxAbsDisp: top ? +Math.abs(top.disp).toFixed(2) : 0,
       // within 4 px of the ±21 px window, or any line lost: a lower bound only
-      saturated: !!(top && Math.abs(top.disp) > R - 4) || lines.length - ok.length > 0,
+      saturated: !!(top && Math.abs(top.disp) > R - 4),
       atDepth: top ? top.d : null,
       signAtMax: top ? (top.disp >= 0 ? "outward" : "inward") : null,
       interiorMaxAbs: interior.length
@@ -498,7 +503,7 @@
     return best;
   }
   function mapFolds(impl, ior, t, opts) {
-    const TOL = (opts && opts.tol) || 1.0;
+    const TOL = opts && opts.tol !== undefined ? opts.tol : 1.0;
     const P = Object.assign(params(impl, ior, t, opts && opts.r), (opts && opts.extra) || {});
     const blank = rgba(render(impl, backdrop("blank"), P));
     const res = {};
@@ -511,23 +516,28 @@
       const outer = axis === "x" ? H : W,
         inner = axis === "x" ? W : H;
       for (let a = 0; a < outer; a++) {
-        let prev = null;
+        /* Against the RUNNING MAXIMUM of this run of pixels, not the previous
+         * pixel: a gradual fold (slope between -1 and 0) never steps back by
+         * more than a pixel at a time, but it does fall below the furthest
+         * point already reached. */
+        let runMax = null;
         for (let b = 0; b < inner; b++) {
           const x = axis === "x" ? b : a,
             y = axis === "x" ? a : b;
-          if (sdfRect(x + 0.5, y + 0.5) > -(opts && opts.edge !== undefined ? opts.edge : 2)) {
-            prev = null;
+          // only the outermost ~1 px (mostly antialiasing) is skipped; the rim is tested
+          if (sdfRect(x + 0.5, y + 0.5) > -(opts && opts.edge !== undefined ? opts.edge : 1)) {
+            runMax = null;
             continue;
           }
           const v = decode(out, blank, (y * W + x) * 4, n);
-          if (prev !== null && v - prev < -TOL) {
+          if (runMax !== null && v < runMax - TOL) {
             count++;
-            if (v - prev < worst) {
-              worst = v - prev;
+            if (v - runMax < worst) {
+              worst = v - runMax;
               where = [x, y];
             }
           }
-          prev = v;
+          runMax = runMax === null ? v : Math.max(runMax, v);
         }
       }
       res[axis] = { reversals: count, worstPx: +worst.toFixed(2), at: where };

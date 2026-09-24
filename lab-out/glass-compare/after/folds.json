@@ -1,6 +1,6 @@
 {
   "selfTest": {
-    "none": {
+    "NONE": {
       "impl": "NONE",
       "ior": 1.52,
       "t": 0.4,
@@ -16,7 +16,7 @@
         "at": null
       }
     },
-    "shift5": {
+    "SYNTH5": {
       "impl": "SYNTH5",
       "ior": 1.52,
       "t": 0.4,
@@ -32,16 +32,54 @@
         "at": null
       }
     },
-    "knownFold": {
+    "FOLD": {
       "impl": "FOLD",
       "ior": 1.52,
       "t": 0.4,
-      "folds": 446,
+      "folds": 3956,
       "x": {
-        "reversals": 446,
-        "worstPx": -1.38,
+        "reversals": 3956,
+        "worstPx": -5.15,
         "at": [
-          228,
+          233,
+          191
+        ]
+      },
+      "y": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      }
+    },
+    "MIRROR05": {
+      "impl": "MIRROR05",
+      "ior": 1.52,
+      "t": 0.4,
+      "folds": 16986,
+      "x": {
+        "reversals": 16986,
+        "worstPx": -19.45,
+        "at": [
+          324,
+          151
+        ]
+      },
+      "y": {
+        "reversals": 0,
+        "worstPx": 0,
+        "at": null
+      }
+    },
+    "RIMFOLD": {
+      "impl": "RIMFOLD",
+      "ior": 1.52,
+      "t": 0.4,
+      "folds": 654,
+      "x": {
+        "reversals": 654,
+        "worstPx": -3.01,
+        "at": [
+          227,
           191
         ]
       },
@@ -72,23 +110,29 @@
     {
       "impl": "A",
       "name": "extreme, depth -",
-      "folds": 0,
-      "worstX": 0,
-      "worstY": 0,
-      "at": null
+      "folds": 158,
+      "worstX": -7.93,
+      "worstY": -6.61,
+      "at": [
+        673,
+        408
+      ]
     },
     {
       "impl": "A",
       "name": "extreme, refraction -",
-      "folds": 0,
-      "worstX": 0,
-      "worstY": 0,
-      "at": null
+      "folds": 158,
+      "worstX": -7.93,
+      "worstY": -6.61,
+      "at": [
+        673,
+        408
+      ]
     },
     {
       "impl": "A",
       "name": "reeded",
-      "folds": 4984,
+      "folds": 15796,
       "worstX": -6.9,
       "worstY": 0,
       "at": [
@@ -99,12 +143,31 @@
     {
       "impl": "A",
       "name": "reeded extreme",
-      "folds": 4984,
+      "folds": 92705,
       "worstX": -75.19,
       "worstY": 0,
       "at": [
         242,
         396
+      ]
+    },
+    {
+      "impl": "A",
+      "name": "IOR 2.4 extreme",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "A",
+      "name": "reeded + dispersion",
+      "folds": 96446,
+      "worstX": -79.21,
+      "worstY": -3.07,
+      "at": [
+        424,
+        441
       ]
     },
     {
@@ -156,6 +219,22 @@
       "at": null
     },
     {
+      "impl": "B",
+      "name": "IOR 2.4 extreme",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
+      "impl": "B",
+      "name": "reeded + dispersion",
+      "folds": 0,
+      "worstX": 0,
+      "worstY": 0,
+      "at": null
+    },
+    {
       "impl": "C",
       "name": "medium",
       "folds": 0,
@@ -166,10 +245,13 @@
     {
       "impl": "C",
       "name": "extreme +",
-      "folds": 0,
-      "worstX": 0,
-      "worstY": 0,
-      "at": null
+      "folds": 222,
+      "worstX": -18.54,
+      "worstY": -18.54,
+      "at": [
+        673,
+        191
+      ]
     },
     {
       "impl": "C",
@@ -189,6 +271,22 @@
     {
       "impl": "C",
       "name": "reeded extreme",
+      "na": true
+    },
+    {
+      "impl": "C",
+      "name": "IOR 2.4 extreme",
+      "folds": 276,
+      "worstX": -33.48,
+      "worstY": -23.96,
+      "at": [
+        227,
+        191
+      ]
+    },
+    {
+      "impl": "C",
+      "name": "reeded + dispersion",
       "na": true
     }
   ],

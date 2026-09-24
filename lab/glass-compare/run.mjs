@@ -148,21 +148,20 @@ if (process.env.LAB_ONLY === "eval") {
 }
 /* LAB_ONLY=folds: the direct fold test over the settings that can fold */
 if (process.env.LAB_ONLY === "folds") {
-  const st = {
-    none: await ev("return LAB.mapFolds('NONE', 1.52, 0.4);"),
-    shift5: await ev("return LAB.mapFolds('SYNTH5', 1.52, 0.4);"),
-    knownFold: await ev("return LAB.mapFolds('FOLD', 1.52, 0.4);"),
-  };
+  const st = {};
+  for (const k of ["NONE", "SYNTH5", "FOLD", "MIRROR05", "RIMFOLD"])
+    st[k] = await ev(`return LAB.mapFolds('${k}', 1.52, 0.4);`);
   console.log(
     "fold self-test:",
-    JSON.stringify({
-      none: st.none.folds,
-      shift5: st.shift5.folds,
-      knownFold: st.knownFold.folds,
-      knownWorst: st.knownFold.x.worstPx,
-    }),
+    JSON.stringify(Object.fromEntries(Object.entries(st).map(([k, v]) => [k, v.folds]))),
   );
-  if (st.none.folds || st.shift5.folds || !st.knownFold.folds) {
+  if (
+    st.NONE.folds ||
+    st.SYNTH5.folds ||
+    !st.FOLD.folds ||
+    !st.MIRROR05.folds ||
+    !st.RIMFOLD.folds
+  ) {
     console.error("fold test failed its self-test");
     quit(1);
   }
@@ -174,6 +173,13 @@ if (process.env.LAB_ONLY === "folds") {
     ["extreme, refraction -", 1.52, 1.0, { r: -1.0 }],
     ["reeded", 1.52, 0.4, { extra: REED }],
     ["reeded extreme", 1.52, 1.0, { r: 1.0, extra: Object.assign({}, REED, { flutes: 100 }) }],
+    ["IOR 2.4 extreme", 2.4, 1.0, { r: 1.0 }],
+    [
+      "reeded + dispersion",
+      1.52,
+      1.0,
+      { r: 1.0, extra: Object.assign({}, REED, { flutes: 100, dispersion: 100 }) },
+    ],
   ];
   const out = [];
   for (const impl of (process.env.LAB_IMPLS || "A,B,C").split(",")) {
