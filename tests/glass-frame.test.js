@@ -28,7 +28,7 @@ beforeAll(() => {
 describe("Glass frame", () => {
   it("opens with the Figma shader's defaults", () => {
     const g = shape().effects.glassFrame;
-    expect(g).toMatchObject({ on: false, squareness: 1, hole: 0.72, dispersion: 0.28, bg: "#000000", transparent: false });
+    expect(g).toMatchObject({ on: false, squareness: 1, holeOn: true, hole: 0.72, dispersion: 0.28, bg: "#000000", transparent: false });
   });
 
   it("clamps every number to its slider and repairs a bad colour", () => {
@@ -42,6 +42,11 @@ describe("Glass frame", () => {
     expect(g.ior).toBe(2.2);
     expect(g.exposure).toBe(1.3);
     expect(g.bg).toBe("#000000");
+  });
+
+  it("keeps the hole switch a boolean, on unless explicitly off", () => {
+    expect(shape({ glassFrame: { holeOn: false } }).effects.glassFrame.holeOn).toBe(false);
+    expect(shape({ glassFrame: { holeOn: "yes" } }).effects.glassFrame.holeOn).toBe(true);
   });
 
   it("is a material, and off for text", () => {

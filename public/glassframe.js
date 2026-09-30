@@ -33,6 +33,7 @@ const FRAG=`#version 300 es
 precision highp float;
 uniform vec2 u_res;
 uniform vec3 u_rot;
+uniform float u_holeOn;
 uniform float u_ior, u_disp, u_irid, u_film, u_depth, u_hole, u_bub, u_scr, u_expo, u_sq, u_hue;
 uniform vec4 u_bg;
 out vec4 fragColor;
@@ -59,6 +60,9 @@ float sdRing(vec3 pw){
   float rl=pow(pow(ax.x,n)+pow(ax.y,n),1.0/n);
   vec2 q=vec2(rl-mid,p.y);
   vec2 dd=abs(q)-vec2(hw-rad,h-rad);
+  // Hole off: the same rounded profile, but running all the way to the axis.
+  vec2 ds=vec2(rl-(outerR-rad),abs(p.y)-(h-rad));
+  dd=mix(ds,dd,step(0.5,u_holeOn));
   return length(max(dd,vec2(0.0)))+min(max(dd.x,dd.y),0.0)-rad;
 }
 
@@ -212,7 +216,7 @@ void main(){
 /* Defaults the app, tests and any caller agree on. Same numbers as the
  * published Figma shader so the two render the same look. */
 const DEFAULTS=Object.freeze({
-  squareness:1, tiltX:65, tiltY:-45, spin:-15, depth:0.5, hole:0.72,
+  squareness:1, holeOn:true, tiltX:65, tiltY:-45, spin:-15, depth:0.5, hole:0.72,
   ior:1.5, dispersion:0.28, iridescence:0.85, film:2.5, hue:0.1,
   bubbles:0.6, scratches:0.15, exposure:1.3, bg:'#000000', transparent:false,
 });
@@ -253,7 +257,7 @@ function init(){
     gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
     const U=n=>gl.getUniformLocation(prog,n);
     loc={};
-    ['res','rot','ior','disp','irid','film','depth','hole','bub','scr','expo','sq','hue','bg']
+    ['res','holeOn','rot','ior','disp','irid','film','depth','hole','bub','scr','expo','sq','hue','bg']
       .forEach(k=>{ loc[k]=U('u_'+k); });
     return true;
   }catch(e){
@@ -293,6 +297,7 @@ function render(w,h,P){
   gl.uniform1f(loc.film,n(P.film,2.5));
   gl.uniform1f(loc.depth,n(P.depth,0.5));
   gl.uniform1f(loc.hole,n(P.hole,0.72));
+  gl.uniform1f(loc.holeOn,P.holeOn===false?0:1);
   gl.uniform1f(loc.bub,n(P.bubbles,0.6));
   gl.uniform1f(loc.scr,n(P.scratches,0.15));
   gl.uniform1f(loc.expo,n(P.exposure,1.3));

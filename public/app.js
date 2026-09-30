@@ -237,7 +237,7 @@ const DEFAULT_EFFECTS=()=>({
   /* Glass frame — a ray-traced glass ring or square frame in its own studio
    * light (public/glassframe.js). Same numbers as the Figma shader it was
    * ported from. Dark stage by default: the look depends on it. */
-  glassFrame:{on:false,squareness:1,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
+  glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
     bubbles:0.6,scratches:0.15,exposure:1.3,bg:'#000000',transparent:false},
   /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
@@ -1274,6 +1274,7 @@ function normChildren(list,depth){
         gnum('scratches',0,1); gnum('exposure',0.3,3);
         if(!/^#[0-9a-fA-F]{6}$/.test(gfr.bg||'')) gfr.bg=dg.bg;
         gfr.transparent=!!gfr.transparent;
+        gfr.holeOn=gfr.holeOn!==false;
       }
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, flare:flr, glass3d:g3,
@@ -9188,7 +9189,10 @@ function buildFxSection(obj,page,add,body){
       add('<div class="secTitle">Shape</div>');
       row('gfSq','squareness','Squareness',0,1,0.01,2);
       row('gfDepth','depth','Depth',0.15,0.8,0.01,2);
-      row('gfHole','hole','Hole size',0.2,0.9,0.01,2);
+      // a hole is optional: off makes it a solid glass slab, and hides its size
+      add(`<label class="slider"><input type="checkbox" id="gfHoleOn" ${G.holeOn?'checked':''}> Hole</label>`);
+      $('gfHoleOn').addEventListener('change',e=>{ G.holeOn=e.target.checked; pushHistory(); refresh(); });
+      if(G.holeOn) row('gfHole','hole','Hole size',0.2,0.9,0.01,2);
       row('gfTx','tiltX','Tilt X',-90,90,1,0);
       row('gfTy','tiltY','Tilt Y',-90,90,1,0);
       row('gfSpin','spin','Spin',-180,180,1,0);
