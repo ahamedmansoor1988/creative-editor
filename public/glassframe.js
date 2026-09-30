@@ -8,7 +8,7 @@
  *
  * WHAT IT IS. One SDF: a rounded rectangle profile swept around an axis, where
  * the sweep's "radius" is a superellipse norm. Squareness 0 is a circle (a
- * ring), 1 is a rounded square (a frame). Each pixel traces 12 wavelengths,
+ * ring), 1 is a rounded square (a frame). Each pixel traces 16 wavelengths,
  * each with its own index of refraction, through up to six surface events —
  * reflect, refract in, march inside, refract out or reflect internally — so
  * the rainbow edges are real dispersion, not a gradient painted on.
@@ -63,7 +63,7 @@ float sdRing(vec3 pw){
 }
 
 vec3 calcN(vec3 p){
-  float e=0.0015;
+  float e=0.003; // wider than the march epsilon: the superellipse norm is not an exact distance, and a tight probe picks up its error as rim noise
   vec3 k1=vec3(1.0,-1.0,-1.0), k2=vec3(-1.0,-1.0,1.0), k3=vec3(-1.0,1.0,-1.0), k4=vec3(1.0);
   return normalize(k1*sdRing(p+k1*e)+k2*sdRing(p+k2*e)+k3*sdRing(p+k3*e)+k4*sdRing(p+k4*e));
 }
@@ -185,9 +185,11 @@ void main(){
   bool near=march(ro,normalize(vec3(sc0*0.36,-1.0)))>0.0;
   vec3 sum=vec3(0.0), wsum=vec3(0.0);
   float cover=0.0;
-  float jitter=hash2(gl_FragCoord.xy)-0.5;
-  for(int k=0;k<12;k++){
-    float fk=clamp((float(k)+0.5+jitter*0.6)/12.0,0.0,1.0);
+  // NO per-pixel random jitter: it turned the dispersion into coloured
+  // speckle. Wavelengths are fixed and evenly spaced; each also takes a fixed
+  // sub-pixel offset (golden-angle spiral), so the 16 samples double as AA.
+  for(int k=0;k<16;k++){
+    float fk=(float(k)+0.5)/16.0;
     float ang=float(k)*2.39996;
     vec2 jit=vec2(cos(ang),sin(ang))*sqrt(fk)*px*0.6;
     vec3 rd=normalize(vec3((sc0+jit)*0.36,-1.0));
@@ -200,7 +202,7 @@ void main(){
     sum+=c*wl; wsum+=wl;
   }
   vec3 col=sum/max(wsum,vec3(0.001));
-  float covered=cover/12.0;
+  float covered=cover/16.0;
   vec3 lit=pow(vec3(1.0)-exp(-col*u_expo),vec3(1.0/2.2));
   vec3 outc=mix(u_bg.rgb,lit,covered);
   float a=mix(u_bg.a,1.0,covered);
@@ -216,7 +218,7 @@ const DEFAULTS=Object.freeze({
 });
 /* Longest side actually traced. Above this the canvas is upscaled when drawn:
  * a 2000 px box would otherwise block the page for seconds per change. */
-const MAX_SIDE=900;
+const MAX_SIDE=1200;
 /* While a slider is being dragged: a quarter of the pixels, fast enough to follow the hand. */
 const DRAFT_SIDE=320;
 const CACHE_MAX=8;

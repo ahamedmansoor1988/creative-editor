@@ -3732,8 +3732,13 @@ function drawOneInner(c,W,H,obj){
     const gfx=fx.glassFrame;
     if(gfx&&fxOn(obj,'glassFrame')&&obj.type!=='text'&&window.GlassFrameEngine&&window.GlassFrameEngine.available()){
       const draw=o=>{
-        // may come back smaller than the box (traced at <=900px): drawn scaled
-        const img=window.GlassFrameEngine.render(o.w,o.h,fxDraft?Object.assign({},gfx,{draft:true}):gfx);
+        /* Traced at SCREEN resolution (zoom x devicePixelRatio, read off the
+         * context's transform), not document units — at box size a zoomed or
+         * Retina view upscaled it into visible blocks. The engine caps the
+         * longest side at 1200px and it is drawn scaled into the box. */
+        const m=c.getTransform?c.getTransform():null;
+        const sc=m?Math.max(1,Math.hypot(m.a,m.b)):1;
+        const img=window.GlassFrameEngine.render(o.w*sc,o.h*sc,fxDraft?Object.assign({},gfx,{draft:true}):gfx);
         if(!img) return;
         c.save();
         applyObjectTransform(c,o);
