@@ -3350,7 +3350,10 @@ function drawOne(c,W,H,obj){
    * and it is also when someone is inspecting the edge. */
   if(paintCacheable(obj)&&targetScale(c)<=PAINT_CACHE_MAX_SCALE){
     const k=paintScaleStep(targetScale(c));
-    const sig=paintSig(obj)+'|@'+k;
+    /* A draft (slider mid-drag) must never satisfy a full-quality request:
+     * without the flag in the key, the release render found the drag's
+     * low-resolution bitmap under the same signature and kept showing it. */
+    const sig=paintSig(obj)+'|@'+k+(fxDraft?'|draft':'');
     let ent=_paintCache.get(obj.id);
     if(!ent||ent.sig!==sig){
       const b=aabbOf(obj), pad=spillPad(obj);

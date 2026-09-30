@@ -219,8 +219,8 @@ const DEFAULTS=Object.freeze({
 /* Longest side actually traced. Above this the canvas is upscaled when drawn:
  * a 2000 px box would otherwise block the page for seconds per change. */
 const MAX_SIDE=1200;
-/* While a slider is being dragged: a quarter of the pixels, fast enough to follow the hand. */
-const DRAFT_SIDE=320;
+/* While a slider is being dragged: fewer pixels, fast enough to follow the hand. */
+const DRAFT_SIDE=480;
 const CACHE_MAX=8;
 
 let gl=null, cv=null, prog=null, vao=null, loc=null, failed=false;
