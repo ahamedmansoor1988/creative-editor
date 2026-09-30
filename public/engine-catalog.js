@@ -197,7 +197,7 @@
       supportedInputs: ["rect", "ellipse", "polygon", "path"],
       tagline: "dispersive glass ring",
       description:
-        "A ray-traced glass ring or square frame with rainbow dispersion, bubbles and scratches.",
+        "A ray-traced glass ring or square frame with rainbow dispersion and bubbles.",
     },
     {
       id: "innerLens",

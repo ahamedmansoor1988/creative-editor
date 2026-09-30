@@ -34,7 +34,7 @@ precision highp float;
 uniform vec2 u_res;
 uniform vec3 u_rot;
 uniform float u_holeOn;
-uniform float u_ior, u_disp, u_irid, u_film, u_depth, u_hole, u_bub, u_scr, u_expo, u_sq, u_hue;
+uniform float u_ior, u_disp, u_irid, u_film, u_depth, u_hole, u_bub, u_expo, u_sq, u_hue;
 uniform vec4 u_bg;
 out vec4 fragColor;
 
@@ -102,21 +102,6 @@ vec3 wlColor(float x){
     max(0.0,1.0-abs(x-0.85)/0.3));
 }
 
-float scratch(vec3 p){
-  float s=0.0;
-  for(int i=0;i<3;i++){
-    float fi=float(i), a=fi*2.1+0.4;
-    vec3 dir=normalize(vec3(cos(a),sin(a*1.7),sin(a)));
-    vec3 dir2=normalize(cross(dir,vec3(0.3,0.7,0.2)));
-    float x=dot(p,dir)*38.0;
-    float cell=floor(x), seg=floor(dot(p,dir2)*5.0);
-    float h=hash2(vec2(cell+fi*17.0,seg));
-    float line=1.0-smoothstep(0.0,0.05,abs(fract(x)-0.5-(h-0.5)*0.8));
-    s+=line*step(0.86,h);
-  }
-  return s;
-}
-
 float bubbles(vec3 p){
   vec3 q=p*16.0, c=floor(q), f=fract(q);
   float h=hash3(c);
@@ -147,8 +132,7 @@ vec3 trace(vec3 ro, vec3 rd, float ior){
       float cosi=clamp(dot(-rd,n),0.0,1.0);
       float F=fresnel(cosi,ior);
       vec3 film=mix(vec3(1.0),spectrum(u_film*cosi+0.15),u_irid);
-      float sc=scratch(M*p)*u_scr;
-      col+=w*(F*env(reflect(rd,n))*film*1.6+sc*0.35*vec3(1.0));
+      col+=w*F*env(reflect(rd,n))*film*1.6;
       w*=(1.0-F)*mix(vec3(1.0),film,0.6);
       rd=refract(rd,n,1.0/ior);
       ro=p-n*0.003;
@@ -218,7 +202,7 @@ void main(){
 const DEFAULTS=Object.freeze({
   squareness:1, holeOn:true, tiltX:65, tiltY:-45, spin:-15, depth:0.5, hole:0.72,
   ior:1.5, dispersion:0.28, iridescence:0.85, film:2.5, hue:0.1,
-  bubbles:0.6, scratches:0.15, exposure:1.3, bg:'#000000', transparent:false,
+  bubbles:0.6, exposure:1.3, bg:'#000000', transparent:false,
 });
 /* Longest side actually traced. Above this the canvas is upscaled when drawn:
  * a 2000 px box would otherwise block the page for seconds per change. */
@@ -257,7 +241,7 @@ function init(){
     gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
     const U=n=>gl.getUniformLocation(prog,n);
     loc={};
-    ['res','holeOn','rot','ior','disp','irid','film','depth','hole','bub','scr','expo','sq','hue','bg']
+    ['res','holeOn','rot','ior','disp','irid','film','depth','hole','bub','expo','sq','hue','bg']
       .forEach(k=>{ loc[k]=U('u_'+k); });
     return true;
   }catch(e){
@@ -299,7 +283,6 @@ function render(w,h,P){
   gl.uniform1f(loc.hole,n(P.hole,0.72));
   gl.uniform1f(loc.holeOn,P.holeOn===false?0:1);
   gl.uniform1f(loc.bub,n(P.bubbles,0.6));
-  gl.uniform1f(loc.scr,n(P.scratches,0.15));
   gl.uniform1f(loc.expo,n(P.exposure,1.3));
   gl.uniform1f(loc.sq,n(P.squareness,1));
   gl.uniform1f(loc.hue,n(P.hue,0.1));

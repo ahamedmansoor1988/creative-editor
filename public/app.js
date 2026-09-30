@@ -239,7 +239,7 @@ const DEFAULT_EFFECTS=()=>({
    * ported from. Dark stage by default: the look depends on it. */
   glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
-    bubbles:0.6,scratches:0.15,exposure:1.3,bg:'#000000',transparent:false},
+    bubbles:0.6,exposure:1.3,bg:'#000000',transparent:false},
   /* §5.x Glass 3D — a path-traced solid rendered into the shape's box. One
    * SDF (circle + extrude + round) is the whole shape library: extrude 0 +
    * round 1 is a sphere, extrude >0 + round 1 a capsule. Transparent by
@@ -1271,7 +1271,8 @@ function normChildren(list,depth){
         gnum('squareness',0,1); gnum('tiltX',-90,90); gnum('tiltY',-90,90); gnum('spin',-180,180);
         gnum('depth',0.15,0.8); gnum('hole',0.2,0.9); gnum('ior',1.1,2.2); gnum('dispersion',0,0.5);
         gnum('iridescence',0,1); gnum('film',0.2,6); gnum('hue',0,1); gnum('bubbles',0,1);
-        gnum('scratches',0,1); gnum('exposure',0.3,3);
+        gnum('exposure',0.3,3);
+        delete gfr.scratches; // option removed 30 Sep 2026; old documents carry it
         if(!/^#[0-9a-fA-F]{6}$/.test(gfr.bg||'')) gfr.bg=dg.bg;
         gfr.transparent=!!gfr.transparent;
         gfr.holeOn=gfr.holeOn!==false;
@@ -9203,7 +9204,6 @@ function buildFxSection(obj,page,add,body){
       row('gfFilm','film','Film thickness',0.2,6,0.1,1);
       row('gfHue','hue','Colour shift',0,1,0.01,2);
       row('gfBub','bubbles','Bubbles',0,1,0.01,2);
-      row('gfScr','scratches','Scratches',0,1,0.01,2);
       row('gfExp','exposure','Exposure',0.3,3,0.05,2);
       add('<div class="secTitle" style="margin-top:8px">Background</div>');
       add(`<label class="slider"><input type="checkbox" id="gfTr" ${G.transparent?'checked':''}> Transparent</label>`);
