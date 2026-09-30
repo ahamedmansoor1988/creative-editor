@@ -1001,12 +1001,93 @@
   }
 
   /** Apply one pixel effect to a layer. Returns the layer (possibly a new one). */
+  /* ---- dot matrix ------------------------------------------------------
+   * Ported from the author's Figma shader "Dot Matrix" (30 Sep 2026). The
+   * layer is read per CELL, not per pixel: five taps across each cell give a
+   * value (brightness x alpha, or alpha alone), a per-cell random offset mixes
+   * the marks, and the value picks one mark — nothing/faint dot, small dot,
+   * ring, bullseye, filled dot. The marks are drawn as real arcs, so they stay
+   * crisp at any cell size instead of being rasterised pixel by pixel. */
+  function dotMatrixLayer(cv, P) {
+    const w = cv.width,
+      h = cv.height;
+    const c = cv.getContext("2d", { willReadFrequently: true });
+    const src = c.getImageData(0, 0, w, h).data;
+    const cell = Math.max(3, +P.cellSize || 14);
+    const thr = Number.isFinite(+P.threshold) ? +P.threshold : 0.35;
+    const con = Number.isFinite(+P.contrast) ? +P.contrast : 1.8;
+    const vari = Number.isFinite(+P.variation) ? +P.variation : 0.5;
+    const big = cell * 0.34 * (Number.isFinite(+P.dotSize) ? +P.dotSize : 1);
+    const rw = Math.max(0.3, +P.ringWidth || 1.3);
+    const empty = Number.isFinite(+P.emptyDots) ? +P.emptyDots : 0.35;
+    const alphaOnly = P.source === "alpha";
+    const inv = !!P.invert;
+    const read = (x, y) => {
+      const xi = Math.min(w - 1, Math.max(0, Math.round(x))),
+        yi = Math.min(h - 1, Math.max(0, Math.round(y)));
+      const i = (yi * w + xi) * 4;
+      const a = src[i + 3] / 255;
+      let v = alphaOnly ? 1 : (0.2126 * src[i] + 0.7152 * src[i + 1] + 0.0722 * src[i + 2]) / 255;
+      if (inv) v = 1 - v;
+      return v * a;
+    };
+    c.clearRect(0, 0, w, h);
+    if (P.bgOn !== false) {
+      c.fillStyle = P.background || "#2a2527";
+      c.fillRect(0, 0, w, h);
+    }
+    const dot = P.dotColor || "#8ee6cc",
+      small = P.smallColor || dot;
+    const q = cell * 0.25;
+    for (let iy = 0; iy * cell < h; iy++) {
+      for (let ix = 0; ix * cell < w; ix++) {
+        const cx = (ix + 0.5) * cell,
+          cy = (iy + 0.5) * cell;
+        const raw =
+          (read(cx, cy) * 2 + read(cx + q, cy + q) + read(cx - q, cy + q) + read(cx + q, cy - q) + read(cx - q, cy - q)) / 6;
+        const jit = (hash2(ix, iy, 7) - 0.5) * vari;
+        const v = Math.min(1, Math.max(0, (raw - thr) * con + 0.5 + jit));
+        c.beginPath();
+        if (v < 0.2) {
+          if (empty <= 0) continue;
+          c.globalAlpha = empty;
+          c.fillStyle = small;
+          c.arc(cx, cy, cell * 0.06, 0, 6.2832);
+          c.fill();
+          c.globalAlpha = 1;
+        } else if (v < 0.4) {
+          c.fillStyle = small;
+          c.arc(cx, cy, cell * 0.11, 0, 6.2832);
+          c.fill();
+        } else if (v < 0.8) {
+          c.strokeStyle = dot;
+          c.lineWidth = rw;
+          c.arc(cx, cy, big * 0.72, 0, 6.2832);
+          c.stroke();
+          if (v >= 0.6) {
+            c.beginPath();
+            c.fillStyle = dot;
+            c.arc(cx, cy, big * 0.3, 0, 6.2832);
+            c.fill();
+          }
+        } else {
+          c.fillStyle = dot;
+          c.arc(cx, cy, big, 0, 6.2832);
+          c.fill();
+        }
+      }
+    }
+    c.globalAlpha = 1;
+    return cv;
+  }
+
   function apply(type, cv, params, extra) {
     const w = cv.width,
       h = cv.height;
     if (!w || !h) return cv;
     if (type === "blur") return blurLayer(cv, params);
     if (type === "bloom") return bloomLayer(cv, params);
+    if (type === "dotMatrix") return dotMatrixLayer(cv, params);
     const c = cv.getContext("2d", { willReadFrequently: true });
     const img = c.getImageData(0, 0, w, h);
     switch (type) {
@@ -1065,5 +1146,6 @@
     distortionPixels: distortion,
     warpPixels: warp,
     displacementPixels: displacement,
+    dotMatrixLayer,
   };
 })();

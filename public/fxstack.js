@@ -81,6 +81,7 @@
     haze: { slot: "pixel", label: "Fractal haze", multi: false },
     slice: { slot: "pixel", label: "Slice", multi: false },
     noise: { slot: "pixel", label: "Noise", multi: false },
+    dotMatrix: { slot: "pixel", label: "Dot matrix", multi: false },
   };
 
   /* The order the renderer used BEFORE the stack existed. Migration lays the
@@ -122,6 +123,7 @@
     "haze",
     "slice",
     "noise",
+    "dotMatrix",
   ];
 
   /* ---- visibility gate (QA pass) --------------------------------------
@@ -202,6 +204,8 @@
     if (!e || e.on === false) return false; // stack entry switched off
     const p = e.params || {};
     if (e.type === "grain" || e.type === "noise") return (p.amount || 0) > 0;
+    // no neutral setting to be "at zero", so it carries an explicit switch
+    if (e.type === "dotMatrix") return p.on === true;
     if (e.type === "blur") {
       /* Each KIND is driven by a different parameter, and this checked only
        * `radius`. A directional blur is driven by `distance`, so one set to

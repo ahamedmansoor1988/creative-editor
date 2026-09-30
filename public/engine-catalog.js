@@ -417,6 +417,22 @@
       supportedInputs: ALL_LAYERS,
       description: "Seeded per-pixel grain, monochrome or colour.",
     },
+    /* Ported from the Figma shader "Dot Matrix" — the tech-grid collage look.
+     * A pixel effect: it reads whatever the layer renders (a blurred blob, a
+     * photo, text) and redraws it as marks on a grid. */
+    {
+      id: "dotMatrix",
+      label: "Dot matrix",
+      category: "effect",
+      status: READY,
+      kind: "effect",
+      rendererType: "dotMatrix",
+      icon: "grid",
+      page: "Dot matrix",
+      opening: { on: true },
+      supportedInputs: ALL_LAYERS,
+      description: "Redraws the layer as a grid of dots, rings and bullseyes by brightness.",
+    },
     {
       id: "distortion",
       label: "Distortion",

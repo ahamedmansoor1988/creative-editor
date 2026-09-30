@@ -319,6 +319,11 @@ const DEFAULT_EFFECTS=()=>({
   slice:{count:8,axis:'horizontal',offset:0,gap:0,mode:'ramp',seed:1,edge:'clamp'},
   // §4.12 noise
   noise:{amount:0,mono:true,scale:1,seed:1},
+  /* Dot matrix — the layer redrawn as marks on a grid (filters.js). Same
+   * numbers as the Figma shader it was ported from. */
+  dotMatrix:{on:false,cellSize:14,dotSize:1,threshold:0.35,contrast:1.8,variation:0.5,ringWidth:1.3,
+    source:'brightness',invert:false,emptyDots:0.35,
+    dotColor:'#8ee6cc',smallColor:'#8ee6cc',bgOn:true,background:'#2a2527'},
   /* §5.x Reed glass — a sheet of fluted glass over the layers beneath it.
    * The panel has NO colour of its own: every value here is geometry or
    * optics, and the subject is whatever the document already has under it.
@@ -1177,6 +1182,15 @@ function normChildren(list,depth){
       const nz=Object.assign(de.noise, ce.noise||{});
       fnum(nz,'amount',0,1,0); fnum(nz,'scale',1,32,1); fnum(nz,'seed',1,99999,1);
       nz.mono=nz.mono!==false;
+      const dm=Object.assign(de.dotMatrix, ce.dotMatrix||{});
+      fnum(dm,'cellSize',3,120,14); fnum(dm,'dotSize',0.3,1.25,1); fnum(dm,'threshold',0,1,0.35);
+      fnum(dm,'contrast',0.5,8,1.8); fnum(dm,'variation',0,1,0.5); fnum(dm,'ringWidth',0.3,8,1.3);
+      fnum(dm,'emptyDots',0,1,0.35);
+      dm.source=dm.source==='alpha'?'alpha':'brightness';
+      dm.on=dm.on===true; dm.invert=!!dm.invert; dm.bgOn=dm.bgOn!==false;
+      ['dotColor','smallColor','background'].forEach(k=>{
+        if(!/^#[0-9a-fA-F]{6}$/.test(dm[k]||'')) dm[k]=DEFAULT_EFFECTS().dotMatrix[k];
+      });
       const li=Object.assign(de.light, ce.light||{});
       li.on=!!li.on && ['rect','ellipse','polygon','path'].includes(c.type);
       const num=(k,lo,hi,dv)=>{ const v=+li[k]; li[k]=Number.isFinite(v)?clamp(v,lo,hi):dv; };
@@ -1280,7 +1294,7 @@ function normChildren(list,depth){
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
         glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, flare:flr, glass3d:g3,
         prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv, beam:bm,
-        blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz};
+        blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz, dotMatrix:dm};
       /* §5.15: build the ORDERED stack. An existing document has only the
        * dictionary, so the array is laid out in the exact order the renderer
        * used to apply them — nothing moves on screen on first load. Entries
@@ -4589,6 +4603,7 @@ function scaleFxForRender(entry,s){
     displacement:['scaleX','scaleY','mapScale'],
     slice:['offset','gap'],
     noise:['scale'],
+    dotMatrix:['cellSize','ringWidth'],
   };
   (keysByType[e.type]||[]).forEach(k=>{ if(Number.isFinite(+p[k])) p[k]=+p[k]*s; });
   return e;
@@ -5746,7 +5761,7 @@ const PAGE_TYPE={
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
   'Blur':'blur','Bloom':'bloom','Background Blur':'backgroundBlur','Color Adjustments':'colorAdjust','Color Mapping':'colorMap','Channel Effects':'channelFx','Stylize':'stylize','Distortion':'distortion','Warp':'warp',
-  'Displacement':'displacement','Haze':'haze','Slice':'slice','Noise':'noise',
+  'Displacement':'displacement','Haze':'haze','Slice':'slice','Noise':'noise','Dot matrix':'dotMatrix',
 };
 const TYPE_PAGE=Object.fromEntries(Object.entries(PAGE_TYPE).map(([page,type])=>[type,page]));
 let _activeFxEntryId=null;
@@ -5816,14 +5831,14 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='group') return ['Group','Mask','Shadow'];
   if(obj.type==='frame') return ['Frame','Layout','Fill','Stroke','Mask','Shadow'];
   if(obj.type==='instance') return ['Instance','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
-  if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7045,9 +7060,9 @@ function fxActive(obj,name){
     case 'Inner Shadow': return !!(e.innerShadow&&e.innerShadow.on);
     case 'Glow':     return !!(e.glow&&e.glow.on);
     case 'Blur': case 'Distortion': case 'Warp': case 'Displacement':
-    case 'Haze': case 'Slice': case 'Noise': {
+    case 'Haze': case 'Slice': case 'Noise': case 'Dot matrix': {
       const K={Blur:'blur',Distortion:'distortion',Warp:'warp',
-        Displacement:'displacement',Haze:'haze',Slice:'slice',Noise:'noise'}[name];
+        Displacement:'displacement',Haze:'haze',Slice:'slice',Noise:'noise','Dot matrix':'dotMatrix'}[name];
       return !!(window.FxStack&&obj.fx&&obj.fx.some(x=>x.type===K&&FxStack.entryOn(x)));
     }
     case 'Mesh':     return !!(e.mesh&&e.mesh.on);
@@ -7056,6 +7071,7 @@ function fxActive(obj,name){
     case 'Fractal glass': return !!(e.fractal&&e.fractal.on);
     case 'Shape divider': return !!(e.divider&&e.divider.on);
     case 'Light beam': return !!(e.beam&&e.beam.on);
+    case 'Glass frame': return !!(e.glassFrame&&e.glassFrame.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -9788,6 +9804,39 @@ function buildFxSection(obj,page,add,body){
     add(`<label class="chk"><input type="checkbox" id="nzMono" ${N.mono!==false?'checked':''}> Monochrome</label>`);
     $('nzMono').addEventListener('change',e=>{ N.mono=e.target.checked; pushHistory('Monochrome'); render(); });
     add(`<div class="fxHint">Signed grain over the rendered pixels — it dithers rather than darkens, so it lifts as often as it dims. <b>Monochrome</b> puts one value on all three channels, which grains without tinting; off, each channel gets its own and the speckle takes on colour. <b>Grain size</b> blocks it up for a coarser, filmier look.</div>`);
+  }
+
+  if(page==='Dot matrix'){
+    // a PIXEL-slot effect like Noise: the stack entry is the switch
+    const D=fxParams(obj,'dotMatrix');
+    const ch=(id,label,min,max,step,key,dp)=>chipRow(add,{
+      id, label, min, max, step, value:D[key],
+      format:v=>(+v).toFixed(dp),
+      onInput:v=>{ D[key]=v; render(); },
+      onChange:()=>pushHistory(label),
+    });
+    ch('dmCell','Cell size',3,120,1,'cellSize',0);
+    ch('dmSize','Dot size',0.3,1.25,0.01,'dotSize',2);
+    ch('dmThr','Threshold',0,1,0.01,'threshold',2);
+    ch('dmCon','Contrast',0.5,8,0.1,'contrast',1);
+    ch('dmVar','Variation',0,1,0.01,'variation',2);
+    ch('dmRing','Ring width',0.3,8,0.1,'ringWidth',1);
+    ch('dmEmpty','Empty-cell dots',0,1,0.01,'emptyDots',2);
+    add(`<label class="slider">Read <select id="dmSrc"><option value="brightness"${D.source!=='alpha'?' selected':''}>Brightness</option><option value="alpha"${D.source==='alpha'?' selected':''}>Shape (alpha)</option></select></label>`);
+    $('dmSrc').addEventListener('change',e=>{ D.source=e.target.value; pushHistory('Read'); render(); });
+    add(`<label class="chk"><input type="checkbox" id="dmInv" ${D.invert?'checked':''}> Invert</label>`);
+    $('dmInv').addEventListener('change',e=>{ D.invert=e.target.checked; pushHistory('Invert'); render(); });
+    const colour=(id,label,key)=>{
+      add(`<label class="slider">${label} <input type="color" id="${id}" value="${D[key]}"></label>`);
+      $(id).addEventListener('input',e=>{ D[key]=e.target.value; render(); });
+      $(id).addEventListener('change',()=>pushHistory(label));
+    };
+    colour('dmDot','Dot colour','dotColor');
+    colour('dmSmall','Small-dot colour','smallColor');
+    // the background is optional: off leaves only the marks, over whatever is below
+    add(`<label class="chk"><input type="checkbox" id="dmBgOn" ${D.bgOn?'checked':''}> Background</label>`);
+    $('dmBgOn').addEventListener('change',e=>{ D.bgOn=e.target.checked; pushHistory('Background'); refresh(); });
+    if(D.bgOn) colour('dmBg','Background colour','background');
   }
 
   if(page==='Grain'){
