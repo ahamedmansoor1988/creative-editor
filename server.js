@@ -280,7 +280,7 @@ Say nothing about the colours themselves — those are measured separately and f
  *                            vision model, never one mesh
  * The class is validated, not trusted: anything else takes the recipe path,
  * which is what every caller got before classes existed. */
-const REFERENCE_CLASSES = ["color_field", "material", "composition"];
+const REFERENCE_CLASSES = ["color_field", "material", "composition", "ui_regions", "ui_items"];
 function classOf(v) {
   return REFERENCE_CLASSES.includes(v) ? v : null;
 }
@@ -848,6 +848,52 @@ async function planComposition(body) {
   return { kind: "plan", classification: "composition", doc: built.doc, brief: read.brief, unsupported: built.unsupported, model: read.model, usage: read.usage };
 }
 
+/* UI SCREEN -> editable layers, READ side (public/uiscreen.js measures and
+ * builds). Two readings, each a single vision call whose reply is terse LINES
+ * rather than JSON: on the free tier the vision model may write ~1,000 tokens
+ * a minute, and a line costs about a third of the same item as JSON. The
+ * client parses what arrives, so a reply cut off at the ceiling still yields
+ * every complete line before it. Coordinates are rough by design — the client
+ * snaps boxes to real edges and text to its ink. */
+const UI_REGIONS_SYSTEM = `You map a screenshot of a software user interface into its main PANELS. Reply with lines only — no prose, no code fences. One line per panel:
+P x y w h name
+x,y = the panel's top-left corner, w,h = its size, all integers in percent of the image width and height. Panels are the big areas that tile the screen side by side or stacked: icon rail, sidebar, top bar, list column, main content, detail pane, footer. 2 to 8 panels, together covering the whole screen, not overlapping. name: 1 to 3 words.`;
+const UI_ITEMS_SYSTEM = `You transcribe ONE panel of a user-interface screenshot into layout lines for a design tool. Reply with lines only — no prose, no code fences. Coordinates are integer PIXELS of this image (its size is given): x,y top-left corner, w,h size.
+B x y w h r — a visible box with its own fill or border: card, button, chip, badge, pill, input, selected row, tag. A thin divider line is a box with a tiny h. r = corner rounding: 0 square, 1 slight, 2 rounded, 3 fully round.
+T x y w h s text — ONE line of text copied verbatim, exactly as written. s = 1 if bold or semibold, else 0. Each visual line is its own T line.
+I x y w h name — an icon; name = the closest lucide icon name (inbox, bell, settings, search, chevron-down, chevron-right, x-circle, alert-circle, user, users, file-text, folder, book, sparkles, help-circle, credit-card, bar-chart, copy, layout, sliders, plus, check, star, calendar, mail, home, image, trash, eye).
+Boxes first, largest first; then icons; then text top to bottom. Include every word you can read. At most 70 lines.`;
+
+async function readUi(body, cls) {
+  const regions = cls === "ui_regions";
+  const payload = {
+    model: VISION_MODEL_STRONG,
+    messages: [
+      { role: "system", content: regions ? UI_REGIONS_SYSTEM : UI_ITEMS_SYSTEM },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: body.imageDataUrl } },
+          {
+            type: "text",
+            text: regions
+              ? "List the panels."
+              : `This is the "${String(body.panel || "panel").slice(0, 40)}" panel, ${Math.round(Number(body.size && body.size.w) || 0)}x${Math.round(Number(body.size && body.size.h) || 0)} pixels. List its boxes, icons and text.`,
+          },
+        ],
+      },
+    ],
+    temperature: 0.1,
+    // the output ceiling is the free tier's scarcest resource: panels are ~10
+    // short lines; a panel's contents are held just under the 1,000/min cap
+    max_completion_tokens: regions ? 220 : 900,
+    reasoning_effort: "none",
+  };
+  const data = await providerCall(payload, VISION_STRONG_URL, VISION_STRONG_KEY);
+  const lines = String(data.choices?.[0]?.message?.content || "").replace(/```[a-z]*\n?|```/g, "");
+  return { kind: "ui", classification: cls, lines, model: payload.model, usage: data.usage };
+}
+
 async function analyse(body) {
   if (!GROQ_KEY) {
     const e = new Error("GROQ_API_KEY missing from .env");
@@ -858,6 +904,7 @@ async function analyse(body) {
   if (!imageDataUrl) throw new Error("analyse needs an image");
   const cls = classOf(body.classification) || "color_field";
   if (cls === "composition") return planComposition(body);
+  if (cls === "ui_regions" || cls === "ui_items") return readUi(body, cls);
   const notes = measuredNotes(body.features);
   const payload = {
     model: VISION_MODEL,

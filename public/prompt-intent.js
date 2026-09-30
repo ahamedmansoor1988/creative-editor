@@ -37,10 +37,18 @@
     "only the colors",
   ];
 
+  const UI_WORDS = ["ui screen", "ui", "screen", "screenshot", "interface", "app screen", "dashboard"];
+
   /** What the prompt asks for structurally. null when it names nothing. */
   function routeFromPrompt(prompt) {
     const p = String(prompt || "").toLowerCase();
     if (!p.trim()) return null;
+    /* A UI screenshot is its own route: panels, boxes and live text rather than
+     * a picture. Checked first — "screen" never names a colour field. */
+    for (const w of UI_WORDS) {
+      const re = new RegExp("\\b" + w.replace(/\s+/g, "\\s+") + "\\b");
+      if (re.test(p)) return { route: "ui", word: w };
+    }
     for (const w of FIELD_WORDS) {
       const re = new RegExp("\\b" + w.replace(/\s+/g, "\\s+") + "s?\\b");
       if (re.test(p)) return { route: "field", word: w };
@@ -48,5 +56,5 @@
     return null;
   }
 
-  window.PromptIntent = Object.freeze({ VERSION, FIELD_WORDS, routeFromPrompt });
+  window.PromptIntent = Object.freeze({ VERSION, FIELD_WORDS, UI_WORDS, routeFromPrompt });
 })();

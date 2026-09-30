@@ -6528,11 +6528,70 @@ function reedFromRibs(per,fw,fh){
   return {type:'reed',fluteW:clamp(span/count,10,400),angle:rows?90:0,measured:true};
 }
 let _lastReference=null;
+/* UI SCREEN -> a new page of editable layers (public/uiscreen.js). The model
+ * reads (panels, then each panel's boxes, icons and words); the pixels measure
+ * (edges, ink, colours). One vision call per panel, because the free tier's
+ * output ceiling is about one panel's worth a minute — so this takes roughly a
+ * minute per panel, and says so. The result goes on its OWN page: the page
+ * being worked on is never replaced. */
+async function recreateUiScreen(dataUrl,say){
+  const U=window.UiScreen;
+  if(!U) throw new Error('uiscreen.js did not load');
+  const img=await flattenOnWhite(await loadImageFrom(dataUrl));
+  const W0=img.naturalWidth||img.width, H0=img.naturalHeight||img.height;
+  const k=Math.min(1,2000/Math.max(W0,H0));
+  const W=Math.max(1,Math.round(W0*k)), H=Math.max(1,Math.round(H0*k));
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const cx=cv.getContext('2d',{willReadFrequently:true});
+  cx.drawImage(img,0,0,W,H);
+  const pixels=cx.getImageData(0,0,W,H);
+  say('UI screen: finding the panels…');
+  const rj=await withRateLimitRetry(()=>callAnalyze({imageDataUrl:cv.toDataURL('image/jpeg',0.9),classification:'ui_regions'}),say);
+  let regions=U.parseRegions(rj.lines);
+  if(!regions.length) regions=[{x:0,y:0,w:100,h:100,name:'Screen'}];
+  const panels=[];
+  for(let i=0;i<regions.length;i++){
+    const g=regions[i];
+    // the crop at source resolution, enlarged so small text is legible, capped for the request
+    const sx=g.x/100*W, sy=g.y/100*H, sw=Math.max(1,g.w/100*W), sh=Math.max(1,g.h/100*H);
+    const s=Math.min(3,Math.max(1,900/Math.max(sw,sh)),1400/Math.max(sw,sh));
+    const cc=document.createElement('canvas'); cc.width=Math.round(sw*s); cc.height=Math.round(sh*s);
+    cc.getContext('2d').drawImage(cv,sx,sy,sw,sh,0,0,cc.width,cc.height);
+    say(`UI screen: reading panel ${i+1} of ${regions.length} (${g.name}) — about a minute each on the free tier…`);
+    let items=[];
+    try{
+      const j=await withRateLimitRetry(()=>callAnalyze({imageDataUrl:cc.toDataURL('image/jpeg',0.92),classification:'ui_items',panel:g.name,size:{w:cc.width,h:cc.height}}),say);
+      // the reply is in the crop's pixels; the builder takes percent of the panel
+      items=U.parseItems(j.lines).map(it=>Object.assign(it,{x:it.x/cc.width*100,y:it.y/cc.height*100,w:it.w/cc.width*100,h:it.h/cc.height*100}));
+    }catch(e){
+      if(e.daily) throw e;
+      say(`UI screen: panel "${g.name}" could not be read (${e.message}) — kept as a plain panel.`,true);
+    }
+    panels.push({region:g,items});
+  }
+  // kept so the measuring can be re-tuned against a real reading without another model call
+  U.last={regions,panels,size:{w:W,h:H}};
+  const built=U.buildDoc(pixels,panels,{name:'UI screen'});
+  const d=normalizeDoc(built.doc);
+  pages.push(d);
+  setActivePage(pages.length-1);
+  setSel(-1); selInstance=null;
+  if(typeof autosaveNow==='function') autosaveNow();
+  const c=built.counts;
+  say(`UI screen: ${c.panels} panels, ${c.boxes} boxes, ${c.texts} text layers, ${c.icons} icons — on a new page. Everything is editable.`);
+  return {classification:'ui',counts:c};
+}
+
 async function recreateFromReference(dataUrl,opts){
   opts=opts||{};
   const R=window.Reference;
   if(!R) throw new Error('reference.js did not load');
   const say=(m,err)=>{ status(m,err); if(opts.onStatus) opts.onStatus(m); };
+  // a UI screenshot has its own route; the prompt says so ("UI screen", "screenshot", …)
+  {
+    const ui=opts.route==='ui'||(window.PromptIntent&&(window.PromptIntent.routeFromPrompt(opts.prompt)||{}).route==='ui');
+    if(ui) return recreateUiScreen(dataUrl,say);
+  }
   const T0=performance.now();
   /* ON WHITE, ONCE, FOR EVERY CONSUMER. The measurement and the copy sent to
    * the model were already composited onto white; the mesh FITTER was still
