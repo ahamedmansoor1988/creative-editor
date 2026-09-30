@@ -33,7 +33,7 @@ describe("the gate derives from the catalog", () => {
       (e) => e.rendererType && e.status === "ready",
     ).map((e) => e.rendererType);
     expect([...win.FxStack.READY].sort()).toEqual([...new Set(readyTypes)].sort());
-    expect(win.FxStack.READY.size).toBe(22);
+    expect(win.FxStack.READY.size).toBe(23);
   });
 
   it("promote() takes only registered types the page has not narrowed away", () => {
@@ -84,6 +84,7 @@ describe("the catalog carries what the app used to map by hand", () => {
         "fractal",
         "divider",
         "beam",
+        "glassFrame",
       ],
       [
         "shadow",

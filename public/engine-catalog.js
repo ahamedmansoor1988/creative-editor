@@ -180,6 +180,25 @@
       description:
         "A spectral emitter that lights the layers beneath it. Drag the ring to move the source.",
     },
+    /* A generator in all but menu heading: it traces its own glass solid in
+     * its own studio light and never reads the page, so it sits with the other
+     * shaders rather than the backdrop lenses. Ported from the Figma shader
+     * "Iridescent Glass Frame" — the two share every default. */
+    {
+      id: "glassFrame",
+      label: "Glass frame",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "glassFrame",
+      icon: "squircle",
+      page: "Glass frame",
+      opening: { on: true },
+      supportedInputs: ["rect", "ellipse", "polygon", "path"],
+      tagline: "dispersive glass ring",
+      description:
+        "A ray-traced glass ring or square frame with rainbow dispersion, bubbles and scratches.",
+    },
     {
       id: "innerLens",
       label: "Inner lens",
