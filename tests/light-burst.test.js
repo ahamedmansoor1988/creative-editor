@@ -26,7 +26,7 @@ beforeAll(() => {
 describe("Light burst", () => {
   it("opens off, with the Figma shader's defaults, as a material", () => {
     const L = shape().effects.lightBurst;
-    expect(L).toMatchObject({ on: false, cx: 0.5, cy: 0.38, rays: 3, rainbow: 0.8, transparent: false, emberColor: "#ff8c26" });
+    expect(L).toMatchObject({ on: false, cx: 0.5, cy: 0.38, rays: 3, rainbow: 0.8, focus: 0.65, aperture: 0.8, transparent: false, emberColor: "#ff8c26" });
     expect(window.FxStack.slotOf("lightBurst")).toBe("material");
   });
 

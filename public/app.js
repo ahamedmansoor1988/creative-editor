@@ -242,7 +242,7 @@ const DEFAULT_EFFECTS=()=>({
   lightBurst:{on:false,cx:0.5,cy:0.38,coreSize:1.5,coreBrightness:1,rays:3,rayLength:0.45,rayAngle:90,streak:0.9,
     haloSize:0.42,haloThickness:0.012,rainbow:0.8,haloSquash:0.38,haloTilt:-12,
     speedStreaks:0.25,streakLength:0.6,embers:0.35,emberSize:1,lightLeak:0.6,bokeh:0.4,dust:0.25,
-    warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
+    focus:0.65,aperture:0.8,warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
   glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
     bubbles:0.6,exposure:1.3,bg:'#000000',transparent:false},
@@ -1306,7 +1306,7 @@ function normChildren(list,depth){
         ln('cx',0,1); ln('cy',0,1); ln('coreSize',0.2,3); ln('coreBrightness',0,3); ln('rays',0,12); ln('rayLength',0.05,1.5);
         ln('rayAngle',-180,180); ln('streak',0,3); ln('haloSize',0.05,1.2); ln('haloThickness',0.002,0.06); ln('rainbow',0,1);
         ln('haloSquash',0.1,1); ln('haloTilt',-90,90); ln('speedStreaks',0,1); ln('streakLength',0.05,2); ln('embers',0,1);
-        ln('emberSize',0.3,4); ln('lightLeak',0,2); ln('bokeh',0,1); ln('dust',0,1); ln('warmth',0,1); ln('exposure',0.2,4); ln('seed',1,99);
+        ln('emberSize',0.3,4); ln('lightLeak',0,2); ln('bokeh',0,1); ln('dust',0,1); ln('focus',0,1); ln('aperture',0,2); ln('warmth',0,1); ln('exposure',0.2,4); ln('seed',1,99);
         lbs.rays=Math.round(lbs.rays); lbs.seed=Math.round(lbs.seed);
         ['emberColor','bg'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(lbs[k]||'')) lbs[k]=dl[k]; });
         lbs.transparent=!!lbs.transparent;
@@ -9331,6 +9331,9 @@ function buildFxSection(obj,page,add,body){
       row('lbBokeh','bokeh','Bokeh',0,1,0.01,2);
       row('lbDust','dust','Dust',0,1,0.01,2);
       row('lbSeed','seed','Seed',1,99,1,0);
+      add('<div class="secTitle" style="margin-top:8px">Lens</div>');
+      row('lbFocus','focus','Focus distance',0,1,0.01,2);
+      row('lbAperture','aperture','Aperture',0,2,0.01,2);
       add('<div class="secTitle" style="margin-top:8px">Colour</div>');
       row('lbWarm','warmth','Warmth',0,1,0.01,2);
       row('lbExp','exposure','Exposure',0.2,4,0.05,2);

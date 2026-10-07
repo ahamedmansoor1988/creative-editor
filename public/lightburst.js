@@ -11,8 +11,10 @@
  * tilted halo rings carrying a spectrum across their width, three scales of
  * speed streaks (particles laid out in polar cells, so each streak points
  * away from the centre at any size), embers, a warm light leak where the
- * halo meets one side, out-of-focus bokeh and fine dust. A seed reshuffles
- * every particle without changing the look.
+ * halo meets one side, bokeh and fine dust. A seed reshuffles
+ * every particle without changing the look. Every particle also has a
+ * DEPTH, seen through a thin lens (Focus distance, Aperture): out of focus it
+ * spreads into the flat, crisp-edged disc a camera makes, nearer ones faster.
  *
  * TRANSPARENT MODE is for laying the burst over a photo: the light comes out
  * with its own alpha, so on a layer blended Screen or Add it lights whatever
@@ -34,7 +36,7 @@ uniform vec2 u_res, u_centre;
 uniform float u_core, u_coreBright, u_rays, u_rayLen, u_rayAngle, u_streak;
 uniform float u_ringR, u_ringW, u_rainbow, u_squash, u_tilt;
 uniform float u_speed, u_speedLen, u_embers, u_emberSize, u_dust;
-uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh;
+uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh, u_focus, u_aperture;
 uniform vec3 u_bg, u_ember;
 out vec4 fragColor;
 
@@ -46,9 +48,15 @@ float angNoise(float th,float freq,float seed){
   float a=h11(i+seed), b=h11(mod(i+1.0,freq)+seed);
   return mix(a,b,f*f*(3.0-2.0*f));
 }
+// A THIN LENS: depth z (0 near .. 1 far) is a distance; the blur circle is
+// aperture x |d - focus| / d, so in front of the focus softens fastest.
+float coc(float z,float focus,float aperture){
+  float d=mix(0.5,5.0,z), df=mix(0.5,5.0,focus);
+  return min(aperture*abs(d-df)/d,1.5);
+}
 float angDiff(float a,float b){ return abs(fract((a-b)/6.2831853+0.5)-0.5)*6.2831853; }
 
-vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float width,float seed,float warm,vec3 ember,float emberMix){
+vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float width,float seed,float warm,vec3 ember,float emberMix,float focus,float aperture){
   vec3 col=vec3(0.0);
   float lr=log(r+0.03), m=0.42;
   float ca=floor((th/6.2831853+0.5)*bins), cr0=floor(lr/m);
@@ -63,10 +71,17 @@ vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float wi
     float lenR=len*max(rc,0.02)*(0.35+h4);
     float t=(r-rc)/max(lenR,0.0005);
     if(t<0.0||t>1.0) continue;
-    float w=width*(0.6+0.8*h2)*(0.6+rc);
+    // each particle at its own depth; defocused it becomes a lens disc
+    float z=h21(id+7.9);
+    float blur=coc(z,focus,aperture);
+    float near=mix(1.8,0.7,z);
+    float w=min(width*(0.6+0.8*h2)*(0.6+rc)*near*(1.0+9.0*blur), 0.28*6.2831853/bins*max(r,0.05));
     float dpx=angDiff(th,thc)*r;
-    float along=smoothstep(0.0,0.18,t)*smoothstep(1.0,0.55,t);
-    float inten=exp(-(dpx*dpx)/(w*w))*along*(0.4+1.2*h);
+    float soft=0.18+0.5*min(blur,1.0);
+    float along=smoothstep(0.0,soft,t)*smoothstep(1.0,1.0-soft-0.27,t);
+    float gauss=exp(-(dpx*dpx)/(w*w));
+    float disk=smoothstep(w,w*0.8,dpx)*(0.85+0.3*smoothstep(w*0.4,w*0.95,dpx));
+    float inten=mix(gauss,disk,min(blur*1.5,1.0))*along*(0.4+1.2*h)/(1.0+6.0*blur);
     float isEmber=step(1.0-emberMix,h4);
     vec3 cool=mix(vec3(0.75,0.85,1.0),vec3(1.0,0.85,0.65),warm);
     col+=inten*mix(cool,ember,isEmber);
@@ -115,9 +130,9 @@ void main(){
   vec3 spec2=clamp(0.5+0.5*cos(6.2831853*(clamp(0.5-d2*0.22,0.0,1.0)*0.75+vec3(0.0,0.33,0.67))),0.0,1.0);
   col+=(mix(vec3(0.9),spec1*1.4,rb)*env1+mix(vec3(0.9),spec2*1.4,rb)*env2)*wobble*0.35;
 
-  col+=streaks(q,r,th,140.0,u_speed*0.5,u_speedLen,0.0014,seed,warm,u_ember,0.0)*0.7;
-  col+=streaks(q,r,th,70.0,u_speed*0.6,u_speedLen*1.2,0.0022,seed+11.0,warm,u_ember,u_embers*0.5)*1.1;
-  col+=streaks(q,r,th,36.0,u_embers*0.5,u_speedLen*0.5,0.0040*u_emberSize,seed+23.0,warm,u_ember,1.0)*1.8;
+  col+=streaks(q,r,th,140.0,u_speed*0.5,u_speedLen,0.0014,seed,warm,u_ember,0.0,u_focus,u_aperture)*0.7;
+  col+=streaks(q,r,th,70.0,u_speed*0.6,u_speedLen*1.2,0.0022,seed+11.0,warm,u_ember,u_embers*0.5,u_focus,u_aperture)*1.1;
+  col+=streaks(q,r,th,36.0,u_embers*0.5,u_speedLen*0.5,0.0040*u_emberSize,seed+23.0,warm,u_ember,1.0,u_focus,u_aperture)*1.8;
 
   vec2 g=q*260.0, gi=floor(g);
   if(h21(gi+seed)<u_dust*0.06*(0.3+0.7*exp(-r*2.5))){
@@ -136,8 +151,10 @@ void main(){
     if(h21(cid+seed*1.3)>u_bokeh*0.35) continue;
     vec2 bp=(cid+vec2(h21(cid+8.0),h21(cid+9.0)))/7.0;
     float edge=smoothstep(0.15,0.7,length(bp));
-    float br=(0.006+0.016*h21(cid+10.0))*(0.5+edge);
-    float disc=smoothstep(br,br*0.55,length(q-bp));
+    float bz=h21(cid+12.0), bblur=coc(bz,u_focus,u_aperture);
+    float br=min((0.006+0.016*h21(cid+10.0))*(0.5+edge)*mix(1.6,0.7,bz)*(1.0+2.5*bblur),0.12);
+    float bd=length(q-bp);
+    float disc=smoothstep(br,br*(0.75-0.2*min(bblur,1.0)),bd)*(0.8+0.4*smoothstep(br*0.4,br*0.95,bd))/(1.0+1.5*bblur);
     vec3 tint=mix(vec3(0.7,0.85,1.0),u_ember,step(0.4,h21(cid+11.0)));
     col+=tint*disc*(0.5+0.8*edge);
   }
@@ -156,14 +173,14 @@ const DEFAULTS=Object.freeze({
   cx:0.5, cy:0.38, coreSize:1.5, coreBrightness:1, rays:3, rayLength:0.45, rayAngle:90, streak:0.9,
   haloSize:0.42, haloThickness:0.012, rainbow:0.8, haloSquash:0.38, haloTilt:-12,
   speedStreaks:0.25, streakLength:0.6, embers:0.35, emberSize:1, lightLeak:0.6, bokeh:0.4, dust:0.25,
-  warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
+  focus:0.65, aperture:0.8, warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
 });
 const MAX_SIDE=1400;
 /* While a slider is being dragged: fewer pixels, fast enough to follow the hand. */
 const DRAFT_SIDE=520;
 const CACHE_MAX=8;
 const U_NAMES=['res','centre','core','coreBright','rays','rayLen','rayAngle','streak','ringR','ringW','rainbow','squash','tilt',
-  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','bg','ember'];
+  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','focus','aperture','bg','ember'];
 
 let gl=null, cv=null, prog=null, vao=null, loc=null, failed=false;
 const cache=new Map();
@@ -229,7 +246,8 @@ function render(w,h,P){
   [['core','coreSize'],['coreBright','coreBrightness'],['rays','rays'],['rayLen','rayLength'],['rayAngle','rayAngle'],
    ['streak','streak'],['ringR','haloSize'],['ringW','haloThickness'],['rainbow','rainbow'],['squash','haloSquash'],
    ['tilt','haloTilt'],['speed','speedStreaks'],['speedLen','streakLength'],['embers','embers'],['emberSize','emberSize'],
-   ['dust','dust'],['warm','warmth'],['seed','seed'],['expo','exposure'],['leak','lightLeak'],['bokeh','bokeh']].forEach(f);
+   ['dust','dust'],['warm','warmth'],['seed','seed'],['expo','exposure'],['leak','lightLeak'],['bokeh','bokeh'],
+   ['focus','focus'],['aperture','aperture']].forEach(f);
   gl.uniform1f(loc.transparent,P.transparent?1:0);
   gl.uniform3fv(loc.bg,hexRgb(P.bg));
   gl.uniform3fv(loc.ember,hexRgb(P.emberColor));
