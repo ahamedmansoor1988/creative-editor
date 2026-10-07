@@ -242,7 +242,7 @@ const DEFAULT_EFFECTS=()=>({
   lightBurst:{on:false,cx:0.5,cy:0.38,coreSize:1.5,coreBrightness:1,rays:3,rayLength:0.45,rayAngle:90,streak:0.9,
     haloSize:0.42,haloThickness:0.012,rainbow:0.8,haloSquash:0.38,haloTilt:-12,
     speedStreaks:0.25,streakLength:0.6,embers:0.35,emberSize:1,lightLeak:0.6,bokeh:0.4,dust:0.25,
-    focus:0.65,aperture:0.8,chromatic:0,glow:0,glowColor:'#1f4f8f',warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
+    focus:0.65,aperture:0.8,chromatic:0,glow:0,glowColor:'#1f4f8f',bgMode:'solid',bg2:'#0b1a33',bgAngle:90,warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
   glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
     bubbles:0.6,exposure:1.3,bg:'#000000',transparent:false},
@@ -1321,9 +1321,10 @@ function normChildren(list,depth){
         ln('cx',0,1); ln('cy',0,1); ln('coreSize',0.2,3); ln('coreBrightness',0,3); ln('rays',0,12); ln('rayLength',0.05,1.5);
         ln('rayAngle',-180,180); ln('streak',0,3); ln('haloSize',0.05,1.2); ln('haloThickness',0.002,0.06); ln('rainbow',0,1);
         ln('haloSquash',0.1,1); ln('haloTilt',-90,90); ln('speedStreaks',0,1); ln('streakLength',0.05,2); ln('embers',0,1);
-        ln('emberSize',0.3,4); ln('lightLeak',0,2); ln('bokeh',0,1); ln('dust',0,1); ln('focus',0,1); ln('aperture',0,2); ln('chromatic',0,1); ln('glow',0,1.5); ln('warmth',0,1); ln('exposure',0.2,4); ln('seed',1,99);
+        ln('emberSize',0.3,4); ln('lightLeak',0,2); ln('bokeh',0,1); ln('dust',0,1); ln('focus',0,1); ln('aperture',0,2); ln('chromatic',0,1); ln('glow',0,1.5); ln('bgAngle',-180,180); ln('warmth',0,1); ln('exposure',0.2,4); ln('seed',1,99);
         lbs.rays=Math.round(lbs.rays); lbs.seed=Math.round(lbs.seed);
-        ['emberColor','bg','glowColor'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(lbs[k]||'')) lbs[k]=dl[k]; });
+        ['emberColor','bg','glowColor','bg2'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(lbs[k]||'')) lbs[k]=dl[k]; });
+        if(!['solid','linear','radial'].includes(lbs.bgMode)) lbs.bgMode='solid';
         lbs.transparent=!!lbs.transparent;
       }
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
@@ -9408,7 +9409,14 @@ function buildFxSection(obj,page,add,body){
       colour('lbEmbC','Ember colour','emberColor');
       add(`<label class="slider"><input type="checkbox" id="lbTr" ${L.transparent?'checked':''}> Transparent (lay it over a photo, blend Screen)</label>`);
       $('lbTr').addEventListener('change',e=>{ L.transparent=e.target.checked; pushHistory(); refresh(); });
-      if(!L.transparent){ colour('lbBg','Background','bg'); row('lbGlow','glow','Background glow',0,1.5,0.01,2); colour('lbGlowC','Glow colour','glowColor'); }
+      if(!L.transparent){
+        add(`<label class="slider">Background <select id="lbBgM">${['solid','linear','radial'].map(m=>`<option value="${m}" ${L.bgMode===m?'selected':''}>${m[0].toUpperCase()+m.slice(1)}</option>`).join('')}</select></label>`);
+        $('lbBgM').addEventListener('change',e=>{ L.bgMode=e.target.value; pushHistory(); refresh(); });
+        colour('lbBg',L.bgMode==='solid'?'Background colour':'From','bg');
+        if(L.bgMode!=='solid') colour('lbBg2','To','bg2');
+        if(L.bgMode==='linear') row('lbBgA','bgAngle','Angle',-180,180,1,0);
+        row('lbGlow','glow','Glow around the light',0,1.5,0.01,2); colour('lbGlowC','Glow colour','glowColor');
+      }
     }
   }
 

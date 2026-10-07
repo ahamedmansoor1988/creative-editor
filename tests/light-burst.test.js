@@ -49,6 +49,13 @@ describe("Light burst", () => {
     expect(L.glowColor).toBe("#1f4f8f");
   });
 
+  it("the background can be a linear or radial gradient; bad values fall back to a solid colour", () => {
+    expect(shape().effects.lightBurst).toMatchObject({ bgMode: "solid", bg2: "#0b1a33", bgAngle: 90 });
+    const L = shape({ lightBurst: { on: true, bgMode: "radial", bg2: "#123456", bgAngle: 400 } }).effects.lightBurst;
+    expect(L).toMatchObject({ bgMode: "radial", bg2: "#123456", bgAngle: 180 });
+    expect(shape({ lightBurst: { bgMode: "conic", bg2: "nope" } }).effects.lightBurst).toMatchObject({ bgMode: "solid", bg2: "#0b1a33" });
+  });
+
   it("the engine knows the new settings (they reach the shader and the render cache)", () => {
     const src = require("fs").readFileSync(require("path").join(__dirname, "../public/lightburst.js"), "utf8");
     expect(src).toMatch(/chromatic:0, glow:0, glowColor:'#1f4f8f'/);

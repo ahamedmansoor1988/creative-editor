@@ -20,7 +20,8 @@
  * particles (Mansoor: "only the dots are affected"). Chromatic aberration
  * samples red/blue slightly outward/inward from the picture centre (rainbow
  * fringes across the streaks); Background glow is a soft gradient around the
- * light. Both 0 by default, so earlier designs render as before.
+ * light. Both 0 by default, so earlier designs render as before. The background
+ * can also be a Linear or Radial gradient (Background to Background 2).
  *
  * TRANSPARENT MODE is for laying the burst over a photo: the light comes out
  * with its own alpha, so on a layer blended Screen or Add it lights whatever
@@ -43,7 +44,8 @@ uniform float u_core, u_coreBright, u_rays, u_rayLen, u_rayAngle, u_streak;
 uniform float u_ringR, u_ringW, u_rainbow, u_squash, u_tilt;
 uniform float u_speed, u_speedLen, u_embers, u_emberSize, u_dust;
 uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh, u_focus, u_aperture, u_chroma, u_glow;
-uniform vec3 u_bg, u_ember, u_glowCol;
+uniform vec3 u_bg, u_ember, u_glowCol, u_bg2;
+uniform float u_bgMode, u_bgAngle;
 out vec4 fragColor;
 
 float h21(vec2 p){ vec2 q=fract(p*vec2(123.34,456.21)); q+=dot(q,q+45.32); return fract(q.x*q.y); }
@@ -197,7 +199,17 @@ void main(){
   }
   vec2 cq=vec2(px.x-u_centre.x*u_res.x, px.y-u_centre.y*u_res.y)/mn;
   float gr=length(cq);
-  vec3 bg=u_bg+u_glowCol*u_glow*(0.85*exp(-gr*gr/0.18)+0.25*exp(-gr/0.9));
+  // Background: one colour, or a gradient from Background to Background 2 — linear at an angle
+  // (0 = left to right, 90 = top to bottom) or radial from the picture centre out to its corners.
+  vec3 bg=u_bg;
+  if(u_bgMode>0.5){
+    vec2 uv=px/u_res-0.5; float t;
+    if(u_bgMode<1.5){ float a=u_bgAngle*0.0174533; vec2 dir=vec2(cos(a),sin(a));
+      t=clamp(dot(uv*u_res/mn,dir)/(0.5*(abs(dir.x)*u_res.x+abs(dir.y)*u_res.y)/mn)*0.5+0.5,0.0,1.0); }
+    else t=clamp(length(uv*u_res/mn)/(0.5*length(u_res)/mn),0.0,1.0);
+    bg=mix(u_bg,u_bg2,smoothstep(0.0,1.0,t));
+  }
+  bg+=u_glowCol*u_glow*(0.85*exp(-gr*gr/0.18)+0.25*exp(-gr/0.9));
   fragColor=vec4(clamp(bg+lit*(vec3(1.0)-bg*0.5),0.0,1.0),1.0);
 }`;
 
@@ -206,14 +218,14 @@ const DEFAULTS=Object.freeze({
   cx:0.5, cy:0.38, coreSize:1.5, coreBrightness:1, rays:3, rayLength:0.45, rayAngle:90, streak:0.9,
   haloSize:0.42, haloThickness:0.012, rainbow:0.8, haloSquash:0.38, haloTilt:-12,
   speedStreaks:0.25, streakLength:0.6, embers:0.35, emberSize:1, lightLeak:0.6, bokeh:0.4, dust:0.25,
-  focus:0.65, aperture:0.8, chromatic:0, glow:0, glowColor:'#1f4f8f', warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
+  focus:0.65, aperture:0.8, chromatic:0, glow:0, glowColor:'#1f4f8f', bgMode:'solid', bg2:'#0b1a33', bgAngle:90, warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
 });
 const MAX_SIDE=1400;
 /* While a slider is being dragged: fewer pixels, fast enough to follow the hand. */
 const DRAFT_SIDE=520;
 const CACHE_MAX=8;
 const U_NAMES=['res','centre','core','coreBright','rays','rayLen','rayAngle','streak','ringR','ringW','rainbow','squash','tilt',
-  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','focus','aperture','chroma','glow','bg','ember','glowCol'];
+  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','focus','aperture','chroma','glow','bg','ember','glowCol','bg2','bgMode','bgAngle'];
 
 let gl=null, cv=null, prog=null, vao=null, loc=null, failed=false;
 const cache=new Map();
@@ -285,6 +297,9 @@ function render(w,h,P){
   gl.uniform3fv(loc.bg,hexRgb(P.bg));
   gl.uniform3fv(loc.ember,hexRgb(P.emberColor));
   gl.uniform3fv(loc.glowCol,hexRgb(P.glowColor));
+  gl.uniform3fv(loc.bg2,hexRgb(P.bg2));
+  gl.uniform1f(loc.bgMode,({solid:0,linear:1,radial:2})[P.bgMode]||0);
+  gl.uniform1f(loc.bgAngle,n(P.bgAngle,D.bgAngle));
   gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES,0,3);
 
