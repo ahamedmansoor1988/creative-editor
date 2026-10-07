@@ -237,6 +237,12 @@ const DEFAULT_EFFECTS=()=>({
   /* Glass frame — a ray-traced glass ring or square frame in its own studio
    * light (public/glassframe.js). Same numbers as the Figma shader it was
    * ported from. Dark stage by default: the look depends on it. */
+  /* Light burst — a warp-speed burst from one point (public/lightburst.js).
+   * The Figma shader's numbers; cx/cy are fractions of the box from top-left. */
+  lightBurst:{on:false,cx:0.5,cy:0.38,coreSize:1.5,coreBrightness:1,rays:3,rayLength:0.45,rayAngle:90,streak:0.9,
+    haloSize:0.42,haloThickness:0.012,rainbow:0.8,haloSquash:0.38,haloTilt:-12,
+    speedStreaks:0.25,streakLength:0.6,embers:0.35,emberSize:1,lightLeak:0.6,bokeh:0.4,dust:0.25,
+    warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
   glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
     bubbles:0.6,exposure:1.3,bg:'#000000',transparent:false},
@@ -1291,8 +1297,22 @@ function normChildren(list,depth){
         gfr.transparent=!!gfr.transparent;
         gfr.holeOn=gfr.holeOn!==false;
       }
+      /* Light burst: every number held to its slider, colours repaired. */
+      const lbs=Object.assign(de.lightBurst, ce.lightBurst||{});
+      lbs.on=!!lbs.on && ['rect','ellipse','polygon','path'].includes(c.type);
+      {
+        const dl=DEFAULT_EFFECTS().lightBurst;
+        const ln=(k,lo,hi)=>{ const v=+lbs[k]; lbs[k]=Number.isFinite(v)?clamp(v,lo,hi):dl[k]; };
+        ln('cx',0,1); ln('cy',0,1); ln('coreSize',0.2,3); ln('coreBrightness',0,3); ln('rays',0,12); ln('rayLength',0.05,1.5);
+        ln('rayAngle',-180,180); ln('streak',0,3); ln('haloSize',0.05,1.2); ln('haloThickness',0.002,0.06); ln('rainbow',0,1);
+        ln('haloSquash',0.1,1); ln('haloTilt',-90,90); ln('speedStreaks',0,1); ln('streakLength',0.05,2); ln('embers',0,1);
+        ln('emberSize',0.3,4); ln('lightLeak',0,2); ln('bokeh',0,1); ln('dust',0,1); ln('warmth',0,1); ln('exposure',0.2,4); ln('seed',1,99);
+        lbs.rays=Math.round(lbs.rays); lbs.seed=Math.round(lbs.seed);
+        ['emberColor','bg'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(lbs[k]||'')) lbs[k]=dl[k]; });
+        lbs.transparent=!!lbs.transparent;
+      }
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, flare:flr, glass3d:g3,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, lightBurst:lbs, flare:flr, glass3d:g3,
         prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv, beam:bm,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz, dotMatrix:dm};
       /* §5.15: build the ORDERED stack. An existing document has only the
@@ -3770,6 +3790,25 @@ function drawOneInner(c,W,H,obj){
       paintWithInstances(obj,draw);
       return;
     }
+    const lbx=fx.lightBurst;
+    if(lbx&&fxOn(obj,'lightBurst')&&obj.type!=='text'&&window.LightBurstEngine&&window.LightBurstEngine.available()){
+      const draw=o=>{
+        // traced at screen resolution (zoom x devicePixelRatio), drawn scaled into the box
+        const m=c.getTransform?c.getTransform():null;
+        const sc=m?Math.max(1,Math.hypot(m.a,m.b)):1;
+        const img=window.LightBurstEngine.render(o.w*sc,o.h*sc,fxDraft?Object.assign({},lbx,{draft:true}):lbx);
+        if(!img) return;
+        c.save();
+        applyObjectTransform(c,o);
+        c.globalAlpha=obj.opacity;
+        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
+        c.beginPath(); pathFor(c,o); c.clip();
+        c.drawImage(img,o.x,o.y,o.w,o.h);
+        c.restore();
+      };
+      paintWithInstances(obj,draw);
+      return;
+    }
     const pr=fx.prism;
     if(pr&&fxOn(obj,'prism')&&obj.type!=='text'&&window.PrismEngine&&window.PrismEngine.available()){
       // FULL CANVAS, deliberately not clipped to the shape: a prism's whole
@@ -4780,7 +4819,7 @@ function renderDoc(){
  * the wrong place and samples the wrong pixels, which shows up as smeared or
  * displaced content near the silhouette. */
 const RASTER_PREVIEW_FX=new Set([
-  'light','liquid','glassFrame','flare','prism','capsule','blob','glass','glass2',
+  'light','liquid','glassFrame','lightBurst','flare','prism','capsule','blob','glass','glass2',
   'blur','bloom','distortion','warp','displacement','haze','slice','noise',
 ]);
 function rasterPreviewNeeded(){
@@ -5756,7 +5795,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Glass frame':'glassFrame','Flare':'flare',
+  'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Glass frame':'glassFrame','Light burst':'lightBurst','Flare':'flare',
   'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Shape divider':'divider','Light beam':'beam','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -5834,11 +5873,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7131,6 +7170,7 @@ function fxActive(obj,name){
     case 'Shape divider': return !!(e.divider&&e.divider.on);
     case 'Light beam': return !!(e.beam&&e.beam.on);
     case 'Glass frame': return !!(e.glassFrame&&e.glassFrame.on);
+    case 'Light burst': return !!(e.lightBurst&&e.lightBurst.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -9243,6 +9283,61 @@ function buildFxSection(obj,page,add,body){
         }
       });
       add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
+    }
+  }
+
+  if(page==='Light burst'){
+    const L=obj.effects.lightBurst;
+    add(`<label class="slider"><input type="checkbox" id="lbOn" ${L.on?'checked':''}> Enable light burst</label>`);
+    $('lbOn').addEventListener('change',e=>{ L.on=e.target.checked; pushHistory(); refresh(); });
+    if(L.on){
+      const sl=(id,label,min,max,step,val,dp)=>{
+        add(`<label class="slider">${label} <span id="${id}V">${(+val).toFixed(dp)}</span>
+          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></label>`);
+      };
+      const row=(id,key,label,min,max,step,dp)=>{
+        sl(id,label,min,max,step,L[key],dp);
+        // a full render is a fraction of a second: drag draws a draft, release renders properly
+        $(id).addEventListener('input',e=>{ L[key]=+e.target.value; $(id+'V').textContent=(+e.target.value).toFixed(dp); requestFxDraftRender(); });
+        $(id).addEventListener('change',()=>{ finishFxDraftRender(); pushHistory(); });
+      };
+      const colour=(id,label,key)=>{
+        add(`<label class="slider">${label} <input type="color" id="${id}" value="${L[key]}"></label>`);
+        $(id).addEventListener('input',e=>{ L[key]=e.target.value; render(); });
+        $(id).addEventListener('change',()=>pushHistory());
+      };
+      add('<div class="secTitle">Centre</div>');
+      row('lbCx','cx','Across',0,1,0.01,2);
+      row('lbCy','cy','Down',0,1,0.01,2);
+      add('<div class="secTitle" style="margin-top:8px">Core and rays</div>');
+      row('lbCore','coreSize','Core size',0.2,3,0.01,2);
+      row('lbCoreB','coreBrightness','Core brightness',0,3,0.01,2);
+      row('lbRays','rays','Rays',0,12,1,0);
+      row('lbRayL','rayLength','Ray length',0.05,1.5,0.01,2);
+      row('lbRayA','rayAngle','Ray angle',-180,180,1,0);
+      row('lbStreak','streak','Long streak',0,3,0.01,2);
+      add('<div class="secTitle" style="margin-top:8px">Halo</div>');
+      row('lbHalo','haloSize','Halo size',0.05,1.2,0.01,2);
+      row('lbHaloW','haloThickness','Halo thickness',0.002,0.06,0.001,3);
+      row('lbRain','rainbow','Rainbow',0,1,0.01,2);
+      row('lbSquash','haloSquash','Halo squash',0.1,1,0.01,2);
+      row('lbTilt','haloTilt','Halo tilt',-90,90,1,0);
+      row('lbLeak','lightLeak','Light leak',0,2,0.01,2);
+      add('<div class="secTitle" style="margin-top:8px">Particles</div>');
+      row('lbSpeed','speedStreaks','Speed streaks',0,1,0.01,2);
+      row('lbSpeedL','streakLength','Streak length',0.05,2,0.01,2);
+      row('lbEmb','embers','Embers',0,1,0.01,2);
+      row('lbEmbS','emberSize','Ember size',0.3,4,0.01,2);
+      row('lbBokeh','bokeh','Bokeh',0,1,0.01,2);
+      row('lbDust','dust','Dust',0,1,0.01,2);
+      row('lbSeed','seed','Seed',1,99,1,0);
+      add('<div class="secTitle" style="margin-top:8px">Colour</div>');
+      row('lbWarm','warmth','Warmth',0,1,0.01,2);
+      row('lbExp','exposure','Exposure',0.2,4,0.05,2);
+      colour('lbEmbC','Ember colour','emberColor');
+      add(`<label class="slider"><input type="checkbox" id="lbTr" ${L.transparent?'checked':''}> Transparent (lay it over a photo, blend Screen)</label>`);
+      $('lbTr').addEventListener('change',e=>{ L.transparent=e.target.checked; pushHistory(); refresh(); });
+      if(!L.transparent) colour('lbBg','Background','bg');
     }
   }
 

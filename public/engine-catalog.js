@@ -199,6 +199,23 @@
       description:
         "A ray-traced glass ring or square frame with rainbow dispersion and bubbles.",
     },
+    /* Ported from the Figma shader "Light Burst": a warp-speed burst of light
+     * from one point. It makes its own pixels; Transparent lays it over a
+     * photo on a Screen or Add layer. */
+    {
+      id: "lightBurst",
+      label: "Light burst",
+      category: "shader",
+      status: READY,
+      kind: "effect",
+      rendererType: "lightBurst",
+      icon: "sun",
+      page: "Light burst",
+      opening: { on: true },
+      supportedInputs: ["rect", "ellipse", "polygon", "path"],
+      tagline: "warp-speed light",
+      description: "A burst of light from one point: core, rays, rainbow halo, speed streaks, embers and bokeh.",
+    },
     {
       id: "innerLens",
       label: "Inner lens",

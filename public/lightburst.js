@@ -1,0 +1,249 @@
+/* Light Burst — a warp-speed light burst (material slot).
+ *
+ * PROVENANCE. Written for this app on 7 Oct 2026 as a WebGL2 port of the
+ * author's own Figma shader "Light Burst" (WGSL, same session). The maths is
+ * carried across line for line; only the plumbing changed. Nothing here is
+ * derived from Shadertoy or any other licensed source — see
+ * SHADER-PROVENANCE.md.
+ *
+ * WHAT IT IS. Everything radiates from one centre point, layered additively:
+ * a blown-out core, a tapered starburst plus one long anamorphic streak, two
+ * tilted halo rings carrying a spectrum across their width, three scales of
+ * speed streaks (particles laid out in polar cells, so each streak points
+ * away from the centre at any size), embers, a warm light leak where the
+ * halo meets one side, out-of-focus bokeh and fine dust. A seed reshuffles
+ * every particle without changing the look.
+ *
+ * TRANSPARENT MODE is for laying the burst over a photo: the light comes out
+ * with its own alpha, so on a layer blended Screen or Add it lights whatever
+ * is beneath.
+ *
+ * WHY IT IS A MATERIAL. It generates its own pixels and never reads the page,
+ * so it caches: one render per parameter change, not per repaint.
+ */
+(function(){
+"use strict";
+
+const VERT=`#version 300 es
+in vec2 a_pos;
+void main(){ gl_Position=vec4(a_pos,0.0,1.0); }`;
+
+const FRAG=`#version 300 es
+precision highp float;
+uniform vec2 u_res, u_centre;
+uniform float u_core, u_coreBright, u_rays, u_rayLen, u_rayAngle, u_streak;
+uniform float u_ringR, u_ringW, u_rainbow, u_squash, u_tilt;
+uniform float u_speed, u_speedLen, u_embers, u_emberSize, u_dust;
+uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh;
+uniform vec3 u_bg, u_ember;
+out vec4 fragColor;
+
+float h21(vec2 p){ vec2 q=fract(p*vec2(123.34,456.21)); q+=dot(q,q+45.32); return fract(q.x*q.y); }
+float h11(float x){ return fract(sin(x*127.1)*43758.5453); }
+vec2 rot(vec2 v,float a){ float c=cos(a), s=sin(a); return vec2(c*v.x-s*v.y, s*v.x+c*v.y); }
+float angNoise(float th,float freq,float seed){
+  float x=(th/6.2831853+0.5)*freq; float i=floor(x), f=fract(x);
+  float a=h11(i+seed), b=h11(mod(i+1.0,freq)+seed);
+  return mix(a,b,f*f*(3.0-2.0*f));
+}
+float angDiff(float a,float b){ return abs(fract((a-b)/6.2831853+0.5)-0.5)*6.2831853; }
+
+vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float width,float seed,float warm,vec3 ember,float emberMix){
+  vec3 col=vec3(0.0);
+  float lr=log(r+0.03), m=0.42;
+  float ca=floor((th/6.2831853+0.5)*bins), cr0=floor(lr/m);
+  for(int k=0;k<2;k++){
+    float cr=cr0-float(k);
+    vec2 id=vec2(ca,cr)+seed;
+    float h=h21(id);
+    if(h>density) continue;
+    float h2=h21(id+1.7), h3=h21(id+3.1), h4=h21(id+5.3);
+    float thc=((ca+0.15+0.7*h2)/bins-0.5)*6.2831853;
+    float rc=exp((cr+h3)*m)-0.03;
+    float lenR=len*max(rc,0.02)*(0.35+h4);
+    float t=(r-rc)/max(lenR,0.0005);
+    if(t<0.0||t>1.0) continue;
+    float w=width*(0.6+0.8*h2)*(0.6+rc);
+    float dpx=angDiff(th,thc)*r;
+    float along=smoothstep(0.0,0.18,t)*smoothstep(1.0,0.55,t);
+    float inten=exp(-(dpx*dpx)/(w*w))*along*(0.4+1.2*h);
+    float isEmber=step(1.0-emberMix,h4);
+    vec3 cool=mix(vec3(0.75,0.85,1.0),vec3(1.0,0.85,0.65),warm);
+    col+=inten*mix(cool,ember,isEmber);
+  }
+  return col;
+}
+
+void main(){
+  float mn=min(u_res.x,u_res.y);
+  // y down like the document: the centre is a fraction from the top-left
+  vec2 px=vec2(gl_FragCoord.x, u_res.y-gl_FragCoord.y);
+  vec2 c=u_centre*u_res;
+  vec2 q=vec2(px.x-c.x, c.y-px.y)/mn;
+  float r=length(q), th=atan(q.y,q.x);
+  float seed=u_seed*17.0, warm=u_warm;
+  vec3 col=vec3(0.0);
+
+  vec3 coreCol=mix(vec3(0.85,0.92,1.0),vec3(1.0,0.9,0.75),warm);
+  float cs=max(u_core,0.01);
+  col+=coreCol*u_coreBright*(exp(-r/(cs*0.04))*2.5+exp(-pow(r/(cs*0.13),2.0))*1.6+exp(-r/(cs*0.22))*0.5+exp(-r/(cs*0.7))*0.05);
+
+  float a0=u_rayAngle*0.0174533;
+  for(int k=0;k<12;k++){
+    float fk=float(k);
+    if(fk>=u_rays) break;
+    float ang=a0+fk*3.14159265/max(u_rays,1.0);
+    vec2 v=rot(q,-ang);
+    float lenK=u_rayLen*(0.45+0.9*h11(fk+seed));
+    float wK=0.0016*(0.7+h11(fk*3.3+seed))*(1.0+7.0*exp(-abs(v.x)/(lenK*0.12)));
+    col+=coreCol*1.2*exp(-abs(v.y)/wK)*exp(-abs(v.x)/lenK);
+  }
+  float spikes=pow(angNoise(th,90.0,seed),7.0)+0.5*pow(angNoise(th,240.0,seed+9.0),9.0);
+  col+=coreCol*spikes*exp(-r/(u_rayLen*0.22+0.01))*0.5*u_coreBright;
+
+  vec2 sv=rot(q,-a0);
+  col+=vec3(0.8,0.9,1.0)*1.6*exp(-abs(sv.y)/0.0022)*exp(-abs(sv.x)/max(u_streak,0.001));
+
+  float ringR=u_ringR, ringW=max(u_ringW,0.002), rb=u_rainbow;
+  vec2 e=rot(q,-u_tilt*0.0174533);
+  vec2 ev=vec2(e.x,e.y/max(u_squash,0.1));
+  float re=length(ev);
+  float wobble=0.25+0.75*pow(angNoise(atan(ev.y,ev.x),6.0,seed+3.0),1.5);
+  float d1=(re-ringR)/ringW, d2=(re-ringR*0.62)/(ringW*0.8);
+  float env1=exp(-d1*d1*0.5), env2=exp(-d2*d2*0.5)*0.4;
+  vec3 spec1=clamp(0.5+0.5*cos(6.2831853*(clamp(0.5-d1*0.22,0.0,1.0)*0.75+vec3(0.0,0.33,0.67))),0.0,1.0);
+  vec3 spec2=clamp(0.5+0.5*cos(6.2831853*(clamp(0.5-d2*0.22,0.0,1.0)*0.75+vec3(0.0,0.33,0.67))),0.0,1.0);
+  col+=(mix(vec3(0.9),spec1*1.4,rb)*env1+mix(vec3(0.9),spec2*1.4,rb)*env2)*wobble*0.35;
+
+  col+=streaks(q,r,th,140.0,u_speed*0.5,u_speedLen,0.0014,seed,warm,u_ember,0.0)*0.7;
+  col+=streaks(q,r,th,70.0,u_speed*0.6,u_speedLen*1.2,0.0022,seed+11.0,warm,u_ember,u_embers*0.5)*1.1;
+  col+=streaks(q,r,th,36.0,u_embers*0.5,u_speedLen*0.5,0.0040*u_emberSize,seed+23.0,warm,u_ember,1.0)*1.8;
+
+  vec2 g=q*260.0, gi=floor(g);
+  if(h21(gi+seed)<u_dust*0.06*(0.3+0.7*exp(-r*2.5))){
+    vec2 pp=gi+vec2(h21(gi+2.0),h21(gi+4.0));
+    float dd=length(g-pp);
+    col+=vec3(0.9,0.95,1.0)*exp(-dd*dd*6.0)*(0.3+h21(gi+6.0));
+  }
+
+  vec2 lp=rot(vec2(-ringR,0.0),u_tilt*0.0174533);
+  float ld=length(q-lp*vec2(1.15,1.0));
+  col+=u_ember*u_leak*(exp(-ld/0.07)*1.4+exp(-ld/0.22)*0.35);
+
+  vec2 bi=floor(q*7.0);
+  for(int oy=-1;oy<=1;oy++) for(int ox=-1;ox<=1;ox++){
+    vec2 cid=bi+vec2(float(ox),float(oy));
+    if(h21(cid+seed*1.3)>u_bokeh*0.35) continue;
+    vec2 bp=(cid+vec2(h21(cid+8.0),h21(cid+9.0)))/7.0;
+    float edge=smoothstep(0.15,0.7,length(bp));
+    float br=(0.006+0.016*h21(cid+10.0))*(0.5+edge);
+    float disc=smoothstep(br,br*0.55,length(q-bp));
+    vec3 tint=mix(vec3(0.7,0.85,1.0),u_ember,step(0.4,h21(cid+11.0)));
+    col+=tint*disc*(0.5+0.8*edge);
+  }
+
+  vec3 lit=pow(vec3(1.0)-exp(-col*u_expo),vec3(1.0/1.15));
+  if(u_transparent>0.5){
+    float a=clamp(max(lit.r,max(lit.g,lit.b)),0.0,1.0);
+    fragColor=vec4(lit,a); // premultiplied: lit is already colour x alpha
+    return;
+  }
+  fragColor=vec4(clamp(u_bg+lit*(vec3(1.0)-u_bg*0.5),0.0,1.0),1.0);
+}`;
+
+/* The same numbers as the Figma shader, so the two render the same look. */
+const DEFAULTS=Object.freeze({
+  cx:0.5, cy:0.38, coreSize:1.5, coreBrightness:1, rays:3, rayLength:0.45, rayAngle:90, streak:0.9,
+  haloSize:0.42, haloThickness:0.012, rainbow:0.8, haloSquash:0.38, haloTilt:-12,
+  speedStreaks:0.25, streakLength:0.6, embers:0.35, emberSize:1, lightLeak:0.6, bokeh:0.4, dust:0.25,
+  warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
+});
+const MAX_SIDE=1400;
+/* While a slider is being dragged: fewer pixels, fast enough to follow the hand. */
+const DRAFT_SIDE=520;
+const CACHE_MAX=8;
+const U_NAMES=['res','centre','core','coreBright','rays','rayLen','rayAngle','streak','ringR','ringW','rainbow','squash','tilt',
+  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','bg','ember'];
+
+let gl=null, cv=null, prog=null, vao=null, loc=null, failed=false;
+const cache=new Map();
+
+function init(){
+  if(gl) return true;
+  if(failed) return false;
+  try{
+    cv=document.createElement('canvas');
+    gl=cv.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false,alpha:true});
+    if(!gl) throw new Error('WebGL2 unavailable');
+    const compile=(t,s)=>{
+      const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+      if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+      return sh;
+    };
+    prog=gl.createProgram();
+    gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));
+    gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+    const buf=gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
+    const a=gl.getAttribLocation(prog,'a_pos');
+    gl.enableVertexAttribArray(a);
+    gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
+    loc={};
+    U_NAMES.forEach(k=>{ loc[k]=gl.getUniformLocation(prog,'u_'+k); });
+    return true;
+  }catch(e){
+    console.warn('light burst engine disabled:',e.message);
+    failed=true; gl=null; return false;
+  }
+}
+
+function hexRgb(hex){
+  const n=parseInt(String(hex||'#000000').slice(1),16)||0;
+  return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255];
+}
+
+/** Render for a w x h box. Returns a canvas (possibly smaller than the box —
+ *  draw it scaled into it) or null if unavailable. */
+function render(w,h,P){
+  if(!init()) return null;
+  P=Object.assign({},DEFAULTS,P||{});
+  let W=Math.max(2,Math.round(w)), H=Math.max(2,Math.round(h));
+  const k=Math.min(1,(P.draft?DRAFT_SIDE:MAX_SIDE)/Math.max(W,H));
+  W=Math.max(2,Math.round(W*k)); H=Math.max(2,Math.round(H*k));
+  const key=[W,H].concat(Object.keys(DEFAULTS).map(n=>P[n])).join('|');
+  const hit=cache.get(key);
+  if(hit){ cache.delete(key); cache.set(key,hit); return hit; }
+
+  if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
+  gl.viewport(0,0,W,H);
+  gl.useProgram(prog);
+  gl.bindVertexArray(vao);
+  const n=(v,d)=>Number.isFinite(+v)?+v:d, D=DEFAULTS, f=(key)=>gl.uniform1f(loc[key[0]],n(P[key[1]],D[key[1]]));
+  gl.uniform2f(loc.res,W,H);
+  gl.uniform2f(loc.centre,n(P.cx,D.cx),n(P.cy,D.cy));
+  [['core','coreSize'],['coreBright','coreBrightness'],['rays','rays'],['rayLen','rayLength'],['rayAngle','rayAngle'],
+   ['streak','streak'],['ringR','haloSize'],['ringW','haloThickness'],['rainbow','rainbow'],['squash','haloSquash'],
+   ['tilt','haloTilt'],['speed','speedStreaks'],['speedLen','streakLength'],['embers','embers'],['emberSize','emberSize'],
+   ['dust','dust'],['warm','warmth'],['seed','seed'],['expo','exposure'],['leak','lightLeak'],['bokeh','bokeh']].forEach(f);
+  gl.uniform1f(loc.transparent,P.transparent?1:0);
+  gl.uniform3fv(loc.bg,hexRgb(P.bg));
+  gl.uniform3fv(loc.ember,hexRgb(P.emberColor));
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // the GL canvas is shared, so what goes in the cache is a 2D copy
+  const out=document.createElement('canvas');
+  out.width=W; out.height=H;
+  out.getContext('2d').drawImage(cv,0,0);
+  cache.set(key,out);
+  while(cache.size>CACHE_MAX) cache.delete(cache.keys().next().value);
+  return out;
+}
+
+window.LightBurstEngine={render,available:()=>init(),DEFAULTS};
+})();
