@@ -41,6 +41,21 @@ describe("Light burst", () => {
     expect(L.emberColor).toBe("#ff8c26");
   });
 
+  it("chromatic aberration and background glow start at 0 (earlier designs render as before) and are held to their sliders", () => {
+    expect(shape().effects.lightBurst).toMatchObject({ chromatic: 0, glow: 0, glowColor: "#1f4f8f" });
+    const L = shape({ lightBurst: { on: true, chromatic: 5, glow: 9, glowColor: "blue" } }).effects.lightBurst;
+    expect(L.chromatic).toBe(1);
+    expect(L.glow).toBe(1.5);
+    expect(L.glowColor).toBe("#1f4f8f");
+  });
+
+  it("the engine knows the new settings (they reach the shader and the render cache)", () => {
+    const src = require("fs").readFileSync(require("path").join(__dirname, "../public/lightburst.js"), "utf8");
+    expect(src).toMatch(/chromatic:0, glow:0, glowColor:'#1f4f8f'/);
+    expect(src).toMatch(/\['chroma','chromatic'\],\['glow','glow'\]/);
+    expect(src).toMatch(/uniform3fv\(loc\.glowCol/);
+  });
+
   it("is off for text", () => {
     expect(shape({ lightBurst: { on: true } }, "text").effects.lightBurst?.on ?? false).toBe(false);
   });

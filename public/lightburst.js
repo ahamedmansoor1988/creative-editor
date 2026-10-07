@@ -15,6 +15,12 @@
  * every particle without changing the look. Every particle also has a
  * DEPTH, seen through a thin lens (Focus distance, Aperture): out of focus it
  * spreads into the flat, crisp-edged disc a camera makes, nearer ones faster.
+ * 7 Oct 2026 (later): the LIGHT itself (core, rays, long streak, halo) and the dust
+ * now sit at depths too, so the lens softens the whole burst, not only the
+ * particles (Mansoor: "only the dots are affected"). Chromatic aberration
+ * samples red/blue slightly outward/inward from the picture centre (rainbow
+ * fringes across the streaks); Background glow is a soft gradient around the
+ * light. Both 0 by default, so earlier designs render as before.
  *
  * TRANSPARENT MODE is for laying the burst over a photo: the light comes out
  * with its own alpha, so on a layer blended Screen or Add it lights whatever
@@ -36,8 +42,8 @@ uniform vec2 u_res, u_centre;
 uniform float u_core, u_coreBright, u_rays, u_rayLen, u_rayAngle, u_streak;
 uniform float u_ringR, u_ringW, u_rainbow, u_squash, u_tilt;
 uniform float u_speed, u_speedLen, u_embers, u_emberSize, u_dust;
-uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh, u_focus, u_aperture;
-uniform vec3 u_bg, u_ember;
+uniform float u_warm, u_seed, u_expo, u_transparent, u_leak, u_bokeh, u_focus, u_aperture, u_chroma, u_glow;
+uniform vec3 u_bg, u_ember, u_glowCol;
 out vec4 fragColor;
 
 float h21(vec2 p){ vec2 q=fract(p*vec2(123.34,456.21)); q+=dot(q,q+45.32); return fract(q.x*q.y); }
@@ -54,6 +60,11 @@ float coc(float z,float focus,float aperture){
   float d=mix(0.5,5.0,z), df=mix(0.5,5.0,focus);
   return min(aperture*abs(d-df)/d,1.5);
 }
+// The light itself (core, rays, long streak, halo) sits at the default focus distance, so at the
+// defaults it is sharp and moving Focus away, or opening the Aperture, softens the whole burst.
+const float LIGHT_Z=0.65;
+// widen a profile of width w by a lens blur b, keeping its total light (1D: w/w', 2D: (w/w')^2)
+float wid(float w,float b){ return sqrt(w*w+b*b); }
 float angDiff(float a,float b){ return abs(fract((a-b)/6.2831853+0.5)-0.5)*6.2831853; }
 
 vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float width,float seed,float warm,vec3 ember,float emberMix,float focus,float aperture){
@@ -89,19 +100,23 @@ vec3 streaks(vec2 q,float r,float th,float bins,float density,float len,float wi
   return col;
 }
 
-void main(){
+// Everything the burst emits at one pixel (px, y down). main() calls it once, or three times for
+// chromatic aberration: red and blue are sampled a little outward / inward from the PICTURE centre,
+// so radial streaks get colour fringes across their width, as a real lens gives them.
+vec3 scene(vec2 px){
   float mn=min(u_res.x,u_res.y);
-  // y down like the document: the centre is a fraction from the top-left
-  vec2 px=vec2(gl_FragCoord.x, u_res.y-gl_FragCoord.y);
   vec2 c=u_centre*u_res;
   vec2 q=vec2(px.x-c.x, c.y-px.y)/mn;
   float r=length(q), th=atan(q.y,q.x);
   float seed=u_seed*17.0, warm=u_warm;
   vec3 col=vec3(0.0);
+  float bl=0.03*coc(LIGHT_Z,u_focus,u_aperture);
 
   vec3 coreCol=mix(vec3(0.85,0.92,1.0),vec3(1.0,0.9,0.75),warm);
   float cs=max(u_core,0.01);
-  col+=coreCol*u_coreBright*(exp(-r/(cs*0.04))*2.5+exp(-pow(r/(cs*0.13),2.0))*1.6+exp(-r/(cs*0.22))*0.5+exp(-r/(cs*0.7))*0.05);
+  float s1=wid(cs*0.04,bl), s2=wid(cs*0.13,bl), s3=wid(cs*0.22,bl), rb2=sqrt(r*r+bl*bl*0.25);
+  col+=coreCol*u_coreBright*(exp(-rb2/s1)*2.5*pow(cs*0.04/s1,2.0)+exp(-pow(r/s2,2.0))*1.6*pow(cs*0.13/s2,2.0)
+       +exp(-rb2/s3)*0.5*pow(cs*0.22/s3,2.0)+exp(-r/(cs*0.7))*0.05);
 
   float a0=u_rayAngle*0.0174533;
   for(int k=0;k<12;k++){
@@ -111,15 +126,17 @@ void main(){
     vec2 v=rot(q,-ang);
     float lenK=u_rayLen*(0.45+0.9*h11(fk+seed));
     float wK=0.0016*(0.7+h11(fk*3.3+seed))*(1.0+7.0*exp(-abs(v.x)/(lenK*0.12)));
-    col+=coreCol*1.2*exp(-abs(v.y)/wK)*exp(-abs(v.x)/lenK);
+    float wB=wid(wK,bl);
+    col+=coreCol*1.2*(wK/wB)*exp(-abs(v.y)/wB)*exp(-abs(v.x)/lenK);
   }
   float spikes=pow(angNoise(th,90.0,seed),7.0)+0.5*pow(angNoise(th,240.0,seed+9.0),9.0);
-  col+=coreCol*spikes*exp(-r/(u_rayLen*0.22+0.01))*0.5*u_coreBright;
+  col+=coreCol*spikes*exp(-r/(u_rayLen*0.22+0.01))*0.5*u_coreBright/(1.0+60.0*bl);
 
   vec2 sv=rot(q,-a0);
-  col+=vec3(0.8,0.9,1.0)*1.6*exp(-abs(sv.y)/0.0022)*exp(-abs(sv.x)/max(u_streak,0.001));
+  float stW=wid(0.0022,bl);
+  col+=vec3(0.8,0.9,1.0)*1.6*(0.0022/stW)*exp(-abs(sv.y)/stW)*exp(-abs(sv.x)/max(u_streak,0.001));
 
-  float ringR=u_ringR, ringW=max(u_ringW,0.002), rb=u_rainbow;
+  float ringR=u_ringR, ringW0=max(u_ringW,0.002), ringW=wid(ringW0,bl), rb=u_rainbow;
   vec2 e=rot(q,-u_tilt*0.0174533);
   vec2 ev=vec2(e.x,e.y/max(u_squash,0.1));
   float re=length(ev);
@@ -128,7 +145,7 @@ void main(){
   float env1=exp(-d1*d1*0.5), env2=exp(-d2*d2*0.5)*0.4;
   vec3 spec1=clamp(0.5+0.5*cos(6.2831853*(clamp(0.5-d1*0.22,0.0,1.0)*0.75+vec3(0.0,0.33,0.67))),0.0,1.0);
   vec3 spec2=clamp(0.5+0.5*cos(6.2831853*(clamp(0.5-d2*0.22,0.0,1.0)*0.75+vec3(0.0,0.33,0.67))),0.0,1.0);
-  col+=(mix(vec3(0.9),spec1*1.4,rb)*env1+mix(vec3(0.9),spec2*1.4,rb)*env2)*wobble*0.35;
+  col+=(mix(vec3(0.9),spec1*1.4,rb)*env1+mix(vec3(0.9),spec2*1.4,rb)*env2)*wobble*0.35*(ringW0/ringW);
 
   col+=streaks(q,r,th,140.0,u_speed*0.5,u_speedLen,0.0014,seed,warm,u_ember,0.0,u_focus,u_aperture)*0.7;
   col+=streaks(q,r,th,70.0,u_speed*0.6,u_speedLen*1.2,0.0022,seed+11.0,warm,u_ember,u_embers*0.5,u_focus,u_aperture)*1.1;
@@ -138,7 +155,9 @@ void main(){
   if(h21(gi+seed)<u_dust*0.06*(0.3+0.7*exp(-r*2.5))){
     vec2 pp=gi+vec2(h21(gi+2.0),h21(gi+4.0));
     float dd=length(g-pp);
-    col+=vec3(0.9,0.95,1.0)*exp(-dd*dd*6.0)*(0.3+h21(gi+6.0));
+    // each speck at its own depth: out of focus it grows into a soft disc (cell units), same total light
+    float db=min(coc(h21(gi+7.0),u_focus,u_aperture),1.0), dr=0.41+0.45*db;
+    col+=vec3(0.9,0.95,1.0)*exp(-dd*dd/(dr*dr))*(0.3+h21(gi+6.0))*(0.168/(dr*dr));
   }
 
   vec2 lp=rot(vec2(-ringR,0.0),u_tilt*0.0174533);
@@ -159,13 +178,27 @@ void main(){
     col+=tint*disc*(0.5+0.8*edge);
   }
 
+  return col;
+}
+
+void main(){
+  vec2 px=vec2(gl_FragCoord.x, u_res.y-gl_FragCoord.y);
+  float mn=min(u_res.x,u_res.y);
+  vec3 col;
+  if(u_chroma>0.001){
+    vec2 off=(px-0.5*u_res)*0.024*u_chroma;
+    col=vec3(scene(px+off).r, scene(px).g, scene(px-off).b);
+  } else col=scene(px);
   vec3 lit=pow(vec3(1.0)-exp(-col*u_expo),vec3(1.0/1.15));
   if(u_transparent>0.5){
     float a=clamp(max(lit.r,max(lit.g,lit.b)),0.0,1.0);
     fragColor=vec4(lit,a); // premultiplied: lit is already colour x alpha
     return;
   }
-  fragColor=vec4(clamp(u_bg+lit*(vec3(1.0)-u_bg*0.5),0.0,1.0),1.0);
+  vec2 cq=vec2(px.x-u_centre.x*u_res.x, px.y-u_centre.y*u_res.y)/mn;
+  float gr=length(cq);
+  vec3 bg=u_bg+u_glowCol*u_glow*(0.85*exp(-gr*gr/0.18)+0.25*exp(-gr/0.9));
+  fragColor=vec4(clamp(bg+lit*(vec3(1.0)-bg*0.5),0.0,1.0),1.0);
 }`;
 
 /* The same numbers as the Figma shader, so the two render the same look. */
@@ -173,14 +206,14 @@ const DEFAULTS=Object.freeze({
   cx:0.5, cy:0.38, coreSize:1.5, coreBrightness:1, rays:3, rayLength:0.45, rayAngle:90, streak:0.9,
   haloSize:0.42, haloThickness:0.012, rainbow:0.8, haloSquash:0.38, haloTilt:-12,
   speedStreaks:0.25, streakLength:0.6, embers:0.35, emberSize:1, lightLeak:0.6, bokeh:0.4, dust:0.25,
-  focus:0.65, aperture:0.8, warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
+  focus:0.65, aperture:0.8, chromatic:0, glow:0, glowColor:'#1f4f8f', warmth:0.4, exposure:1.2, seed:1, emberColor:'#ff8c26', bg:'#03050d', transparent:false,
 });
 const MAX_SIDE=1400;
 /* While a slider is being dragged: fewer pixels, fast enough to follow the hand. */
 const DRAFT_SIDE=520;
 const CACHE_MAX=8;
 const U_NAMES=['res','centre','core','coreBright','rays','rayLen','rayAngle','streak','ringR','ringW','rainbow','squash','tilt',
-  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','focus','aperture','bg','ember'];
+  'speed','speedLen','embers','emberSize','dust','warm','seed','expo','transparent','leak','bokeh','focus','aperture','chroma','glow','bg','ember','glowCol'];
 
 let gl=null, cv=null, prog=null, vao=null, loc=null, failed=false;
 const cache=new Map();
@@ -247,10 +280,11 @@ function render(w,h,P){
    ['streak','streak'],['ringR','haloSize'],['ringW','haloThickness'],['rainbow','rainbow'],['squash','haloSquash'],
    ['tilt','haloTilt'],['speed','speedStreaks'],['speedLen','streakLength'],['embers','embers'],['emberSize','emberSize'],
    ['dust','dust'],['warm','warmth'],['seed','seed'],['expo','exposure'],['leak','lightLeak'],['bokeh','bokeh'],
-   ['focus','focus'],['aperture','aperture']].forEach(f);
+   ['focus','focus'],['aperture','aperture'],['chroma','chromatic'],['glow','glow']].forEach(f);
   gl.uniform1f(loc.transparent,P.transparent?1:0);
   gl.uniform3fv(loc.bg,hexRgb(P.bg));
   gl.uniform3fv(loc.ember,hexRgb(P.emberColor));
+  gl.uniform3fv(loc.glowCol,hexRgb(P.glowColor));
   gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES,0,3);
 
