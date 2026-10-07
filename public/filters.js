@@ -1088,6 +1088,9 @@
     if (type === "blur") return blurLayer(cv, params);
     if (type === "bloom") return bloomLayer(cv, params);
     if (type === "dotMatrix") return dotMatrixLayer(cv, params);
+    // the page camera (lensblur.js): a lens blur, on the GPU
+    if (type === "lensBlur")
+      return window.LensBlurEngine && window.LensBlurEngine.available() ? window.LensBlurEngine.blur(cv, params) : cv;
     const c = cv.getContext("2d", { willReadFrequently: true });
     const img = c.getImageData(0, 0, w, h);
     switch (type) {

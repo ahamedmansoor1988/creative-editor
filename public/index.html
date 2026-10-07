@@ -297,6 +297,8 @@
          with the geometry, open. Object-only: an artboard hides this block. -->
     <div id="objectOnlyPos">
       <label class="slider uiRow"><span>Rotation</span><input type="number" id="trRot" step="1"></label>
+      <!-- shown while the page has a camera: where this layer sits, near to far -->
+      <label class="slider uiRow" id="depthRow" style="display:none"><span>Depth</span><input type="range" id="pDepth" min="0" max="1" step="0.01" aria-label="Depth"><button type="button" id="pFocusHere" class="rollBtn" title="Focus the camera on this layer">Focus</button></label>
       <label class="slider uiRow" id="cornerField" style="display:none"><span>Corner radius</span><input type="number" id="pRad" min="0" step="1" value="0"></label>
       <!-- A boolean is a switch row, label left — the book's rule, and it says
            what the icon button never did: on, one radius runs round the shape;
@@ -369,6 +371,8 @@
     <div class="secTitle">Page</div>
     <label class="iconField" title="Page name"><i data-icon="text"></i><input type="text" id="pgName" maxlength="60" placeholder="Name" aria-label="Page name"></label>
     <div id="pgStats" class="pgStats"></div>
+    <div class="secTitle" style="margin-top:12px">Camera</div>
+    <div id="pgCamera"></div>
     <div class="secTitle" style="margin-top:12px">Styles on this page</div>
     <div id="pgStyles" class="pgList"></div>
     <div class="secTitle" style="margin-top:12px">Effects in use</div>
@@ -551,6 +555,7 @@
 <script src="blob.js"></script>
 <script src="light.js"></script>
 <script src="liquidgradient.js"></script>
+<script src="lensblur.js?v=20261007-lens2"></script>
 <script src="lightburst.js?v=20261007-burst2"></script>
 <script src="glassframe.js?v=20260930-frame6"></script>
 <script src="prismflare.js"></script>

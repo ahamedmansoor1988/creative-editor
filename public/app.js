@@ -591,6 +591,19 @@ function normalizeDoc(d){
   const f=d.frame;
   f.w=clamp(+f.w||900,100,4000); f.h=clamp(+f.h||600,100,4000);
   if(!/^#/.test(f.bg||'')) f.bg='#ffffff';
+  /* The page CAMERA (public/lensblur.js): every layer is seen through one
+   * lens. Off by default, so a page without one renders exactly as before.
+   * f-stops are the real stops; blades 0 means a round iris. */
+  {
+    const c0=f.camera&&typeof f.camera==='object'?f.camera:{};
+    const FSTOPS=[1.4,2,2.8,4,5.6,8,11,16];
+    f.camera={on:!!c0.on,
+      focus:Number.isFinite(+c0.focus)?clamp(+c0.focus,0,1):0.5,
+      fstop:FSTOPS.includes(+c0.fstop)?+c0.fstop:2.8,
+      blades:[0,5,6,7,8,9].includes(+c0.blades)?+c0.blades:0,
+      bladeRotation:Number.isFinite(+c0.bladeRotation)?clamp(+c0.bladeRotation,0,180):0,
+      highlight:Number.isFinite(+c0.highlight)?clamp(+c0.highlight,0,1):0.6};
+  }
   /* §2.11 guides live with the page, so they save and undo with it.
    * §0 constraint 2: guides are created by DRAGGING FROM A RULER or by
    * numeric entry — never by tapping a ruler on a touchscreen. */
@@ -706,6 +719,8 @@ function normChildren(list,depth){
     c.name=c.name||`${c.type} ${i+1}`;
     c.x=+c.x||0; c.y=+c.y||0;
     c.opacity=c.opacity===undefined?1:clamp(+c.opacity,0.05,1);
+    // depth from the camera: 0 near, 1 far; absent means 0.5, the middle
+    if(c.depth!==undefined) c.depth=Number.isFinite(+c.depth)?clamp(+c.depth,0,1):0.5;
     if(!['rect','ellipse','text','polygon','line','path','group','frame','boolean','image','instance'].includes(c.type)) c.type='rect';
     if(c.type==='text'){
       c.size=clamp(+c.size||32,8,300); c.weight=+c.weight||600;
@@ -3244,6 +3259,7 @@ function pixelPad(entries){
     const p=e.params||{};
     if(e.type==='blur') pad=Math.max(pad,(+p.radius||0)*3+(+p.distance||0));
     if(e.type==='bloom') pad=Math.max(pad,(+p.radius||0)*3+8);
+    if(e.type==='lensBlur') pad=Math.max(pad,(+p.radius||0)+4);
     if(e.type==='distortion') pad=Math.max(pad,Math.abs(+p.amount||0)+12);
     if(e.type==='warp') pad=Math.max(pad,Math.abs(+p.strength||0)*2);
     if(e.type==='displacement') pad=Math.max(pad,Math.abs(+p.scaleX||0)+Math.abs(+p.scaleY||0));
@@ -3311,6 +3327,9 @@ function paintSig(obj){
   if(FS&&obj.fx) obj.fx.forEach(e=>{
     if(FS.entryOn(e)) s+='|'+e.type+JSON.stringify(e.params);
   });
+  // the camera changes the pixels of every layer it blurs
+  const cam=doc&&doc.frame&&doc.frame.camera;
+  if(cam&&cam.on) s+='|cam'+cam.focus+','+cam.fstop+','+cam.blades+','+cam.bladeRotation+','+cam.highlight+'|d'+(obj.depth===undefined?0.5:obj.depth);
   return s;
 }
 /** How far this object's ink can spill outside its own box. */
@@ -3426,6 +3445,21 @@ function drawOne(c,W,H,obj){
   }
   drawOneUncached(c,W,H,obj);
 }
+/* The page camera's blur for one object, as a pixel-pass entry, or null when
+ * the camera is off or the object sits in focus. Containers pass: their
+ * children are blurred by their own depth, and blurring the group as well
+ * would blur them twice. The radius is in page units (a fraction of the
+ * page's short side, so it scales with the page) times any render scale. */
+function cameraLens(obj){
+  const cam=doc&&doc.frame&&doc.frame.camera;
+  if(!cam||!cam.on||CONTAINER(obj)||!window.LensBlurEngine) return null;
+  const short=Math.min(doc.frame.w,doc.frame.h);
+  const depth=obj.depth===undefined?0.5:obj.depth;
+  let radius=Math.min(window.LensBlurEngine.coc(depth,cam.focus,cam.fstop)*0.035*short,0.08*short);
+  radius*=obj.__exportScale||1;
+  if(radius<0.6) return null;
+  return {type:'lensBlur',params:{radius,blades:cam.blades,rotation:cam.bladeRotation,highlight:cam.highlight}};
+}
 function drawOneUncached(c,W,H,obj){
   const FS=window.FxStack;
   if(!obj.__inPixelPass) paintBackdropEffects(c,obj);
@@ -3442,7 +3476,10 @@ function drawOneUncached(c,W,H,obj){
   const backdropMaterial=!!(material&&FS.isBackdrop(material.type));
   /* Every pixel effect uses the geometry-masked post-material path for a
    * backdrop material. None may render the material against an empty crop. */
-  const pix=(FS&&obj.fx)?(backdropMaterial?[]:FS.inSlot(obj.fx,'pixel')):[];
+  let pix=(FS&&obj.fx)?(backdropMaterial?[]:FS.inSlot(obj.fx,'pixel')):[];
+  // the page camera is the LAST pass: a lens sees the finished layer
+  const lens=backdropMaterial?null:cameraLens(obj);
+  if(lens) pix=pix.concat([lens]);
   if(pix.length&&window.Filters&&!obj.__inPixelPass){
     /* Behind effects are layer styles, not source pixels. Previously the
      * offscreen source included Drop Shadow and Outer Glow, so Bloom blurred
@@ -6044,6 +6081,10 @@ function syncInspector(){
     setNumField('trSkY',sharedValue(S,o=>Math.round(o.skewY||0)));
   }
   $('trScale').value='';
+  // Depth only means something while the page has a camera
+  const camOn=!!(doc.frame.camera&&doc.frame.camera.on);
+  $('depthRow').style.display=camOn?'':'none';
+  if(camOn){ const dv=sharedValue(S,o=>o.depth===undefined?0.5:o.depth); $('pDepth').value=dv===MIXED?0.5:dv; }
   // A <select> has no placeholder; a blank "Mixed" option is added on demand
   // and removed again once the selection agrees, so it can never be chosen.
   const blend=sharedValue(S,o=>o.blend||'normal');
@@ -6956,6 +6997,30 @@ function wireSectionCollapse(container){
     wireCollapser(el,members,(el.textContent||'').trim());
   });
 }
+/* The page CAMERA panel: one lens for the whole page. Rebuilt on every sync;
+ * drags render a draft and settle on release, like every other slider. */
+function syncCameraPanel(){
+  const box=$('pgCamera'); if(!box||!doc) return;
+  const cam=doc.frame.camera;
+  box.innerHTML='';
+  const add=html=>box.insertAdjacentHTML('beforeend',html);
+  add(`<label class="slider uiSwitchRow"><span>Camera</span><input type="checkbox" id="camOn" ${cam.on?'checked':''} aria-label="Camera"></label>`);
+  $('camOn').addEventListener('change',e=>{ cam.on=e.target.checked; pushHistory(cam.on?'Camera on':'Camera off'); refresh(); });
+  if(!cam.on) return;
+  const range=(id,label,min,max,step,key,fmt)=>{
+    add(`<label class="slider">${label} <span id="${id}V">${fmt(cam[key])}</span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${cam[key]}"></label>`);
+    $(id).addEventListener('input',e=>{ cam[key]=+e.target.value; $(id+'V').textContent=fmt(cam[key]); requestFxDraftRender(); });
+    $(id).addEventListener('change',()=>{ finishFxDraftRender(); pushHistory(label); });
+  };
+  range('camFocus','Focus distance',0,1,0.01,'focus',v=>v<0.15?'Near':v>0.85?'Far':(+v).toFixed(2));
+  add(`<label class="slider uiRow"><span>Aperture</span><select id="camF">${[1.4,2,2.8,4,5.6,8,11,16].map(n=>`<option value="${n}"${cam.fstop===n?' selected':''}>f/${n}</option>`).join('')}</select></label>`);
+  $('camF').addEventListener('change',e=>{ cam.fstop=+e.target.value; pushHistory('Aperture'); render(); });
+  add(`<label class="slider uiRow"><span>Blades</span><select id="camBlades">${[[0,'Round'],[5,'5'],[6,'6'],[7,'7'],[8,'8'],[9,'9']].map(([v,t])=>`<option value="${v}"${cam.blades===v?' selected':''}>${t}</option>`).join('')}</select></label>`);
+  $('camBlades').addEventListener('change',e=>{ cam.blades=+e.target.value; pushHistory('Blades'); refresh(); });
+  if(cam.blades) range('camRot','Blade rotation',0,180,1,'bladeRotation',v=>Math.round(v)+'°');
+  range('camHi','Highlight bloom',0,1,0.01,'highlight',v=>(+v).toFixed(2));
+  add('<div class="fxHint">Give each layer a <b>Depth</b> in its Position panel (0 near, 1 far). The layer at the focus distance is sharp; a wider aperture (smaller f-number) blurs everything else more, and things in front of the focus soften fastest — like a real lens. <b>Focus</b> beside Depth pulls focus to that layer.</div>');
+}
 function syncPagePanel(){
   if(!doc) return;
   const f=doc.frame;
@@ -6976,6 +7041,8 @@ function syncPagePanel(){
     const b=document.createElement('span'); b.className='v'; b.textContent=v;
     r.appendChild(a); r.appendChild(b); sb.appendChild(r);
   });
+
+  syncCameraPanel();
 
   const sl=$('pgStyles'); sl.innerHTML='';
   const styles=f.styles||[];
@@ -10462,6 +10529,20 @@ function alignSel(mode){
 }
 document.querySelectorAll('#alignRow button').forEach(btn=>{
   btn.addEventListener('click',()=>alignSel(btn.dataset.align));
+});
+
+/* ---- Depth: where a layer sits in front of the page camera ---- */
+$('pDepth').addEventListener('input',e=>{
+  selObjs().filter(o=>!o.locked).forEach(o=>{ o.depth=clamp(+e.target.value,0,1); });
+  requestFxDraftRender();
+});
+$('pDepth').addEventListener('change',()=>{ finishFxDraftRender(); pushHistory('Depth'); });
+// pull focus to this layer, the way you tap a subject on a phone camera
+$('pFocusHere').addEventListener('click',e=>{
+  e.preventDefault();
+  const o=primary(); if(!o||!doc.frame.camera) return;
+  doc.frame.camera.focus=o.depth===undefined?0.5:o.depth;
+  pushHistory('Focus on '+(o.name||'layer')); refresh();
 });
 
 /* ---- Transform section (§2.2–2.5 numeric) ---- */
