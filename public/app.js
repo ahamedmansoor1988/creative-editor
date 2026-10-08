@@ -243,12 +243,6 @@ const DEFAULT_EFFECTS=()=>({
     haloSize:0.42,haloThickness:0.012,rainbow:0.8,haloSquash:0.38,haloTilt:-12,
     speedStreaks:0.25,streakLength:0.6,embers:0.35,emberSize:1,lightLeak:0.6,bokeh:0.4,dust:0.25,
     focus:0.65,aperture:0.8,chromatic:0,glow:0,glowColor:'#1f4f8f',bgMode:'solid',bg2:'#0b1a33',bgAngle:90,warmth:0.4,exposure:1.2,seed:1,emberColor:'#ff8c26',bg:'#03050d',transparent:false},
-  /* Anemone tunnel — a 3D tunnel of jelly fingers (public/anemone.js). The
-   * Figma shader's numbers. */
-  anemone:{on:false,depth:2.6,fingers:16,spacing:0.24,length:0.5,thickness:0.075,curl:0.25,lean:0.15,twist:0.45,
-    variation:0.7,wobble:0.35,phase:0,light:1,translucency:0.9,rim:0.6,gapShadow:0.7,glow:1,
-    haze:0.35,focus:2.2,aperture:0.9,fov:0.95,bubbles:0.5,exposure:1.1,
-    nearColor:'#0b5c45',deepColor:'#dcef8a',waterColor:'#3a8a98'},
   glassFrame:{on:false,squareness:1,holeOn:true,tiltX:65,tiltY:-45,spin:-15,depth:0.5,hole:0.72,
     ior:1.5,dispersion:0.28,iridescence:0.85,film:2.5,hue:0.1,
     bubbles:0.6,exposure:1.3,bg:'#000000',transparent:false},
@@ -1333,21 +1327,8 @@ function normChildren(list,depth){
         if(!['solid','linear','radial'].includes(lbs.bgMode)) lbs.bgMode='solid';
         lbs.transparent=!!lbs.transparent;
       }
-      /* Anemone tunnel: every number held to its slider, colours repaired. */
-      const anm=Object.assign(de.anemone, ce.anemone||{});
-      anm.on=!!anm.on && ['rect','ellipse','polygon','path'].includes(c.type);
-      {
-        const da=DEFAULT_EFFECTS().anemone;
-        const an=(k,lo,hi)=>{ const v=+anm[k]; anm[k]=Number.isFinite(v)?clamp(v,lo,hi):da[k]; };
-        an('depth',1,8); an('fingers',8,36); an('spacing',0.08,0.45); an('length',0.2,0.95); an('thickness',0.03,0.18);
-        an('curl',-1,1); an('lean',-0.5,1); an('twist',-1.5,1.5); an('variation',0,1); an('wobble',0,1); an('phase',0,6.28);
-        an('light',0,2); an('translucency',0,2); an('rim',0,2); an('gapShadow',0,1.5); an('glow',0,2); an('haze',0,1.5);
-        an('focus',0.3,7); an('aperture',0,1.5); an('fov',0.5,2); an('bubbles',0,1); an('exposure',0.3,2.5);
-        anm.fingers=Math.round(anm.fingers);
-        ['nearColor','deepColor','waterColor'].forEach(k=>{ if(!/^#[0-9a-fA-F]{6}$/.test(anm[k]||'')) anm[k]=da[k]; });
-      }
       const EFF=c.effects={shadow:sh, innerShadow:ish, glow:glw, grain:gr, mesh:msh, iridescent:iri, gradient:grd,
-        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, lightBurst:lbs, anemone:anm, flare:flr, glass3d:g3,
+        glass:gla, blob:blo, glass2:gl2, light:li, liquid:lq, glassFrame:gfr, lightBurst:lbs, flare:flr, glass3d:g3,
         prism:pr, capsule:cap, reed:rd, fractal:fr, divider:dv, beam:bm,
         blur, bloom, backgroundBlur, colorAdjust, colorMap, channelFx, stylize, distortion:dis, warp:wrp, displacement:dsp, haze:hz, slice:slc, noise:nz, dotMatrix:dm};
       /* §5.15: build the ORDERED stack. An existing document has only the
@@ -3847,24 +3828,6 @@ function drawOneInner(c,W,H,obj){
       paintWithInstances(obj,draw);
       return;
     }
-    const anx=fx.anemone;
-    if(anx&&fxOn(obj,'anemone')&&obj.type!=='text'&&window.AnemoneEngine&&window.AnemoneEngine.available()){
-      const draw=o=>{
-        const m=c.getTransform?c.getTransform():null;
-        const sc=m?Math.max(1,Math.hypot(m.a,m.b)):1;
-        const img=window.AnemoneEngine.render(o.w*sc,o.h*sc,fxDraft?Object.assign({},anx,{draft:true}):anx);
-        if(!img) return;
-        c.save();
-        applyObjectTransform(c,o);
-        c.globalAlpha=obj.opacity;
-        if(obj.blend&&obj.blend!=='normal') c.globalCompositeOperation=blendOp(obj.blend);
-        c.beginPath(); pathFor(c,o); c.clip();
-        c.drawImage(img,o.x,o.y,o.w,o.h);
-        c.restore();
-      };
-      paintWithInstances(obj,draw);
-      return;
-    }
     const lbx=fx.lightBurst;
     if(lbx&&fxOn(obj,'lightBurst')&&obj.type!=='text'&&window.LightBurstEngine&&window.LightBurstEngine.available()){
       const draw=o=>{
@@ -4894,7 +4857,7 @@ function renderDoc(){
  * the wrong place and samples the wrong pixels, which shows up as smeared or
  * displaced content near the silhouette. */
 const RASTER_PREVIEW_FX=new Set([
-  'light','liquid','glassFrame','lightBurst','anemone','flare','prism','capsule','blob','glass','glass2',
+  'light','liquid','glassFrame','lightBurst','flare','prism','capsule','blob','glass','glass2',
   'blur','bloom','distortion','warp','displacement','haze','slice','noise',
 ]);
 function rasterPreviewNeeded(){
@@ -5870,7 +5833,7 @@ try{
     .forEach(k=>{ if(k in SHOW_CONTROL) SHOW_CONTROL[k.trim()]=true; });
 }catch(_){}
 const PAGE_TYPE={
-  'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Glass frame':'glassFrame','Light burst':'lightBurst','Anemone tunnel':'anemone','Flare':'flare',
+  'Mesh':'mesh','Iridescence':'iridescent','Gradient':'gradient','Light':'light','Liquid':'liquid','Glass frame':'glassFrame','Light burst':'lightBurst','Flare':'flare',
   'Glass 3D':'glass3d','Reed glass':'reed','Fractal glass':'fractal','Shape divider':'divider','Light beam':'beam','Prism':'prism','Capsule':'capsule',
   'Blob':'blob','Glass':'glass','Glass 2':'glass2',
   'Shadow':'shadow','Inner Shadow':'innerShadow','Glow':'glow','Grain':'grain',
@@ -5948,11 +5911,11 @@ const FX_PAGES_RAW=obj=>{
   if(obj.type==='image') return ['Image','Symmetry','Echo','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   if(obj.type==='text') return ['Text','Effects','Shadow','Glow','Bloom','Color Adjustments','Color Mapping','Channel Effects','Stylize','Blur','Distortion','Warp','Displacement'];
   if(obj.type==='line') return ['Line','Stroke','Shadow','Glow'];
-  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Anemone tunnel','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  if(obj.type==='path') return ['Path','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
   // polygons clip fine through pathFor, but the glass-family engines fit a
   // 3D solid to the box and would render a misleading rect footprint
-  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Anemone tunnel','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
-  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Anemone tunnel','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  if(obj.type==='polygon') return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
+  return ['Shape','Pattern','Symmetry','Echo','Fill','Stroke','Effects','Mesh','Iridescence','Reed glass','Fractal glass','Shape divider','Light beam','Gradient','Light','Liquid','Glass frame','Light burst','Flare','Glass 3D','Prism','Capsule','Blob','Glass','Glass 2','Shadow','Inner Shadow','Glow','Bloom','Background Blur','Color Adjustments','Color Mapping','Channel Effects','Stylize','Grain','Blur','Distortion','Warp','Displacement','Haze','Slice','Noise','Dot matrix'];
 };
 
 /* A multi-selection whose objects disagree on a field must not be shown one
@@ -7276,7 +7239,6 @@ function fxActive(obj,name){
     case 'Light beam': return !!(e.beam&&e.beam.on);
     case 'Glass frame': return !!(e.glassFrame&&e.glassFrame.on);
     case 'Light burst': return !!(e.lightBurst&&e.lightBurst.on);
-    case 'Anemone tunnel': return !!(e.anemone&&e.anemone.on);
     case 'Gradient': return !!(e.gradient&&e.gradient.on);
     case 'Light':    return !!(e.light&&e.light.on);
     case 'Prism':    return !!(e.prism&&e.prism.on);
@@ -9389,56 +9351,6 @@ function buildFxSection(obj,page,add,body){
         }
       });
       add('<div class="hint" style="text-align:left">Warps chain top to bottom — each is evaluated at the position the one above produced, so Curl over Liquid curls an already-flowing field.</div>');
-    }
-  }
-
-  if(page==='Anemone tunnel'){
-    const A=obj.effects.anemone;
-    add(`<label class="slider"><input type="checkbox" id="anOn" ${A.on?'checked':''}> Enable anemone tunnel</label>`);
-    $('anOn').addEventListener('change',e=>{ A.on=e.target.checked; pushHistory(); refresh(); });
-    if(A.on){
-      const row=(id,key,label,min,max,step,dp)=>{
-        add(`<label class="slider">${label} <span id="${id}V">${(+A[key]).toFixed(dp)}</span>
-          <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${A[key]}"></label>`);
-        // a full render is a fraction of a second: drag draws a draft, release renders properly
-        $(id).addEventListener('input',e=>{ A[key]=+e.target.value; $(id+'V').textContent=(+e.target.value).toFixed(dp); requestFxDraftRender(); });
-        $(id).addEventListener('change',()=>{ finishFxDraftRender(); pushHistory(); });
-      };
-      const colour=(id,label,key)=>{
-        add(`<label class="slider">${label} <input type="color" id="${id}" value="${A[key]}"></label>`);
-        $(id).addEventListener('input',e=>{ A[key]=e.target.value; render(); });
-        $(id).addEventListener('change',()=>pushHistory());
-      };
-      add('<div class="secTitle">Tunnel</div>');
-      row('anDepth','depth','Tunnel depth',1,8,0.1,1);
-      row('anFing','fingers','Fingers per ring',8,36,1,0);
-      row('anSp','spacing','Ring spacing',0.08,0.45,0.01,2);
-      row('anWob','wobble','Opening wobble',0,1,0.01,2);
-      row('anTw','twist','Twist',-1.5,1.5,0.01,2);
-      add('<div class="secTitle" style="margin-top:8px">Fingers</div>');
-      row('anLen','length','Length',0.2,0.95,0.01,2);
-      row('anTh','thickness','Thickness',0.03,0.18,0.005,3);
-      row('anCurl','curl','Curl',-1,1,0.01,2);
-      row('anLean','lean','Lean to camera',-0.5,1,0.01,2);
-      row('anVar','variation','Variation',0,1,0.01,2);
-      row('anPh','phase','Sway phase',0,6.28,0.01,2);
-      add('<div class="secTitle" style="margin-top:8px">Light</div>');
-      row('anLight','light','Light',0,2,0.01,2);
-      row('anTrans','translucency','Translucency',0,2,0.01,2);
-      row('anRim','rim','Rim light',0,2,0.01,2);
-      row('anAo','gapShadow','Gap shadow',0,1.5,0.01,2);
-      row('anGlow','glow','Glow from opening',0,2,0.01,2);
-      row('anExp','exposure','Exposure',0.3,2.5,0.01,2);
-      add('<div class="secTitle" style="margin-top:8px">Water</div>');
-      row('anHaze','haze','Haze',0,1.5,0.01,2);
-      row('anBub','bubbles','Bubbles',0,1,0.01,2);
-      colour('anNear','Near colour','nearColor');
-      colour('anDeep','Deep colour','deepColor');
-      colour('anWater','Water colour','waterColor');
-      add('<div class="secTitle" style="margin-top:8px">Camera</div>');
-      row('anFocus','focus','Focus distance',0.3,7,0.01,2);
-      row('anAp','aperture','Aperture',0,1.5,0.01,2);
-      row('anFov','fov','Field of view',0.5,2,0.01,2);
     }
   }
 

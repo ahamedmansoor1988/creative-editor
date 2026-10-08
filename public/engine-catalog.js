@@ -216,22 +216,6 @@
       tagline: "warp-speed light",
       description: "A burst of light from one point: core, rays, rainbow halo, speed streaks, embers and bokeh.",
     },
-    /* Ported from the Figma shader "Anemone Tunnel": a ray-marched tunnel of
-     * jelly fingers with its own light, water and lens. */
-    {
-      id: "anemone",
-      label: "Anemone tunnel",
-      category: "shader",
-      status: READY,
-      kind: "effect",
-      rendererType: "anemone",
-      icon: "waves",
-      page: "Anemone tunnel",
-      opening: { on: true },
-      supportedInputs: ["rect", "ellipse", "polygon", "path"],
-      tagline: "3D jelly tunnel",
-      description: "A 3D tunnel of soft jelly fingers round an opening, with light, translucency, haze and depth of field.",
-    },
     {
       id: "innerLens",
       label: "Inner lens",
